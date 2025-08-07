@@ -18,7 +18,7 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from ee.hogai.django_checkpoint.serializer import CheckpointSerializer
+from ee.hogai.django_checkpoint.serializer import CheckpointSerializer, CheckpointContext
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
@@ -30,9 +30,17 @@ logger = logging.getLogger(__name__)
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, context: CheckpointContext, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.serde = CheckpointSerializer()
+        self._context = context
+
+    def _get_context(self, checkpoint: ConversationCheckpoint) -> CheckpointContext:
+        return CheckpointContext(
+            graph_type=self._context.graph_type,
+            graph_context=self._context.graph_context,
+            thread_id=checkpoint.thread_id,
+            thread_type=checkpoint.thread.type,
+        )
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
@@ -87,7 +95,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         return (
             ConversationCheckpoint.objects.filter(query)
             .order_by("-id")
-            .select_related("parent_checkpoint")
+            .select_related("parent_checkpoint", "thread")
             .prefetch_related(
                 Prefetch("writes", queryset=ConversationCheckpointWrite.objects.order_by("idx", "task_id")),
                 Prefetch(
@@ -139,10 +147,11 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         async for checkpoint in qs:
             channel_values = self._get_checkpoint_channel_values(checkpoint)
             loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
+            serde = CheckpointSerializer(context=self._get_context(checkpoint))
 
             pending_sends = (
                 [
-                    self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob))
+                    serde.loads_typed((checkpoint_write.type, checkpoint_write.blob))
                     # Prefetched in `_get_checkpoint_qs`
                     async for checkpoint_write in checkpoint.parent_checkpoint.writes.all()
                 ]
@@ -152,7 +161,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
             channel_values = (
                 {
-                    checkpoint_blob.channel: self.serde.loads_typed((checkpoint_blob.type, checkpoint_blob.blob))
+                    checkpoint_blob.channel: serde.loads_typed((checkpoint_blob.type, checkpoint_blob.blob))
                     async for checkpoint_blob in channel_values
                     if checkpoint_blob.type is not None
                     and checkpoint_blob.type != "empty"
@@ -267,11 +276,12 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     "metadata": self._dump_json(metadata),
                 },
             )
+            serde = CheckpointSerializer(context=self._get_context(updated_checkpoint))
 
             blobs = []
             for channel, version in new_versions.items():
                 type, blob = (
-                    self.serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
+                    serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
                 )
                 blobs.append(
                     ConversationCheckpointBlob(
@@ -325,10 +335,11 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
                 id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
             )
+            serde = CheckpointSerializer(context=self._get_context(checkpoint))
 
             writes_to_create = []
             for idx, (channel, value) in enumerate(writes):
-                type, blob = self.serde.dumps_typed(value)
+                type, blob = serde.dumps_typed(value)
                 writes_to_create.append(
                     ConversationCheckpointWrite(
                         checkpoint=checkpoint,

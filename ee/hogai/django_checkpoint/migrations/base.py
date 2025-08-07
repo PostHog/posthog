@@ -8,6 +8,8 @@ This makes them simple, synchronous, and testable.
 from abc import ABC, abstractmethod
 from typing import Any
 
+from ee.hogai.django_checkpoint.serializer import CheckpointContext
+
 
 class BaseMigration(ABC):
     """
@@ -18,7 +20,9 @@ class BaseMigration(ABC):
     """
 
     @abstractmethod
-    def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, Any], str]:
+    def migrate_data(
+        self, data: dict[str, Any], type_hint: str, context: CheckpointContext
+    ) -> tuple[dict[str, Any], str]:
         """
         Apply the migration to a data dictionary.
 

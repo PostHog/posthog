@@ -97,6 +97,21 @@ def merge_retry_counts(left: int, right: int) -> int:
     return max(left, right)
 
 
+class GraphType(StrEnum):
+    """Current graph types supported by the system."""
+
+    ASSISTANT = "assistant"
+    INSIGHTS = "insights"
+    FILTER_OPTIONS = "filter_options"
+
+
+class GraphContext(StrEnum):
+    """Graph execution contexts."""
+
+    ROOT = "root"  # Independent graph execution
+    SUBGRAPH = "subgraph"  # Subgraph within another graph
+
+
 IntermediateStep = tuple[AgentAction, Optional[str]]
 
 StateType = TypeVar("StateType", bound=BaseModel)

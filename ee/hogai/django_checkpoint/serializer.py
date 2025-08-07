@@ -1,13 +1,25 @@
 import logging
 import json
+from django.conf import settings
 from typing import Any, Optional
 from langgraph.checkpoint.serde.base import SerializerProtocol
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from pydantic import BaseModel, Field
+
+from ee.hogai.utils.types import GraphContext, GraphType
+from ee.models.assistant import Conversation
 
 from .migrations.migration_registry import migration_registry
 from .class_registry import class_registry
 
 logger = logging.getLogger(__name__)
+
+
+class CheckpointContext(BaseModel):
+    graph_type: GraphType
+    graph_context: GraphContext
+    thread_id: Optional[str] = Field(default=None)
+    thread_type: Optional[Conversation.Type] = Field(default=None)
 
 
 class CheckpointSerializer(SerializerProtocol):
@@ -22,13 +34,19 @@ class CheckpointSerializer(SerializerProtocol):
     """
 
     DATA_TYPE = "json"
+    _context: Optional[CheckpointContext] = None
 
-    def __init__(self):
+    def __init__(self, context: Optional[CheckpointContext] = None):
         # For reading legacy msgpack data
         self.legacy = JsonPlusSerializer()
 
         self.migration_registry = migration_registry
         self.class_registry = class_registry
+
+        if not settings.TEST and not context:
+            raise ValueError("Context is required")
+
+        self._context = context
 
     def dumps(self, obj: Any) -> bytes:
         return self.dumps_typed(obj)[1]
@@ -176,7 +194,7 @@ class CheckpointSerializer(SerializerProtocol):
             try:
                 # Instantiate and apply migration
                 migration = migration_class()
-                result, current_type = migration.migrate_data(result, current_type)
+                result, current_type = migration.migrate_data(result, current_type, self._context)
 
             except Exception as e:
                 logger.warning(f"Migration {migration_class.__name__} failed: {e}")

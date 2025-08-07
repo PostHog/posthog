@@ -5,10 +5,11 @@ from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.django_checkpoint.serializer import CheckpointContext
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, GraphContext, GraphType
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -39,19 +40,22 @@ from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 from .base import StateType
 from .insights.nodes import InsightSearchNode
 
-global_checkpointer = DjangoCheckpointer()
-
 
 class BaseAssistantGraph(Generic[StateType]):
     _team: Team
     _user: User
     _graph: StateGraph
+    _context: CheckpointContext
 
-    def __init__(self, team: Team, user: User, state_type: type[StateType]):
+    def __init__(
+        self, team: Team, user: User, state_type: type[StateType], graph_type: GraphType, context: GraphContext
+    ):
         self._team = team
         self._user = user
         self._graph = StateGraph(state_type)
         self._has_start_node = False
+        self._graph_type = graph_type
+        self._checkpoint_context = CheckpointContext(graph_type=graph_type, graph_context=context)
 
     def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
         if from_node == AssistantNodeName.START:
@@ -66,12 +70,16 @@ class BaseAssistantGraph(Generic[StateType]):
     def compile(self, checkpointer: DjangoCheckpointer | None = None):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
+
+        if not checkpointer:
+            checkpointer = DjangoCheckpointer(context=self._context)
+
+        return self._graph.compile(checkpointer=checkpointer)
 
 
 class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+    def __init__(self, team: Team, user: User, context: GraphContext = GraphContext.ROOT):
+        super().__init__(team, user, AssistantState, GraphType.INSIGHTS, context)
 
     def add_rag_context(self):
         builder = self._graph
@@ -219,8 +227,8 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
 
 
 class AssistantGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+    def __init__(self, team: Team, user: User, context: GraphContext = GraphContext.ROOT):
+        super().__init__(team, user, AssistantState, GraphType.ASSISTANT, context)
 
     def add_root(
         self,
@@ -247,7 +255,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
 
     def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         builder = self._graph
-        insights_assistant_graph = InsightsAssistantGraph(self._team, self._user)
+        insights_assistant_graph = InsightsAssistantGraph(self._team, self._user, context=GraphContext.SUBGRAPH)
         compiled_graph = insights_assistant_graph.compile_full_graph()
         builder.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
         builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)

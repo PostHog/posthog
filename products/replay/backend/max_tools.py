@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
+from ee.hogai.utils.types import GraphContext
 from posthog.schema import MaxRecordingUniversalFilters
 
 # Import the prompts you want to pass to the graph
@@ -45,7 +46,7 @@ class SearchSessionRecordingsTool(MaxTool):
         }
 
         graph = FilterOptionsGraph(
-            team=self._team, user=self._user, injected_prompts=injected_prompts
+            team=self._team, user=self._user, injected_prompts=injected_prompts, context=GraphContext.SUBGRAPH
         ).compile_full_graph()
 
         graph_input = {
