@@ -1175,8 +1175,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s._dashboardLoading, s.error404, s.dashboardFailedToLoad, s.canEditDashboard],
-            (dashboard, dashboardLoading, error404, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, s.canEditDashboard],
+            (dashboard, error404, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
                 {
                     key: Scene.Dashboards,
                     name: 'Dashboards',
