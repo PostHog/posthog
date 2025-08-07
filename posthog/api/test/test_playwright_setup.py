@@ -50,7 +50,6 @@ class TestPlaywrightSetup(APIBaseTest):
 
         # Verify the actual data matches what we requested
         self.assertEqual(result["organization_name"], "Test Org API")
-        self.assertEqual(result["user_email"], "test@posthog.com")
 
         # Verify database objects were created
         org = Organization.objects.get(id=result["organization_id"])
@@ -61,7 +60,6 @@ class TestPlaywrightSetup(APIBaseTest):
         self.assertEqual(team.organization, org)
 
         user = User.objects.get(id=result["user_id"])
-        self.assertEqual(user.email, "test@posthog.com")
 
         # Verify API key was created and is valid
         api_key = PersonalAPIKey.objects.get(user=user)
@@ -103,4 +101,4 @@ class TestPlaywrightSetup(APIBaseTest):
         result = data["result"]
 
         # Should use default values
-        self.assertEqual(result["organization_name"], "Test Organization")
+        self.assertEqual(result["organization_name"], "Hedgebox Inc.")

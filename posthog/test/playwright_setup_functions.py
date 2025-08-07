@@ -19,7 +19,7 @@ class PlaywrightSetupFunction(Protocol):
 
 def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> PlaywrightWorkspaceSetupResult:
     """Creates PostHog workspace with organization, team, user, API key, and demo data."""
-    org_name = data.organization_name or "Test Organization"
+    org_name = data.organization_name or "Hedgebox Inc."
 
     # Generate unique email to avoid collisions between parallel tests
     unique_suffix = secrets.token_hex(8)  # 16 character hex string
@@ -54,7 +54,7 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     team = user.team
 
     # Update organization name if custom name was provided
-    if org_name != "Test Organization":
+    if org_name != "Hedgebox Inc.":
         organization.name = org_name
         organization.save()
 
