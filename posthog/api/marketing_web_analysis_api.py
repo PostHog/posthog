@@ -24,30 +24,20 @@ class MarketingWebAnalysisViewSet(viewsets.ViewSet):
 
         yield from executor.execute_with_streaming(data)
 
-    @action(detail=False, methods=["POST"])
-    def analyze_website(self, request: Request) -> StreamingHttpResponse:
-        """Analyze website with streaming response."""
-        data = request.data
-
-        return StreamingHttpResponse(
-            self._stream_response(data),
-            content_type="text/event-stream",
-        )
-
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["GET"])
     def competitor_analysis(self, request: Request) -> StreamingHttpResponse:
         """Analyze competitors with streaming response."""
-        data = request.data
+        data = request.query_params
 
         return StreamingHttpResponse(
             self._stream_response(data),
             content_type="text/event-stream",
         )
 
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["GET"])
     def generate_recommendations(self, request: Request) -> StreamingHttpResponse:
         """Generate recommendations with streaming response."""
-        data = request.data
+        data = request.query_params
 
         return StreamingHttpResponse(
             self._stream_response(data),

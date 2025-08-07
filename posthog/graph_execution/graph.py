@@ -371,7 +371,16 @@ class GraphExecutionEngine:
             "website_url": initial_data.get("website_url"),
             "nodes_executed": completed_count,
             "total_execution_time": sum(n.execution_time for n in self.nodes.values()),
-            "final_results": dict(self.nodes.items()),
+            "final_results": {
+                node_id: {
+                    "node_id": node.node_id,
+                    "name": node.name,
+                    "status": node.status.value,
+                    "execution_time": node.execution_time,
+                    "result": node.result,
+                }
+                for node_id, node in self.nodes.items()
+            },
         }
 
         yield f"event: graph-completed\ndata: {json.dumps(final_output)}\n\n"
