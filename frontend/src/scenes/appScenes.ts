@@ -62,7 +62,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.Person]: () => import('./persons/PersonScene'),
-    [Scene.PersonsManagement]: () => import('./persons-management/PersonsManagementScene'),
+    [Scene.Persons]: () => import('./persons/PersonsScene'),
     [Scene.PipelineNodeNew]: () => import('./pipeline/PipelineNodeNew'),
     [Scene.PipelineNode]: () => import('./pipeline/PipelineNode'),
     [Scene.Pipeline]: () => import('./pipeline/Pipeline'),

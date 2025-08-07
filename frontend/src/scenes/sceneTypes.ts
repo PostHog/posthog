@@ -77,7 +77,7 @@ export enum Scene {
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
     Person = 'Person',
-    PersonsManagement = 'PersonsManagement',
+    Persons = 'Persons',
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',
     PipelineNodeNew = 'PipelineNodeNew',
