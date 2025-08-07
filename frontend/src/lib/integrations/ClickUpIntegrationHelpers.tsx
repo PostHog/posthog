@@ -75,10 +75,10 @@ export function ClickUpSpacePicker({
     const clickUpSpaceOptions = useMemo(() => getClickUpSpaceOptions(clickUpSpaces), [clickUpSpaces])
 
     useEffect(() => {
-        if (requiresFieldValue) {
+        if (!disabled && requiresFieldValue) {
             loadClickUpSpaces(requiresFieldValue.split('/')[0])
         }
-    }, [loadClickUpSpaces, requiresFieldValue])
+    }, [loadClickUpSpaces, requiresFieldValue, disabled])
 
     return (
         <>
