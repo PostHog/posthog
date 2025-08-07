@@ -2,7 +2,7 @@ import asyncio
 import os
 from collections.abc import Generator
 from io import BytesIO
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypedDict, TypeVar
 
 import aioboto3
 import aioboto3.s3
@@ -16,11 +16,12 @@ from pydantic_avro import AvroBase
 from ee.hogai.eval.schema import (
     DataWarehouseTableSchema,
     EvalsDockerImageConfig,
+    ProjectSnapshot,
     PropertyDefinitionSchema,
-    Snapshot,
     TeamSchema,
 )
 from posthog.models import Organization, Project, PropertyDefinition, Team, User
+from posthog.schema import TeamTaxonomyItem
 from posthog.warehouse.models.table import DataWarehouseTable
 
 if TYPE_CHECKING:
@@ -28,6 +29,10 @@ if TYPE_CHECKING:
 
 
 T = TypeVar("T", bound=AvroBase)
+
+
+class ClickhouseQuerySnapshot(TypedDict):
+    events: list[TeamTaxonomyItem]
 
 
 class SnapshotLoader:
@@ -39,6 +44,7 @@ class SnapshotLoader:
         self.organization = await Organization.objects.acreate(name="PostHog")
         self.user = await sync_to_async(User.objects.create_and_join)(self.organization, "test@posthog.com", "12345678")
 
+        # clickhouse_query_snapshots: dict[int, dict[str,]] = {}
         for snapshot in self.config.project_snapshots:
             self.context.log.info(f"Loading Postgres snapshot for team {snapshot.project}...")
 
@@ -62,7 +68,7 @@ class SnapshotLoader:
         return self.organization, self.user
 
     @backoff.on_exception(backoff.expo, Exception, max_tries=3)
-    async def _get_all_snapshots(self, snapshot: Snapshot):
+    async def _get_all_snapshots(self, snapshot: ProjectSnapshot):
         async with aioboto3.Session().client(
             "s3",
             endpoint_url=self.config.endpoint_url,
@@ -84,7 +90,6 @@ class SnapshotLoader:
         return BytesIO(content)
 
     def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T, None, None]:
-        buffer.seek(0)
         for record in reader(buffer):
             yield schema.model_validate(record)
 
