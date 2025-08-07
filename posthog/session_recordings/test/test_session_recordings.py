@@ -2194,7 +2194,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team=self.team,
             content="heart eyes 💖",
             scope="recording",
-            item_id=str(uuid7()),
+            item_id=session_with_emoji,
             created_by=self.user,
         )
 
