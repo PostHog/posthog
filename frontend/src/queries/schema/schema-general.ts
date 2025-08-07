@@ -2508,6 +2508,9 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
     denominator: EventsNode
 }
 
+export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
+    metric.metric_type === ExperimentMetricType.RATIO
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
