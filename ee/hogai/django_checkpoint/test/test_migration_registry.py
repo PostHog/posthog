@@ -330,7 +330,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0001_test",
-                "migrate_data": lambda self, data, type_hint: ({**data, "field1": "value1"}, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: ({**data, "field1": "value1"}, type_hint),
             },
         )
         migration2 = type(
@@ -338,7 +338,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0002_test",
-                "migrate_data": lambda self, data, type_hint: ({**data, "field2": "value2"}, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: ({**data, "field2": "value2"}, type_hint),
             },
         )
 
