@@ -2,9 +2,9 @@
 Simple graph execution for marketing analysis.
 """
 
-from .core import GraphExecutor, StepContext
+from .core import MarketingGraphExecutor, StepContext
 
 __all__ = [
-    "GraphExecutor",
+    "MarketingGraphExecutor",
     "StepContext",
 ]

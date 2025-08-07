@@ -10,7 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.permissions import AllowAny
 
-from posthog.graph_execution.core import GraphExecutor
+from posthog.marketing_graph_execution.core import MarketingGraphExecutor
 
 
 class MarketingWebAnalysisViewSet(viewsets.ViewSet):
@@ -20,7 +20,7 @@ class MarketingWebAnalysisViewSet(viewsets.ViewSet):
 
     def _stream_response(self, data: dict) -> Generator[str, None, None]:
         """Generate streaming response."""
-        executor = GraphExecutor()
+        executor = MarketingGraphExecutor()
 
         # Convert QueryDict to regular dict with single values
         processed_data = {}
@@ -32,18 +32,8 @@ class MarketingWebAnalysisViewSet(viewsets.ViewSet):
         yield from executor.execute_with_streaming(processed_data)
 
     @action(detail=False, methods=["GET"])
-    def competitor_analysis(self, request: Request) -> StreamingHttpResponse:
-        """Analyze competitors with streaming response."""
-        data = request.query_params
-
-        return StreamingHttpResponse(
-            self._stream_response(data),
-            content_type="text/event-stream",
-        )
-
-    @action(detail=False, methods=["GET"])
-    def generate_recommendations(self, request: Request) -> StreamingHttpResponse:
-        """Generate recommendations with streaming response."""
+    def website_analysis(self, request: Request) -> StreamingHttpResponse:
+        """Analyze website with streaming response."""
         data = request.query_params
 
         return StreamingHttpResponse(

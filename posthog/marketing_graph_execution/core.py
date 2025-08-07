@@ -16,26 +16,11 @@ class StepContext(TypedDict, total=False):
     final_output: dict[str, Any]
 
 
-class GraphExecutor:
+class MarketingGraphExecutor:
     """Simple graph executor - kept for backward compatibility."""
 
     def __init__(self):
         self.execution_id = str(uuid.uuid4())
-
-    def execute(self, initial_data: dict[str, Any]) -> dict[str, Any]:
-        """Execute the graph and return results."""
-        from .graph import create_marketing_analysis_graph
-
-        graph = create_marketing_analysis_graph()
-
-        # Execute synchronously by consuming the streaming generator
-        events = list(graph.execute_with_streaming(initial_data))
-
-        return {
-            "execution_id": self.execution_id,
-            "final_output": {"analysis_complete": True},
-            "events_generated": len(events),
-        }
 
     def execute_with_streaming(self, initial_data: dict[str, Any]):
         """Execute with streaming events using the proper graph system."""
