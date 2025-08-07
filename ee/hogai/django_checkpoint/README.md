@@ -2,7 +2,7 @@
 
 ## Overview
 
-This folder contains a implementation for a LangGraph Checkpointer that integrates with Django models, allowing state models to change over time while maintaining backward compatibility with existing checkpoints stored in the database.
+This folder contains an implementation for a LangGraph Checkpointer that integrates with Django models, allowing state models to change over time while maintaining backward compatibility with existing checkpoints stored in the database.
 
 ## The Problem We're Solving
 
@@ -89,7 +89,7 @@ Changes from original:
 - Uses `CheckpointSerializer` instead of `JsonPlusSerializer`
 - Maintains same public API for LangGraph compatibility
 - Handles channel values and pending writes with new serializer
-- Requires additional context `ContextSerializer` to be passed to the migrations
+- Requires additional context `CheckpointContext` to be passed to the migrations
 
 ## Data Storage Format
 
