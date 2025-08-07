@@ -106,7 +106,7 @@ class ExperimentQueryRunner(QueryRunner):
         self,
         exposure_query: ast.SelectQuery,
         metric_events_query: ast.SelectQuery,
-        denominator_events_query: ast.SelectQuery = None,
+        denominator_events_query: Optional[ast.SelectQuery] = None,
     ) -> ast.SelectQuery:
         """
         Aggregates all events per entity to get their total contribution to the metric
@@ -114,6 +114,13 @@ class ExperimentQueryRunner(QueryRunner):
         Columns: variant, entity_id, value (sum of all event values)
         For ratio metrics, also includes denominator_value
         """
+        # For ratio metrics, we need a different approach to avoid Cartesian product
+        if self.is_ratio_metric and denominator_events_query:
+            return self._get_ratio_metrics_aggregated_per_entity_query(
+                exposure_query, metric_events_query, denominator_events_query
+            )
+
+        # For non-ratio metrics, use the original logic
         select_fields = [
             ast.Field(chain=["exposures", "variant"]),
             ast.Field(chain=["exposures", "entity_id"]),
@@ -122,20 +129,6 @@ class ExperimentQueryRunner(QueryRunner):
                 alias="value",
             ),
         ]
-
-        # For ratio metrics, add denominator aggregation
-        if self.is_ratio_metric and denominator_events_query:
-            from posthog.hogql_queries.experiments.base_query_utils import get_source_aggregation_expr
-
-            denominator_source = self.metric.denominator
-            # Use the new table_alias parameter to avoid string replacement
-            denominator_agg_expr = get_source_aggregation_expr(denominator_source, "denominator_events")
-            select_fields.append(
-                ast.Alias(
-                    expr=denominator_agg_expr,
-                    alias="denominator_value",
-                ),
-            )
 
         # Build join expression
         join_expr = ast.JoinExpr(
@@ -166,32 +159,6 @@ class ExperimentQueryRunner(QueryRunner):
             ),
         )
 
-        # For ratio metrics, add denominator join
-        if self.is_ratio_metric and denominator_events_query:
-            join_expr.next_join.next_join = ast.JoinExpr(
-                table=denominator_events_query,
-                join_type="LEFT JOIN",
-                alias="denominator_events",
-                constraint=ast.JoinConstraint(
-                    expr=ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                left=parse_expr("toString(exposures.exposure_identifier)"),
-                                right=parse_expr("toString(denominator_events.entity_identifier)"),
-                                op=ast.CompareOperationOp.Eq,
-                            )
-                            if self.is_data_warehouse_query
-                            else ast.CompareOperation(
-                                left=parse_expr("toString(exposures.entity_id)"),
-                                right=parse_expr("toString(denominator_events.entity_id)"),
-                                op=ast.CompareOperationOp.Eq,
-                            ),
-                        ]
-                    ),
-                    constraint_type="ON",
-                ),
-            )
-
         return ast.SelectQuery(
             select=select_fields,
             select_from=join_expr,
@@ -199,6 +166,150 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
             ],
+        )
+
+    def _get_ratio_metrics_aggregated_per_entity_query(
+        self,
+        exposure_query: ast.SelectQuery,
+        metric_events_query: ast.SelectQuery,
+        denominator_events_query: ast.SelectQuery,
+    ) -> ast.SelectQuery:
+        """
+        Special handling for ratio metrics to avoid Cartesian product.
+        Aggregates numerator and denominator separately, then joins the aggregated results.
+        """
+        from posthog.hogql_queries.experiments.base_query_utils import get_source_aggregation_expr
+        
+        # Type assertion - this method is only called for ratio metrics
+        assert isinstance(self.metric, ExperimentRatioMetric)
+        ratio_metric = self.metric
+
+        # First, create aggregated numerator query (per entity)
+        numerator_aggregated = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["exposures", "variant"]),
+                ast.Field(chain=["exposures", "entity_id"]),
+                ast.Alias(
+                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team, "main"),
+                    alias="numerator_value",
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=exposure_query,
+                alias="exposures",
+                next_join=ast.JoinExpr(
+                    table=metric_events_query,
+                    join_type="LEFT JOIN",
+                    alias="metric_events",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=parse_expr("toString(exposures.exposure_identifier)"),
+                                    right=parse_expr("toString(metric_events.entity_identifier)"),
+                                    op=ast.CompareOperationOp.Eq,
+                                )
+                                if self.is_data_warehouse_query
+                                else ast.CompareOperation(
+                                    left=parse_expr("toString(exposures.entity_id)"),
+                                    right=parse_expr("toString(metric_events.entity_id)"),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                            ]
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            group_by=[
+                ast.Field(chain=["exposures", "variant"]),
+                ast.Field(chain=["exposures", "entity_id"]),
+            ],
+        )
+
+        # Second, create aggregated denominator query (per entity)
+        denominator_aggregated = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["exposures", "variant"]),
+                ast.Field(chain=["exposures", "entity_id"]),
+                ast.Alias(
+                    expr=get_source_aggregation_expr(ratio_metric.denominator, "denominator_events"),
+                    alias="denominator_value",
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=exposure_query,
+                alias="exposures",
+                next_join=ast.JoinExpr(
+                    table=denominator_events_query,
+                    join_type="LEFT JOIN",
+                    alias="denominator_events",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=parse_expr("toString(exposures.exposure_identifier)"),
+                                    right=parse_expr("toString(denominator_events.entity_identifier)"),
+                                    op=ast.CompareOperationOp.Eq,
+                                )
+                                if self.is_data_warehouse_query
+                                else ast.CompareOperation(
+                                    left=parse_expr("toString(exposures.entity_id)"),
+                                    right=parse_expr("toString(denominator_events.entity_id)"),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                            ]
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            group_by=[
+                ast.Field(chain=["exposures", "variant"]),
+                ast.Field(chain=["exposures", "entity_id"]),
+            ],
+        )
+
+        # Finally, join the aggregated results and combine them
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["num_agg", "variant"]),
+                ast.Field(chain=["num_agg", "entity_id"]),
+                ast.Alias(
+                    expr=ast.Call(name="coalesce", args=[ast.Field(chain=["num_agg", "numerator_value"]), ast.Constant(value=0)]),
+                    alias="value",
+                ),
+                ast.Alias(
+                    expr=ast.Call(name="coalesce", args=[ast.Field(chain=["denom_agg", "denominator_value"]), ast.Constant(value=0)]),
+                    alias="denominator_value",
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=numerator_aggregated,
+                alias="num_agg",
+                next_join=ast.JoinExpr(
+                    table=denominator_aggregated,
+                    join_type="LEFT JOIN",
+                    alias="denom_agg",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["num_agg", "variant"]),
+                                    right=ast.Field(chain=["denom_agg", "variant"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                                ast.CompareOperation(
+                                    left=parse_expr("toString(num_agg.entity_id)"),
+                                    right=parse_expr("toString(denom_agg.entity_id)"),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                            ]
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
         )
 
     def _get_experiment_variant_results_query(
