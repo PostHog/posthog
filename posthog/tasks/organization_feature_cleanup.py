@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
-def organization_feature_cleanup(organization_id: int, removed_features: list[str]) -> None:
+def organization_feature_cleanup(organization_id: int, added_features: list[str], removed_features: list[str]) -> None:
     from posthog.models import Organization, OrganizationDomain
 
     organization = Organization.objects.get(id=organization_id)
