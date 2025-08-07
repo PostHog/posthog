@@ -23,7 +23,7 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
-from posthog.tasks.tasks import organization_feature_cleanup
+from posthog.tasks import organization_feature_cleanup
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
