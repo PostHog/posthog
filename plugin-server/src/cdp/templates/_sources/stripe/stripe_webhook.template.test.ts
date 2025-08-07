@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { parseJSON } from '~/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
+import stripeWebhook from './__tests__/stripe-webhook.json'
 import { template } from './stripe_webhook.template'
 
 describe('stripe webhook template', () => {
@@ -143,152 +144,39 @@ describe('stripe webhook template', () => {
         expect(response.finished).toEqual(true)
         expect(response.capturedPostHogEvents).toHaveLength(1)
     })
+
+    it.each([
+        ['customer', { customer: 'customer:1234' }],
+        ['subscription', { subscription: { customer: 'subscription:1234' } }],
+        ['payment_intent', { payment_intent: { customer: 'payment_intent:1234' } }],
+        ['id', { id: 'id:1234', object: 'customer' }],
+    ])('should capture the event with the correct distinct ID from %s', async (key, body) => {
+        const response = await tester.invoke(
+            {
+                signing_secret: 'whsec_testsecret',
+                distinct_id: '',
+            },
+            {
+                request: createStripeWebhook('whsec_testsecret', {
+                    ...stripeWebhook,
+                    data: {
+                        object: body,
+                    },
+                }),
+            }
+        )
+
+        console.log(response.logs)
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+        expect(response.capturedPostHogEvents[0].distinct_id).toEqual(`${key}:1234`)
+    })
 })
 
 const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
     const endpointSecret = secret
 
     const payload = JSON.stringify({
-        id: 'evt_1234',
-        object: 'event',
-        api_version: '2020-03-02',
-        created: 1754571971,
-        data: {
-            object: {
-                id: 'in_1234',
-                object: 'invoice',
-                account_country: 'US',
-                account_name: 'PostHog',
-                account_tax_ids: null,
-                amount_due: 0,
-                amount_overpaid: 0,
-                amount_paid: 0,
-                amount_remaining: 0,
-                amount_shipping: 0,
-                application: null,
-                application_fee_amount: null,
-                attempt_count: 0,
-                attempted: true,
-                auto_advance: false,
-                automatic_tax: {
-                    disabled_reason: null,
-                    enabled: false,
-                    liability: null,
-                    provider: null,
-                    status: null,
-                },
-                automatically_finalizes_at: null,
-                billing_reason: 'subscription_cycle',
-                charge: null,
-                collection_method: 'charge_automatically',
-                created: 1754568344,
-                currency: 'usd',
-                custom_fields: null,
-                customer: 'cus_1234',
-                customer_address: {},
-                customer_email: 'test@test.com',
-                customer_name: 'Test User',
-                customer_phone: null,
-                customer_shipping: null,
-                customer_tax_exempt: 'none',
-                customer_tax_ids: [],
-                default_payment_method: null,
-                default_source: null,
-                default_tax_rates: [],
-                description: null,
-                discount: null,
-                discounts: [],
-                due_date: null,
-                effective_at: 1754571965,
-                ending_balance: 0,
-                footer: 'Please note that PostHog does not accept payment by cheque. ',
-                from_invoice: null,
-                hosted_invoice_url: 'https://invoice.stripe.com/foo',
-                invoice_pdf: 'https://pay.stripe.com/invoice/foo/pdf?s=ap',
-                issuer: {
-                    type: 'self',
-                },
-                last_finalization_error: null,
-                latest_revision: null,
-                lines: {
-                    object: 'list',
-                    data: [],
-                    has_more: true,
-                    total_count: 11,
-                    url: '/v1/invoices/in_1234/lines',
-                },
-                livemode: true,
-                metadata: {},
-                next_payment_attempt: null,
-                number: '1234',
-                on_behalf_of: null,
-                paid: true,
-                paid_out_of_band: false,
-                parent: {
-                    quote_details: null,
-                    subscription_details: {
-                        metadata: {},
-                        subscription: 'sub_1234',
-                    },
-                    type: 'subscription_details',
-                },
-                payment_intent: null,
-                payment_settings: {
-                    default_mandate: null,
-                    payment_method_options: null,
-                    payment_method_types: null,
-                },
-                period_end: 1754568328,
-                period_start: 1751889928,
-                post_payment_credit_notes_amount: 0,
-                pre_payment_credit_notes_amount: 0,
-                quote: null,
-                receipt_number: null,
-                rendering: {
-                    amount_tax_display: null,
-                    pdf: null,
-                    template: null,
-                    template_version: null,
-                },
-                rendering_options: null,
-                shipping_cost: null,
-                shipping_details: null,
-                starting_balance: 0,
-                statement_descriptor: null,
-                status: 'paid',
-                status_transitions: {
-                    finalized_at: 1754571965,
-                    marked_uncollectible_at: null,
-                    paid_at: 1754571965,
-                    voided_at: null,
-                },
-                subscription: 'sub_1234',
-                subscription_details: {
-                    metadata: {},
-                },
-                subtotal: 0,
-                subtotal_excluding_tax: 0,
-                tax: null,
-                tax_percent: null,
-                test_clock: null,
-                total: 0,
-                total_discount_amounts: [],
-                total_excluding_tax: 0,
-                total_pretax_credit_amounts: [],
-                total_tax_amounts: [],
-                total_taxes: [],
-                transfer_data: null,
-                webhooks_delivered_at: 1754568349,
-            },
-        },
-        livemode: true,
-        pending_webhooks: 5,
-        request: {
-            id: null,
-            idempotency_key: null,
-        },
-        type: 'invoice.payment_succeeded',
-        ...body,
+        ...(body ? body : stripeWebhook),
     })
 
     const timestamp = Math.floor(Date.now() / 1000)

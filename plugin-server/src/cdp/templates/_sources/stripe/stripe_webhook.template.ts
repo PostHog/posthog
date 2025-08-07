@@ -11,7 +11,6 @@ export const template: HogFunctionTemplate = {
     category: ['Revenue', 'Payment'],
     code_language: 'hog',
     code: `
-
 if (not inputs.bypass_signature_check) {
   let body := request.stringBody  
   let signatureHeader := request.headers['stripe-signature']
@@ -67,7 +66,40 @@ if (not inputs.bypass_signature_check) {
   }
 }
 
-let properties := inputs.include_all_properties ? request.body.data.object : {}
+let obj := request.body.data.object
+let distinctId := inputs.distinct_id
+
+if (empty(distinctId)) {
+  if (typeof(obj?.customer) == 'string') {
+      distinctId := obj.customer
+  } else if (typeof(obj?.subscription?.customer) == 'string') {
+      distinctId := obj.subscription.customer
+  } else if (typeof(obj?.payment_intent?.customer) == 'string') {
+      distinctId := obj.payment_intent.customer
+  } else if (obj.object == 'customer') {
+      distinctId := obj.id
+  }
+}
+
+if (empty(inputs.event)) {
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': 'Event name could not be determined',
+    }
+  }
+}
+
+if (empty(distinctId)) {
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': 'Distinct ID could not be determined',
+    }
+  }
+}
+
+let properties := inputs.include_all_properties ? obj : {}
 
 for (let key, value in inputs.properties) {
     properties[key] := value
@@ -75,7 +107,7 @@ for (let key, value in inputs.properties) {
 
 postHogCapture({
   'event': inputs.event,
-  'distinct_id': inputs.distinct_id,
+  'distinct_id': distinctId,
   'properties': properties
 })
   `,
