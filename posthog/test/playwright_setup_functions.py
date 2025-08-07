@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from django.db import transaction
 
-from posthog.models import Organization, Project, Team, PersonalAPIKey, User
+from posthog.models import Organization, Project, Team, User
 from posthog.schema import (
     BasicOrganizationSetupData,
     BasicOrganizationSetupResult,
@@ -56,19 +56,13 @@ def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrga
         # Create team (environment)
         team = Team.objects.create(name=f"{project_name} Default", project=project, organization=organization)
 
-        # Create personal API key for the user
-        test_key_value = "phx_test_api_key_123456789"  # Fixed test API key for consistency
-        from posthog.models.personal_api_key import hash_key_value
-        from posthog.models.utils import mask_key_value
+        # Create personal API key using the actual API serializer
+        from posthog.api.personal_api_key import PersonalAPIKeySerializer
 
-        api_key = PersonalAPIKey.objects.create(
-            label="Test API Key",
-            user=user,
-            secure_value=hash_key_value(test_key_value),
-            mask_value=mask_key_value(test_key_value),
-        )
-        # Set the plaintext value for immediate use (matches API creation pattern)
-        api_key._value = test_key_value
+        serializer = PersonalAPIKeySerializer()
+        # Mock a request context with the user
+        serializer.context = {"request": type("MockRequest", (), {"user": user})()}
+        api_key = serializer.create({"label": "Test API Key", "scopes": ["*"]})
 
         return BasicOrganizationSetupResult(
             organization_id=str(organization.id),
@@ -79,7 +73,7 @@ def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrga
             team_name=team.name,
             user_id=str(user.id),
             user_email=user.email,
-            personal_api_key=test_key_value,  # Return the actual plaintext key value
+            personal_api_key=api_key._value,  # type: ignore  # Return the generated token
         )
 
 
