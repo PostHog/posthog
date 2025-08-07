@@ -48,7 +48,7 @@ export function SceneCommonButtons({
     const { openSidePanel } = useActions(sidePanelLogic)
 
     return (
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex gap-1 flex-wrap h-full items-center">
             {favorite && (
                 <ButtonPrimitive
                     onClick={favorite.onClick}
@@ -71,7 +71,6 @@ export function SceneCommonButtons({
                         openSidePanel(SidePanelTab.Discussion)
                     }}
                     tooltip="Comment"
-                    fullWidth
                     className="justify-center"
                     menuItem
                 >

@@ -35,7 +35,7 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
         <>
             {children &&
                 scenePanelElement &&
-                createPortal(<div className="flex flex-col gap-px pt-4">{children}</div>, scenePanelElement)}
+                createPortal(<div className="flex flex-col gap-px">{children}</div>, scenePanelElement)}
         </>
     )
 }
@@ -45,17 +45,16 @@ export function ScenePanelDivider(): JSX.Element {
 }
 
 // Should be first!
-export const ScenePanelCommonActions = ({
-    children,
-    isFirst = true,
-}: {
-    children: React.ReactNode
-    isFirst?: boolean
-}): JSX.Element => {
+export const ScenePanelCommonActions = ({ children }: { children: React.ReactNode }): JSX.Element => {
     return (
         <>
-            <div className={cn('flex flex-col gap-2', { '-mt-2': isFirst })}>{children}</div>
-            <ScenePanelDivider />
+            <div
+                className={cn(
+                    'flex flex-col gap-2 h-[var(--scene-layout-header-height)] py-1 border-b border-primary -mx-2 px-2 mb-2'
+                )}
+            >
+                {children}
+            </div>
         </>
     )
 }
@@ -145,7 +144,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             <div
                 className={cn('relative min-h-screen', {
                     block: layoutConfig?.layout === 'app-raw-no-header',
-                    flex: scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
+                    // flex: scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
                 })}
             >
                 <div
@@ -177,11 +176,9 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
+                                'scene-layout__content-panel order-2 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width))] bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
                                 {
                                     hidden: !scenePanelOpen,
-                                    'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]':
-                                        !scenePanelIsRelative && scenePanelOpen,
                                 }
                             )}
                         >
