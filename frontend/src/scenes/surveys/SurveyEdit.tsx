@@ -820,7 +820,8 @@ export default function SurveyEdit(): JSX.Element {
                                                       {survey.linked_flag?.filters.multivariate && (
                                                           <LemonField.Pure
                                                               label="Link to a specific flag variant"
-                                                              info="Choose which variant of the feature flag to link to this survey."
+                                                              info="Choose which variant of the feature flag to link to this survey.
+                                                              Requires posthog-js v1.259.0 or greater or posthog-react-native v4.4.0 or greater"
                                                           >
                                                               <div className="flex flex-col gap-2">
                                                                   <LemonSegmentedButton
