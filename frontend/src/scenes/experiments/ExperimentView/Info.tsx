@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 
+import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
@@ -19,6 +20,47 @@ import { modalsLogic } from '../modalsLogic'
 import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 import { StatsMethodModal } from './StatsMethodModal'
+
+export const ExperimentLastRefresh = ({
+    isRefreshing,
+    lastRefresh,
+    onClick,
+}: {
+    isRefreshing: boolean
+    lastRefresh: string
+    onClick: () => void
+}): JSX.Element => {
+    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date last refresh time
+
+    return (
+        <div className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
+            <div className="inline-flex deprecated-space-x-2">
+                <span
+                    className={`${
+                        lastRefresh
+                            ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
+                                ? 'text-danger'
+                                : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
+                                  ? 'text-warning'
+                                  : ''
+                            : ''
+                    }`}
+                >
+                    {isRefreshing ? 'Loading…' : lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+                </span>
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={onClick}
+                    data-attr="refresh-experiment"
+                    icon={<IconRefresh />}
+                    tooltip="Refresh experiment results"
+                />
+            </div>
+        </div>
+    )
+}
 
 export function Info(): JSX.Element {
     const {
@@ -131,38 +173,11 @@ export function Info(): JSX.Element {
                 <div className="flex flex-col">
                     <div className="inline-flex deprecated-space-x-8">
                         {experiment.start_date && (
-                            <div className="block">
-                                <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
-                                <div className="inline-flex deprecated-space-x-2">
-                                    <span
-                                        className={`${
-                                            lastRefresh
-                                                ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
-                                                    ? 'text-danger'
-                                                    : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                                      ? 'text-warning'
-                                                      : ''
-                                                : ''
-                                        }`}
-                                    >
-                                        {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
-                                            ? 'Loading…'
-                                            : lastRefresh
-                                              ? dayjs(lastRefresh).fromNow()
-                                              : 'a while ago'}
-                                    </span>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() => {
-                                            refreshExperimentResults(true)
-                                        }}
-                                        data-attr="refresh-experiment"
-                                        icon={<IconRefresh />}
-                                        tooltip="Refresh experiment results"
-                                    />
-                                </div>
-                            </div>
+                            <ExperimentLastRefresh
+                                isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+                                lastRefresh={lastRefresh}
+                                onClick={() => refreshExperimentResults(true)}
+                            />
                         )}
                         <ExperimentDates />
                         <div className="block">
