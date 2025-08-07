@@ -1,4 +1,4 @@
-import { beforeUnmount, connect, kea, path, selectors } from 'kea'
+import { beforeUnmount, BuiltLogic, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
@@ -70,7 +70,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
 
     subscriptions(({ cache }) => ({
         dashboardLogicProps: (dashboardLogicProps) => {
-            const unmount = dashboardLogic(dashboardLogicProps).mount()
+            const unmount = (dashboardLogic(dashboardLogicProps) as BuiltLogic).mount()
             cache.unmountDashboardLogic?.()
             cache.unmountDashboardLogic = unmount
         },
