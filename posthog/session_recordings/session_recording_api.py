@@ -572,7 +572,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         existing_ids = set(query.session_ids or [])
                         comment_ids = set(comment_session_ids or [])
                         query.session_ids = (
-                            list(existing_ids & comment_ids) if query.session_ids or comment_ids is not None else None
+                            list(existing_ids.union(comment_ids))
+                            if query.session_ids or comment_session_ids is not None
+                            else None
                         )
 
                 self._maybe_report_recording_list_filters_changed(request, team=self.team)
