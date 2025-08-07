@@ -1,4 +1,4 @@
-import { LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
@@ -7,8 +7,10 @@ import { EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { eventInsightsLogic, INSIGHTS_PER_PAGE } from 'scenes/data-management/events/eventInsightsLogic'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
-import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { TZLabel } from 'lib/components/TZLabel'
 
 export function EventDefinitionInsights({ definition }: { definition: EventDefinition }): JSX.Element {
     const event = definition.name
@@ -30,18 +32,29 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <div className="flex flex-col gap-1">
-                        <div className="inline-flex">
-                            <Link to={urls.insightView(insight.short_id)} target="_blank">
-                                {name || <i>{summarizeInsight(insight.query)}</i>}
-                            </Link>
-                        </div>
-                        <div className="text-xs text-tertiary">{insight.description}</div>
-                    </div>
+                    <>
+                        <LemonTableLink
+                            to={urls.insightView(insight.short_id)}
+                            title={<>{name || <i>{summarizeInsight(insight.query)}</i>}</>}
+                            description={insight.description}
+                        />
+                    </>
+                )
+            },
+            sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
+        },
+        createdByColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        {
+            title: 'Last modified',
+            sorter: true,
+            dataIndex: 'last_modified_at',
+            render: function renderLastModified(last_modified_at: string) {
+                return (
+                    <div className="whitespace-nowrap">{last_modified_at && <TZLabel time={last_modified_at} />}</div>
                 )
             },
         },
-        createdByColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
     ]
 
     return (
