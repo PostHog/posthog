@@ -14,6 +14,9 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.user_permissions import UserPermissions
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 
@@ -181,3 +184,53 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@receiver(model_activity_signal, sender=PersonalAPIKey)
+def handle_personal_api_key_change(
+    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+):
+    from posthog.utils import get_current_user_from_thread
+    from threading import current_thread
+
+    user = get_current_user_from_thread()
+    request = getattr(current_thread(), "request", None)
+    organization_id = None
+
+    # 1. Try to get organization from request context
+    if request:
+        # Check various possible organization sources in the request
+        if hasattr(request, "organization"):
+            organization_id = request.organization.id
+        elif hasattr(request, "team") and hasattr(request.team, "organization"):
+            organization_id = request.team.organization_id
+        elif hasattr(request, "session") and "current_organization_id" in request.session:
+            organization_id = request.session.get("current_organization_id")
+
+    # 2. If still no organization, check if the API key is scoped to a single org
+    if not organization_id and after_update.scoped_organizations:
+        if len(after_update.scoped_organizations) == 1:
+            try:
+                # scoped_organizations contains string UUIDs
+                organization_id = uuid.UUID(str(after_update.scoped_organizations[0]))
+            except (ValueError, TypeError):
+                pass
+
+    # 3. Final fallback to user's current organization
+    if not organization_id:
+        organization_id = after_update.user.current_organization_id
+        if not organization_id and after_update.user.organizations.exists():
+            organization_id = after_update.user.organizations.first().id
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.label
+        ),
+    )

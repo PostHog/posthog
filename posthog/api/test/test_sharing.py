@@ -51,6 +51,12 @@ class TestSharing(APIBaseTest):
         "properties": [{"key": "$browser", "value": "Mac OS X"}],
     }
 
+    SHARING_ACTIVITY_TYPES = [
+        "sharing enabled",
+        "exported for opengraph image",
+        "sharing disabled",
+    ]
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -120,12 +126,11 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
 
         assert response.json()["is_shared"]
-        assert ActivityLog.objects.count() == 0
+        sharing_activity_logs = ActivityLog.objects.filter(activity__in=self.SHARING_ACTIVITY_TYPES)
+        assert sharing_activity_logs.count() == 0
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
-        assert ActivityLog.objects.count() == 0
-
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
             {"enabled": True},
@@ -142,11 +147,10 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert data["enabled"] is False
 
-        assert [x.activity for x in list(ActivityLog.objects.order_by("created_at"))] == [
-            "sharing enabled",
-            "exported for opengraph image",
-            "sharing disabled",
-        ]
+        sharing_activity_logs = ActivityLog.objects.filter(activity__in=self.SHARING_ACTIVITY_TYPES).order_by(
+            "created_at"
+        )
+        assert [x.activity for x in sharing_activity_logs] == self.SHARING_ACTIVITY_TYPES
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_exports_image_when_sharing(self, patched_exporter_task: Mock):

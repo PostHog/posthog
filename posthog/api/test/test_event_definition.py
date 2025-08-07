@@ -133,7 +133,7 @@ class TestEventDefinitionAPI(APIBaseTest):
             },
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.last()
         assert activity_log is not None
         assert activity_log.activity == "deleted"
         assert activity_log.item_id == str(event_definition.id)

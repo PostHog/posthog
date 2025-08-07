@@ -30,6 +30,7 @@ import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -53,7 +54,7 @@ def dot_get(d: Any, path: str, default: Any = None) -> Any:
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 
-class Integration(models.Model):
+class Integration(ModelActivityMixin, models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
         SALESFORCE = "salesforce"

@@ -19,6 +19,9 @@ from posthog.api.insight import InsightBasicSerializer
 from posthog.utils import relative_date_parse
 from zoneinfo import ZoneInfo
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -321,3 +324,24 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"
     queryset = Threshold.objects.all()
     serializer_class = ThresholdWithAlertSerializer
+
+
+@receiver(model_activity_signal, sender=AlertConfiguration)
+def handle_alert_configuration_change(
+    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+):
+    from posthog.utils import get_current_user_from_thread
+
+    user = get_current_user_from_thread()
+    alert_name = after_update.name or f"Alert for {after_update.insight.name}"
+
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(changes=changes_between(scope, previous=before_update, current=after_update), name=alert_name),
+    )

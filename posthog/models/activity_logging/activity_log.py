@@ -11,17 +11,18 @@ from posthog.exceptions_capture import capture_exception
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +52,21 @@ ActivityScope = Literal[
     "Project",
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
+    "Organization",
+    "OrganizationMembership",
+    "Role",
+    "UserGroup",
+    "BatchExport",
+    "BatchImport",
+    "Integration",
+    "Annotation",
+    "Tag",
+    "TaggedItem",
+    "Subscription",
+    "AlertConfiguration",
+    "PersonalAPIKey",
+    "User",
+    "Action",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -90,7 +106,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
             return str(obj)
-        if isinstance(obj, User):
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
             return {"first_name": obj.first_name, "email": obj.email}
         if isinstance(obj, float):
             # more precision than we'll need but avoids rounding too unnecessarily
@@ -98,7 +114,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, Decimal):
             # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, FeatureFlag):
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "FeatureFlag":
             return {
                 "id": obj.id,
                 "key": obj.key,
@@ -162,12 +178,29 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "HogFunction": [
         "encrypted_inputs",
     ],
+    "Integration": [
+        "config",
+        "sensitive_config",
+    ],
+    "BatchImport": [
+        "import_config",
+    ],
+    "Subscription": [
+        "target_value",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
     },
+}
+
+# Fields that prevent activity signal triggering entirely when only these fields change
+signal_exclusions: dict[ActivityScope, list[str]] = {
+    "PersonalAPIKey": [
+        "last_used_at",
+    ],
 }
 
 field_exclusions: dict[ActivityScope, list[str]] = {
@@ -278,10 +311,62 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "sync_frequency_interval",
         "deleted_name",
     ],
+    "Organization": [
+        "teams",
+        "billing",
+        "organization_billing",
+        "_billing_plan_details",
+        "usage",
+        "customer_id",
+        "customer_trust_scores",
+        "personalization",
+    ],
+    "BatchExport": [
+        "latest_runs",
+    ],
+    "BatchImport": [
+        "leased_until",
+        "status_message",
+        "state",
+        "secrets",
+    ],
+    "Integration": [
+        "sensitive_config",
+        "errors",
+    ],
+    "PersonalAPIKey": [
+        "value",
+        "secure_value",
+        "last_used_at",
+    ],
+    "User": [
+        "password",
+        "current_organization_id",
+        "current_team_id",
+        "temporary_token",
+        "distinct_id",
+        "partial_notification_settings",
+        "anonymize_data",
+        "is_email_verified",
+        "_billing_plan_details",
+        "strapi_id",
+    ],
+    "AlertConfiguration": [
+        "state",
+    ],
+    "Action": [
+        "bytecode",
+        "bytecode_error",
+        "steps_json",
+    ],
 }
 
 
 def describe_change(m: Any) -> Union[str, dict]:
+    # Use lazy imports to avoid circular dependencies
+    from posthog.models.dashboard import Dashboard
+    from posthog.models.dashboard_tile import DashboardTile
+
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
@@ -442,8 +527,8 @@ def dict_changes_between(
 def log_activity(
     *,
     organization_id: Optional[UUID],
-    team_id: int,
-    user: Optional[User],
+    team_id: Optional[int],
+    user: Optional["User"],
     item_id: Optional[Union[int, str, UUID]],
     scope: str,
     activity: str,
@@ -472,18 +557,26 @@ def log_activity(
             )
             return None
 
-        activity_log = ActivityLog.objects.create(
-            organization_id=organization_id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            is_system=user is None,
-            item_id=str(item_id),
-            scope=scope,
-            activity=activity,
-            detail=detail,
-        )
-        return activity_log
+        def _do_log_activity():
+            return ActivityLog.objects.create(
+                organization_id=organization_id,
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                is_system=user is None,
+                item_id=str(item_id),
+                scope=scope,
+                activity=activity,
+                detail=detail,
+            )
+
+        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
+        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
+            transaction.on_commit(_do_log_activity)
+            return None
+        else:
+            return _do_log_activity()
+
     except Exception as e:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
