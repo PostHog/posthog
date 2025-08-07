@@ -422,6 +422,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         actions.setFreshQuery(true)
                     }
 
+                    // Clear localStorage draft when creating a completely new insight to prevent
+                    // carrying over names/metadata from previous insights
+                    if (method === 'PUSH' && !queryFromUrl) {
+                        localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                    }
+
                     eventUsageLogic.actions.reportInsightCreated(query)
                 }
             }
