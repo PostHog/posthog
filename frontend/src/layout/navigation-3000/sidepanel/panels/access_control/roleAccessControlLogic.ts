@@ -142,6 +142,12 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     })),
 
     selectors({
+        sortedRoles: [
+            (s) => [s.roles],
+            (roles: RoleType[]): RoleType[] => {
+                return [...roles].sort((a, b) => a.name.localeCompare(b.name))
+            },
+        ],
         canEditRoles: [
             (s) => [s.resourceAccessControls],
             (resourceAccessControls: AccessControlResponseType | null): boolean | null => {

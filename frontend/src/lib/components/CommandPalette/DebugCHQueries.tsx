@@ -19,10 +19,11 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, Realm, Region } from '~/types'
 
 import { CodeSnippet, Language } from '../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function openCHQueriesDebugModal(): void {
     LemonDialog.open({
@@ -350,6 +351,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                         <LemonTag className="inline-block">
                                             <span className="font-bold tracking-wide">ID:</span>{' '}
                                             <span className="font-mono">{item.query_id}</span>
+                                            <LinkMetabaseQuery queryId={item.query_id} />
                                         </LemonTag>{' '}
                                         {typeof item.logComment.cache_key === 'string' ? (
                                             <LemonTag className="inline-block">
@@ -732,4 +734,20 @@ function LinkPosthogService({ service }: { service: string }): JSX.Element {
             {service}
         </Link>
     )
+}
+
+function LinkMetabaseQuery({ queryId }: { queryId: string }): JSX.Element | null {
+    const { preflight } = useValues(preflightLogic)
+    const region = preflight?.region
+    const realm = preflight?.realm
+
+    if (realm !== Realm.Cloud || !(region === Region.US || region === Region.EU)) {
+        return null
+    }
+
+    const url =
+        region === Region.US
+            ? `https://metabase.prod-us.posthog.dev/question?query_id=${queryId}#eyJkYXRhc2V0X3F1ZXJ5Ijp7InR5cGUiOiJuYXRpdmUiLCJuYXRpdmUiOnsicXVlcnkiOiIgICAgc2VsZWN0IFxuICAgICAgICBxdWVyeV9pZCxcbiAgICAgICAgdXNlcixcbiAgICAgICAgSlNPTkV4dHJhY3RTdHJpbmcobG9nX2NvbW1lbnQsICdxdWVyeScsICd0YWdzJywgJ3Byb2R1Y3RLZXknKSBhcyBwcm9kdWN0S2V5LFxuICAgICAgICBKU09ORXh0cmFjdFN0cmluZyhsb2dfY29tbWVudCwgJ3F1ZXJ5JywgJ3RhZ3MnLCAnc2NlbmUnKSBhcyBzY2VuZSxcbiAgICAgICAgSlNPTkV4dHJhY3RTdHJpbmcobG9nX2NvbW1lbnQsICdxdWVyeScsICd0YWdzJykgYXMgYWxsX3RhZ3MsXG4gICAgICAgIEpTT05FeHRyYWN0U3RyaW5nKGxvZ19jb21tZW50LCAnaWQnKSBhcyBpZCxcbiAgICAgICAgSlNPTkV4dHJhY3RTdHJpbmcobG9nX2NvbW1lbnQsICdxdWVyeV90eXBlJykgYXMgcXVlcnlfdHlwZSxcbiAgICAgICAgSlNPTkV4dHJhY3RTdHJpbmcobG9nX2NvbW1lbnQsICdxdWVyeScsICdraW5kJykgYXMgcV9raW5kLFxuICAgICAgICBKU09ORXh0cmFjdFN0cmluZyhsb2dfY29tbWVudCwgJ3JvdXRlX2lkJykgYXMgcm91dGVfaWQsXG4gICAgICAgIEpTT05FeHRyYWN0U3RyaW5nKGxvZ19jb21tZW50LCAnc2VydmljZV9uYW1lJykgYXMgc2VydmljZV9uYW1lLFxuICAgICAgICByZWFkX2J5dGVzLFxuICAgICAgICBxdWVyeV9kdXJhdGlvbl9tcyxcbiAgICAgICAgUHJvZmlsZUV2ZW50c1snUmVhbFRpbWVNaWNyb3NlY29uZHMnXS8xMDAwMDAwIGFzIFJlYWxUaW1lLFxuICAgICAgICBQcm9maWxlRXZlbnRzWydPU0NQVVZpcnR1YWxUaW1lTWljcm9zZWNvbmRzJ10vMTAwMDAwMCBhcyBPU0NQVVZpcnR1YWxUaW1lLFxuICAgICAgICBxdWVyeSxcbiAgICAgICAgbG9nX2NvbW1lbnQsXG4gICAgICAgIHF1ZXJ5X2R1cmF0aW9uX21zIC8gMTAwMCBhcyBxdWVyeV9kdXJhdGlvbl9zZWMsXG4gICAgICAgIG1lbW9yeV91c2FnZSxcbiAgICAgICAgcGVha190aHJlYWRzX3VzYWdlLFxuICAgIGZyb20gY2x1c3RlckFsbFJlcGxpY2FzKHBvc3Rob2csIHN5c3RlbS5xdWVyeV9sb2cpXG4gICAgd2hlcmUgXG4gICAgICAgIGFuZChcbiAgICAgICAgICAgIHRydWVcbiAgICAgICAgICAgICwgZXZlbnRfZGF0ZSA-PSB0b2RheSgpIC0gN1xuICAgICAgICAgICAgLCBpc19pbml0aWFsX3F1ZXJ5XG4gICAgICAgICAgICAsIHR5cGUgIT0gJ1F1ZXJ5U3RhcnQnXG4gICAgICAgICAgICAsIHVzZXIgPSAnYXBwJ1xuICAgICAgICAgICAgLCBxdWVyeV9pZCA9IHt7cXVlcnlfaWR9fVxuICAgICAgICApXG4gICAgb3JkZXIgYnkgZXZlbnRfdGltZSBkZXNjXG4gICAgbGltaXQgMTAwIiwidGVtcGxhdGUtdGFncyI6eyJxdWVyeV9pZCI6eyJ0eXBlIjoidGV4dCIsIm5hbWUiOiJxdWVyeV9pZCIsImlkIjoiNDA5MWQ1YTctMzFhMy00YjFkLTlmODctZDk5MGJlNDI1ODg0IiwiZGlzcGxheS1uYW1lIjoiUXVlcnkgSUQifX19LCJkYXRhYmFzZSI6NDJ9LCJkaXNwbGF5IjoidGFibGUiLCJwYXJhbWV0ZXJzIjpbeyJpZCI6IjQwOTFkNWE3LTMxYTMtNGIxZC05Zjg3LWQ5OTBiZTQyNTg4NCIsInR5cGUiOiJjYXRlZ29yeSIsInRhcmdldCI6WyJ2YXJpYWJsZSIsWyJ0ZW1wbGF0ZS10YWciLCJxdWVyeV9pZCJdXSwibmFtZSI6IlF1ZXJ5IElEIiwic2x1ZyI6InF1ZXJ5X2lkIn1dLCJ2aXN1YWxpemF0aW9uX3NldHRpbmdzIjp7fX0=`
+            : `https://metabase.prod-eu.posthog.dev/question?query_id=${queryId}#eyJkYXRhc2V0X3F1ZXJ5Ijp7InR5cGUiOiJuYXRpdmUiLCJkYXRhYmFzZSI6NDIsIm5hdGl2ZSI6eyJxdWVyeSI6IiAgICBzZWxlY3QgXG4gICAgICAgIHF1ZXJ5X2lkLFxuICAgICAgICB1c2VyLFxuICAgICAgICBKU09ORXh0cmFjdFN0cmluZyhsb2dfY29tbWVudCwgJ3F1ZXJ5JywgJ3RhZ3MnLCAncHJvZHVjdEtleScpIGFzIHByb2R1Y3RLZXksXG4gICAgICAgIEpTT05FeHRyYWN0U3RyaW5nKGxvZ19jb21tZW50LCAncXVlcnknLCAndGFncycsICdzY2VuZScpIGFzIHNjZW5lLFxuICAgICAgICBKU09ORXh0cmFjdFN0cmluZyhsb2dfY29tbWVudCwgJ3F1ZXJ5JywgJ3RhZ3MnKSBhcyBhbGxfdGFncyxcbiAgICAgICAgSlNPTkV4dHJhY3RTdHJpbmcobG9nX2NvbW1lbnQsICdpZCcpIGFzIGlkLFxuICAgICAgICBKU09ORXh0cmFjdFN0cmluZyhsb2dfY29tbWVudCwgJ3F1ZXJ5X3R5cGUnKSBhcyBxdWVyeV90eXBlLFxuICAgICAgICBKU09ORXh0cmFjdFN0cmluZyhsb2dfY29tbWVudCwgJ3F1ZXJ5JywgJ2tpbmQnKSBhcyBxX2tpbmQsXG4gICAgICAgIEpTT05FeHRyYWN0U3RyaW5nKGxvZ19jb21tZW50LCAncm91dGVfaWQnKSBhcyByb3V0ZV9pZCxcbiAgICAgICAgSlNPTkV4dHJhY3RTdHJpbmcobG9nX2NvbW1lbnQsICdzZXJ2aWNlX25hbWUnKSBhcyBzZXJ2aWNlX25hbWUsXG4gICAgICAgIHJlYWRfYnl0ZXMsXG4gICAgICAgIHF1ZXJ5X2R1cmF0aW9uX21zLFxuICAgICAgICBQcm9maWxlRXZlbnRzWydSZWFsVGltZU1pY3Jvc2Vjb25kcyddLzEwMDAwMDAgYXMgUmVhbFRpbWUsXG4gICAgICAgIFByb2ZpbGVFdmVudHNbJ09TQ1BVVmlydHVhbFRpbWVNaWNyb3NlY29uZHMnXS8xMDAwMDAwIGFzIE9TQ1BVVmlydHVhbFRpbWUsXG4gICAgICAgIHF1ZXJ5LFxuICAgICAgICBsb2dfY29tbWVudCxcbiAgICAgICAgcXVlcnlfZHVyYXRpb25fbXMgLyAxMDAwIGFzIHF1ZXJ5X2R1cmF0aW9uX3NlYyxcbiAgICAgICAgbWVtb3J5X3VzYWdlLFxuICAgICAgICBwZWFrX3RocmVhZHNfdXNhZ2UsXG4gICAgZnJvbSBjbHVzdGVyQWxsUmVwbGljYXMocG9zdGhvZywgc3lzdGVtLnF1ZXJ5X2xvZylcbiAgICB3aGVyZSBcbiAgICAgICAgYW5kKFxuICAgICAgICAgICAgdHJ1ZVxuICAgICAgICAgICAgLCBldmVudF9kYXRlID49IHRvZGF5KCkgLSA3XG4gICAgICAgICAgICAsIGlzX2luaXRpYWxfcXVlcnlcbiAgICAgICAgICAgICwgdHlwZSAhPSAnUXVlcnlTdGFydCdcbiAgICAgICAgICAgICwgdXNlciA9ICdhcHAnXG4gICAgICAgICAgICAsIHF1ZXJ5X2lkID0ge3txdWVyeV9pZH19XG4gICAgICAgIClcbiAgICBvcmRlciBieSBldmVudF90aW1lIGRlc2NcbiAgICBsaW1pdCAxMDAiLCJ0ZW1wbGF0ZS10YWdzIjp7InF1ZXJ5X2lkIjp7InR5cGUiOiJ0ZXh0IiwibmFtZSI6InF1ZXJ5X2lkIiwiaWQiOiI0MDkxZDVhNy0zMWEzLTRiMWQtOWY4Ny1kOTkwYmU0MjU4ODQiLCJkaXNwbGF5LW5hbWUiOiJRdWVyeSBJRCJ9fX19LCJkaXNwbGF5IjoidGFibGUiLCJwYXJhbWV0ZXJzIjpbeyJpZCI6IjQwOTFkNWE3LTMxYTMtNGIxZC05Zjg3LWQ5OTBiZTQyNTg4NCIsInR5cGUiOiJjYXRlZ29yeSIsInRhcmdldCI6WyJ2YXJpYWJsZSIsWyJ0ZW1wbGF0ZS10YWciLCJxdWVyeV9pZCJdXSwibmFtZSI6IlF1ZXJ5IElEIiwic2x1ZyI6InF1ZXJ5X2lkIn1dLCJ2aXN1YWxpemF0aW9uX3NldHRpbmdzIjp7fX0=`
+    return <Link to={url} className="inline-block" target="_blank" targetBlankIcon />
 }

@@ -2,14 +2,14 @@ import json
 
 from posthog.test.base import APIBaseTest
 
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternStats,
     PatternAssignedEventSegmentContext,
     EnrichedPatternAssignedEvent,
 )
-from ee.hogai.session_summaries.summary_notebooks import (
+from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_summary_notebook,
     _generate_notebook_content_from_summary,
 )

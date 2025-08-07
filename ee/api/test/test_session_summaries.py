@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock, Mock
 
 from django.http import HttpResponse
 from posthog.test.base import APIBaseTest
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternStats,

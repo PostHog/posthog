@@ -10,7 +10,8 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
     type: 'function_sms',
     name: 'SMS',
     description: 'Send an SMS to the user.',
-    icon: <IconTwilio />,
+    icon: <IconTwilio className="text-[#f22f46]" />,
+    color: '#f22f46',
     renderNode: (props) => <StepFunctionSmsNode {...props} />,
     renderConfiguration: (node) => <StepFunctionSmsConfiguration node={node} />,
     create: () => {
@@ -21,7 +22,7 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
                 type: 'function_sms',
                 on_error: 'continue',
                 config: {
-                    template_id: 'template-hogflow-send-sms-twilio',
+                    template_id: 'template-twilio',
                     inputs: {},
                 },
             },

@@ -22,7 +22,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond } from 'lib/utils'
 import { FunctionComponent, isValidElement, useEffect, useRef } from 'react'
 import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
-import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
+import {
+    ItemAnyComment,
+    ItemAnyCommentDetail,
+} from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 import { useDebouncedCallback } from 'use-debounce'
@@ -164,7 +167,7 @@ function RowItemTitle({
             ) : item.type === 'doctor' ? (
                 <ItemDoctor item={item} />
             ) : item.type === 'comment' ? (
-                <ItemComment item={item} />
+                <ItemAnyComment item={item} />
             ) : item.type === 'inspector-summary' ? (
                 <ItemSummary item={item} />
             ) : item.type === 'inactivity' ? (
@@ -195,7 +198,7 @@ function RowItemDetail({
               'doctor' ? (
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
-                <ItemCommentDetail item={item} />
+                <ItemAnyCommentDetail item={item} />
             ) : null}
         </div>
     )

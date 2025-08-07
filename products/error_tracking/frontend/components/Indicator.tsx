@@ -49,6 +49,14 @@ export const STATUS_INTENT: Record<ErrorTrackingIssue['status'], Intent> = {
     suppressed: 'danger',
 }
 
+export const STATUS_INTENT_LABEL: Record<ErrorTrackingIssue['status'], string> = {
+    active: 'Reopen issue',
+    suppressed: 'Suppress issue',
+    archived: 'Archive issue',
+    pending_release: 'Resolve in next version',
+    resolved: 'Resolve issue',
+}
+
 export const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
     suppressed: 'Stop capturing this issue',
     active: 'Ongoing issue',
@@ -59,17 +67,24 @@ export const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undef
 
 interface StatusIndicatorProps {
     status: IssueStatus
+    intent?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     withTooltip?: boolean
     className?: string
 }
 
-export function StatusIndicator({ status, size = 'small', className, withTooltip }: StatusIndicatorProps): JSX.Element {
+export function StatusIndicator({
+    status,
+    size = 'small',
+    intent = false,
+    className,
+    withTooltip,
+}: StatusIndicatorProps): JSX.Element {
     return (
         <LabelIndicator
             intent={STATUS_INTENT[status]}
             size={size}
-            label={STATUS_LABEL[status]}
+            label={intent ? STATUS_INTENT_LABEL[status] : STATUS_LABEL[status]}
             tooltip={withTooltip ? STATUS_TOOLTIP[status] : undefined}
             className={className}
         />

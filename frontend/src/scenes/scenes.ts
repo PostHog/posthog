@@ -62,6 +62,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ErrorProjectUnavailable]: {
         name: 'Project unavailable',
     },
+    [Scene.NewTab]: {
+        projectBased: true,
+        name: 'New tab',
+    },
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
@@ -201,6 +205,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Groups]: {
         projectBased: true,
         name: 'Groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
+    [Scene.GroupsNew]: {
+        projectBased: true,
         defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
     [Scene.Group]: {
@@ -502,6 +510,7 @@ export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
+    '/new': urls.newTab(),
     '/home': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
@@ -537,6 +546,7 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
+    '/comments': () => urls.comments(),
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
@@ -568,11 +578,13 @@ export const redirects: Record<
     '/messaging': urls.messaging('campaigns'),
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-pipelines': urls.dataPipelines('overview'),
+    '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
 }
 
 export const routes: Record<string, [Scene | string, string]> = {
+    [urls.newTab()]: [Scene.NewTab, 'newTab'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
@@ -612,10 +624,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.activity(':tab')]: [Scene.Activity, 'activity'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
-    ...Object.values(ReplayTabs).reduce((acc, tab) => {
-        acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
-        return acc
-    }, {} as Record<string, [Scene, string]>),
+    ...Object.values(ReplayTabs).reduce(
+        (acc, tab) => {
+            acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
+            return acc
+        },
+        {} as Record<string, [Scene, string]>
+    ),
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
@@ -630,6 +645,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
     [urls.groups(':groupTypeIndex')]: [Scene.PersonsManagement, 'groups'],
+    [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
@@ -648,6 +664,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
+    [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
     [urls.max()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -701,6 +718,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
     [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],

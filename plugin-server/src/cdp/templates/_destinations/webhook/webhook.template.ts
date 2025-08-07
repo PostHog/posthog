@@ -9,7 +9,8 @@ export const template: HogFunctionTemplate = {
     description: 'Sends a webhook templated by the incoming event data',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
-    hog: `
+    code_language: 'hog',
+    code: `
 let payload := {
   'headers': inputs.headers,
   'body': inputs.body,

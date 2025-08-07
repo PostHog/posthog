@@ -30,7 +30,87 @@ import {
     ExternalDataSourceType,
     SourceConfig,
     SourceFieldConfig,
+    SourceFieldSwitchGroupConfig,
 } from '~/queries/schema/schema-general'
+
+export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
+    name: 'ssh_tunnel',
+    label: 'Use SSH tunnel?',
+    type: 'switch-group',
+    default: false,
+    fields: [
+        {
+            name: 'host',
+            label: 'Tunnel host',
+            type: 'text',
+            required: true,
+            placeholder: 'localhost',
+        },
+        {
+            name: 'port',
+            label: 'Tunnel port',
+            type: 'number',
+            required: true,
+            placeholder: '22',
+        },
+        {
+            type: 'select',
+            name: 'auth',
+            label: 'Authentication type',
+            required: true,
+            defaultValue: 'password',
+            options: [
+                {
+                    label: 'Password',
+                    value: 'password',
+                    fields: [
+                        {
+                            name: 'username',
+                            label: 'Tunnel username',
+                            type: 'text',
+                            required: true,
+                            placeholder: 'User1',
+                        },
+                        {
+                            name: 'password',
+                            label: 'Tunnel password',
+                            type: 'password',
+                            required: true,
+                            placeholder: '',
+                        },
+                    ],
+                },
+                {
+                    label: 'Key pair',
+                    value: 'keypair',
+                    fields: [
+                        {
+                            name: 'username',
+                            label: 'Tunnel username',
+                            type: 'text',
+                            required: false,
+                            placeholder: 'User1',
+                        },
+                        {
+                            name: 'private_key',
+                            label: 'Tunnel private key',
+                            type: 'textarea',
+                            required: true,
+                            placeholder: '',
+                        },
+                        {
+                            name: 'passphrase',
+                            label: 'Tunnel passphrase',
+                            type: 'password',
+                            required: false,
+                            placeholder: '',
+                        },
+                    ],
+                },
+            ],
+        },
+    ],
+}
 
 export const buildKeaFormDefaultFromSourceDetails = (
     sourceDetails: Record<string, SourceConfig>
@@ -49,6 +129,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
 
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+
             if (hasOptionFields) {
                 obj[field.name] = {}
                 obj[field.name]['selection'] = field.defaultValue
@@ -67,7 +148,13 @@ export const buildKeaFormDefaultFromSourceDetails = (
     return sourceDetailsKeys.reduce(
         (defaults, cur) => {
             const fields = sourceDetails[cur].fields
-            fields.forEach((f) => fieldDefaults(f, defaults['payload']))
+            fields.forEach((f) => {
+                if (f.type === 'ssh-tunnel') {
+                    fieldDefaults(SSH_FIELD, defaults['payload'])
+                } else {
+                    fieldDefaults(f, defaults['payload'])
+                }
+            })
 
             return defaults
         },
@@ -687,6 +774,7 @@ export const getErrorsForFields = (
 
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+
             if (!hasOptionFields) {
                 if (field.required && !valueObj[field.name]) {
                     errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
@@ -701,14 +789,18 @@ export const getErrorsForFields = (
             return
         }
 
-        // All other types
-        if (field.required && !valueObj[field.name]) {
+        // All other types - check if required property exists on this field type
+        if ('required' in field && field.required && !valueObj[field.name]) {
             errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
         }
     }
 
     for (const field of fields) {
-        validateField(field, values?.payload ?? {}, errors['payload'])
+        if (field.type === 'ssh-tunnel') {
+            validateField(SSH_FIELD, values?.payload ?? {}, errors['payload'])
+        } else {
+            validateField(field, values?.payload ?? {}, errors['payload'])
+        }
     }
 
     return errors

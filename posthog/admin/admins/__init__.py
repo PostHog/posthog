@@ -24,3 +24,4 @@ from .user_admin import UserAdmin
 from .project_admin import ProjectAdmin
 from .hog_function_admin import HogFunctionAdmin
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
+from .personal_api_key_admin import PersonalAPIKeyAdmin

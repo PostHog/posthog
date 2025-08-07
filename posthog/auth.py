@@ -3,6 +3,7 @@ import re
 from datetime import timedelta
 from typing import Any, Optional, Union
 from urllib.parse import urlsplit
+from prometheus_client import Counter
 
 import jwt
 from django.apps import apps
@@ -26,6 +27,12 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from django.contrib.auth.models import AnonymousUser
 from zxcvbn import zxcvbn
+
+PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
+    "api_auth_personal_api_key_query_param",
+    "Requests where the personal api key is specified in a query parameter",
+    labelnames=["user_uuid"],
+)
 
 
 class ZxcvbnValidator:
@@ -94,9 +101,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], "query string"
-        if extra_data and "personal_api_key" in extra_data:
-            # compatibility with /capture endpoint
-            return extra_data["personal_api_key"], "query string data"
         return None
 
     @classmethod
@@ -141,6 +145,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
             key_to_update.secure_value = hash_key_value(personal_api_key)
             key_to_update.save(update_fields=["secure_value"])
+
+        if source == "query string":
+            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
 
@@ -187,7 +194,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
     2. Request body.
-    3. Request query string.
     """
 
     keyword = "Bearer"
@@ -211,9 +217,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
 
         if data and "secret_api_key" in data:
             return data["secret_api_key"]
-
-        if "secret_api_key" in request.GET:
-            return request.GET["secret_api_key"]
 
         return None
 

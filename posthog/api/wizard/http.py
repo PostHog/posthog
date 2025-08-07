@@ -6,9 +6,11 @@ from typing import Optional
 
 from django.utils.crypto import get_random_string
 import posthoganalytics
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework import viewsets
+from rest_framework import viewsets, response
 from django.core.cache import cache
 from rest_framework import serializers, exceptions
 from openai.types.chat import (
@@ -20,11 +22,13 @@ from posthoganalytics.ai.openai import OpenAI
 from posthoganalytics.ai.gemini import genai
 from google.genai.types import GenerateContentConfig, Schema
 
-from posthog.rate_limit import SetupWizardQueryRateThrottle
+from posthog.api.wizard.utils import json_schema_to_gemini_schema
+from posthog.cloud_utils import get_api_host
+from posthog.permissions import APIScopePermission
+from posthog.rate_limit import SetupWizardQueryRateThrottle, SetupWizardAuthenticationRateThrottle
 from rest_framework.exceptions import AuthenticationFailed
-
-from ..utils import action
-from .utils import json_schema_to_gemini_schema
+from posthog.models.project import Project
+from posthog.user_permissions import UserPermissions
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
@@ -79,6 +83,20 @@ class SetupWizardViewSet(viewsets.ViewSet):
     lookup_field = "hash"
     lookup_url_kwarg = "hash"
 
+    def dangerously_get_permissions(self):
+        # API Level permissions are only required during the authentication step.
+        # For all other actions we use a cache key to authenticate.
+        if self.action == "authenticate":
+            return [IsAuthenticated(), APIScopePermission()]
+
+        raise NotImplementedError()
+
+    def dangerously_get_required_scopes(self):
+        if self.action == "authenticate":
+            return ["team:read"]
+
+        return []
+
     @action(methods=["POST"], detail=False, url_path="initialize")
     def initialize(self, request: Request) -> Response:
         """
@@ -130,12 +148,24 @@ class SetupWizardViewSet(viewsets.ViewSet):
         model = validated_data["model"]
 
         hash = request.headers.get("X-PostHog-Wizard-Hash")
+        fixture_generation = request.headers.get("X-PostHog-Wizard-Fixture-Generation")
 
         if not hash:
             raise AuthenticationFailed("X-PostHog-Wizard-Hash header is required.")
 
         key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
         wizard_data = cache.get(key)
+
+        # wizard_data should only be mocked during the @posthog/wizard E2E tests, so that fixtures can be generated.
+        mock_wizard_data = settings.DEBUG and fixture_generation
+
+        if mock_wizard_data:
+            wizard_data = {
+                "project_api_key": "mock-project-api-key",
+                "host": "http://localhost:8010",
+                "user_distinct_id": "mock-user-id",
+            }
+            cache.set(key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
         if wizard_data is None:
             raise AuthenticationFailed("Invalid hash.")
@@ -214,6 +244,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                     "ai_product": "wizard",
                     "ai_feature": "query",
                 },
+                temperature=1.0,
             )
 
             if (
@@ -233,3 +264,49 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.ValidationError(f"Model '{model}' is not supported.")
 
         return Response({"data": response_data})
+
+    @action(
+        methods=["POST"],
+        url_path="authenticate",
+        detail=False,
+        throttle_classes=[SetupWizardAuthenticationRateThrottle],
+    )
+    def authenticate(self, request, **kwargs):
+        hash = request.data.get("hash")
+        project_id = request.data.get("projectId")
+
+        if not hash:
+            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
+
+        if not project_id:
+            raise serializers.ValidationError({"projectId": ["This field is required."]}, code="required")
+
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+        wizard_data = cache.get(cache_key)
+
+        if wizard_data is None:
+            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
+
+        try:
+            project = Project.objects.get(id=project_id)
+
+            # Verify user has access to this project
+            visible_teams_ids = UserPermissions(request.user).team_ids_visible_for_user
+            if project.id not in visible_teams_ids:
+                raise serializers.ValidationError(
+                    {"projectId": ["You don't have access to this project."]}, code="permission_denied"
+                )
+
+            project_api_token = project.passthrough_team.api_token
+        except Project.DoesNotExist:
+            raise serializers.ValidationError({"projectId": ["This project does not exist."]}, code="not_found")
+
+        wizard_data = {
+            "project_api_key": project_api_token,
+            "host": get_api_host(),
+            "user_distinct_id": request.user.distinct_id,
+        }
+
+        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
+
+        return response.Response({"success": True}, status=200)

@@ -63,6 +63,7 @@ pub struct DateRangeExportSourceBuilder {
     end_qp: String,
     timeout: Duration,
     retries: usize,
+    retry_delay: Duration,
     auth_config: AuthConfig,
     date_format: String,
     headers: HashMap<String, String>,
@@ -86,6 +87,7 @@ impl DateRangeExportSourceBuilder {
             end_qp: "end".to_string(),
             timeout: Duration::from_secs(30),
             retries: 3,
+            retry_delay: Duration::from_secs(30),
             auth_config: AuthConfig::None,
             date_format: "%Y-%m-%dT%H:%M:%SZ".to_string(),
             headers: HashMap::new(),
@@ -105,6 +107,11 @@ impl DateRangeExportSourceBuilder {
 
     pub fn with_retries(mut self, retries: usize) -> Self {
         self.retries = retries;
+        self
+    }
+
+    pub fn with_retry_delay(mut self, retry_delay: Duration) -> Self {
+        self.retry_delay = retry_delay;
         self
     }
 
@@ -149,6 +156,7 @@ impl DateRangeExportSourceBuilder {
             date_format: self.date_format,
             client,
             retries: self.retries,
+            retry_delay: self.retry_delay,
             extractor: self.extractor,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
@@ -161,6 +169,7 @@ pub struct DateRangeExportSource {
     pub intervals: Vec<(DateTime<Utc>, DateTime<Utc>)>,
     pub client: Client,
     pub retries: usize,
+    pub retry_delay: Duration,
     pub extractor: Arc<dyn PartExtractor>,
     pub start_qp: String,
     pub end_qp: String,
@@ -213,6 +222,15 @@ impl DateRangeExportSource {
         Some((start, end))
     }
 
+    pub fn format_date_range_from_key(&self, key: &str) -> Option<String> {
+        let (start, end) = self.interval_from_key(key)?;
+        Some(format!(
+            "{} to {}",
+            start.format("%Y-%m-%d %H:%M UTC"),
+            end.format("%Y-%m-%d %H:%M UTC")
+        ))
+    }
+
     async fn get_temp_dir_path(&self) -> Result<PathBuf, Error> {
         let temp_dir_guard = self.temp_dir.lock().await;
         Ok(temp_dir_guard
@@ -262,6 +280,44 @@ impl DateRangeExportSource {
         }
 
         info!("Downloading and preparing key: {}", key);
+
+        let mut retries = self.retries;
+        loop {
+            match self
+                .download_and_prepare_part_data_inner(key, start, end)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    // Check if this is a rate limit error by looking for a 429 status in the error chain
+                    let is_rate_limit_error = e.chain().any(|err| {
+                        if let Some(reqwest_err) = err.downcast_ref::<ReqwestError>() {
+                            reqwest_err
+                                .status()
+                                .map_or(false, |status| status.as_u16() == 429)
+                        } else {
+                            false
+                        }
+                    });
+
+                    if is_rate_limit_error && retries > 0 {
+                        info!("Rate limit hit (429), sleeping for {:?} before retry. Retries remaining: {}", self.retry_delay, retries);
+                        tokio::time::sleep(self.retry_delay).await;
+                        retries -= 1;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    }
+
+    async fn download_and_prepare_part_data_inner(
+        &self,
+        key: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<ExtractedPartData, Error> {
         let mut request = self.client.get(&self.base_url).query(&[
             (&self.start_qp, start.format(&self.date_format).to_string()),
             (&self.end_qp, end.format(&self.date_format).to_string()),
@@ -297,7 +353,11 @@ impl DateRangeExportSource {
         // We want to return something to the .process() thread so that we end up making a commit
         // for this key/part of the overall job
         if response.status() == 404 {
-            info!("No data available for key: {} (404 response)", key);
+            info!(
+                "No data available for key: {} (404 response), sleeping for 2 seconds",
+                key
+            );
+            tokio::time::sleep(Duration::from_secs(2)).await;
             let temp_dir = self.get_temp_dir_path().await?;
 
             let empty_data_file_path = temp_dir.join(format!("{}.data", key.replace(':', "_")));
@@ -564,6 +624,10 @@ impl DataSource for DateRangeExportSource {
             }
         }
         Ok(())
+    }
+
+    fn get_date_range_for_key(&self, key: &str) -> Option<String> {
+        self.format_date_range_from_key(key)
     }
 }
 
@@ -977,6 +1041,115 @@ mod tests {
         let _chunk = source.get_chunk(key, 0, file_size).await.unwrap();
 
         assert!(source.size(key).await.unwrap().is_none());
+
+        source.cleanup_after_job().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_format_date_range_from_key() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
+        let formatted = source.format_date_range_from_key(key).unwrap();
+
+        assert_eq!(formatted, "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC");
+    }
+
+    #[tokio::test]
+    async fn test_format_date_range_from_key_different_dates() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key = "2023-12-31T23:30:00+00:00_2024-01-01T00:30:00+00:00";
+        let formatted = source.format_date_range_from_key(key).unwrap();
+
+        assert_eq!(formatted, "2023-12-31 23:30 UTC to 2024-01-01 00:30 UTC");
+    }
+
+    #[tokio::test]
+    async fn test_format_date_range_from_invalid_key() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key = "invalid-key-format";
+        let formatted = source.format_date_range_from_key(key);
+
+        assert!(formatted.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_date_range_for_key_trait_method() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key = "2023-06-15T12:00:00+00:00_2023-06-15T13:00:00+00:00";
+        let date_range = source.get_date_range_for_key(key).unwrap();
+
+        assert_eq!(date_range, "2023-06-15 12:00 UTC to 2023-06-15 13:00 UTC");
+    }
+
+    #[tokio::test]
+    async fn test_format_date_range_edge_cases() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key_with_ms = "2023-01-01T00:00:00.123+00:00_2023-01-01T01:30:45.456+00:00";
+        let formatted = source.format_date_range_from_key(key_with_ms).unwrap();
+        assert_eq!(formatted, "2023-01-01 00:00 UTC to 2023-01-01 01:30 UTC");
+
+        let invalid_key = "2023-01-01T00:00:00+00:00";
+        assert!(source.format_date_range_from_key(invalid_key).is_none());
+
+        let invalid_key2 = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00_extra";
+        assert!(source.format_date_range_from_key(invalid_key2).is_none());
+
+        let invalid_date_key = "invalid-date_2023-01-01T01:00:00+00:00";
+        assert!(source
+            .format_date_range_from_key(invalid_date_key)
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn test_429_exhausts_retries() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(429); // Always return 429
+        });
+
+        let source = DateRangeExportSource::builder(
+            server.url("/export"),
+            Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
+            3600,
+            Arc::new(MockExtractor),
+        )
+        .with_retries(2)
+        .with_retry_delay(Duration::from_millis(1))
+        .build()
+        .unwrap();
+
+        source.prepare_for_job().await.unwrap();
+        let keys = source.keys().await.unwrap();
+        let key = &keys[0];
+
+        let result = source.prepare_key(key).await;
+        assert!(result.is_err());
+
+        // Check that we get a reqwest error with 429 status
+        if let Some(reqwest_error) = result.unwrap_err().downcast_ref::<ReqwestError>() {
+            assert_eq!(reqwest_error.status().unwrap().as_u16(), 429);
+        } else {
+            panic!("Expected reqwest error with 429 status");
+        }
+
+        assert_eq!(
+            mock.hits(),
+            3,
+            "Should have made 3 calls (initial + 2 retries)"
+        );
 
         source.cleanup_after_job().await.unwrap();
     }

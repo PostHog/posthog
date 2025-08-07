@@ -1,24 +1,21 @@
-import { getNiceTickValues } from '../shared/utils'
-import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE_NEW } from './constants'
-import { useAxisScale } from './useAxisScale'
-import { TickLabels } from './TickLabels'
+import { useEffect, useMemo, useState } from 'react'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
-import { useEffect, useState, useMemo } from 'react'
+import { getNiceTickValues } from '../shared/utils'
+import { SVG_EDGE_MARGIN, TICK_FONT_SIZE_NEW, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
+import { TickLabels } from './TickLabels'
+import { useAxisScale } from './useAxisScale'
 
 interface TableHeaderProps {
-    results: NewExperimentQueryResponse[]
-    chartRadius?: number
+    axisRange?: number
 }
 
-export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
-    const significanceHeader = 'Change'
+export function TableHeader({ axisRange }: TableHeaderProps): JSX.Element {
     const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
 
     // Set up tick values and scaling for the header
-    const tickValues = useMemo(() => (chartRadius ? getNiceTickValues(chartRadius) : []), [chartRadius])
-    const scale = useAxisScale(chartRadius || 0, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-    const { ticksSvgRef } = useSvgResizeObserver([tickValues, chartRadius])
+    const tickValues = useMemo(() => (axisRange ? getNiceTickValues(axisRange) : []), [axisRange])
+    const scale = useAxisScale(axisRange || 0, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const { ticksSvgRef } = useSvgResizeObserver([tickValues, axisRange])
 
     // Track SVG width for font scaling compensation
     useEffect(() => {
@@ -34,7 +31,7 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
             window.addEventListener('resize', updateWidth)
             return () => window.removeEventListener('resize', updateWidth)
         }
-    }, [ticksSvgRef, tickValues, chartRadius])
+    }, [ticksSvgRef, tickValues, axisRange])
 
     return (
         <thead>
@@ -49,16 +46,17 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                     Value
                 </th>
                 <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
-                    {significanceHeader}
+                    Delta
                 </th>
-                <th className="min-w-[600px] border-b-2 bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
-                    {chartRadius && chartRadius > 0 ? (
-                        <div className="min-w-[600px]">
+                <th className="border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
+                <th className="border-b-2 bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                    {axisRange && axisRange > 0 ? (
+                        <div>
                             <svg
                                 ref={ticksSvgRef}
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT + 10}`}
                                 preserveAspectRatio="xMidYMid meet"
-                                className="w-full max-w-[1000px]"
+                                className="w-full"
                                 style={{
                                     minHeight: `${TICK_PANEL_HEIGHT + 10}px`,
                                 }}
@@ -79,7 +77,6 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                         <div className="p-3" />
                     )}
                 </th>
-                <th className="w-1/30 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
             </tr>
         </thead>
     )

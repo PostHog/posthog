@@ -1,0 +1,12 @@
+{
+    "migrationsDir": "./cassandra/migrations",
+    "hosts": ["cassandra"],
+    "port": 9042,
+    "keyspace": "posthog",
+    "consistency": "LOCAL_ONE",
+    "replication": {
+        "class": "SimpleStrategy",
+        "replication_factor": 1
+    },
+    "createKeyspace": true
+}

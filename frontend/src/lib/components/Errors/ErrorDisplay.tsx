@@ -10,6 +10,16 @@ import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ChainedStackTraces } from './StackTraces'
 import { ErrorEventId, ErrorEventProperties } from './types'
 import { concatValues } from './utils'
+import { EventType, RecordingEventType } from '~/types'
+import { dayjs } from 'lib/dayjs'
+
+export function idFrom(event: EventType | RecordingEventType): string {
+    if ('uuid' in event && event.uuid) {
+        return event.uuid
+    }
+    // Fallback to timestamp if uuid is not available
+    return event.timestamp ? dayjs(event.timestamp).toISOString() : (event.id ?? 'error')
+}
 
 export function ErrorDisplay({
     eventProperties,
@@ -31,7 +41,7 @@ export function ErrorDisplayContent(): JSX.Element {
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
-            {!hasStacktrace && <div className="text-secondary italic">{value}</div>}
+            {!hasStacktrace && !!value && <div className="text-secondary italic">{value}</div>}
             <div className="flex flex-row gap-2 flex-wrap">
                 <TitledSnack
                     type="success"

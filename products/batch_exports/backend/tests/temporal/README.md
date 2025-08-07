@@ -19,7 +19,7 @@ Then, a [key](https://cloud.google.com/iam/docs/keys-create-delete#creating) can
 Tests for BigQuery batch exports can be then run from the root of the `posthog` repo:
 
 ```bash
-DEBUG=1 GOOGLE_APPLICATION_CREDENTIALS=/path/to/my/project-credentials.json pytest products/batch_exports/backend/tests/temporal/test_bigquery_batch_export_workflow.py
+DEBUG=1 GOOGLE_APPLICATION_CREDENTIALS=/path/to/my/project-credentials.json pytest products/batch_exports/backend/tests/temporal/destinations/test_bigquery_batch_export_workflow.py
 ```
 
 ## Testing Redshift batch exports
@@ -38,7 +38,7 @@ To enable testing for Redshift batch exports, we require:
 For PostHog employees, check the password manager as a set of development credentials should already be available. You will also need to use the `dev` exit node in Tailscale and be added to the `group:engineering` group in the tailnet policy. With these credentials, and Tailscale setup, we can run the tests from the root of the `posthog` repo with:
 
 ```bash
-DEBUG=1 REDSHIFT_HOST=workgroup.111222333.region.redshift-serverless.amazonaws.com REDSHIFT_USER=test_user REDSHIFT_PASSWORD=test_password pytest products/batch_exports/backend/tests/temporal/test_redshift_batch_export_workflow.py
+DEBUG=1 REDSHIFT_HOST=workgroup.111222333.region.redshift-serverless.amazonaws.com REDSHIFT_USER=test_user REDSHIFT_PASSWORD=test_password pytest products/batch_exports/backend/tests/temporal/destinations/test_redshift_batch_export_workflow.py
 ```
 
 Replace the `REDSHIFT_*` environment variables with the values obtained from the setup steps.
@@ -58,7 +58,7 @@ S3 batch exports are tested against a MinIO bucket available in the local develo
 With these setup steps done, we can run all tests (MinIO and S3 bucket) from the root of the `posthog` repo with:
 
 ```bash
-DEBUG=1 S3_TEST_KMS_KEY_ID='1111111-2222-3333-4444-55555555555' S3_TEST_BUCKET='your-test-bucket' pytest products/batch_exports/backend/tests/temporal/test_s3_batch_export_workflow.py
+DEBUG=1 S3_TEST_KMS_KEY_ID='1111111-2222-3333-4444-55555555555' S3_TEST_BUCKET='your-test-bucket' pytest products/batch_exports/backend/tests/temporal/destinations/test_s3_batch_export_workflow.py
 ```
 
 Replace the `S3_*` environment variables with the values obtained from the setup steps.
@@ -85,7 +85,7 @@ We currently support 2 types of authentication for Snowflake batch exports:
 For password authentication, you can run the tests from the root of the `posthog` repo with:
 
 ```bash
-DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' SNOWFLAKE_PASSWORD='your-password' SNOWFLAKE_ACCOUNT='your-account' SNOWFLAKE_ROLE='your-role' pytest products/batch_exports/backend/tests/temporal/test_snowflake_batch_export_workflow.py
+DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' SNOWFLAKE_PASSWORD='your-password' SNOWFLAKE_ACCOUNT='your-account' SNOWFLAKE_ROLE='your-role' pytest products/batch_exports/backend/tests/temporal/destinations/test_snowflake_batch_export_workflow.py
 ```
 
 Replace the `SNOWFLAKE_*` environment variables with the values obtained from the setup steps.
@@ -97,7 +97,7 @@ For key pair authentication, you will first need to generate a key pair. You can
 Once you have generated the key pair, you can run the tests from the root of the `posthog` repo with:
 
 ```bash
-DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' SNOWFLAKE_PRIVATE_KEY='your-private-key' SNOWFLAKE_PRIVATE_KEY_PASSPHRASE='your-passphrase' SNOWFLAKE_ACCOUNT='your-account' SNOWFLAKE_ROLE='your-role' pytest products/batch_exports/backend/tests/temporal/test_snowflake_batch_export_workflow.py
+DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' SNOWFLAKE_PRIVATE_KEY='your-private-key' SNOWFLAKE_PRIVATE_KEY_PASSPHRASE='your-passphrase' SNOWFLAKE_ACCOUNT='your-account' SNOWFLAKE_ROLE='your-role' pytest products/batch_exports/backend/tests/temporal/destinations/test_snowflake_batch_export_workflow.py
 ```
 
 Replace the `SNOWFLAKE_*` environment variables with the values obtained from the setup steps.

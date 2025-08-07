@@ -414,7 +414,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                                 histogram_bin_count: isHistogramable
                                     ? savedBreakdown.histogram_bin_count || 10
                                     : undefined,
-                                normalize_url: isNormalizeable ? savedBreakdown.normalize_url ?? true : undefined,
+                                normalize_url: isNormalizeable ? (savedBreakdown.normalize_url ?? true) : undefined,
                             }
                         }
 

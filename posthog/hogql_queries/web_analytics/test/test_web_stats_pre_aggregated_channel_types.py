@@ -355,24 +355,24 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
 
         # Assert direct expected results - format: [channel_name, (sessions, persons), (pageviews, views), '']
         expected_results = [
-            ["Affiliate", (1.0, None), (1.0, None), ""],
-            ["Audio", (1.0, None), (1.0, None), ""],
-            ["Cross Network", (1.0, None), (1.0, None), ""],
-            ["Direct", (2.0, None), (2.0, None), ""],  # Now 2 Direct sessions
-            ["Email", (1.0, None), (1.0, None), ""],
-            ["Organic Search", (1.0, None), (1.0, None), ""],
-            ["Organic Shopping", (1.0, None), (1.0, None), ""],
-            ["Organic Social", (1.0, None), (1.0, None), ""],
-            ["Organic Video", (1.0, None), (1.0, None), ""],
-            ["Paid Search", (1.0, None), (1.0, None), ""],  # gad_source=1
-            ["Paid Shopping", (1.0, None), (1.0, None), ""],  # shopping source with cpc medium
-            ["Paid Social", (1.0, None), (1.0, None), ""],  # facebook cpc
-            ["Paid Unknown", (2.0, None), (2.0, None), ""],  # gclid + unknown_source cpc
-            ["Paid Video", (1.0, None), (1.0, None), ""],
-            ["Push", (1.0, None), (1.0, None), ""],
-            ["Referral", (1.0, None), (1.0, None), ""],
-            ["SMS", (1.0, None), (1.0, None), ""],
-            ["Unknown", (1.0, None), (1.0, None), ""],
+            ["Affiliate", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Audio", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Cross Network", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Direct", (2.0, None), (2.0, None), 2 / 20, ""],  # Now 2 Direct sessions
+            ["Email", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Organic Search", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Organic Shopping", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Organic Social", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Organic Video", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Paid Search", (1.0, None), (1.0, None), 1 / 20, ""],  # gad_source=1
+            ["Paid Shopping", (1.0, None), (1.0, None), 1 / 20, ""],  # shopping source with cpc medium
+            ["Paid Social", (1.0, None), (1.0, None), 1 / 20, ""],  # facebook cpc
+            ["Paid Unknown", (2.0, None), (2.0, None), 2 / 20, ""],  # gclid + unknown_source cpc
+            ["Paid Video", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Push", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Referral", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["SMS", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Unknown", (1.0, None), (1.0, None), 1 / 20, ""],
         ]
 
         actual_sorted = sorted(response.results, key=lambda x: str(x[0]))

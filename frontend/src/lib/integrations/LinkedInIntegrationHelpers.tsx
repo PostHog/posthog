@@ -5,6 +5,7 @@ import { useEffect, useMemo } from 'react'
 import { IntegrationType, LinkedInAdsAccountType, LinkedInAdsConversionRuleType } from '~/types'
 
 import { linkedInAdsIntegrationLogic } from './linkedInAdsIntegrationLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const getLinkedInAdsAccountOptions = (
     linkedInAdsAccounts?: LinkedInAdsAccountType[] | null
@@ -117,11 +118,11 @@ export function LinkedInAdsAccountIdPicker({
         [linkedInAdsAccounts]
     )
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         if (!disabled) {
             loadLinkedInAdsAccounts()
         }
-    }, [loadLinkedInAdsAccounts])
+    })
 
     return (
         <>

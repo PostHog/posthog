@@ -11,15 +11,16 @@ from unittest.mock import MagicMock, patch
 
 from pytest_mock import MockerFixture
 
-from ee.session_recordings.session_summary import ExceptionToRetry
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
-from ee.session_recordings.session_summary.summarize_session import (
+from ee.hogai.session_summaries import ExceptionToRetry
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
+from ee.hogai.session_summaries.session.summarize_session import (
     SingleSessionSummaryData,
     SingleSessionSummaryLlmInputs,
 )
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     _compress_redis_data,
+    decompress_redis_data,
     generate_state_key,
     get_data_class_from_redis,
     get_redis_state_client,
@@ -28,11 +29,11 @@ from posthog.temporal.ai.session_summary.summarize_session import (
     SummarizeSingleSessionWorkflow,
     execute_summarize_session_stream,
     stream_llm_single_session_summary_activity,
+    fetch_session_data_activity,
 )
-from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.testing import WorkflowEnvironment
-from ee.session_recordings.session_summary.utils import serialize_to_sse_event
+from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
 from openai.types.completion_usage import CompletionUsage
 from posthog.temporal.ai import WORKFLOWS
@@ -103,13 +104,13 @@ class TestFetchSessionDataActivity:
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
             # Mock DB calls
-            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
             patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
             ),
             patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_events",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_events",
                 return_value=(mock_raw_events_columns, mock_raw_events),
             ),
         ):
@@ -143,17 +144,19 @@ class TestFetchSessionDataActivity:
         input_data = mock_single_session_summary_inputs(mock_session_id, "test-no-events-key-base")
         with (
             # Mock DB calls - return columns but no events (empty list)
-            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
             patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
             ),
             patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_events",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_events",
                 return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ),
         ):
-            with patch("posthog.temporal.ai.session_summary.shared.logger.exception") as mock_logger_exception:
+            with patch(
+                "posthog.temporal.ai.session_summary.summarize_session.logger.exception"
+            ) as mock_logger_exception:
                 # Call the activity and expect an ExceptionToRetry to be raised
                 with pytest.raises(ExceptionToRetry):
                     await fetch_session_data_activity(input_data)
@@ -200,7 +203,7 @@ class TestStreamLlmSummaryActivity:
         # Run the activity and verify results
         expected_final_summary = json.dumps(mock_enriched_llm_json_response)
         with (
-            patch("ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()),
+            patch("ee.hogai.session_summaries.llm.consume.stream_llm", return_value=mock_stream_llm()),
             patch("temporalio.activity.heartbeat") as mock_heartbeat,
             patch("temporalio.activity.info") as mock_activity_info,
         ):
@@ -238,17 +241,15 @@ class TestSummarizeSingleSessionWorkflow:
             ) as worker:
                 with (
                     # Mock LLM call
-                    patch(
-                        "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
-                    ),
+                    patch("ee.hogai.session_summaries.llm.consume.stream_llm", return_value=mock_stream_llm()),
                     # Mock DB calls
-                    patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
+                    patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
                     patch(
-                        "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                        "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                         return_value=mock_raw_metadata,
                     ),
                     patch(
-                        "ee.session_recordings.session_summary.summarize_session.get_session_events",
+                        "ee.hogai.session_summaries.session.summarize_session.get_session_events",
                         return_value=(mock_raw_events_columns, mock_raw_events),
                     ),
                     # Mock deterministic hex generation
@@ -293,6 +294,180 @@ class TestSummarizeSingleSessionWorkflow:
             event_label="session-summary-stream", event_data=expected_final_summary
         )
         return session_id, workflow_id, workflow_input, expected_final_summary, expected_sse_final_summary
+
+    def test_execute_summarize_session_stream_compression_decompression(
+        self,
+        mock_enriched_llm_json_response: dict[str, Any],
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_single_session_summary_llm_inputs: Callable,
+        sync_redis_test_setup: SyncRedisTestContext,
+    ):
+        """Test that data is properly compressed before storage and decompressed during streaming."""
+        # Prepare input data
+        sample_session_summary_data = SingleSessionSummaryData(
+            session_id=mock_session_id,
+            user_id=mock_user.id,
+            prompt_data=True,  # type: ignore
+            prompt=True,  # type: ignore
+            error_msg=None,
+        )
+        input_data = mock_single_session_summary_llm_inputs(mock_session_id)
+        # Mock Redis data for streaming updates
+        expected_final_summary = json.dumps(mock_enriched_llm_json_response)
+        expected_sse_final_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=expected_final_summary
+        )
+        intermediate_summary = json.dumps({"partial": "data"})
+        intermediate_sse_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=intermediate_summary
+        )
+        # Create compressed Redis data
+        intermediate_redis_data = {"last_summary_state": intermediate_summary, "timestamp": 1234567890}
+        final_redis_data = {"last_summary_state": expected_final_summary, "timestamp": 1234567891}
+        # Compress the data as it would be stored in Redis
+        compressed_intermediate_data = _compress_redis_data(json.dumps(intermediate_redis_data))
+        compressed_final_data = _compress_redis_data(json.dumps(final_redis_data))
+        # Track Redis calls to properly mock responses
+        redis_call_count = 0
+
+        def mock_redis_get(key: str) -> bytes | None:
+            nonlocal redis_call_count
+            # Return compressed data as bytes, as stored in Redis
+            if "session_summary" in key:
+                current_call_number = redis_call_count
+                redis_call_count += 1
+                # First call - no data yet
+                if current_call_number == 0:
+                    return None
+                # Second call - stream chunk (compressed)
+                elif current_call_number == 1:
+                    return compressed_intermediate_data
+                # Third call - final data (compressed)
+                else:
+                    return compressed_final_data
+            return None
+
+        # Simulate workflow states: RUNNING -> RUNNING with data -> COMPLETED
+        mock_workflow_handle = MagicMock()
+        mock_workflow_handle.describe = AsyncMock(
+            side_effect=[
+                MagicMock(status=WorkflowExecutionStatus.RUNNING),  # First poll - no data yet
+                MagicMock(status=WorkflowExecutionStatus.RUNNING),  # Second poll - with streaming data
+                MagicMock(status=WorkflowExecutionStatus.COMPLETED),  # Final poll - completed
+            ]
+        )
+        mock_workflow_handle.result = AsyncMock(return_value=expected_final_summary)
+        with (
+            patch(
+                "ee.hogai.session_summaries.session.summarize_session.prepare_data_for_single_session_summary",
+                return_value=sample_session_summary_data,
+            ),
+            patch(
+                "ee.hogai.session_summaries.session.summarize_session.prepare_single_session_summary_input",
+                return_value=input_data,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                return_value=mock_workflow_handle,
+            ),
+            patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
+            patch.object(sync_redis_test_setup.redis_client, "setex"),  # Does nothing
+            patch.object(sync_redis_test_setup.redis_client, "delete"),  # Does nothing
+            # Spy on decompress_redis_data to ensure it's called
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session.decompress_redis_data",
+                side_effect=decompress_redis_data,
+            ) as mock_decompress,
+            # Mock time.sleep to speed up test
+            patch("posthog.temporal.ai.session_summary.summarize_session.time.sleep"),
+        ):
+            # Collect results one by one to track the calls
+            results = []
+            generator = execute_summarize_session_stream(
+                session_id=mock_session_id,
+                user_id=mock_user.id,
+                team=mock_team,
+                extra_summary_context=None,
+                local_reads_prod=False,
+            )
+            # Collect all results
+            results = list(generator)
+            # Decompress should have been called once for the intermediate data only
+            # (final data comes from workflow result, not Redis)
+            assert mock_decompress.call_count == 1
+            assert mock_decompress.call_args_list[0][0][0] == compressed_intermediate_data
+            # Verify we got the expected streaming results
+            assert len(results) == 2  # intermediate + final
+            assert results[0] == intermediate_sse_summary
+            assert results[1] == expected_sse_final_summary
+            # Verify workflow was polled the expected number of times
+            assert mock_workflow_handle.describe.call_count == 3
+            assert mock_workflow_handle.result.call_count == 1
+            # Verify Redis get was called correctly
+            assert redis_call_count == 2  # Once returning None, once returning intermediate data
+
+    def test_execute_summarize_session_stream_decompression_error(
+        self,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_single_session_summary_llm_inputs: Callable,
+        sync_redis_test_setup: SyncRedisTestContext,
+    ):
+        """Test that proper error is raised when Redis data cannot be decompressed."""
+        # Prepare input data
+        sample_session_summary_data = SingleSessionSummaryData(
+            session_id=mock_session_id,
+            user_id=mock_user.id,
+            prompt_data=True,  # type: ignore
+            prompt=True,  # type: ignore
+            error_msg=None,
+        )
+        input_data = mock_single_session_summary_llm_inputs(mock_session_id)
+        # Create invalid compressed data (not valid gzip)
+        invalid_compressed_data = b"invalid gzip data"
+
+        def mock_redis_get(key: str) -> bytes | None:
+            if "session_summary" in key:
+                return invalid_compressed_data
+            return None
+
+        # Simulate workflow running
+        mock_workflow_handle = MagicMock()
+        mock_workflow_handle.describe = AsyncMock(return_value=MagicMock(status=WorkflowExecutionStatus.RUNNING))
+        with (
+            patch(
+                "ee.hogai.session_summaries.session.summarize_session.prepare_data_for_single_session_summary",
+                return_value=sample_session_summary_data,
+            ),
+            patch(
+                "ee.hogai.session_summaries.session.summarize_session.prepare_single_session_summary_input",
+                return_value=input_data,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                return_value=mock_workflow_handle,
+            ),
+            patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
+            patch.object(sync_redis_test_setup.redis_client, "setex"),
+            patch.object(sync_redis_test_setup.redis_client, "delete"),
+        ):
+            # Execute and expect ValueError due to decompression failure
+            with pytest.raises(ValueError) as exc_info:
+                list(
+                    execute_summarize_session_stream(
+                        session_id=mock_session_id,
+                        user_id=mock_user.id,
+                        team=mock_team,
+                        extra_summary_context=None,
+                        local_reads_prod=False,
+                    )
+                )
+
+            # Verify the error message mentions parsing Redis data
+            assert "Failed to parse Redis output data" in str(exc_info.value)
 
     def test_execute_summarize_session_stream(
         self,
@@ -353,11 +528,11 @@ class TestSummarizeSingleSessionWorkflow:
         mock_workflow_handle.result = AsyncMock(return_value=expected_final_summary)
         with (
             patch(
-                "ee.session_recordings.session_summary.summarize_session.prepare_data_for_single_session_summary",
+                "ee.hogai.session_summaries.session.summarize_session.prepare_data_for_single_session_summary",
                 return_value=sample_session_summary_data,
             ),
             patch(
-                "ee.session_recordings.session_summary.summarize_session.prepare_single_session_summary_input",
+                "ee.hogai.session_summaries.session.summarize_session.prepare_single_session_summary_input",
                 return_value=input_data,
             ),
             patch(

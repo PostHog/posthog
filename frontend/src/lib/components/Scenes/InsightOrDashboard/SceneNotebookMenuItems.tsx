@@ -17,10 +17,12 @@ import {
     NotebookSelectButtonLogicProps,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { AccessControlLevel, AccessControlResourceType, NotebookListItemType, NotebookTarget } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { AccessControlAction } from '../../AccessControlAction'
+import { SceneDataAttrKeyProps } from '../utils'
+import { NotebookListItemType, NotebookTarget } from 'scenes/notebooks/types'
 
-type SceneNotebookDropdownMenuProps = {
+type SceneNotebookDropdownMenuProps = SceneDataAttrKeyProps & {
     notebookSelectButtonProps?: NotebookSelectButtonLogicProps
     newNotebookTitle?: string
     onNotebookOpened?: (
@@ -33,6 +35,7 @@ export function SceneNotebookMenuItems({
     notebookSelectButtonProps,
     newNotebookTitle,
     onNotebookOpened,
+    dataAttrKey,
 }: SceneNotebookDropdownMenuProps): JSX.Element {
     const logic = notebookSelectButtonLogic({ ...notebookSelectButtonProps })
     const { loadNotebooksContainingResource, loadAllNotebooks } = useActions(logic)
@@ -73,6 +76,7 @@ export function SceneNotebookMenuItems({
             }
             loadAllNotebooks()
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [nodeLogic, resource])
 
     return (
@@ -87,8 +91,13 @@ export function SceneNotebookMenuItems({
                             asChild
                             disabled={!!disabledReason}
                             {...(disabledReason && { tooltip: disabledReason })}
+                            data-attr={`${dataAttrKey}-new-notebook-dropdown-menu-item`}
                         >
-                            <ButtonPrimitive menuItem onClick={openNewNotebook}>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={openNewNotebook}
+                                data-attr={`${dataAttrKey}-new-notebook-button`}
+                            >
                                 <IconPlus />
                                 New notebook
                             </ButtonPrimitive>
@@ -101,6 +110,7 @@ export function SceneNotebookMenuItems({
                         onClick={() => {
                             openAndAddToNotebook('scratchpad', false)
                         }}
+                        data-attr={`${dataAttrKey}-my-scratchpad-dropdown-menu-item`}
                     >
                         <IconNotebook />
                         My scratchpad
@@ -132,6 +142,7 @@ export function SceneNotebookMenuItems({
                                             onClick={() => {
                                                 openAndAddToNotebook(notebook.short_id, true)
                                             }}
+                                            data-attr={`${dataAttrKey}-continue-in-notebook-dropdown-menu-item`}
                                         >
                                             <ButtonPrimitive menuItem tooltip={notebook.title} tooltipPlacement="left">
                                                 <IconNotebook />
@@ -141,7 +152,7 @@ export function SceneNotebookMenuItems({
                                     ))
                                 ) : (
                                     <DropdownMenuItem>
-                                        <ButtonPrimitive menuItem disabled>
+                                        <ButtonPrimitive menuItem inert>
                                             <IconNotebook />
                                             No notebooks found
                                         </ButtonPrimitive>
@@ -158,6 +169,7 @@ export function SceneNotebookMenuItems({
                                     onClick={() => {
                                         openAndAddToNotebook(notebook.short_id, false)
                                     }}
+                                    data-attr={`${dataAttrKey}-add-to-notebook-dropdown-menu-item`}
                                 >
                                     <ButtonPrimitive menuItem tooltip={notebook.title} tooltipPlacement="left">
                                         <IconNotebook />
@@ -167,7 +179,7 @@ export function SceneNotebookMenuItems({
                             ))
                         ) : (
                             <DropdownMenuItem>
-                                <ButtonPrimitive menuItem disabled>
+                                <ButtonPrimitive menuItem inert>
                                     <IconNotebook />
                                     No notebooks found
                                 </ButtonPrimitive>

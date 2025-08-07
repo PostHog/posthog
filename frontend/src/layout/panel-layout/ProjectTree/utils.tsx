@@ -435,3 +435,7 @@ export function appendResultsToFolders(
     }
     return newState
 }
+
+export const isGroupViewShortcut = (shortcut: FileSystemEntry): boolean => {
+    return !!shortcut?.type?.startsWith('group_') && !!shortcut?.type?.endsWith('_view')
+}

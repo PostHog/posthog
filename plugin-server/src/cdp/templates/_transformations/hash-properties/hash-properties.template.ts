@@ -10,7 +10,8 @@ export const template: HogFunctionTemplate = {
         'Hashes sensitive fields with SHA256 using a salt. This helps protect user privacy while maintaining data consistency.',
     icon_url: '/static/hedgehog/police-hog.png',
     category: ['Custom'],
-    hog: `
+    code_language: 'hog',
+    code: `
 // Function to hash a value with SHA256
 fun hashValue(value, salt) {
     if (empty(value) or typeof(value) != 'string') {

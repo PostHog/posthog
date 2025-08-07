@@ -52,8 +52,8 @@ lz-str = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
-axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" } # TODO: remove, directly use reqwest like capture-server tests
 anyhow = { workspace = true }
+axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }

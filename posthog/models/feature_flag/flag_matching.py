@@ -427,7 +427,8 @@ class FeatureFlagMatcher:
         self, feature_flag: FeatureFlag, condition: dict, condition_index: int
     ) -> tuple[bool, FeatureFlagMatchReason]:
         rollout_percentage = condition.get("rollout_percentage")
-        if len(condition.get("properties", [])) > 0:
+        properties = condition.get("properties")
+        if properties and len(properties) > 0:
             properties = Filter(data=condition).property_groups.flat
             if self.can_compute_locally(properties, feature_flag.aggregation_group_type_index):
                 # :TRICKY: If overrides are enough to determine if a condition is a match,
@@ -559,7 +560,8 @@ class FeatureFlagMatcher:
                     property_list, self.cohorts_cache, self.project_id
                 )
 
-                if len(condition.get("properties", {})) > 0:
+                properties = condition.get("properties")
+                if properties and len(properties) > 0:
                     # Feature Flags don't support OR filtering yet
                     target_properties = self.property_value_overrides
                     if feature_flag.aggregation_group_type_index is not None:
@@ -1228,7 +1230,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
 
     # This is a very rough simulation of the actual query that will be run.
     # Only reason we do it this way is to catch any DB level errors that will bork at runtime
-    # but aren't caught by above validation, like a regex valid according to re2 but  not postgresql.
+    # but aren't caught by above validation, like a regex valid according to re2 but not postgresql.
     # We also randomly query for 20 people sans distinct id to make sure the query is valid.
 
     # TODO: Once we move to no DB level evaluation, can get rid of this.

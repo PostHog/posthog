@@ -14,6 +14,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
+    ExperimentStatsValidationFailure,
     ExperimentVariantResultFrequentist,
     NewExperimentQueryResponse,
 )
@@ -68,6 +69,7 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 20)
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.confidence_interval, [-1.9807682951982126, 1.9807682951982126])
+        self.assertEqual(test_variant.confidence_interval, None)
         self.assertFalse(test_variant.significant)
-        self.assertEqual(test_variant.p_value, 1.0)
+        self.assertEqual(test_variant.p_value, None)
+        self.assertEqual(test_variant.validation_failures, [ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES])

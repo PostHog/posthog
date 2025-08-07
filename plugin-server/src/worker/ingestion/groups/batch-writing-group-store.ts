@@ -2,7 +2,6 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { TopicMessage } from '../../../kafka/producer'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
@@ -10,6 +9,7 @@ import { PostgresUse } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { RaceConditionError } from '../../../utils/utils'
+import { FlushResult } from '../persons/persons-store-for-batch'
 import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
 import { GroupStore } from './group-store'
@@ -115,7 +115,10 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
 export class BatchWritingGroupStore implements GroupStore {
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private db: DB,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
@@ -136,7 +139,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     private databaseOperationCounts: Map<string, number>
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private db: DB,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()
@@ -146,7 +152,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         return this.groupCache
     }
 
-    async flush(): Promise<TopicMessage[]> {
+    async flush(): Promise<FlushResult[]> {
         const pendingUpdates = Array.from(this.groupCache.entries()).filter((entry): entry is [string, GroupUpdate] => {
             const [_, update] = entry
             return update !== null && update.needsWrite

@@ -11,10 +11,11 @@ import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { urls } from 'scenes/urls'
 
-import { ActivityTab, NotebookNodeType, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { asDisplay } from './person-utils'
 import { personsLogic } from './personsLogic'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 export type PersonPreviewProps = {
     distinctId?: string

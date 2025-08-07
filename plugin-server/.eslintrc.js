@@ -43,6 +43,34 @@ module.exports = {
         '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
         curly: 'error',
         'no-fallthrough': 'warn',
+        'no-restricted-globals': [
+            'error',
+            {
+                name: 'fetch',
+                message: 'Use the request util from ~/utils/request instead of the global fetch',
+            },
+        ],
+        'no-restricted-imports': [
+            'error',
+            {
+                paths: [
+                    {
+                        name: 'node-fetch',
+                        message: 'Use the request util from ~/utils/request instead of node-fetch',
+                    },
+                    {
+                        name: 'undici',
+                        message: 'Use the request util from ~/utils/request instead of undici',
+                    },
+                ],
+                patterns: [
+                    {
+                        group: ['fetch'],
+                        message: 'Use the request util from ~/utils/request instead of importing fetch directly',
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {

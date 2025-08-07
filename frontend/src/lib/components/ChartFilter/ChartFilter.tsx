@@ -127,10 +127,10 @@ export function ChartFilter(): JSX.Element {
                         (formula
                             ? "This type isn't available, because it doesn't support formulas."
                             : !!breakdownFilter?.breakdown &&
-                              breakdownFilter.breakdown !== '$geoip_country_code' &&
-                              breakdownFilter.breakdown !== '$geoip_country_name'
-                            ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
-                            : undefined),
+                                breakdownFilter.breakdown !== '$geoip_country_code' &&
+                                breakdownFilter.breakdown !== '$geoip_country_name'
+                              ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                              : undefined),
                     labelInMenu: (
                         <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
                     ),

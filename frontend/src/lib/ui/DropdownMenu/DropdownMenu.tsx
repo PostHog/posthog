@@ -34,16 +34,17 @@ const DropdownMenuItemIndicator = React.forwardRef<
         intent: 'checkbox' | 'radio'
     }
 >(({ className, intent, ...props }, ref): JSX.Element => {
-    const classes = {
-        checkbox: '',
-        radio: 'relative',
-    }
     return (
-        <div className="size-4">
-            <DropdownMenuPrimitive.ItemIndicator ref={ref} className={cn(classes[intent], className)} {...props}>
-                {intent === 'checkbox' && <IconCheck />}
+        // We need to make a box around the indicator to ensure when it's not "checked" it's still the same size
+        <div className="flex place-items-center size-[var(--button-height)] shrink-0">
+            <DropdownMenuPrimitive.ItemIndicator
+                ref={ref}
+                className={cn('size-full flex place-items-center shrink-0', className)}
+                {...props}
+            >
+                {intent === 'checkbox' && <IconCheck className="shrink-0" />}
                 {intent === 'radio' && (
-                    <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-black dark:bg-white" />
+                    <div className="h-2 w-2 rounded-full bg-black dark:bg-white relative -translate-x-1/2 left-1/2" />
                 )}
             </DropdownMenuPrimitive.ItemIndicator>
         </div>

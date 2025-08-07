@@ -9,9 +9,10 @@ import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { ProductKey } from '~/types'
 
-import { ProductTab, webAnalyticsLogic } from './webAnalyticsLogic'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 import { WebPropertyFilters } from './WebPropertyFilters'
+import { ProductTab } from './common'
 
 export const WebAnalyticsModal = (): JSX.Element | null => {
     const {

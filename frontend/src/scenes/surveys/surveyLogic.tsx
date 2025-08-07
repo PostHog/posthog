@@ -32,6 +32,7 @@ import {
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
+    ProductKey,
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
@@ -50,7 +51,9 @@ import {
     SurveyStats,
 } from '~/types'
 
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
+import { userLogic } from 'scenes/userLogic'
 import {
     defaultSurveyAppearance,
     defaultSurveyFieldValues,
@@ -188,12 +191,17 @@ export interface ChoiceQuestionResponseData {
     label: string
     value: number
     isPredefined: boolean
+    // For unique responses (value === 1), include person data for display
+    distinctId?: string
+    personProperties?: Record<string, any>
+    timestamp?: string
 }
 
 export interface OpenQuestionResponseData {
     distinctId: string
     response: string
     personProperties?: Record<string, any>
+    timestamp?: string
 }
 
 export interface ChoiceQuestionProcessedResponses {
@@ -352,6 +360,10 @@ function processMultipleChoiceQuestion(
     results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
+    // Track person data for unique responses
+    const uniqueResponsePersonData: {
+        [key: string]: { distinctId: string; personProperties?: Record<string, any>; timestamp: string }
+    } = {}
     let total = 0
 
     // Zero-fill predefined choices (excluding open choice)
@@ -365,21 +377,57 @@ function processMultipleChoiceQuestion(
         const value = row[questionIndex] as string[]
         if (value !== null && value !== undefined) {
             total += 1
+            const distinctId = row.at(-2) as string
+            const timestamp = row.at(-1) as string
+            const unparsedPersonProperties = row.at(-3)
+            let personProperties: Record<string, any> | undefined
+
+            if (unparsedPersonProperties && unparsedPersonProperties !== null) {
+                try {
+                    personProperties = JSON.parse(unparsedPersonProperties as string)
+                } catch {
+                    // Ignore parsing errors for person properties
+                }
+            }
+
             value.forEach((choice) => {
                 const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
                 if (!isEmptyOrUndefined(cleaned)) {
-                    counts[cleaned] = (counts[cleaned] || 0) + 1
+                    const previousCount = counts[cleaned] || 0
+                    counts[cleaned] = previousCount + 1
+
+                    // Store person data only for the first occurrence (unique responses)
+                    if (previousCount === 0) {
+                        uniqueResponsePersonData[cleaned] = {
+                            distinctId,
+                            personProperties,
+                            timestamp,
+                        }
+                    }
                 }
             })
         }
     })
 
     const data = Object.entries(counts)
-        .map(([label, value]) => ({
-            label,
-            value,
-            isPredefined: question.choices?.includes(label) ?? false,
-        }))
+        .map(([label, value]) => {
+            const baseData = {
+                label,
+                value,
+                isPredefined: question.choices?.includes(label) ?? false,
+            }
+
+            if (uniqueResponsePersonData[label]) {
+                return {
+                    ...baseData,
+                    distinctId: uniqueResponsePersonData[label].distinctId,
+                    personProperties: uniqueResponsePersonData[label].personProperties,
+                    timestamp: uniqueResponsePersonData[label].timestamp,
+                }
+            }
+
+            return baseData
+        })
         .sort((a, b) => b.value - a.value)
 
     return {
@@ -390,7 +438,8 @@ function processMultipleChoiceQuestion(
 }
 
 function processOpenQuestion(questionIndex: number, results: SurveyRawResults): OpenQuestionProcessedResponses {
-    const data: { distinctId: string; response: string; personProperties?: Record<string, any> }[] = []
+    const data: { distinctId: string; response: string; personProperties?: Record<string, any>; timestamp?: string }[] =
+        []
     let totalResponses = 0
 
     results?.forEach((row: SurveyResponseRow) => {
@@ -400,12 +449,13 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
         }
 
         const response = {
-            distinctId: row.at(-1) as string,
+            distinctId: row.at(-2) as string,
             response: value,
             personProperties: undefined as Record<string, any> | undefined,
+            timestamp: row.at(-1) as string,
         }
 
-        const unparsedPersonProperties = row.at(-2)
+        const unparsedPersonProperties = row.at(-3)
         if (unparsedPersonProperties && unparsedPersonProperties !== null) {
             try {
                 response.personProperties = JSON.parse(unparsedPersonProperties as string)
@@ -480,8 +530,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
                 'reportSurveyCycleDetected',
             ],
+            teamLogic,
+            ['addProductIntent'],
         ],
-        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data']],
+        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data'], userLogic, ['user']],
     })),
     actions({
         setSurveyMissing: true,
@@ -574,6 +626,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             },
                             false
                         )
+                        actions.addProductIntent({
+                            product_type: ProductKey.SURVEYS,
+                            intent_context: ProductIntentContext.SURVEY_VIEWED,
+                            metadata: {
+                                survey_id: survey.id,
+                            },
+                        })
                         return survey
                     } catch (error: any) {
                         if (error.status === 404) {
@@ -603,22 +662,63 @@ export const surveyLogic = kea<surveyLogicType>([
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.create(surveyPayload)
+                const response = await api.surveys.create(surveyPayload)
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
-            updateSurvey: async (surveyPayload: Partial<Survey>) => {
+            updateSurvey: async (surveyPayload: Partial<Survey> & { intentContext?: ProductIntentContext }) => {
                 const response = await api.surveys.update(props.id, surveyPayload)
+                if (surveyPayload.intentContext) {
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: surveyPayload.intentContext,
+                        metadata: {
+                            survey_id: values.survey.id,
+                        },
+                    })
+                }
                 refreshTreeItem('survey', props.id)
                 return response
             },
             launchSurvey: async () => {
                 const startDate = dayjs()
-                return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+                const response = await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_LAUNCHED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
             stopSurvey: async () => {
-                return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+                const response = await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_COMPLETED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
             resumeSurvey: async () => {
-                return await api.surveys.update(props.id, { end_date: null })
+                const response = await api.surveys.update(props.id, { end_date: null })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_RESUMED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
         },
         duplicatedSurvey: {
@@ -639,6 +739,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
 
                     actions.reportSurveyCreated(createdSurvey, true)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                        metadata: {
+                            survey_id: createdSurvey.id,
+                        },
+                    })
                     return survey
                 } catch (error) {
                     posthog.captureException('Error duplicating survey', {
@@ -667,6 +774,13 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 actions.reportSurveyCreated(createdSurvey, true)
                 actions.setIsDuplicateToProjectModalOpen(false)
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                    metadata: {
+                        survey_id: createdSurvey.id,
+                    },
+                })
                 return sourceSurvey
             },
         },
@@ -785,13 +899,14 @@ export const surveyLogic = kea<surveyLogicType>([
                     return `${getSurveyResponse(question, index)} AS q${index}_response`
                 })
 
-                // Also get distinct_id and person properties for open text questions
+                // Also get distinct_id, person properties, and timestamp for open text questions
                 const query = `
                     -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                     SELECT
                         ${questionFields.join(',\n')},
                         person.properties,
-                        events.distinct_id
+                        events.distinct_id,
+                        events.timestamp
                     FROM events
                     WHERE event = '${SurveyEventName.SENT}'
                         AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
@@ -853,6 +968,13 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             archiveSurvey: () => {
                 actions.updateSurvey({ archived: true })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_ARCHIVED,
+                    metadata: {
+                        survey_id: values.survey.id,
+                    },
+                })
             },
             loadSurveySuccess: () => {
                 // Trigger stats loading after survey loads
@@ -1210,6 +1332,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         )`
             },
         ],
+        isExternalSurveyFFEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS]
+            },
+        ],
         isAdaptiveLimitFFEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -1302,7 +1430,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     name: 'Surveys',
                     path: urls.surveys(),
                 },
-                { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
+                {
+                    key: [Scene.Survey, survey?.id || 'new'],
+                    name: survey.name,
+                },
             ],
         ],
         projectTreeRef: [
@@ -1795,14 +1926,21 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(payload)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_EDITED,
+                        metadata: {
+                            survey_id: values.survey.id,
+                        },
+                    })
                 } else {
                     actions.createSurvey({ ...payload, _create_in_folder: 'Unfiled/Surveys' })
                 }
             },
         },
     })),
-    urlToAction(({ actions, props }) => ({
-        [urls.survey(props.id ?? 'new')]: (_, { edit }, __, { method }) => {
+    urlToAction(({ actions, props, values }) => ({
+        [urls.survey(props.id ?? 'new')]: (_, { edit }, { fromTemplate }, { method }) => {
             // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
                 actions.editingSurvey(true)
@@ -1810,6 +1948,10 @@ export const surveyLogic = kea<surveyLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                // When pushing to `/new` and the id matches the new survey's id, do not load the survey again
+                if (props.id === 'new' && values.survey.id === NEW_SURVEY.id && !fromTemplate) {
+                    return
+                }
                 if (props.id) {
                     actions.loadSurvey()
                 } else {

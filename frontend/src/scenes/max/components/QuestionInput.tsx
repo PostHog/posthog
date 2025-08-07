@@ -3,7 +3,7 @@ import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import React from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -13,6 +13,9 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
+import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import posthog from 'posthog-js'
+import { MAX_SLASH_COMMANDS } from '../slash-commands'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -50,6 +53,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
 
+    const [showAutocomplete, setShowAutocomplete] = useState(false)
+
+    // Update autocomplete visibility when question changes
+    useEffect(() => {
+        const isSlashCommand = question[0] === '/'
+        if (isSlashCommand && !showAutocomplete) {
+            posthog.capture('Max slash command autocomplete shown')
+        }
+        setShowAutocomplete(isSlashCommand)
+    }, [question, showAutocomplete])
+
     return (
         <div
             className={clsx(
@@ -64,7 +78,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 className={clsx(
                     'flex flex-col items-center',
                     isSticky &&
-                        'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 <div className="relative w-full flex flex-col">
@@ -72,8 +86,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--border-primary)] rounded-[var(--radius)]',
-                            'bg-[var(--bg-fill-input)]',
+                            'border border-[var(--color-border-primary)] rounded-[var(--radius)]',
+                            'bg-[var(--color-bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
                             isFloating && 'border-primary m-1'
                         )}
@@ -92,24 +106,31 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         ) : (
                             <ContextDisplay size={contextDisplaySize} />
                         )}
-                        <LemonTextArea
-                            ref={textAreaRef}
-                            value={question}
-                            onChange={(value) => setQuestion(value)}
-                            placeholder={
-                                threadLoading ? 'Thinking…' : isFloating ? placeholder || 'Ask follow-up' : 'Ask away'
-                            }
-                            onPressEnter={() => {
-                                if (question && !submissionDisabledReason && !threadLoading) {
-                                    onSubmit?.()
-                                    askMax(question)
+
+                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
+                            <LemonTextArea
+                                ref={textAreaRef}
+                                value={question}
+                                onChange={setQuestion}
+                                placeholder={
+                                    threadLoading
+                                        ? 'Thinking…'
+                                        : isFloating
+                                          ? placeholder || 'Ask follow-up (/ for commands)'
+                                          : 'Ask away (/ for commands)'
                                 }
-                            }}
-                            disabled={inputDisabled}
-                            minRows={1}
-                            maxRows={10}
-                            className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
-                        />
+                                onPressEnter={() => {
+                                    if (question && !submissionDisabledReason && !threadLoading) {
+                                        onSubmit?.()
+                                        askMax(question)
+                                    }
+                                }}
+                                disabled={inputDisabled}
+                                minRows={1}
+                                maxRows={10}
+                                className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                            />
+                        </SlashCommandAutocomplete>
                     </div>
                     <div
                         className={clsx('absolute flex items-center', {
@@ -154,7 +175,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         : submissionDisabledReason
                                 }
                                 size="small"
-                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
+                                icon={
+                                    threadLoading ? (
+                                        <IconStopFilled />
+                                    ) : (
+                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                            ?.icon || <IconArrowRight />
+                                    )
+                                }
                             />
                         </AIConsentPopoverWrapper>
                     </div>

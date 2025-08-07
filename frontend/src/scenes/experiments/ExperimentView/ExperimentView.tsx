@@ -23,7 +23,7 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { isLegacyExperimentQuery } from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
     LegacyExploreButton,
@@ -60,6 +60,8 @@ const ResultsTab = (): JSX.Element => {
 
     const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
 
+    const hasLegacyResults = legacyPrimaryMetricsResults.some((result) => result != null)
+
     return (
         <>
             {!experiment.start_date && !primaryMetricsResultsLoading && (
@@ -80,7 +82,7 @@ const ResultsTab = (): JSX.Element => {
             {/**
              *  check if we should render the legacy metrics view or the new one
              */}
-            {legacyPrimaryMetricsResults.length > 0 ? (
+            {isLegacyExperiment(experiment) || hasLegacyResults ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
                     {/**
@@ -122,7 +124,13 @@ const ResultsTab = (): JSX.Element => {
                                         metricIndex={0}
                                         isPrimary={true}
                                     >
-                                        {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
+                                        {({
+                                            query,
+                                            breakdownResults,
+                                            breakdownResultsLoading,
+                                            exposureDifference,
+                                            breakdownLastRefresh,
+                                        }) => (
                                             <div>
                                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                                 {query && breakdownResults && (
@@ -137,6 +145,7 @@ const ResultsTab = (): JSX.Element => {
                                                             <ResultsQuery
                                                                 query={query}
                                                                 breakdownResults={breakdownResults}
+                                                                breakdownLastRefresh={breakdownLastRefresh}
                                                             />
                                                         </div>
                                                     </div>

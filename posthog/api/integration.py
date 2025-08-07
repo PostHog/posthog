@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     Integration,
     OauthIntegration,
@@ -91,18 +92,26 @@ class IntegrationSerializer(serializers.ModelSerializer):
             config = validated_data.get("config", {})
             account_sid = config.get("account_sid")
             auth_token = config.get("auth_token")
-            phone_number = config.get("phone_number")
 
-            if not (account_sid and auth_token and phone_number):
-                raise ValidationError("Account SID, auth token, and phone number must be provided")
+            if not (account_sid and auth_token):
+                raise ValidationError("Account SID and auth token must be provided")
 
-            instance = TwilioIntegration.integration_from_keys(
-                account_sid,
-                auth_token,
-                phone_number,
-                team_id,
-                request.user,
+            twilio = TwilioIntegration(
+                Integration(
+                    id=account_sid,
+                    team_id=team_id,
+                    created_by=request.user,
+                    kind="twilio",
+                    config={
+                        "account_sid": account_sid,
+                    },
+                    sensitive_config={
+                        "auth_token": auth_token,
+                    },
+                ),
             )
+
+            instance = twilio.integration_from_keys()
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
@@ -146,7 +155,8 @@ class IntegrationViewSet(
                 raise ValidationError("Kind not configured")
         elif kind == "github":
             query_params = urlencode({"state": token})
-            installation_url = f"https://github.com/apps/{'posthog-error-tracking'}/installations/new?{query_params}"
+            app_slug = get_instance_setting("GITHUB_APP_SLUG")
+            installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
             response = redirect(installation_url)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
 
@@ -202,6 +212,33 @@ class IntegrationViewSet(
                     "is_private_without_access": channel.get("is_private_without_access", False),
                 }
                 for channel in slack.list_channels(should_include_private_channels, authed_user)
+            ],
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
+
+        cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
+
+    @action(methods=["GET"], detail=True, url_path="twilio_phone_numbers")
+    def twilio_phone_numbers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        twilio = TwilioIntegration(instance)
+        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
+
+        key = f"twilio/{instance.integration_id}/phone_numbers"
+        data = cache.get(key)
+
+        if data is not None and not force_refresh:
+            return Response(data)
+
+        response = {
+            "phone_numbers": [
+                {
+                    "sid": phone_number["sid"],
+                    "phone_number": phone_number["phone_number"],
+                    "friendly_name": phone_number["friendly_name"],
+                }
+                for phone_number in twilio.list_twilio_phone_numbers()
             ],
             "lastRefreshedAt": timezone.now().isoformat(),
         }

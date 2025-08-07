@@ -63,7 +63,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             timings=self.runner.timings,
         )
 
-    def _get_filters(self, table_name: str):
+    def _get_filters(self, table_name: str, exclude_pathname: bool = False):
         filter_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -89,6 +89,8 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
             for prop in self.runner.query.properties:
                 if hasattr(prop, "key") and prop.key in self.supported_props_filters:
+                    if exclude_pathname and prop.key == "$pathname":
+                        continue
                     if self.supported_props_filters[prop.key] is None:
                         virtual_properties.append(prop)
                     else:

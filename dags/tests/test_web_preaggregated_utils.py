@@ -1,9 +1,7 @@
 from dags.web_preaggregated_utils import (
-    TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS,
     format_clickhouse_settings,
     merge_clickhouse_settings,
-    WEB_ANALYTICS_CONFIG_SCHEMA,
 )
 
 
@@ -75,14 +73,3 @@ class TestClickHouseSettings:
 
         # Test that distributed aggregation is enabled for efficiency
         assert CLICKHOUSE_SETTINGS["distributed_aggregation_memory_efficient"] == "1"
-
-
-class TestConfigSchemas:
-    def test_daily_config_schema(self):
-        required_fields = ["team_ids", "extra_clickhouse_settings"]
-
-        for field in required_fields:
-            assert field in WEB_ANALYTICS_CONFIG_SCHEMA
-
-        assert WEB_ANALYTICS_CONFIG_SCHEMA["team_ids"].default_value == TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED
-        assert WEB_ANALYTICS_CONFIG_SCHEMA["extra_clickhouse_settings"].default_value == ""

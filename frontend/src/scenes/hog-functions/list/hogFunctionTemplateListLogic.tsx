@@ -239,7 +239,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => [
             router.values.location.pathname,
 
