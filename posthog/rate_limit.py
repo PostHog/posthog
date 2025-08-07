@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
 from token_bucket import Limiter, MemoryStorage
 from posthog.models.personal_api_key import hash_key_value
+from posthog.utils import patchable
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -76,8 +77,14 @@ def is_decide_rate_limit_enabled() -> bool:
     return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)
 
 
+path_by_env_pattern = re.compile(r"/api/environments/(\d+)/")
 path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
 path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
+
+
+@patchable
+def patchable_resolve(path: str):
+    return resolve(path)
 
 
 def get_route_from_path(path: str) -> str:
@@ -95,13 +102,13 @@ def get_route_from_path(path: str) -> str:
         if route_pattern:
             # Convert Django URL parameter syntax to a label-friendly format
             # e.g., "<team_id>" becomes "TEAM_ID"
-            route_id = re.sub(r"<(\w+)>", lambda m: m.group(1).upper(), route_pattern)
-            return route_id
+            return re.sub(r"<(?:\w+:)?(\w+)>", lambda m: m.group(1).upper(), route_pattern)
         else:
             return "unknown"
     except Exception:
         # Fallback to the existing path normalization patterns
-        route_id = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
+        route_id = path_by_env_pattern.sub("/api/environments/TEAM_ID/", path)
+        route_id = path_by_team_pattern.sub("/api/projects/TEAM_ID/", route_id)
         route_id = path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
         return route_id
 
