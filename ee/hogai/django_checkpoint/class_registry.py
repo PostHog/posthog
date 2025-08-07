@@ -16,6 +16,8 @@ class ClassRegistry:
     _cache: dict[str, type[BaseModel]]
 
     def __init__(self):
+        self._cache = {}
+
         # Scan all types.py files in ee.hogai
         self._scan_hogai_types()
 
@@ -24,8 +26,6 @@ class ClassRegistry:
 
         # Register langchain Pydantic classes that might be serialized
         self._register_langchain_classes()
-
-        self._cache = {}
 
     def _scan_hogai_types(self):
         """Scan all types.py files within ee/hogai directory tree."""
