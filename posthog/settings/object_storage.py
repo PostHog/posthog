@@ -35,6 +35,5 @@ OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
 )
 OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "posthog")
 
-# Query cache backend configuration
-QUERY_CACHE_BACKEND = get_from_env("QUERY_CACHE_BACKEND", "redis")  # 'redis' or 's3'
+# Query cache S3 configuration
 QUERY_CACHE_S3_BUCKET = get_from_env("QUERY_CACHE_S3_BUCKET", None, optional=True)  # Use OBJECT_STORAGE_BUCKET if None

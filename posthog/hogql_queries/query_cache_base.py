@@ -51,20 +51,17 @@ class QueryCacheManagerBase(ABC):
         """
         current_time = datetime.now(UTC)
         # get least stale insights first
+        kwargs = {
+            "min": "-inf",
+            "max": current_time.timestamp(),
+        }
         if limit is not None:
-            insights = redis.get_client().zrevrangebyscore(
-                f"cache_timestamps:{team_id}",
-                min="-inf",
-                max=current_time.timestamp(),
-                start=0,
-                num=limit,
-            )
-        else:
-            insights = redis.get_client().zrevrangebyscore(
-                f"cache_timestamps:{team_id}",
-                min="-inf",
-                max=current_time.timestamp(),
-            )
+            kwargs.update({"start": 0, "num": limit})
+            
+        insights = redis.get_client().zrevrangebyscore(
+            f"cache_timestamps:{team_id}",
+            **kwargs
+        )
         return [insight.decode("utf-8") for insight in insights]
 
     @staticmethod
