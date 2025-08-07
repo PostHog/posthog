@@ -34,7 +34,7 @@ def build_join_with_persons_revenue_analytics_table(is_poe: bool = False):
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                    left=ast.Field(chain=[join_to_add.from_table, "person_id"]),
                     right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
                 ),
                 constraint_type="ON",

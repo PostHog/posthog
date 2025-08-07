@@ -28,7 +28,7 @@ class EventsPersonSubTable(VirtualTable):
         "created_at": DateTimeDatabaseField(name="person_created_at", nullable=False),
         "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
         "revenue_analytics": LazyJoin(
-            from_field=["id"],
+            from_field=["person_id"],
             join_table=RawPersonsRevenueAnalyticsTable(),
             join_function=build_join_with_persons_revenue_analytics_table(is_poe=True),
         ),
