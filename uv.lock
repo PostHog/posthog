@@ -1741,6 +1741,20 @@ wheels = [
 ]
 
 [[package]]
+name = "exa-py"
+version = "1.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "openai" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/72/7f/457e5b400b75a39e5279b6d8f1190adf1289323bf1f5b7f483ee41494346/exa_py-1.1.4.tar.gz", hash = "sha256:78d85b3cbaf850a4629967be3c362aee4b99e9d4e93d8c11799a992fd1eba68c", size = 10126, upload-time = "2024-09-14T00:10:55.364Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/c8/c3d8a4203d4f1486a83d4494bec9fd5ee53de9c620d9b3b3bd36e73d3858/exa_py-1.1.4-py3-none-any.whl", hash = "sha256:487923f568670bb40a2d9b97b6bedf4e5fecba2957779d318f8bfbb17817ddc3", size = 9553, upload-time = "2024-09-14T00:10:53.39Z" },
+]
+
+[[package]]
 name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3897,6 +3911,7 @@ dependencies = [
     { name = "drf-spectacular" },
     { name = "elevenlabs" },
     { name = "emoji" },
+    { name = "exa-py" },
     { name = "geoip2" },
     { name = "google-ads" },
     { name = "google-cloud-bigquery" },
@@ -4115,6 +4130,7 @@ requires-dist = [
     { name = "drf-spectacular", specifier = "==0.27.2" },
     { name = "elevenlabs", specifier = ">=1.58.1" },
     { name = "emoji", specifier = "==2.14.1" },
+    { name = "exa-py", specifier = "==1.1.4" },
     { name = "geoip2", specifier = "==4.6.0" },
     { name = "google-ads", specifier = "==26.1.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },

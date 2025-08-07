@@ -8,6 +8,7 @@ import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet, MessagePreferencesViewSet
+from products.marketing_researcher.backend.api import MarketingResearchViewSet
 import products.logs.backend.api as logs
 from posthog.api import data_color_theme, hog_flow, metalytics, project, my_notifications
 from posthog.api.wizard import http as wizard
@@ -460,6 +461,8 @@ router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "as
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 
+router.register(r"marketing_research", MarketingResearchViewSet, "marketing_research")
+
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
@@ -785,6 +788,11 @@ environments_router.register(
     "environment_csp_reporting",
     ["team_id"],
 )
+
+# Marketing Web Analysis endpoints (Open API - no auth required)
+from posthog.api.marketing_web_analysis_api import MarketingWebAnalysisViewSet  # noqa: E402
+
+router.register(r"marketing_web_analysis", MarketingWebAnalysisViewSet, "marketing_web_analysis")
 
 environments_router.register(
     r"revenue_analytics/taxonomy",
