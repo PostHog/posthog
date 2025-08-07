@@ -255,7 +255,7 @@ class Organization(UUIDModel):
             # Dispatch a task to cleanup various settings
             from posthog.tasks.organization_feature_cleanup import organization_feature_cleanup
 
-            if not self._state.adding:
+            if not self._state.adding and self.pk:
                 organization_feature_cleanup.apply_async(
                     args=[self.id, added_features, removed_features],
                     countdown=5 * 24 * 60 * 60,  # 5 days
