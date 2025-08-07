@@ -2960,6 +2960,15 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
+                            key: 'access_control',
+                            name: 'Access control',
+                            description:
+                                'Control who can access and modify data and features within your organization.',
+                            unit: null,
+                            limit: null,
+                            note: null,
+                        },
+                        {
                             key: 'audit_logs',
                             name: 'Audit logs',
                             description:
@@ -3172,7 +3181,16 @@ export const billingJson: BillingType = {
                                         'Control who can access and modify data and features within your organization.',
                                     unit: null,
                                     limit: null,
-                                    note: 'Project-based only',
+                                    note: null,
+                                },
+                                {
+                                    key: 'access_control',
+                                    name: 'Access control',
+                                    description:
+                                        'Control who can access and modify data and features within your organization.',
+                                    unit: null,
+                                    limit: null,
+                                    note: null,
                                 },
                                 {
                                     key: 'audit_logs',
@@ -3309,6 +3327,15 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'advanced_permissions',
+                            name: 'Access control',
+                            description:
+                                'Control who can access and modify data and features within your organization.',
+                            images: null,
+                            icon_key: null,
+                            type: null,
+                        },
+                        {
+                            key: 'access_control',
                             name: 'Access control',
                             description:
                                 'Control who can access and modify data and features within your organization.',
@@ -3463,6 +3490,14 @@ export const billingJson: BillingType = {
                 },
                 {
                     key: 'advanced_permissions',
+                    name: 'Access control',
+                    description: 'Control who can access and modify data and features within your organization.',
+                    images: null,
+                    icon_key: null,
+                    type: null,
+                },
+                {
+                    key: 'access_control',
                     name: 'Access control',
                     description: 'Control who can access and modify data and features within your organization.',
                     images: null,
