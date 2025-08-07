@@ -17,13 +17,13 @@ from django.core.cache import cache
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
-from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import (
     LowercaseSlugField,
     UUIDModel,
     create_with_slug,
     sane_repr,
 )
+from posthog.tasks.tasks import organization_feature_cleanup
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -252,22 +252,11 @@ class Organization(UUIDModel):
         if prev_features != current_features:
             removed_features = list(prev_features - current_features)
             added_features = list(current_features - prev_features)
-            self._send_features_changed_signal(added_features, removed_features)
+
+            # Dispatch a task to cleanup various settings
+            organization_feature_cleanup.delay(self.id, added_features, removed_features)
 
         return self.available_product_features
-
-    def _send_features_changed_signal(self, added_features: list[str], removed_features: list[str]) -> None:
-        try:
-            from posthog.models.signals import organization_features_changed
-
-            organization_features_changed.send(
-                sender=self.__class__,
-                organization=self,
-                added_features=added_features,
-                removed_features=removed_features,
-            )
-        except Exception as e:
-            capture_exception(e)
 
     def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
         vals: list[dict[str, Any]] = self.available_product_features or []

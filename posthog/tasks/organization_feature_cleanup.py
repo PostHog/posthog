@@ -1,20 +1,19 @@
-"""
-Handlers for cleaning up organization settings when features are removed.
-"""
-
-from django.dispatch import receiver
+from celery import shared_task
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, OrganizationDomain
-from posthog.models.signals import organization_features_changed
-import structlog
 
-logger = structlog.get_logger(__name__)
+from structlog import get_logger
+
+logger = get_logger(__name__)
 
 
-@receiver(organization_features_changed)
-def handle_sso_enforcement_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
+@shared_task(ignore_result=True)
+def organization_feature_cleanup(organization_id: int, removed_features: list[str]) -> None:
+    from posthog.models import Organization, OrganizationDomain
+
+    organization = Organization.objects.get(id=organization_id)
+
     if AvailableFeature.SSO_ENFORCEMENT in removed_features:
         try:
             updated = OrganizationDomain.objects.filter(organization=organization).update(sso_enforcement="")
@@ -28,9 +27,6 @@ def handle_sso_enforcement_removal(sender, organization: Organization, removed_f
         except Exception as e:
             capture_exception(e)
 
-
-@receiver(organization_features_changed)
-def handle_saml_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
     if AvailableFeature.SAML in removed_features:
         try:
             updated = OrganizationDomain.objects.filter(organization=organization).update(
@@ -46,10 +42,6 @@ def handle_saml_removal(sender, organization: Organization, removed_features: li
         except Exception as e:
             capture_exception(e)
 
-
-@receiver(organization_features_changed)
-def handle_automatic_provisioning_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
-    """Clean up automatic provisioning when feature is removed."""
     if AvailableFeature.AUTOMATIC_PROVISIONING in removed_features:
         try:
             updated = OrganizationDomain.objects.filter(organization=organization).update(
@@ -65,9 +57,6 @@ def handle_automatic_provisioning_removal(sender, organization: Organization, re
         except Exception as e:
             capture_exception(e)
 
-
-@receiver(organization_features_changed)
-def handle_invite_settings_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
     if AvailableFeature.ORGANIZATION_INVITE_SETTINGS in removed_features:
         try:
             organization.members_can_invite = True
