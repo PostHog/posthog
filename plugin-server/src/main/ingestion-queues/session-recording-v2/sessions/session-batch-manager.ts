@@ -66,7 +66,6 @@ export class SessionBatchManager {
     private readonly fileStorage: SessionBatchFileStorage
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
-    private lastFlushTime: number
     private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
 
     constructor(config: SessionBatchManagerConfig) {
@@ -84,7 +83,6 @@ export class SessionBatchManager {
             this.consoleLogStore,
             this.metadataSwitchoverDate
         )
-        this.lastFlushTime = Date.now()
     }
 
     /**
@@ -107,7 +105,6 @@ export class SessionBatchManager {
             this.consoleLogStore,
             this.metadataSwitchoverDate
         )
-        this.lastFlushTime = Date.now()
     }
 
     /**
@@ -117,7 +114,7 @@ export class SessionBatchManager {
      */
     public shouldFlush(): boolean {
         const batchSize = this.currentBatch.size
-        const batchAge = Date.now() - this.lastFlushTime
+        const batchAge = Date.now() - this.currentBatch.createdAt
         return batchSize >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
     }
 
