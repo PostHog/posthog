@@ -2277,54 +2277,6 @@
             ],
             "type": "string"
         },
-        "BasicOrganizationSetupData": {
-            "additionalProperties": false,
-            "properties": {
-                "organization_name": {
-                    "type": "string"
-                },
-                "project_name": {
-                    "type": "string"
-                }
-            },
-            "type": "object"
-        },
-        "BasicOrganizationSetupResult": {
-            "additionalProperties": false,
-            "properties": {
-                "organization_id": {
-                    "type": "string"
-                },
-                "organization_name": {
-                    "type": "string"
-                },
-                "personal_api_key": {
-                    "type": "string"
-                },
-                "team_id": {
-                    "type": "string"
-                },
-                "team_name": {
-                    "type": "string"
-                },
-                "user_email": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "organization_id",
-                "team_id",
-                "organization_name",
-                "team_name",
-                "user_id",
-                "user_email",
-                "personal_api_key"
-            ],
-            "type": "object"
-        },
         "BillingSpendResponseBreakdownType": {
             "enum": ["type", "team", "multiple"],
             "type": "string"
@@ -16407,6 +16359,51 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PlaywrightWorkspaceSetupData": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_name": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "PlaywrightWorkspaceSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "personal_api_key": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "team_name": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "organization_id",
+                "team_id",
+                "organization_name",
+                "team_name",
+                "user_id",
+                "user_email",
+                "personal_api_key"
+            ],
             "type": "object"
         },
         "PropertyFilterBaseValue": {

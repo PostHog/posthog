@@ -438,27 +438,6 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
-class BasicOrganizationSetupData(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_name: Optional[str] = None
-    project_name: Optional[str] = None
-
-
-class BasicOrganizationSetupResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_id: str
-    organization_name: str
-    personal_api_key: str
-    team_id: str
-    team_name: str
-    user_email: str
-    user_id: str
-
-
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -1988,6 +1967,26 @@ class PersonType(BaseModel):
     name: Optional[str] = None
     properties: dict[str, Any]
     uuid: Optional[str] = None
+
+
+class PlaywrightWorkspaceSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_name: Optional[str] = None
+
+
+class PlaywrightWorkspaceSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_id: str
+    organization_name: str
+    personal_api_key: str
+    team_id: str
+    team_name: str
+    user_email: str
+    user_id: str
 
 
 class PropertyFilterType(StrEnum):

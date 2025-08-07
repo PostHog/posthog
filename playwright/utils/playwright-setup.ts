@@ -14,8 +14,8 @@
 import { APIRequestContext, Page } from '@playwright/test'
 import type {
     TestSetupResponse,
-    BasicOrganizationSetupData,
-    BasicOrganizationSetupResult,
+    PlaywrightWorkspaceSetupData,
+    PlaywrightWorkspaceSetupResult,
 } from '~/queries/schema/schema-general'
 import { LOGIN_USERNAME, LOGIN_PASSWORD } from './playwright-test-base'
 
@@ -26,18 +26,6 @@ export interface PlaywrightSetupOptions {
     throwOnError?: boolean
     /** Base URL for the API (defaults to baseURL from config) */
     baseURL?: string
-}
-
-export interface PostHogWorkspace {
-    organizationId: string
-    projectId: string
-    teamId: string
-    organizationName: string
-    projectName: string
-    teamName: string
-    userId: string
-    userEmail: string
-    personalApiKey: string
 }
 
 /**
@@ -104,12 +92,12 @@ export class PlaywrightSetup {
      * This is the main setup method - creates everything you need for most tests.
      * The test user will be a member of the organization.
      */
-    async createWorkspace(organizationName?: string, projectName?: string): Promise<PostHogWorkspace> {
+    async createWorkspace(organizationName?: string, projectName?: string): Promise<PlaywrightWorkspaceSetupResult> {
         const result = await this.callSetupEndpoint('organization_with_team', {
             data: {
                 organization_name: organizationName,
                 project_name: projectName,
-            } as BasicOrganizationSetupData,
+            } as PlaywrightWorkspaceSetupData,
         })
 
         if (!result.success) {
@@ -117,11 +105,11 @@ export class PlaywrightSetup {
             throw new Error(`Failed to create workspace: ${result.error}`)
         }
 
-        const workspace = result.result as PostHogWorkspace
+        const workspace = result.result as PlaywrightWorkspaceSetupResult
 
-        // Validate required fields
-        const requiredFields = ['organizationId', 'projectId', 'teamId', 'personalApiKey']
-        const missingFields = requiredFields.filter((field) => !workspace[field as keyof PostHogWorkspace])
+        // Validate required fields (using snake_case field names from schema)
+        const requiredFields = ['organization_id', 'team_id', 'personal_api_key'] as const
+        const missingFields = requiredFields.filter((field) => !workspace[field])
 
         if (missingFields.length > 0) {
             console.error(`[PlaywrightSetup] Workspace missing required fields:`, missingFields)
@@ -175,4 +163,4 @@ export const createWorkspaceSetup = createPlaywrightSetup
 export type WorkspaceSetupOptions = PlaywrightSetupOptions
 
 // Re-export types for convenience
-export type { TestSetupResponse, BasicOrganizationSetupData, BasicOrganizationSetupResult }
+export type { TestSetupResponse, PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult }

@@ -14,13 +14,12 @@ test('create custom workspace', async ({ page, playwrightSetup }) => {
     const workspace = await playwrightSetup.createWorkspace('Acme Corp', 'Web Analytics')
 
     // Verify workspace was created
-    expect(workspace.organizationName).toBe('Acme Corp')
-    expect(workspace.projectName).toBe('Web Analytics')
-    expect(workspace.userEmail).toBe('test@posthog.com')
-    expect(workspace.personalApiKey).toBeTruthy()
+    expect(workspace.organization_name).toBe('Acme Corp')
+    expect(workspace.user_email).toBe('test@posthog.com')
+    expect(workspace.personal_api_key).toBeTruthy()
 
     // Login and navigate to the team page
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.teamId)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
 
     // Now you're logged in and on the project page - test your feature!
 })
@@ -30,7 +29,7 @@ testWithWorkspace('test with pre-created workspace', async ({ page, workspace, p
     // Workspace already exists with default names
 
     // Login and navigate automatically
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.teamId)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
 
     // Test your feature here
     await expect(page).toHaveTitle(/PostHog/)
@@ -42,9 +41,9 @@ test('test API key functionality', async ({ page, playwrightSetup }) => {
 
     // You now have a personal API key for API testing
 
-    expect(workspace.personalApiKey).toMatch(/^phx_/)
+    expect(workspace.personal_api_key).toMatch(/^phx_/)
 
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.teamId)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
 
     // Test features that might need API access
 })
@@ -58,11 +57,11 @@ test('compare multiple workspaces', async ({ page, playwrightSetup }) => {
     const companyB = await playwrightSetup.createWorkspace('Company B', 'Web App')
 
     // Test Company A
-    await playwrightSetup.loginAndNavigateToTeam(page, companyA.teamId)
+    await playwrightSetup.loginAndNavigateToTeam(page, companyA.team_id)
     await expect(page.locator('[data-attr="project-name"]')).toContainText('Mobile App')
 
     // Switch to Company B
-    await playwrightSetup.loginAndNavigateToTeam(page, companyB.teamId)
+    await playwrightSetup.loginAndNavigateToTeam(page, companyB.team_id)
     await expect(page.locator('[data-attr="project-name"]')).toContainText('Web App')
 })
 
@@ -71,10 +70,10 @@ test('test with API calls', async ({ page, playwrightSetup }) => {
     const workspace = await playwrightSetup.createWorkspace('API Integration Tests')
 
     // Use the API key for making API calls in your test
-    const apiKey = workspace.personalApiKey
+    const apiKey = workspace.personal_api_key
 
     // Example: Test an API endpoint
-    const response = await page.request.get(`/api/projects/${workspace.teamId}/`, {
+    const response = await page.request.get(`/api/projects/${workspace.team_id}/`, {
         headers: {
             Authorization: `Bearer ${apiKey}`,
         },
@@ -82,7 +81,7 @@ test('test with API calls', async ({ page, playwrightSetup }) => {
 
     expect(response.ok()).toBe(true)
 
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.teamId)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
     // Continue with UI testing
 })
 

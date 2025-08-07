@@ -3658,12 +3658,11 @@ export interface TestSetupResponse {
     available_tests?: string[]
 }
 
-export interface BasicOrganizationSetupData {
+export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
-    project_name?: string
 }
 
-export interface BasicOrganizationSetupResult {
+export interface PlaywrightWorkspaceSetupResult {
     organization_id: string
     team_id: string
     organization_name: string

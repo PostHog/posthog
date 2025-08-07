@@ -35,9 +35,9 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
         },
     }
 
-    const insightResponse = await page.request.post(`/api/projects/${workspace.teamId}/insights/`, {
+    const insightResponse = await page.request.post(`/api/projects/${workspace.team_id}/insights/`, {
         headers: {
-            Authorization: `Bearer ${workspace.personalApiKey}`,
+            Authorization: `Bearer ${workspace.personal_api_key}`,
             'Content-Type': 'application/json',
         },
         data: payload,
@@ -50,8 +50,8 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
     expect(insightData.query.source.series[0].event).toBe('$pageview')
 
     // Login and navigate to the insight page using the short URL
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.teamId)
-    await page.goto(`/project/${workspace.teamId}/insights/${insightData.short_id}`)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
+    await page.goto(`/project/${workspace.team_id}/insights/${insightData.short_id}`)
 
     // Wait for the insight to load
     await expect(page.locator('[data-attr="insight-name"]')).toHaveText('Pageview Trends Analysis')

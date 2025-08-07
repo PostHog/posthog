@@ -8,7 +8,7 @@ from django.db import transaction
 from posthog.models import Organization, Team, User, PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import mask_key_value
-from posthog.schema import BasicOrganizationSetupData, BasicOrganizationSetupResult
+from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
 
 
 @runtime_checkable
@@ -16,7 +16,7 @@ class PlaywrightSetupFunction(Protocol):
     def __call__(self, data: BaseModel, /) -> BaseModel: ...
 
 
-def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrganizationSetupResult:
+def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> PlaywrightWorkspaceSetupResult:
     """Creates PostHog workspace with organization, team, user, and API key."""
     org_name = data.organization_name or "Test Organization"
 
@@ -47,7 +47,7 @@ def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrga
         )
         api_key._value = api_key_value
 
-        return BasicOrganizationSetupResult(
+        return PlaywrightWorkspaceSetupResult(
             organization_id=str(organization.id),
             team_id=str(team.id),
             organization_name=organization.name,
@@ -68,7 +68,7 @@ class SetupFunctionConfig:
 PLAYWRIGHT_SETUP_FUNCTIONS: dict[str, SetupFunctionConfig] = {
     "organization_with_team": SetupFunctionConfig(
         function=create_organization_with_team,
-        input_model=BasicOrganizationSetupData,
+        input_model=PlaywrightWorkspaceSetupData,
         description="Creates org → team + user + API key",
     ),
 }
