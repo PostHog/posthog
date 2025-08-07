@@ -3665,29 +3665,27 @@ class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str
-    number_of_samples: int
-    sum: float
-    sum_squares: float
-    # Additional fields for ratio metrics
     denominator_sum: Optional[float] = None
     denominator_sum_squares: Optional[float] = None
-    main_denominator_sum_product: Optional[float] = None
+    key: str
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    sum: float
+    sum_squares: float
 
 
 class ExperimentStatsBaseValidated(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
     key: str
     number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
-    # Additional fields for ratio metrics
-    denominator_sum: Optional[float] = None
-    denominator_sum_squares: Optional[float] = None
-    main_denominator_sum_product: Optional[float] = None
 
 
 class ExperimentVariantResultBayesian(BaseModel):
@@ -3696,17 +3694,16 @@ class ExperimentVariantResultBayesian(BaseModel):
     )
     chance_to_win: Optional[float] = None
     credible_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
     key: str
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
     significant: Optional[bool] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
-    # Additional fields for ratio metrics
-    denominator_sum: Optional[float] = None
-    denominator_sum_squares: Optional[float] = None
-    main_denominator_sum_product: Optional[float] = None
 
 
 class ExperimentVariantResultFrequentist(BaseModel):
@@ -3714,18 +3711,17 @@ class ExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
     key: str
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
     p_value: Optional[float] = None
     significant: Optional[bool] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
-    # Additional fields for ratio metrics
-    denominator_sum: Optional[float] = None
-    denominator_sum_squares: Optional[float] = None
-    main_denominator_sum_product: Optional[float] = None
 
 
 class ExternalQueryError(BaseModel):

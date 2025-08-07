@@ -2,15 +2,15 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from posthog.exceptions_capture import capture_exception
-from rest_framework.exceptions import ValidationError
 import structlog
+from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.errors import InternalHogQLError, ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
@@ -21,8 +21,8 @@ from posthog.hogql_queries.experiments import (
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
     get_experiment_exposure_query,
-    get_metric_events_query,
     get_metric_aggregation_expr,
+    get_metric_events_query,
     get_winsorized_metric_values_query,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import (
@@ -42,9 +42,9 @@ from posthog.models.experiment import Experiment
 from posthog.schema import (
     CachedExperimentQueryResponse,
     ExperimentMeanMetric,
-    ExperimentRatioMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
+    ExperimentRatioMetric,
     ExperimentStatsBase,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
@@ -178,8 +178,10 @@ class ExperimentQueryRunner(QueryRunner):
         Special handling for ratio metrics to avoid Cartesian product.
         Aggregates numerator and denominator separately, then joins the aggregated results.
         """
-        from posthog.hogql_queries.experiments.base_query_utils import get_source_aggregation_expr
-        
+        from posthog.hogql_queries.experiments.base_query_utils import (
+            get_source_aggregation_expr,
+        )
+
         # Type assertion - this method is only called for ratio metrics
         assert isinstance(self.metric, ExperimentRatioMetric)
         ratio_metric = self.metric
@@ -276,11 +278,16 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["num_agg", "variant"]),
                 ast.Field(chain=["num_agg", "entity_id"]),
                 ast.Alias(
-                    expr=ast.Call(name="coalesce", args=[ast.Field(chain=["num_agg", "numerator_value"]), ast.Constant(value=0)]),
+                    expr=ast.Call(
+                        name="coalesce", args=[ast.Field(chain=["num_agg", "numerator_value"]), ast.Constant(value=0)]
+                    ),
                     alias="value",
                 ),
                 ast.Alias(
-                    expr=ast.Call(name="coalesce", args=[ast.Field(chain=["denom_agg", "denominator_value"]), ast.Constant(value=0)]),
+                    expr=ast.Call(
+                        name="coalesce",
+                        args=[ast.Field(chain=["denom_agg", "denominator_value"]), ast.Constant(value=0)],
+                    ),
                     alias="denominator_value",
                 ),
             ],
@@ -319,7 +326,7 @@ class ExperimentQueryRunner(QueryRunner):
         Aggregates entity metrics into final statistics used for significance calculations
         One row per variant
         Columns: variant, num_users, total_sum, total_sum_of_squares
-        For ratio metrics, also includes: denominator_sum, denominator_sum_squares, main_denominator_sum_product
+        For ratio metrics, also includes: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
         """
         select_fields = [
             ast.Field(chain=["metric_events", "variant"]),
@@ -335,7 +342,7 @@ class ExperimentQueryRunner(QueryRunner):
                     parse_expr("sum(metric_events.denominator_value) as denominator_sum"),
                     parse_expr("sum(power(metric_events.denominator_value, 2)) as denominator_sum_squares"),
                     parse_expr(
-                        "sum(metric_events.value * metric_events.denominator_value) as main_denominator_sum_product"
+                        "sum(metric_events.value * metric_events.denominator_value) as numerator_denominator_sum_product"
                     ),
                 ]
             )

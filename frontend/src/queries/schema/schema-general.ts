@@ -2574,6 +2574,9 @@ export interface ExperimentStatsBase {
     number_of_samples: integer
     sum: number
     sum_squares: number
+    denominator_sum?: number
+    denominator_sum_squares?: number
+    numerator_denominator_sum_product?: number
 }
 
 export enum ExperimentStatsValidationFailure {
