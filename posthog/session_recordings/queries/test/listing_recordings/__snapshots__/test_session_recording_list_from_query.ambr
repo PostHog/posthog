@@ -1238,7 +1238,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl
+# name: TestSessionRecordingsListFromQuery.test_date_from_filter_respects_ttl_0_that_searching_from_20_days_ago_excludes_sessions_past_TTL
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -1275,7 +1275,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl.1
+# name: TestSessionRecordingsListFromQuery.test_date_from_filter_respects_ttl_1_that_searching_from_21_days_ago_still_excludes_sessions_past_TTL
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -1312,7 +1312,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl.2
+# name: TestSessionRecordingsListFromQuery.test_date_from_filter_respects_ttl_2_that_even_searching_from_22_days_ago_exactly_at_TTL_boundary_excludes_sessions_past_TTL
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,

@@ -1862,12 +1862,29 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ["two days before base time"],
         )
 
+    @parameterized.expand(
+        [
+            (
+                "that searching from 20 days ago excludes sessions past TTL",
+                20,
+            ),
+            (
+                "that searching from 21 days ago still excludes sessions past TTL",
+                21,
+            ),
+            (
+                "that even searching from 22 days ago (exactly at TTL boundary) excludes sessions past TTL",
+                22,
+            ),
+        ]
+    )
     @snapshot_clickhouse_queries
-    def test_date_from_filter_cannot_search_before_ttl(self):
+    def test_date_from_filter_respects_ttl(self, _name: str, days_ago: int):
         with freeze_time(self.an_hour_ago):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
             Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
+            # Create a session past TTL (22 days old)
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is past ttl",
@@ -1876,6 +1893,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
                 team_id=self.team.id,
             )
+
+            # Create a session within TTL (19 days old)
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is not past ttl",
@@ -1885,17 +1904,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
             self._assert_query_matches_session_ids(
-                {"date_from": (self.an_hour_ago - relativedelta(days=20)).strftime("%Y-%m-%d")},
-                ["storage is not past ttl"],
-            )
-
-            self._assert_query_matches_session_ids(
-                {"date_from": (self.an_hour_ago - relativedelta(days=21)).strftime("%Y-%m-%d")},
-                ["storage is not past ttl"],
-            )
-
-            self._assert_query_matches_session_ids(
-                {"date_from": (self.an_hour_ago - relativedelta(days=22)).strftime("%Y-%m-%d")},
+                {"date_from": (self.an_hour_ago - relativedelta(days=days_ago)).strftime("%Y-%m-%d")},
                 ["storage is not past ttl"],
             )
 

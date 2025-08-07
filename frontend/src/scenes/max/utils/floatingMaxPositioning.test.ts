@@ -27,7 +27,7 @@ beforeEach(() => {
         () =>
             ({
                 style: { marginBottom: '6px', paddingBottom: '0px', borderBottomWidth: '0px' },
-            } as any)
+            }) as any
     )
 
     // Mock getElementsByClassName for getCSSVariableValue

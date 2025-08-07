@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -23,15 +24,17 @@ let uniqueNode = 0
 export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    }, [])
+    })
+
     const [queryInput, setQueryInput] = useState(props.query.code)
     useEffect(() => {
         setQueryInput(props.query?.code)
     }, [props.query?.code])
+
     const [realKey] = useState(() => uniqueNode++)
 
     function saveQuery(): void {

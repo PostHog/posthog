@@ -64,6 +64,7 @@ export interface BillingUsageLogicProps {
     initialFilters?: BillingFilters
     dateFrom?: string
     dateTo?: string
+    syncWithUrl?: boolean // Default false - only intended on usage and spend pages
 }
 
 export const billingUsageLogic = kea<billingUsageLogicType>([
@@ -287,8 +288,19 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         ],
     }),
 
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props }) => {
         const buildURL = (): [string, Params, Record<string, any>, { replace: boolean }] => {
+            const keepCurrentUrl: [string, Params, Record<string, any>, { replace: boolean }] = [
+                router.values.location.pathname,
+                router.values.searchParams,
+                router.values.hashParams,
+                { replace: false },
+            ]
+
+            if (props.syncWithUrl !== true) {
+                return keepCurrentUrl
+            }
+
             return syncBillingSearchParams(router, (params: Params) => {
                 updateBillingSearchParams(
                     params,
@@ -340,8 +352,12 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params): void => {
+            if (props.syncWithUrl !== true) {
+                return
+            }
+
             const filtersFromUrl: Partial<BillingFilters> = {}
 
             if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {

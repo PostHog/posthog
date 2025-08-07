@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     Integration,
     OauthIntegration,
@@ -154,7 +155,8 @@ class IntegrationViewSet(
                 raise ValidationError("Kind not configured")
         elif kind == "github":
             query_params = urlencode({"state": token})
-            installation_url = f"https://github.com/apps/{'posthog-error-tracking'}/installations/new?{query_params}"
+            app_slug = get_instance_setting("GITHUB_APP_SLUG")
+            installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
             response = redirect(installation_url)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
 

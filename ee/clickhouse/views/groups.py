@@ -1,37 +1,40 @@
 from collections import defaultdict
-
-from django.db import IntegrityError
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from requests import HTTPError
 from typing import cast, Optional
 
+import posthoganalytics
+import structlog
+from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
+from loginas.utils import is_impersonated_session
+from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, viewsets, status
-
-from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
-from posthog.api.capture import capture_internal
-from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
+from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
+from posthog.api.capture import capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.models import Notebook
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import raw_create_group_ch, create_group
 from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
-from loginas.utils import is_impersonated_session
-
+from posthog.models.notebook import ResourceNotebook
 from posthog.models.user import User
+
+logger = structlog.get_logger(__name__)
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -105,6 +108,18 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
 
+class FindGroupSerializer(GroupSerializer):
+    notebook = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Group
+        fields = [*GroupSerializer.Meta.fields, "notebook"]
+
+    def get_notebook(self, obj: Group) -> str | None:
+        notebooks = obj.notebooks.first()
+        return notebooks.notebook.short_id if notebooks else None
+
+
 class CreateGroupSerializer(serializers.ModelSerializer):
     group_properties = serializers.JSONField(default=dict, required=False, allow_null=True)
 
@@ -115,9 +130,15 @@ class CreateGroupSerializer(serializers.ModelSerializer):
 
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
-    serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
+    serializer_classes = {
+        "find": FindGroupSerializer,
+        "default": GroupSerializer,
+    }
+
+    def get_serializer_class(self):
+        return self.serializer_classes.get(self.action, self.serializer_classes["default"])
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(
@@ -217,7 +238,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         serializer = self.get_serializer(queryset, many=True)
         return response.Response(serializer.data)
 
-    @extend_schema(request=CreateGroupSerializer, responses={status.HTTP_201_CREATED: serializer_class})
+    @extend_schema(request=CreateGroupSerializer, responses={status.HTTP_201_CREATED: serializer_classes["default"]})
     def create(self, request, *args, **kwargs):
         request_data = CreateGroupSerializer(data=request.data)
         request_data.is_valid(raise_exception=True)
@@ -287,7 +308,19 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            group = self.get_queryset().prefetch_related("notebooks__notebook").get(group_key=request.GET["group_key"])
+            if self._is_crm_enabled(cast(User, request.user)) and not group.notebooks.exists():
+                try:
+                    self._create_notebook_for_group(group=group)
+                except IntegrityError as e:
+                    logger.exception(
+                        "Group notebook creation failed",
+                        group_key=group.group_key,
+                        group_type_index=group.group_type_index,
+                        team_id=self.team.pk,
+                        error=e,
+                    )
+
             data = self.get_serializer(group).data
             return response.Response(data)
         except Group.DoesNotExist:
@@ -592,3 +625,22 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         rows = sync_execute(query, params)
 
         return response.Response([{"name": name, "count": count} for name, count in rows])
+
+    def _is_crm_enabled(self, user: User) -> bool:
+        return posthoganalytics.feature_enabled(
+            "crm-iteration-one",
+            str(user.distinct_id),
+            groups={"organization": str(self.team.organization.id)},
+            group_properties={"organization": {"id": str(self.team.organization.id)}},
+            send_feature_flag_events=False,
+        )
+
+    @transaction.atomic
+    def _create_notebook_for_group(self, group: Group):
+        group_name = group.group_properties.get("name", "")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title=f"{group_name} Notes" if group_name else "Notes",
+            visibility=Notebook.Visibility.INTERNAL,
+        )
+        ResourceNotebook.objects.create(notebook=notebook, group=group)

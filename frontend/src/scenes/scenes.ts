@@ -62,6 +62,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ErrorProjectUnavailable]: {
         name: 'Project unavailable',
     },
+    [Scene.NewTab]: {
+        projectBased: true,
+        name: 'New tab',
+    },
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
@@ -506,6 +510,7 @@ export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
+    '/new': urls.newTab(),
     '/home': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
@@ -579,6 +584,7 @@ export const redirects: Record<
 }
 
 export const routes: Record<string, [Scene | string, string]> = {
+    [urls.newTab()]: [Scene.NewTab, 'newTab'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
@@ -618,10 +624,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.activity(':tab')]: [Scene.Activity, 'activity'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
-    ...Object.values(ReplayTabs).reduce((acc, tab) => {
-        acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
-        return acc
-    }, {} as Record<string, [Scene, string]>),
+    ...Object.values(ReplayTabs).reduce(
+        (acc, tab) => {
+            acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
+            return acc
+        },
+        {} as Record<string, [Scene, string]>
+    ),
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],

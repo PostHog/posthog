@@ -29,8 +29,8 @@ export function BillingSection(): JSX.Element {
     const section = location.pathname.includes('spend')
         ? 'spend'
         : location.pathname.includes('usage')
-        ? 'usage'
-        : 'overview'
+          ? 'usage'
+          : 'overview'
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)

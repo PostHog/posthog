@@ -95,10 +95,10 @@ const SingleTemplateVariable = ({
                     variable.type === 'event'
                         ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                         : variable.type === 'flag'
-                        ? [TaxonomicFilterGroupType.FeatureFlags]
-                        : variable.type === 'person-property'
-                        ? [TaxonomicFilterGroupType.PersonProperties]
-                        : []
+                          ? [TaxonomicFilterGroupType.FeatureFlags]
+                          : variable.type === 'person-property'
+                            ? [TaxonomicFilterGroupType.PersonProperties]
+                            : []
                 }
                 onChange={(thisFilterGroup) => {
                     if (thisFilterGroup.values.length === 0) {
