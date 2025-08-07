@@ -5,12 +5,12 @@ import { InternalPerson } from '~/types'
 export const personPropertiesSizeViolationCounter = new Counter({
     name: 'person_properties_size_violations_total',
     help: 'Number of person properties size violations',
-    labelNames: ['team_id', 'violation_type'],
+    labelNames: ['violation_type'],
 })
 
-export const oversizedPersonPropertiesArchiveCounter = new Counter({
-    name: 'oversized_person_properties_archived',
-    help: 'Number of oversized person properties archived then trimmed',
+export const oversizedPersonPropertiesTrimmedCounter = new Counter({
+    name: 'oversized_person_properties_trimmed',
+    help: 'Number of oversized person properties trimmed',
     labelNames: ['result'],
 })
 

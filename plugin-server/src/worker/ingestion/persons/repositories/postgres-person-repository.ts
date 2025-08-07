@@ -22,14 +22,14 @@ import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../util
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../../utils/db/utils'
 import { logger } from '../../../../utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/utils'
-import { oversizedPersonPropertiesArchiveCounter, personPropertiesSizeViolationCounter } from '../metrics'
+import { oversizedPersonPropertiesTrimmedCounter, personPropertiesSizeViolationCounter } from '../metrics'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
-const DEFAULT_PERSON_PROPERTIES_SIZE_LIMIT = 1024 * 1024
+const DEFAULT_PERSON_PROPERTIES_SIZE_LIMIT = 512 * 1024
 
 export interface PostgresPersonRepositoryOptions {
     calculatePropertiesSize: number
@@ -127,15 +127,31 @@ export class PostgresPersonRepository
     private async handleOversizedPersonProperties(
         person: InternalPerson,
         update: Partial<InternalPerson>
-    ): Promise<void> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const currentSize = await this.personPropertiesSize(person.id)
 
         if (currentSize >= this.options.personPropertiesSizeLimit) {
-            await this.handleExistingOversizedRecord(person, update, currentSize)
+            try {
+                personPropertiesSizeViolationCounter.inc({
+                    violation_type: 'existing_record_violates_limit',
+                })
+                return await this.handleExistingOversizedRecord(person, update)
+            } catch (error) {
+                logger.warn('Failed to handle previously oversized person record', {
+                    team_id: person.team_id,
+                    person_id: person.id,
+                    violation_type: 'existing_record_violates_limit',
+                })
+
+                throw new PersonPropertiesSizeViolationError(
+                    `Person properties update failed after trying to trim oversized properties`,
+                    person.team_id,
+                    person.id
+                )
+            }
         } else {
             // current record is within limits, reject the write
             personPropertiesSizeViolationCounter.inc({
-                team_id: person.team_id.toString(),
                 violation_type: 'attempt_to_violate_limit',
             })
 
@@ -155,91 +171,37 @@ export class PostgresPersonRepository
 
     private async handleExistingOversizedRecord(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
-        propertiesSize: number
-    ): Promise<void> {
-        personPropertiesSizeViolationCounter.inc({
-            team_id: person.team_id.toString(),
-            violation_type: 'existing_limit_violation',
-        })
-
+        update: Partial<InternalPerson>
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         try {
-            await this.archivePersonRecord(person, propertiesSize)
+            const trimmedProperties = this.trimPropertiesToFitSize(
+                // NOTE: we exclude the properties in the update and just try to trim the existing properties for simplicity
+                // we are throwing data away either way
+                person.properties,
+                this.options.personPropertiesSizeLimit,
+                this.protectedPropertyKeys
+            )
 
-            if (update.properties) {
-                const trimmedProperties = this.trimPropertiesToFitSize(
-                    update.properties,
-                    this.options.personPropertiesSizeLimit,
-                    this.protectedPropertyKeys
-                )
-
-                const trimmedUpdate: Partial<InternalPerson> = {
-                    ...update,
-                    properties: trimmedProperties,
-                }
-
-                await this.updatePerson(person, trimmedUpdate, 'oversized_properties_remediation')
+            const trimmedUpdate: Partial<InternalPerson> = {
+                ...update,
+                properties: trimmedProperties,
             }
-
-            oversizedPersonPropertiesArchiveCounter.inc({
-                result: 'success',
-            })
+            const [updatedPerson, kafkaMessages, versionDisparity] = await this.updatePerson(
+                person,
+                trimmedUpdate,
+                'oversized_properties_remediation'
+            )
+            oversizedPersonPropertiesTrimmedCounter.inc({ result: 'success' })
+            return [updatedPerson, kafkaMessages, versionDisparity]
         } catch (error) {
-            oversizedPersonPropertiesArchiveCounter.inc({
-                result: 'failed',
-            })
-            logger.error('Failed to handle oversized person record', {
+            oversizedPersonPropertiesTrimmedCounter.inc({ result: 'failed' })
+            logger.error('Failed to handle previously oversized person record', {
                 team_id: person.team_id,
                 person_id: person.id,
                 error,
             })
             throw error
         }
-    }
-
-    async archivePersonRecord(person: InternalPerson, propertiesSize: number): Promise<void> {
-        const archiveData = {
-            original_person_id: person.id,
-            team_id: person.team_id,
-            uuid: person.uuid,
-            properties: person.properties,
-            properties_last_updated_at: person.properties_last_updated_at,
-            properties_last_operation: person.properties_last_operation,
-            is_user_id: person.is_user_id,
-            properties_size_bytes: propertiesSize,
-            created_at: person.created_at.toISO(),
-            version: person.version,
-            is_identified: person.is_identified,
-            archived_at: new Date().toISOString(),
-            archive_reason: 'person_properties_size_violation',
-        }
-
-        await this.postgres.query(
-            PostgresUse.PERSONS_WRITE,
-            `
-            INSERT INTO posthog_personarchive (
-                original_person_id, team_id, uuid, properties, properties_last_updated_at,
-                properties_last_operation, is_user_id, properties_size_bytes, created_at,
-                version, is_identified, archived_at, archive_reason
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            `,
-            [
-                archiveData.original_person_id,
-                archiveData.team_id,
-                archiveData.uuid,
-                sanitizeJsonbValue(archiveData.properties),
-                sanitizeJsonbValue(archiveData.properties_last_updated_at),
-                sanitizeJsonbValue(archiveData.properties_last_operation),
-                archiveData.is_user_id,
-                archiveData.properties_size_bytes,
-                archiveData.created_at,
-                archiveData.version,
-                archiveData.is_identified,
-                archiveData.archived_at,
-                archiveData.archive_reason,
-            ],
-            'archivePersonRecord'
-        )
     }
 
     private isPropertiesSizeConstraintViolation(error: any): boolean {
@@ -463,7 +425,6 @@ export class PostgresPersonRepository
             if (this.isPropertiesSizeConstraintViolation(error)) {
                 // For createPerson, we just log and reject since there's no existing person to update
                 personPropertiesSizeViolationCounter.inc({
-                    team_id: teamId.toString(),
                     violation_type: 'create_person_size_violation',
                 })
 
@@ -796,9 +757,7 @@ export class PostgresPersonRepository
             return [updatedPerson, [kafkaMessage], versionDisparity > 0]
         } catch (error) {
             if (this.isPropertiesSizeConstraintViolation(error) && tag !== 'oversized_properties_remediation') {
-                await this.handleOversizedPersonProperties(person, update)
-                // Re-throw the error after handling
-                throw error
+                return await this.handleOversizedPersonProperties(person, update)
             }
 
             // Re-throw other errors
@@ -846,7 +805,6 @@ export class PostgresPersonRepository
             if (this.isPropertiesSizeConstraintViolation(error)) {
                 // For updatePersonAssertVersion, we just log and reject like createPerson
                 personPropertiesSizeViolationCounter.inc({
-                    team_id: personUpdate.team_id.toString(),
                     violation_type: 'update_person_assert_version_size_violation',
                 })
 
