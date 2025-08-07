@@ -2481,8 +2481,7 @@
          "posthog_team"."base_currency"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."id" = 99999)
+  WHERE "posthog_dashboarditem"."id" = 99999
   LIMIT 21
   FOR
   UPDATE OF "posthog_dashboarditem"
@@ -5733,8 +5732,7 @@
          "posthog_team"."base_currency"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."id" = 99999)
+  WHERE "posthog_dashboarditem"."id" = 99999
   LIMIT 21
   FOR
   UPDATE OF "posthog_dashboarditem"
@@ -7589,8 +7587,7 @@
          "posthog_team"."base_currency"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."id" = 99999)
+  WHERE "posthog_dashboarditem"."id" = 99999
   LIMIT 21
   FOR
   UPDATE OF "posthog_dashboarditem"
@@ -11304,8 +11301,7 @@
          "posthog_team"."base_currency"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."id" = 99999)
+  WHERE "posthog_dashboarditem"."id" = 99999
   LIMIT 21
   FOR
   UPDATE OF "posthog_dashboarditem"
@@ -13339,8 +13335,7 @@
          "posthog_team"."base_currency"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."id" = 99999)
+  WHERE "posthog_dashboarditem"."id" = 99999
   LIMIT 21
   FOR
   UPDATE OF "posthog_dashboarditem"
