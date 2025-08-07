@@ -8,8 +8,6 @@ from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from langchain_core.prompts import ChatPromptTemplate
-from ee.hogai.utils.types import AssistantToolCallMessage
-from uuid import uuid4
 from posthog.models import Team, User
 from posthog.schema import MaxRecordingUniversalFilters
 from .prompts import (
@@ -112,7 +110,6 @@ class SearchSessionRecordingsTool(MaxTool):
         graph_context = {
             "change": user_prompt,
             "output": None,
-            "messages": [],
             "tool_progress_messages": [],
             **self.context,
         }
@@ -120,42 +117,12 @@ class SearchSessionRecordingsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
 
         if type(result["output"]) is not MaxRecordingUniversalFilters:
-            content = result["output"]
+            content = "❌ I need more information to proceed."
             filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
-
-            # Add the tool call message to the tool's state copy
-            tool_message = AssistantToolCallMessage(
-                content=content,
-                ui_payload={"search_session_recordings": filters},
-                id=str(uuid4()),
-                tool_call_id=self._state.messages[-1].tool_calls[0].id
-                if self._state.messages
-                and hasattr(self._state.messages[-1], "tool_calls")
-                and self._state.messages[-1].tool_calls
-                else None,
-                visible=False,
-            )
-            self._state.messages.append(tool_message)
-
         else:
             try:
                 content = "✅ Updated session recordings filters."
                 filters = MaxRecordingUniversalFilters.model_validate(result["output"])
             except Exception as e:
                 raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
-
-                # Add the tool call message to the tool's state copy
-            tool_message = AssistantToolCallMessage(
-                content=content,
-                ui_payload={"search_session_recordings": filters},
-                id=str(uuid4()),
-                tool_call_id=self._state.messages[-1].tool_calls[0].id
-                if self._state.messages
-                and hasattr(self._state.messages[-1], "tool_calls")
-                and self._state.messages[-1].tool_calls
-                else None,
-                visible=True,
-            )
-            self._state.messages.append(tool_message)
-
-        return "", filters
+        return content, filters

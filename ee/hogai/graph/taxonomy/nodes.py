@@ -26,7 +26,6 @@ from .prompts import (
     HUMAN_IN_THE_LOOP_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     ITERATION_LIMIT_PROMPT,
-    REACT_HELP_REQUEST_PROMPT,
 )
 from ee.hogai.utils.helpers import format_events_prompt
 
@@ -160,7 +159,7 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
             # The agent has requested help, so we return a message to the root node
             if tool_input.name == "ask_user_for_help":
                 return self._get_reset_state(
-                    REACT_HELP_REQUEST_PROMPT.format(request=tool_input.arguments.request),
+                    tool_input.arguments.request,
                     tool_input.name,
                     state,
                 )
@@ -190,14 +189,6 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
         # If we have a final answer, end the process
         if state.output:
             return "end"
-
-        # Check if we have help request messages (created by _get_reset_state)
-        # These are AssistantToolCallMessage instances with specific help content
-        if state.intermediate_steps:
-            action, _ = state.intermediate_steps[-1]
-
-            if action.tool == "max_iterations" or action.tool == "ask_user_for_help":
-                return "end"
 
         # Continue normal processing - agent should see tool results and make next decision
         return "continue"

@@ -130,13 +130,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         super().__init__(**kwargs)
         self._team = team
         self._user = user
-        # Create a deep copy of the state to avoid modifying the original
-        if state:
-            import copy
-
-            self._state = copy.deepcopy(state)
-        else:
-            self._state = AssistantState(messages=[])
+        self._state = state if state else AssistantState(messages=[])
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
