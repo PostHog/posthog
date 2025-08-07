@@ -1324,34 +1324,7 @@ class FeatureFlagViewSet(
                     # irrespective of complexity
                     if should_send_cohorts:
                         try:
-                            cohort_ids = feature_flag.get_cohort_ids(
-                                using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                                seen_cohorts_cache=seen_cohorts_cache,
-                            )
-
-                            for id in cohort_ids:
-                                # don't duplicate queries for already added cohorts
-                                if id not in cohorts:
-                                    if id in seen_cohorts_cache:
-                                        cohort = seen_cohorts_cache[id]
-                                    else:
-                                        cohort = (
-                                            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                                            .filter(id=id, team__project_id=self.project_id, deleted=False)
-                                            .first()
-                                        )
-                                        seen_cohorts_cache[id] = cohort or ""
-
-                                    if cohort and not cohort.is_static:
-                                        try:
-                                            cohorts[str(cohort.pk)] = cohort.properties.to_dict()
-                                        except Exception:
-                                            logger.error(
-                                                "Error processing cohort properties",
-                                                extra={"cohort_id": id},
-                                                exc_info=True,
-                                            )
-                                            continue
+                            self._build_cohort_properties_cache(logger, cohorts, seen_cohorts_cache, feature_flag)
 
                         except Exception:
                             logger.error(
@@ -1421,6 +1394,47 @@ class FeatureFlagViewSet(
                 },
                 status=500,
             )
+
+    def _build_cohort_properties_cache(self, logger, cohorts, seen_cohorts_cache, feature_flag):
+        """
+        Builds a cache of cohort properties for a feature flag.
+
+        This is used to avoid duplicate queries for cohort properties.
+
+        Args:
+            logger: The logger to use for logging errors.
+            cohorts: The cache of cohort properties.
+            seen_cohorts_cache: The cache of seen cohorts.
+            feature_flag: The feature flag to build the cache for.
+        """
+        cohort_ids = feature_flag.get_cohort_ids(
+            using_database=DATABASE_FOR_LOCAL_EVALUATION,
+            seen_cohorts_cache=seen_cohorts_cache,
+        )
+
+        for id in cohort_ids:
+            # don't duplicate queries for already added cohorts
+            if id not in cohorts:
+                if id in seen_cohorts_cache:
+                    cohort = seen_cohorts_cache[id]
+                else:
+                    cohort = (
+                        Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+                        .filter(id=id, team__project_id=self.project_id, deleted=False)
+                        .first()
+                    )
+                    seen_cohorts_cache[id] = cohort or ""
+
+                if cohort and not cohort.is_static:
+                    try:
+                        cohorts[str(cohort.pk)] = cohort.properties.to_dict()
+                    except Exception:
+                        logger.error(
+                            "Error processing cohort properties",
+                            extra={"cohort_id": id},
+                            exc_info=True,
+                        )
+                        continue
 
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
