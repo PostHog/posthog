@@ -174,6 +174,66 @@ class TestFlagDefinitionsCache(TestCase):
             call_args = mock_logger.warning.call_args
             self.assertIn("Failed to invalidate flag definitions cache", call_args[0][0])
 
+    @patch("posthog.api.services.flag_definitions_cache.statsd")
+    def test_set_cache_records_metric(self, mock_statsd):
+        """Test that set_cache records metrics."""
+        FlagDefinitionsCache.set_cache(self.project_id, self.test_data, include_cohorts=False)
+
+        mock_statsd.incr.assert_called_once_with(
+            "flag_definitions_cache_set",
+            tags={"include_cohorts": "false"},
+        )
+
+    @patch("posthog.api.services.flag_definitions_cache.statsd")
+    def test_get_cache_hit_records_metric(self, mock_statsd):
+        """Test that get_cache records hit metric when data is found."""
+        # Set up cache data first
+        FlagDefinitionsCache.set_cache(self.project_id, self.test_data, include_cohorts=False)
+        mock_statsd.reset_mock()  # Reset to ignore the set_cache metric
+
+        # Get cache data
+        result = FlagDefinitionsCache.get_cache(self.project_id, include_cohorts=False)
+
+        self.assertEqual(result, self.test_data)
+        mock_statsd.incr.assert_called_once_with(
+            "flag_definitions_cache_hit",
+            tags={"include_cohorts": "false"},
+        )
+
+    @patch("posthog.api.services.flag_definitions_cache.statsd")
+    def test_get_cache_miss_records_metric(self, mock_statsd):
+        """Test that get_cache records miss metric when data is not found."""
+        result = FlagDefinitionsCache.get_cache(self.project_id, include_cohorts=False)
+
+        self.assertIsNone(result)
+        mock_statsd.incr.assert_called_once_with(
+            "flag_definitions_cache_miss",
+            tags={"include_cohorts": "false"},
+        )
+
+    @patch("posthog.api.services.flag_definitions_cache.statsd")
+    def test_get_cache_error_records_metric(self, mock_statsd):
+        """Test that get_cache records error metric on exception."""
+        with patch("django.core.cache.cache.get", side_effect=Exception("Cache error")):
+            result = FlagDefinitionsCache.get_cache(self.project_id, include_cohorts=False)
+
+            self.assertIsNone(result)
+            mock_statsd.incr.assert_called_once_with(
+                "flag_definitions_cache_error",
+                tags={"include_cohorts": "false"},
+            )
+
+    @patch("posthog.api.services.flag_definitions_cache.statsd")
+    def test_invalidate_for_project_records_metric(self, mock_statsd):
+        """Test that invalidate_for_project records invalidation metric."""
+        reason = "test invalidation"
+        FlagDefinitionsCache.invalidate_for_project(self.project_id, reason)
+
+        mock_statsd.incr.assert_called_once_with(
+            "flag_definitions_cache_invalidation",
+            tags={"reason": reason},
+        )
+
 
 class TestCacheInvalidationUtilities(TestCase):
     """Test the cache invalidation utility functions."""

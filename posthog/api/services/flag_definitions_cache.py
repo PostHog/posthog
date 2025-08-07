@@ -10,6 +10,7 @@ import os
 from typing import Any, Optional
 
 from django.core.cache import cache
+from statshog.defaults.django import statsd
 
 
 class FlagDefinitionsCache:
@@ -69,6 +70,9 @@ class FlagDefinitionsCache:
             cache_keys = cls.get_all_cache_keys(project_id)
             cache.delete_many(cache_keys)
 
+            # Record cache invalidation metric
+            statsd.incr("flag_definitions_cache_invalidation", tags={"reason": reason})
+
             logger = logging.getLogger(__name__)
             log_extra = {"project_id": project_id, "reason": reason}
             if extra_context:
@@ -108,6 +112,12 @@ class FlagDefinitionsCache:
             cache_key = cls.get_cache_key(project_id, include_cohorts)
             cache.set(cache_key, data, cls.CACHE_TTL)
 
+            # Record cache set metric
+            statsd.incr(
+                "flag_definitions_cache_set",
+                tags={"include_cohorts": str(include_cohorts).lower()},
+            )
+
             logger = logging.getLogger(__name__)
             logger.info(
                 "Cached flag definitions",
@@ -140,15 +150,22 @@ class FlagDefinitionsCache:
             cache_key = cls.get_cache_key(project_id, include_cohorts)
             cached_data = cache.get(cache_key)
 
+            # Record cache hit/miss metrics
+            tags = {"include_cohorts": str(include_cohorts).lower()}
             if cached_data is not None:
+                statsd.incr("flag_definitions_cache_hit", tags=tags)
                 logger = logging.getLogger(__name__)
                 logger.info(
                     "Cache hit for flag definitions",
                     extra={"cache_key": cache_key, "project_id": project_id},
                 )
+            else:
+                statsd.incr("flag_definitions_cache_miss", tags=tags)
 
             return cached_data
         except Exception as e:
+            # Record cache error metric
+            statsd.incr("flag_definitions_cache_error", tags={"include_cohorts": str(include_cohorts).lower()})
             logger = logging.getLogger(__name__)
             logger.warning(
                 "Failed to retrieve flag definitions from cache",
