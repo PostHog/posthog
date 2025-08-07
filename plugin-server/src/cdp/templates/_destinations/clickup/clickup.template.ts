@@ -92,10 +92,19 @@ if (res.status >= 400) {
             required: false,
         },
         {
+            key: 'priorityId',
+            type: 'string',
+            label: 'Priority ID',
+            description: 'ID of the ClickUp priority to create the task in.',
+            secret: false,
+            required: false,
+        },
+        {
             key: 'assigneeId',
             type: 'string',
             label: 'Assignee ID',
-            description: 'ID of the ClickUp assignee to assign the task to.',
+            description:
+                'Array of member IDs to assign the task to. This has to be an array in the following format: `{[123]}`',
             secret: false,
             required: false,
         },
