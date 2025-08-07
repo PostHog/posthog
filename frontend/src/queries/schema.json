@@ -23282,7 +23282,7 @@
                     "$ref": "#/definitions/SurveyMatchType"
                 },
                 "linkedFlagVariant": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "seenSurveyWaitPeriodInDays": {
                     "type": "number"
