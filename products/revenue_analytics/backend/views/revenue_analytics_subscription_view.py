@@ -67,7 +67,7 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                     ),
                     ast.Alias(
                         alias="product_id",
-                        expr=ast.Call(name="any", args=[ast.Field(chain=["properties", event.productProperty])])
+                        expr=ast.Call(name="min", args=[ast.Field(chain=["properties", event.productProperty])])
                         if event.productProperty
                         else ast.Constant(value=None),
                     ),
