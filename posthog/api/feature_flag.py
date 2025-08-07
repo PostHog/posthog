@@ -1270,7 +1270,7 @@ class FeatureFlagViewSet(
                     status=500,
                 )
 
-            cohorts = {}
+            cohorts: dict[str, dict] = {}
             seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
 
             if should_send_cohorts:
@@ -1324,7 +1324,7 @@ class FeatureFlagViewSet(
                     # irrespective of complexity
                     if should_send_cohorts:
                         try:
-                            self._build_cohort_properties_cache(logger, cohorts, seen_cohorts_cache, feature_flag)
+                            self._build_cohort_properties_cache(cohorts, seen_cohorts_cache, feature_flag)
 
                         except Exception:
                             logger.error(
@@ -1395,18 +1395,18 @@ class FeatureFlagViewSet(
                 status=500,
             )
 
-    def _build_cohort_properties_cache(self, logger, cohorts, seen_cohorts_cache, feature_flag):
+    def _build_cohort_properties_cache(self, cohorts, seen_cohorts_cache, feature_flag):
         """
         Builds a cache of cohort properties for a feature flag.
 
         This is used to avoid duplicate queries for cohort properties.
 
         Args:
-            logger: The logger to use for logging errors.
             cohorts: The cache of cohort properties.
             seen_cohorts_cache: The cache of seen cohorts.
             feature_flag: The feature flag to build the cache for.
         """
+        logger = logging.getLogger(__name__)
         cohort_ids = feature_flag.get_cohort_ids(
             using_database=DATABASE_FOR_LOCAL_EVALUATION,
             seen_cohorts_cache=seen_cohorts_cache,
