@@ -1,7 +1,7 @@
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
-import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from '../constants'
+import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
 
 export interface AlertDestinationSelectorProps {
     alertId: string
