@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
@@ -544,6 +545,7 @@ def social_create_user(
     *args,
     **kwargs,
 ):
+    posthoganalytics.tag("details", json.dumps(details))
     invite_id = strategy.session_get("invite_id")
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
