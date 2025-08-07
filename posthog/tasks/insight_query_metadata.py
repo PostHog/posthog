@@ -15,6 +15,7 @@ logger = structlog.get_logger(__name__)
     acks_late=True,
     reject_on_worker_lost=True,
     track_started=True,
+    default_retry_delay=10 * 60,  # 10 minutes
 )
 def extract_insight_query_metadata(insight_id: str) -> None:
     try:
@@ -31,12 +32,6 @@ def extract_insight_query_metadata(insight_id: str) -> None:
             )
             insight.generate_query_metadata()
             insight.save(update_fields=["query_metadata"])
-    except Insight.DoesNotExist as e:
-        logger.exception(
-            "Failed to extract query metadata - insight does not exist", insight_id=insight_id, error=str(e)
-        )
-        # Don't retry for non-existent insights
-        return
     except Exception as e:
         logger.exception("Failed to extract query metadata for insight", insight_id=insight_id, error=str(e))
         raise
