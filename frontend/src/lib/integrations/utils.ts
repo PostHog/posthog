@@ -13,6 +13,7 @@ import IconSnapchat from 'public/services/snapchat.png'
 import IconMetaAds from 'public/services/meta-ads.png'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconTwilio from 'public/services/twilio.png'
+import IconClickUp from 'public/services/clickup.svg'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IntegrationKind } from '~/types'
@@ -33,6 +34,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     github: IconGitHub,
     'meta-ads': IconMetaAds,
     twilio: IconTwilio,
+    clickup: IconClickUp,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
