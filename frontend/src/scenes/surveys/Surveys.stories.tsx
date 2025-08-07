@@ -303,17 +303,19 @@ NewSurveyPresentationSection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewSurveyTargetingSection: StoryFn = () => {
     useOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
-            groups: [
-                {
-                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
-                    rollout_percentage: 20,
-                },
-            ],
-        })
+        window.setTimeout(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
+                groups: [
+                    {
+                        properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
+                        rollout_percentage: 20,
+                    },
+                ],
+            })
+        }, 300)
     })
 
     return <App />
@@ -359,16 +361,18 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
     })
 
     useOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.Open,
-                question: 'What is your favorite color?',
-                description: '<strong>This description has HTML in it</strong>',
-                descriptionContentType: 'html',
-            },
-        ])
+        window.setTimeout(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+                {
+                    type: SurveyQuestionType.Open,
+                    question: 'What is your favorite color?',
+                    description: '<strong>This description has HTML in it</strong>',
+                    descriptionContentType: 'html',
+                },
+            ])
+        }, 300)
     })
 
     return <App />
@@ -382,16 +386,18 @@ NewSurveyWithHTMLQuestionDescription.parameters = {
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
     useOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.Open,
-                question: 'What is your favorite color?',
-                description: '<strong>This description has HTML in it</strong>',
-                descriptionContentType: 'text',
-            },
-        ])
+        window.setTimeout(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+                {
+                    type: SurveyQuestionType.Open,
+                    question: 'What is your favorite color?',
+                    description: '<strong>This description has HTML in it</strong>',
+                    descriptionContentType: 'text',
+                },
+            ])
+        })
     })
 
     return <App />
