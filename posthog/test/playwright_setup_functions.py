@@ -1,17 +1,15 @@
 """Playwright setup functions for test data creation."""
 
-import datetime as dt
 import secrets
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from pydantic import BaseModel
 
-from posthog.models import PersonalAPIKey
+from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import mask_key_value
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
-from posthog.demo.matrix import MatrixManager
-from posthog.demo.products.hedgebox import HedgeboxMatrix
+from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
 
 
 @runtime_checkable
@@ -27,27 +25,36 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     unique_suffix = secrets.token_hex(8)  # 16 character hex string
     user_email = f"test-{unique_suffix}@posthog.com"
 
-    # Create Matrix with demo data (using smaller dataset for tests)
-    now = dt.datetime.now(dt.UTC)
-    matrix = HedgeboxMatrix(
-        seed="playwright_test_seed",
-        now=now,
-        days_past=30,  # Smaller dataset for faster tests
-        days_future=0,  # No future events for tests
-        n_clusters=10,  # Much smaller than default 500
-    )
+    # Use the working generate_demo_data command to create workspace with demo data
+    command = GenerateDemoDataCommand()
 
-    # Use MatrixManager to create workspace with demo data
-    matrix_manager = MatrixManager(matrix, print_steps=False)  # Quiet for tests
+    options = {
+        "seed": f"playwright_test",  # constant seed
+        "now": None,
+        "days_past": 30,
+        "days_future": 0,
+        "n_clusters": 10,
+        "dry_run": False,
+        "team_id": None,
+        "email": user_email,
+        "password": "12345678",
+        "product": "hedgebox",
+        "staff": False,
+        "verbosity": 0,
+    }
 
-    organization, team, user = matrix_manager.ensure_account_and_save(
-        email=user_email,
-        first_name="Test User",
-        organization_name=org_name,
-        password="12345678",
-        is_staff=False,
-        disallow_collision=True,  # Each test gets a fresh user
-    )
+    # Call the handle method directly - this creates org, team, user, and demo data
+    command.handle(**options)
+
+    # Get the created user, organization, and team
+    user = User.objects.get(email=user_email)
+    organization = user.organization
+    team = user.team
+
+    # Update organization name if custom name was provided
+    if org_name != "Test Organization":
+        organization.name = org_name
+        organization.save()
 
     # Create personal API key for the user
     api_key_value = f"phx_test_api_key_for_playwright_tests_{unique_suffix}"
