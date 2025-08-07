@@ -5,9 +5,7 @@ import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneName } from 'lib/components/Scenes/SceneName'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -23,11 +21,13 @@ import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } 
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
-import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
-import { ActionStep } from './ActionStep'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
+import { ActionStep } from './ActionStep'
 
 const RESOURCE_TYPE = 'action'
 
@@ -215,7 +215,8 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
 
                 <ScenePanel>
                     <ScenePanelMetaInfo>
-                        <SceneName
+                        <SceneTextInput
+                            name="name"
                             defaultValue={action.name || ''}
                             dataAttrKey={RESOURCE_TYPE}
                             onSave={(value) => {
@@ -224,7 +225,8 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             isLoading={actionLoading}
                         />
 
-                        <SceneDescription
+                        <SceneTextarea
+                            name="description"
                             defaultValue={action.description || ''}
                             onSave={(value) => setActionValue('description', value)}
                             dataAttrKey={RESOURCE_TYPE}
