@@ -1416,6 +1416,106 @@ describe('PostgresPersonRepository', () => {
                 mockPersonPropertiesSize.mockRestore()
                 mockQuery.mockRestore()
             })
+
+            it('should fail when protected properties alone exceed size limit and cannot be trimmed', async () => {
+                const team = await getFirstTeam(hub)
+
+                const largeProtectedProperties = {
+                    name: 'John Doe with a very long name that takes up significant space',
+                    email: 'john.doe.with.an.extremely.long.email.address.that.should.be.protected@example.com',
+                    utm_source: 'x'.repeat(30),
+                    utm_medium: 'x'.repeat(30),
+                    utm_campaign: 'x'.repeat(30),
+                    utm_content: 'x'.repeat(30),
+                    utm_term: 'x'.repeat(30),
+                    $browser: 'Chrome with very long user agent string information',
+                    $browser_version: 'Version 120.0.0.0 with extended metadata',
+                    $os: 'Operating System with detailed version information',
+                    $device_type: 'Desktop computer with specific hardware details',
+                    $current_url:
+                        'https://example.com/very/long/path/with/many/segments/and/parameters?param1=value1&param2=value2',
+                    $referring_domain: 'referring-domain-with-long-name.example.com',
+                    $referrer: 'https://referring-site.com/with/very/long/path/that/contains/many/details',
+                    description: 'This is a trimmable property',
+                    customData: 'This can be removed',
+                }
+
+                const oversizedPerson = await createTestPerson(
+                    team.id,
+                    'test-protected-oversized',
+                    largeProtectedProperties
+                )
+
+                const mockPersonPropertiesSize = jest
+                    .spyOn(oversizedRepository, 'personPropertiesSize')
+                    .mockResolvedValue(60)
+
+                const originalQuery = postgres.query.bind(postgres)
+                let updateCallCount = 0
+                const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
+                    if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
+                        updateCallCount++
+
+                        const error = new Error('Check constraint violation')
+                        ;(error as any).code = '23514'
+                        ;(error as any).constraint = 'check_properties_size'
+                        throw error
+                    }
+                    return originalQuery(use, query, values, tag)
+                })
+
+                const update = {
+                    properties: {
+                        $app_name: 'Application name with detailed information',
+                        $app_version: 'Version 1.2.3 with build metadata',
+                    },
+                }
+
+                await expect(oversizedRepository.updatePerson(oversizedPerson, update)).rejects.toThrow(
+                    PersonPropertiesSizeViolationError
+                )
+
+                expect(updateCallCount).toBe(2)
+
+                updateCallCount = 0
+                await expect(oversizedRepository.updatePerson(oversizedPerson, update)).rejects.toThrow(
+                    'Person properties update failed after trying to trim oversized properties'
+                )
+
+                expect(updateCallCount).toBe(2)
+
+                mockPersonPropertiesSize.mockRestore()
+                mockQuery.mockRestore()
+            })
+
+            it('should demonstrate that trimPropertiesToFitSize cannot reduce protected properties below size limit', () => {
+                const protectedPropertiesExceedingLimit = {
+                    name: 'A very long name that takes up space',
+                    email: 'long.email.address@example.com',
+                    utm_source: 'x'.repeat(50),
+                    utm_medium: 'x'.repeat(50),
+                    description: 'This should be removed',
+                    customField: 'This should also be removed',
+                }
+
+                const targetSize = 30
+
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(
+                    protectedPropertiesExceedingLimit,
+                    targetSize
+                )
+
+                expect(result).toHaveProperty('name')
+                expect(result).toHaveProperty('email')
+                expect(result).toHaveProperty('utm_source')
+                expect(result).toHaveProperty('utm_medium')
+
+                expect(result).not.toHaveProperty('description')
+                expect(result).not.toHaveProperty('customField')
+
+                const finalSize = Buffer.byteLength(JSON.stringify(result), 'utf8')
+                expect(finalSize).toBeGreaterThan(targetSize)
+            })
         })
 
         describe('updatePersonAssertVersion with oversized properties', () => {
