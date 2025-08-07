@@ -39,8 +39,8 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
     )
 }
 
-export function ScenePanelDivider(): JSX.Element {
-    return <LemonDivider className="-mx-2 my-2 w-[calc(100%+1rem)]" />
+export function ScenePanelDivider({ className }: { className?: string }): JSX.Element {
+    return <LemonDivider className={cn('-mx-2 my-2 w-[calc(100%+1rem)]', className)} />
 }
 
 // Should be first!
@@ -49,7 +49,7 @@ export const ScenePanelCommonActions = ({ children }: { children: React.ReactNod
         <>
             <div
                 className={cn(
-                    'flex flex-col gap-2 h-[var(--scene-layout-header-height)] py-1 border-b border-primary -mx-2 px-2 mb-2'
+                    'flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] py-2 border-b border-primary -mx-2 px-2 mb-2'
                 )}
             >
                 {children}
