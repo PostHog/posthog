@@ -4,32 +4,50 @@
 
 import { expect } from '@playwright/test'
 import { test } from '../utils/enhanced-test-base'
+import { InsightVizNode, TrendsQuery, NodeKind } from '../../frontend/src/queries/schema/schema-general'
+
+type InsightCreationPayload = {
+    name: string
+    query: InsightVizNode<TrendsQuery>
+}
 
 test('create trends insight via API and snapshot', async ({ page, playwrightSetup }) => {
     // Create workspace with API key
     const workspace = await playwrightSetup.createWorkspace('API Test Org', 'Analytics Project')
 
     // Create a trends insight via API using the personal API key
+    const payload: InsightCreationPayload = {
+        name: 'Pageview Trends Analysis',
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                    },
+                ],
+                dateRange: {
+                    date_from: '-30d',
+                },
+            },
+        },
+    }
+
     const insightResponse = await page.request.post(`/api/projects/${workspace.teamId}/insights/`, {
         headers: {
             Authorization: `Bearer ${workspace.personalApiKey}`,
             'Content-Type': 'application/json',
         },
-        data: {
-            name: 'Pageview Trends Analysis',
-            filters: {
-                events: [{ id: '$pageview' }],
-                insight: 'TRENDS',
-                date_from: '-30d',
-            },
-        },
+        data: payload,
     })
 
     expect(insightResponse.ok()).toBe(true)
     const insightData = await insightResponse.json()
     expect(insightData.short_id).toBeTruthy()
     expect(insightData.name).toBe('Pageview Trends Analysis')
-    expect(insightData.filters.events[0].id).toBe('$pageview')
+    expect(insightData.query.source.series[0].event).toBe('$pageview')
 
     // Login and navigate to the insight page using the short URL
     await playwrightSetup.loginAndNavigateToTeam(page, workspace.teamId)
