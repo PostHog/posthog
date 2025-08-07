@@ -253,9 +253,12 @@ class Organization(UUIDModel):
             added_features = list(current_features - prev_features)
 
             # Dispatch a task to cleanup various settings
-            from posthog.tasks import organization_feature_cleanup
+            from posthog.tasks.organization_feature_cleanup import organization_feature_cleanup
 
-            organization_feature_cleanup.delay(self.id, added_features, removed_features)
+            organization_feature_cleanup.apply_async(
+                args=[self.id, added_features, removed_features],
+                countdown=5 * 24 * 60 * 60,  # 5 days
+            )
 
         return self.available_product_features
 

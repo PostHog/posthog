@@ -14,7 +14,11 @@ def organization_feature_cleanup(organization_id: int, removed_features: list[st
 
     organization = Organization.objects.get(id=organization_id)
 
-    if AvailableFeature.SSO_ENFORCEMENT in removed_features:
+    def is_feature_removed(feature: AvailableFeature) -> bool:
+        """Checks if feature was removed at task dispatch time AND is still removed during execution"""
+        return feature.value in removed_features and not organization.is_feature_available(feature)
+
+    if is_feature_removed(AvailableFeature.SSO_ENFORCEMENT):
         try:
             updated = OrganizationDomain.objects.filter(organization=organization).update(sso_enforcement="")
 
@@ -27,7 +31,7 @@ def organization_feature_cleanup(organization_id: int, removed_features: list[st
         except Exception as e:
             capture_exception(e)
 
-    if AvailableFeature.SAML in removed_features:
+    if is_feature_removed(AvailableFeature.SAML):
         try:
             updated = OrganizationDomain.objects.filter(organization=organization).update(
                 saml_entity_id=None, saml_acs_url=None, saml_x509_cert=None
@@ -42,7 +46,7 @@ def organization_feature_cleanup(organization_id: int, removed_features: list[st
         except Exception as e:
             capture_exception(e)
 
-    if AvailableFeature.AUTOMATIC_PROVISIONING in removed_features:
+    if is_feature_removed(AvailableFeature.AUTOMATIC_PROVISIONING):
         try:
             updated = OrganizationDomain.objects.filter(organization=organization).update(
                 jit_provisioning_enabled=False
@@ -57,7 +61,7 @@ def organization_feature_cleanup(organization_id: int, removed_features: list[st
         except Exception as e:
             capture_exception(e)
 
-    if AvailableFeature.ORGANIZATION_INVITE_SETTINGS in removed_features:
+    if is_feature_removed(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
         try:
             organization.members_can_invite = True
             organization.save(update_fields=["members_can_invite"])
