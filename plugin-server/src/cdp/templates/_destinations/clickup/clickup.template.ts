@@ -12,17 +12,25 @@ export const template: HogFunctionTemplate = {
     code_language: 'hog',
     code: `
 let payload := {
-  'headers': inputs.headers,
-  'body': inputs.body,
-  'method': inputs.method
+  'headers': {
+    'Authorization': 'Bearer ' + inputs.oauth.access_token,
+    'Content-Type': 'application/json',
+  },
+  'body': {
+    'name': inputs.taskName,
+    'description': inputs.taskDescription,
+    'assignees': inputs.assignees,
+    'tags': inputs.tags,
+    'due_date': inputs.dueDate,
+    'status': inputs.status,
+  },
+  'method': 'POST'
 }
 
-let res := fetch('https://webhook.site/6ba37b29-6706-4cd5-8e1a-7a4cb73e680f', payload);
+let res := fetch('https://api.clickup.com/api/v2/list/{list_id}/task', payload);
 
 if (res.status >= 400) {
-  throw Error(f'Webhook failed with status {res.status}: {res.body}');
-} else {
-  print('response', res.body)
+    throw Error(f'Error from api.clickup.com (status {res.status}): {res.body}')
 }
 `,
     inputs_schema: [
@@ -74,6 +82,30 @@ if (res.status >= 400) {
             description: 'Name of the ClickUp task to create.',
             secret: false,
             required: true,
+        },
+        {
+            key: 'statusId',
+            type: 'string',
+            label: 'Status ID',
+            description: 'ID of the ClickUp status to create the task in.',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'assigneeId',
+            type: 'string',
+            label: 'Assignee ID',
+            description: 'ID of the ClickUp assignee to assign the task to.',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'description',
+            type: 'string',
+            label: 'Description',
+            description: 'Description of the ClickUp task.',
+            secret: false,
+            required: false,
         },
     ],
 }
