@@ -6,14 +6,14 @@
  */
 
 /* eslint-disable react-hooks/rules-of-hooks */
-import { test as baseTest } from './playwright-test-base'
+import { test as coreTest } from './playwright-test-core'
 import { PlaywrightSetup, createPlaywrightSetup, PlaywrightWorkspaceSetupResult } from './playwright-setup'
 
 /**
  * Base test with workspace setup capabilities
  * Use this for most tests where you want to manually create workspaces
  */
-export const test = baseTest.extend<{ playwrightSetup: PlaywrightSetup; workspaceSetup: PlaywrightSetup }>({
+export const test = coreTest.extend<{ playwrightSetup: PlaywrightSetup; workspaceSetup: PlaywrightSetup }>({
     playwrightSetup: async ({ request, baseURL }, use) => {
         const playwrightSetup = createPlaywrightSetup(request, baseURL)
         await use(playwrightSetup)
@@ -33,8 +33,8 @@ export const testWithWorkspace = test.extend<{ workspace: PlaywrightWorkspaceSet
     },
 })
 
-// Re-export everything from the base test
-export { expect } from './playwright-test-base'
+// Re-export everything from the core test
+export { expect } from './playwright-test-core'
 
 // Re-export playwright setup utilities
 export { createPlaywrightSetup, createTestWorkspace } from './playwright-setup'
