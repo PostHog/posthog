@@ -1,3 +1,5 @@
+import { RetentionPeriod } from '../types'
+
 export interface WriteSessionResult {
     /** Number of bytes written */
     bytesWritten: number
@@ -37,16 +39,16 @@ export interface SessionBatchFileWriter {
 export interface SessionBatchFileStorage {
     /**
      * Creates a new batch write operation
-     * Returns a writer for the batch that handles writing individual sessions
+     * Returns a writer for the batch that handles writing individual sessions for a given retention period
      *
      * Example usage:
      * ```
-     * const writer = storage.newBatch()
+     * const writer = storage.newBatch("1y")
      * const result = await writer.writeSession(sessionBytes)
      * await writer.finish() // Completes the write operation
      * ```
      */
-    newBatch(): SessionBatchFileWriter
+    newBatch(retentionPeriod: RetentionPeriod): SessionBatchFileWriter
 
     /**
      * Checks the health of the storage backend

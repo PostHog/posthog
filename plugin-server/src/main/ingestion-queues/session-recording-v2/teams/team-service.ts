@@ -29,6 +29,7 @@ export class TeamService {
 
         return {
             teamId: teamConfig.teamId,
+            retentionPeriod: '30d',
             consoleLogIngestionEnabled: teamConfig.consoleLogIngestionEnabled,
         }
     }
