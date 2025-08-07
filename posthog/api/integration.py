@@ -25,6 +25,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
+    ClickUpIntegration,
     EmailIntegration,
     GitHubIntegration,
     TwilioIntegration,
@@ -316,6 +317,68 @@ class IntegrationViewSet(
         ]
 
         return Response({"adAccounts": accounts})
+
+    @action(methods=["GET"], detail=True, url_path="clickup_spaces")
+    def clickup_spaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        clickup = ClickUpIntegration(instance)
+        workspace_id = request.query_params.get("workspaceId")
+
+        spaces = [
+            {
+                "id": space["id"],
+                "name": space["name"],
+            }
+            for space in clickup.list_clickup_spaces(workspace_id)["spaces"]
+        ]
+
+        return Response({"spaces": spaces})
+
+    @action(methods=["GET"], detail=True, url_path="clickup_lists")
+    def clickup_lists(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        clickup = ClickUpIntegration(instance)
+        space_id = request.query_params.get("spaceId")
+
+        all_lists = []
+
+        raw_folders = clickup.list_clickup_folders(space_id)
+        for folder in raw_folders.get("folders", []):
+            for list_item in folder.get("lists", []):
+                all_lists.append(
+                    {
+                        "id": list_item["id"],
+                        "name": list_item["name"],
+                        "folder_id": folder["id"],
+                        "folder_name": folder["name"],
+                    }
+                )
+
+        raw_folderless_lists = clickup.list_clickup_folderless_lists(space_id)
+        for list_item in raw_folderless_lists.get("lists", []):
+            all_lists.append(
+                {
+                    "id": list_item["id"],
+                    "name": list_item["name"],
+                }
+            )
+
+        return Response({"lists": all_lists})
+
+    @action(methods=["GET"], detail=True, url_path="clickup_workspaces")
+    def clickup_workspaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        clickup = ClickUpIntegration(instance)
+
+        workspaces = [
+            {
+                "id": workspace["id"],
+                "name": workspace["name"],
+            }
+            for workspace in clickup.list_clickup_workspaces()["teams"]
+        ]
+
+        return Response({"workspaces": workspaces})
 
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:

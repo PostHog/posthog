@@ -917,6 +917,81 @@ class LinkedInAdsIntegration:
         return response.json()
 
 
+class ClickUpIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "clickup":
+            raise Exception("ClickUpIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    @property
+    def client(self) -> WebClient:
+        return WebClient(self.integration.sensitive_config["access_token"])
+
+    def list_clickup_spaces(self, workspace_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/team/{workspace_id}/space",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list spaces: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_folderless_lists(self, space_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/space/{space_id}/list",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list lists: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_folders(self, space_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/space/{space_id}/folder",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list folders: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_workspaces(self) -> dict:
+        response = requests.request(
+            "GET",
+            "https://api.clickup.com/api/v2/team",
+            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list workspaces: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+
 class EmailIntegration:
     integration: Integration
 
