@@ -2,7 +2,6 @@ import importlib
 import json
 import pkgutil
 from typing import Any, Literal
-
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -131,7 +130,11 @@ class MaxTool(AssistantContextMixin, BaseTool):
         super().__init__(**kwargs)
         self._team = team
         self._user = user
-        self._state = state if state else AssistantState(messages=[])
+        if state:
+            # Use Pydantic's model_copy() method for proper deep copying
+            self._state = state.model_copy(deep=True)
+        else:
+            self._state = AssistantState(messages=[])
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
