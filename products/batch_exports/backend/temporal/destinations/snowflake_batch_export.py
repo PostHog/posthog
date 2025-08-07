@@ -521,7 +521,7 @@ class SnowflakeClient:
 
     async def put_file_to_snowflake_table(
         self,
-        file: BatchExportTemporaryFile | io.IOBase,
+        file: BatchExportTemporaryFile | NamedBytesIO,
         table_stage_prefix: str,
         table_name: str,
     ):
@@ -541,12 +541,13 @@ class SnowflakeClient:
         """
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
+            # We comply with the file-like interface of io.IOBase.
+            # So we ask mypy to be nice with us.
+            file_stream = io.BufferedReader(file)  # type: ignore
         else:
             file.seek(0)
+            file_stream = file
 
-        # We comply with the file-like interface of io.IOBase.
-        # So we ask mypy to be nice with us.
-        reader = io.BufferedReader(file)  # type: ignore
         query = f"""
         PUT file://{file.name} '@%"{table_name}"/{table_stage_prefix}'
         """
@@ -554,11 +555,13 @@ class SnowflakeClient:
         with self.connection.cursor() as cursor:
             cursor = self.connection.cursor()
 
-            execute_put = functools.partial(cursor.execute, query, file_stream=reader)
+            execute_put = functools.partial(cursor.execute, query, file_stream=file_stream)
 
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, func=execute_put)
-            reader.detach()  # BufferedReader closes the file otherwise.
+
+            if isinstance(file, BatchExportTemporaryFile):
+                file_stream.detach()  # BufferedReader closes the file otherwise.
 
             result = await asyncio.to_thread(cursor.fetchone)
 
@@ -870,21 +873,19 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         self.current_buffer.clear()
 
     async def _upload_current_buffer(self):
-        """Upload the current buffer to Snowflake using a named pipe (in-memory)."""
+        """Upload the current buffer to Snowflake using an in-memory buffer."""
         if len(self.current_buffer) == 0:
             return  # Nothing to upload
 
-        data = bytes(self.current_buffer)
-
         self.logger.debug(
-            "Uploading file %d with %d bytes to Snowflake table '%s' using named pipe",
+            "Uploading file %d with %d bytes to Snowflake table '%s'",
             self.current_file_index,
-            len(data),
+            len(self.current_buffer),
             self.snowflake_table,
         )
 
         # Use in-memory buffer instead of temporary file to avoid disk I/O
-        buffer = NamedBytesIO(data, name="/dev/null.jsonl")
+        buffer = NamedBytesIO(self.current_buffer, name="/dev/null.jsonl")
 
         # Upload to Snowflake
         await self.snowflake_client.put_file_to_snowflake_table(
@@ -896,7 +897,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         self.external_logger.info(
             "File %d with %d bytes uploaded to Snowflake table '%s'",
             self.current_file_index,
-            len(data),
+            len(self.current_buffer),
             self.snowflake_table,
         )
 
