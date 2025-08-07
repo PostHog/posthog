@@ -5,20 +5,23 @@ This module provides fundamental Bayesian statistical calculations including
 posterior updates, credible intervals, probability calculations, and risk assessment.
 """
 
-from typing import Union
 import numpy as np
 from scipy.stats import norm, truncnorm
 
-from ..shared.statistics import SampleMeanStatistic, ProportionStatistic, StatisticError
 from ..shared.enums import DifferenceType
-from ..shared.utils import get_mean, get_variance, get_sample_size, validate_test_inputs
-
+from ..shared.statistics import (
+    ProportionStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
+    StatisticError,
+)
+from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 from .priors import GaussianPrior
 
 
 def calculate_effect_size_and_variance(
-    treatment_stat: Union[SampleMeanStatistic, ProportionStatistic],
-    control_stat: Union[SampleMeanStatistic, ProportionStatistic],
+    treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
     difference_type: DifferenceType,
 ) -> tuple[float, float]:
     """
@@ -274,8 +277,8 @@ def truncated_normal_mean(mu: float, sigma: float, lower_bound: float, upper_bou
 
 
 def validate_inputs(
-    treatment_stat: Union[SampleMeanStatistic, ProportionStatistic],
-    control_stat: Union[SampleMeanStatistic, ProportionStatistic],
+    treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
 ) -> None:
     """
     Validate input statistics for Bayesian analysis.

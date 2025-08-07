@@ -24,6 +24,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -355,6 +356,21 @@ export function PageHeaderCustom(): JSX.Element {
                                                 disabled={isCreatingExperimentDashboard}
                                             >
                                                 Create dashboard
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => {
+                                                    if (experiment.feature_flag?.id) {
+                                                        featureFlagLogic({ id: experiment.feature_flag.id }).mount()
+                                                        featureFlagLogic({
+                                                            id: experiment.feature_flag.id,
+                                                        }).actions.createSurvey()
+                                                    }
+                                                }}
+                                                fullWidth
+                                                data-attr="create-survey"
+                                                disabled={!experiment.feature_flag?.id}
+                                            >
+                                                Create survey
                                             </LemonButton>
                                         </>
                                     }

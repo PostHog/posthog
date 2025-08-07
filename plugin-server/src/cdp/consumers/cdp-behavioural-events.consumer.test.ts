@@ -1,418 +1,238 @@
-import { Client as CassandraClient } from 'cassandra-driver'
+// eslint-disable-next-line simple-import-sort/imports
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { createHash } from 'crypto'
 
-import { truncateBehavioralCounters } from '../../../tests/helpers/cassandra'
-import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
-import { BehavioralCounterRepository } from '../../utils/db/cassandra/behavioural-counter.repository'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { createIncomingEvent } from '../_tests/fixtures'
-import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
-import { BehavioralEvent, CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
-
-class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
-    public getCassandraClient(): CassandraClient | null {
-        return this.cassandra
-    }
-
-    public getBehavioralCounterRepository(): BehavioralCounterRepository | null {
-        return this.behavioralCounterRepository
-    }
-}
+import { CdpBehaviouralEventsConsumer, ProducedEvent } from './cdp-behavioural-events.consumer'
+import { resetKafka } from '~/tests/helpers/kafka'
 
 jest.setTimeout(20_000)
 
-const TEST_FILTERS = {
-    // Simple pageview event filter: event == '$pageview'
-    pageview: ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11],
-
-    // Chrome browser AND pageview event filter: properties.$browser == 'Chrome' AND event == '$pageview'
-    chromePageview: [
-        '_H',
-        1,
-        32,
-        'Chrome',
-        32,
-        '$browser',
-        32,
-        'properties',
-        1,
-        2,
-        11,
-        32,
-        '$pageview',
-        32,
-        'event',
-        1,
-        1,
-        11,
-        3,
-        2,
-        4,
-        1,
-    ],
-
-    // Complex filter: pageview event AND (Chrome browser contains match OR has IP property)
-    complexChromeWithIp: [
-        '_H',
-        1,
-        32,
-        '$pageview',
-        32,
-        'event',
-        1,
-        1,
-        11,
-        32,
-        '%Chrome%',
-        32,
-        '$browser',
-        32,
-        'properties',
-        1,
-        2,
-        2,
-        'toString',
-        1,
-        18,
-        3,
-        2,
-        32,
-        '$pageview',
-        32,
-        'event',
-        1,
-        1,
-        11,
-        31,
-        32,
-        '$ip',
-        32,
-        'properties',
-        1,
-        2,
-        12,
-        3,
-        2,
-        4,
-        2,
-    ],
-}
-
 describe('CdpBehaviouralEventsConsumer', () => {
-    describe('with Cassandra enabled', () => {
-        let processor: TestCdpBehaviouralEventsConsumer
+    describe('Event Processing and Publishing', () => {
+        let processor: CdpBehaviouralEventsConsumer
         let hub: Hub
         let team: Team
-        let cassandra: CassandraClient
-        let repository: BehavioralCounterRepository
-
-        beforeAll(async () => {
-            await resetTestDatabase()
-            hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: true })
-            team = await getFirstTeam(hub)
-            processor = new TestCdpBehaviouralEventsConsumer(hub)
-            const cassandraClient = processor.getCassandraClient()
-
-            if (!cassandraClient) {
-                throw new Error('Cassandra client should be initialized when flag is enabled')
-            }
-
-            cassandra = cassandraClient
-            await cassandra.connect()
-            repository = processor.getBehavioralCounterRepository()!
-        })
 
         beforeEach(async () => {
+            await resetKafka()
             await resetTestDatabase()
-            await truncateBehavioralCounters(cassandra)
-            // Clear action manager cache to ensure test isolation
-            ;(hub.actionManagerCDP as any).lazyLoader.clear()
+
+            hub = await createHub()
+            team = await getFirstTeam(hub)
+
+            processor = new CdpBehaviouralEventsConsumer(hub)
+            await processor.start()
         })
 
-        afterAll(async () => {
-            await cassandra.shutdown()
+        afterEach(async () => {
+            await processor.stop()
             await closeHub(hub)
         })
 
-        afterEach(() => {
-            jest.restoreAllMocks()
+        it('should create both person-performed-event and behavioural-filter-match-event during message parsing', async () => {
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const eventName = '$pageview'
+
+            const messages = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: eventName,
+                            person_id: personId,
+                            properties: '{"$browser": "Chrome"}',
+                            timestamp: '2023-01-01T00:00:00Z',
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
+
+            // Parse messages which should create both event types
+            const events = await processor._parseKafkaBatch(messages)
+
+            // Check that both events were created
+            expect(events).toHaveLength(2)
+
+            // Check person-performed-event
+            const personEvent = events.find((e) => e.payload.type === 'person-performed-event')
+            expect(personEvent).toBeDefined()
+            expect(personEvent?.key).toBe(`${team.id}:${personId}:${eventName}`)
+            expect(personEvent?.payload).toEqual({
+                type: 'person-performed-event',
+                personId,
+                eventName,
+                teamId: team.id,
+            })
+
+            // Check behavioural-filter-match-event
+            const filterEvent = events.find((e) => e.payload.type === 'behavioural-filter-match-event')
+            expect(filterEvent?.payload.type).toBe('behavioural-filter-match-event')
+            expect(filterEvent?.payload.teamId).toBe(team.id)
+            expect(filterEvent?.payload.personId).toBe(personId)
         })
 
-        describe('action matching with actual database', () => {
-            it('should match action when event matches bytecode filter', async () => {
-                // Create an action with Chrome + pageview filter
-                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
+        it('should use correct partition keys for both event types', async () => {
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const eventName = '$pageview'
+            const timestamp = '2023-01-01T00:00:00Z'
+            const expectedDate = '2023-01-01'
 
-                // Create a matching event
-                const matchingEvent = createIncomingEvent(team.id, {
-                    event: '$pageview',
-                    properties: JSON.stringify({ $browser: 'Chrome' }),
-                } as RawClickHouseEvent)
+            const messages = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: eventName,
+                            person_id: personId,
+                            timestamp,
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
 
-                const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-                const behavioralEvent: BehavioralEvent = {
-                    teamId: team.id,
-                    filterGlobals,
-                    personId: '550e8400-e29b-41d4-a716-446655440000',
-                }
+            const events = await processor._parseKafkaBatch(messages)
 
-                // Verify the action was loaded
-                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-                expect(actions).toHaveLength(1)
-                expect(actions[0].name).toBe('Test action')
+            // Check person-performed-event partition key: teamId:personId:eventName
+            const personEvent = events.find((e) => e.payload.type === 'person-performed-event')
+            expect(personEvent?.key).toBe(`${team.id}:${personId}:${eventName}`)
 
-                // Test processEvent directly and verify it returns 1 for matching event
-                const counterUpdates: any[] = []
-                const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
-                expect(result).toBe(1)
-            })
-
-            it('should not match action when event does not match bytecode filter', async () => {
-                // Create an action with Chrome + pageview filter
-                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
-
-                // Create a non-matching event
-                const nonMatchingEvent = createIncomingEvent(team.id, {
-                    event: '$pageview',
-                    properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
-                } as RawClickHouseEvent)
-
-                const filterGlobals = convertClickhouseRawEventToFilterGlobals(nonMatchingEvent)
-                const behavioralEvent: BehavioralEvent = {
-                    teamId: team.id,
-                    filterGlobals,
-                    personId: '550e8400-e29b-41d4-a716-446655440000',
-                }
-
-                // Verify the action was loaded
-                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-                expect(actions).toHaveLength(1)
-                expect(actions[0].name).toBe('Test action')
-
-                // Test processEvent directly and verify it returns 0 for non-matching event
-                const counterUpdates: any[] = []
-                const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
-                expect(result).toBe(0)
-            })
-
-            it('should return count of matched actions when multiple actions match', async () => {
-                // Create multiple actions with different filters
-                await createAction(hub.postgres, team.id, 'Pageview action', TEST_FILTERS.pageview)
-                await createAction(hub.postgres, team.id, 'Complex filter action', TEST_FILTERS.complexChromeWithIp)
-
-                // Create an event that matches both actions
-                const matchingEvent = createIncomingEvent(team.id, {
-                    event: '$pageview',
-                    properties: JSON.stringify({ $browser: 'Chrome', $ip: '127.0.0.1' }),
-                } as RawClickHouseEvent)
-
-                const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-                const behavioralEvent: BehavioralEvent = {
-                    teamId: team.id,
-                    filterGlobals,
-                    personId: '550e8400-e29b-41d4-a716-446655440000',
-                }
-
-                // Test processEvent directly and verify it returns 2 for both matching actions
-                const counterUpdates: any[] = []
-                const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
-                expect(result).toBe(2)
-            })
+            // Check behavioural-filter-match-event partition key: teamId:personId:filterHash:date
+            const filterEvent = events.find((e) => e.payload.type === 'behavioural-filter-match-event')
+            const expectedFilterHash = createHash('sha256').update(eventName).digest('hex')
+            expect(filterEvent?.key).toBe(`${team.id}:${personId}:${expectedFilterHash}:${expectedDate}`)
         })
 
-        describe('Cassandra behavioral counter writes', () => {
-            it('should write counter to Cassandra when action matches', async () => {
-                // Arrange
-                const personId = '550e8400-e29b-41d4-a716-446655440000'
+        it('should handle missing person_id by throwing error', async () => {
+            const eventName = '$pageview'
 
-                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
+            const messages = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: eventName,
+                            // Missing person_id
+                            timestamp: '2023-01-01T00:00:00Z',
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
 
-                // Create a matching event with person ID
-                const matchingEvent = createIncomingEvent(team.id, {
-                    event: '$pageview',
-                    properties: JSON.stringify({ $browser: 'Chrome' }),
-                    person_id: personId,
-                } as RawClickHouseEvent)
+            // Should not throw but should log error and not create events
+            const events = await processor._parseKafkaBatch(messages)
 
-                const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-                const behavioralEvent: BehavioralEvent = {
-                    teamId: team.id,
-                    filterGlobals,
-                    personId,
-                }
-
-                // Act
-                await processor.processBatch([behavioralEvent])
-
-                // Assert - check that the counter was written to Cassandra
-                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-                const action = actions[0]
-                const filterHash = createHash('sha256')
-                    .update(JSON.stringify(action.bytecode))
-                    .digest('hex')
-                    .substring(0, 16)
-                const today = new Date().toISOString().split('T')[0]
-
-                const counter = await repository.getCounter({
-                    teamId: team.id,
-                    filterHash,
-                    personId,
-                    date: today,
-                })
-
-                expect(counter).not.toBeNull()
-                expect(counter!.count).toBe(1)
-            })
-
-            it('should increment existing counter', async () => {
-                // Arrange
-                const personId = '550e8400-e29b-41d4-a716-446655440000'
-
-                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
-
-                const matchingEvent = createIncomingEvent(team.id, {
-                    event: '$pageview',
-                    properties: JSON.stringify({ $browser: 'Chrome' }),
-                    person_id: personId,
-                } as RawClickHouseEvent)
-
-                const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-                const behavioralEvent: BehavioralEvent = {
-                    teamId: team.id,
-                    filterGlobals,
-                    personId,
-                }
-
-                // Act - process event twice
-                await processor.processBatch([behavioralEvent])
-                await processor.processBatch([behavioralEvent])
-
-                // Assert - check that the counter was incremented
-                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-                const action = actions[0]
-                const filterHash = createHash('sha256')
-                    .update(JSON.stringify(action.bytecode))
-                    .digest('hex')
-                    .substring(0, 16)
-                const today = new Date().toISOString().split('T')[0]
-
-                const counter = await repository.getCounter({
-                    teamId: team.id,
-                    filterHash,
-                    personId,
-                    date: today,
-                })
-
-                expect(counter).not.toBeNull()
-                expect(counter!.count).toBe(2)
-            })
-
-            it('should not write counter when event does not match', async () => {
-                // Arrange
-                const personId = '550e8400-e29b-41d4-a716-446655440000'
-
-                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
-
-                // Create a non-matching event
-                const nonMatchingEvent = createIncomingEvent(team.id, {
-                    event: '$pageview',
-                    properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
-                    person_id: personId,
-                } as RawClickHouseEvent)
-
-                const filterGlobals = convertClickhouseRawEventToFilterGlobals(nonMatchingEvent)
-                const behavioralEvent: BehavioralEvent = {
-                    teamId: team.id,
-                    filterGlobals,
-                    personId,
-                }
-
-                // Act
-                await processor.processBatch([behavioralEvent])
-
-                // Assert - check that no counter was written to Cassandra
-                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-                const action = actions[0]
-                const filterHash = createHash('sha256')
-                    .update(JSON.stringify(action.bytecode))
-                    .digest('hex')
-                    .substring(0, 16)
-                const today = new Date().toISOString().split('T')[0]
-
-                const counter = await repository.getCounter({
-                    teamId: team.id,
-                    filterHash,
-                    personId,
-                    date: today,
-                })
-
-                expect(counter).toBeNull()
-            })
+            // No events should be created when person_id is missing
+            expect(events).toHaveLength(0)
         })
     })
 
-    describe('with Cassandra disabled', () => {
-        let processor: TestCdpBehaviouralEventsConsumer
+    describe('Event Publishing to Kafka', () => {
+        let processor: CdpBehaviouralEventsConsumer
         let hub: Hub
         let team: Team
 
-        beforeAll(async () => {
-            await resetTestDatabase()
-            hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false })
-            team = await getFirstTeam(hub)
-            processor = new TestCdpBehaviouralEventsConsumer(hub)
-
-            // Processor should not have initialized Cassandra
-            expect(processor.getCassandraClient()).toBeNull()
-            expect(processor.getBehavioralCounterRepository()).toBeNull()
-        })
-
         beforeEach(async () => {
+            await resetKafka()
             await resetTestDatabase()
-            // Clear action manager cache to ensure test isolation
-            ;(hub.actionManagerCDP as any).lazyLoader.clear()
+
+            hub = await createHub()
+            team = await getFirstTeam(hub)
+
+            processor = new CdpBehaviouralEventsConsumer(hub)
+            await processor.start()
         })
 
-        afterAll(async () => {
+        afterEach(async () => {
+            await processor.stop()
             await closeHub(hub)
         })
 
-        afterEach(() => {
-            jest.restoreAllMocks()
-        })
-
-        it('should not write to Cassandra when WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA is false', async () => {
-            // Arrange
+        it('should publish both event types to Kafka', async () => {
             const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const eventName = '$pageview'
 
-            await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
-
-            // Create a matching event with person ID
-            const matchingEvent = createIncomingEvent(team.id, {
-                event: '$pageview',
-                properties: JSON.stringify({ $browser: 'Chrome' }),
-                person_id: personId,
-            } as RawClickHouseEvent)
-
-            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-            const behavioralEvent: BehavioralEvent = {
-                teamId: team.id,
-                filterGlobals,
-                personId,
+            // Add events to the queue manually
+            const personEvent: ProducedEvent = {
+                key: `${team.id}:${personId}:${eventName}`,
+                payload: {
+                    type: 'person-performed-event',
+                    personId,
+                    eventName,
+                    teamId: team.id,
+                },
             }
 
-            // Spy on the writeBehavioralCounters method to ensure it's never called when Cassandra is disabled
-            const writeSpy = jest.spyOn(processor as any, 'writeBehavioralCounters')
+            const filterHash = createHash('sha256').update(eventName).digest('hex')
+            const date = '2023-01-01'
+            const filterEvent: ProducedEvent = {
+                key: `${team.id}:${personId}:${filterHash}:${date}`,
+                payload: {
+                    type: 'behavioural-filter-match-event',
+                    teamId: team.id,
+                    personId,
+                    filterHash,
+                    date,
+                },
+            }
 
-            // Act
-            await processor.processBatch([behavioralEvent])
+            // Publish the events
+            await processor['publishEvents']([personEvent, filterEvent])
 
-            // Assert - writeBehavioralCounters should never be called when Cassandra is disabled
-            expect(writeSpy).toHaveBeenCalledTimes(0)
+            // Check published messages
+            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_AGGREGATION_WRITER_EVENTS)
+            expect(messages).toHaveLength(2)
 
-            // Double-check repository is still null
-            expect(processor.getBehavioralCounterRepository()).toBeNull()
+            // Check person-performed-event
+            const personMessage = messages.find(
+                (m) => (m.value as ProducedEvent).payload.type === 'person-performed-event'
+            )
+            expect(personMessage?.key).toBe(`${team.id}:${personId}:${eventName}`)
+            expect(personMessage?.value).toEqual(personEvent)
+
+            // Check behavioural-filter-match-event
+            const filterMessage = messages.find(
+                (m) => (m.value as ProducedEvent).payload.type === 'behavioural-filter-match-event'
+            )
+            expect(filterMessage?.key).toBe(`${team.id}:${personId}:${filterHash}:${date}`)
+            expect(filterMessage?.value).toEqual(filterEvent)
+        })
+
+        it('should handle multiple events with correct partitioning', async () => {
+            const events: ProducedEvent[] = [
+                {
+                    key: '1:person1:event1',
+                    payload: { type: 'person-performed-event', personId: 'person1', eventName: 'event1', teamId: 1 },
+                },
+                {
+                    key: '2:person2:event2',
+                    payload: { type: 'person-performed-event', personId: 'person2', eventName: 'event2', teamId: 2 },
+                },
+                {
+                    key: '1:person3:event3',
+                    payload: { type: 'person-performed-event', personId: 'person3', eventName: 'event3', teamId: 1 },
+                },
+            ]
+
+            await processor['publishEvents'](events)
+
+            // Check published messages
+            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_AGGREGATION_WRITER_EVENTS)
+            expect(messages).toHaveLength(3)
+
+            // Verify messages have correct keys for partitioning
+            expect(messages[0].key).toBe('1:person1:event1')
+            expect(messages[1].key).toBe('2:person2:event2')
+            expect(messages[2].key).toBe('1:person3:event3')
+
+            // Verify message contents
+            expect(messages[0].value).toEqual(events[0])
+            expect(messages[1].value).toEqual(events[1])
+            expect(messages[2].value).toEqual(events[2])
         })
     })
 })

@@ -111,6 +111,9 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: boolean // If true then degraded functions will be automatically disabled
+    CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
+    CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
+    CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -912,6 +915,7 @@ export interface ClickHousePerson {
     is_identified: number
     is_deleted: number
     timestamp: string
+    version: number
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
@@ -1290,6 +1294,12 @@ export type RawClickhouseHeatmapEvent = {
     timestamp: string
     type: string
     team_id: number
+}
+
+export interface CdpPersonPerformedEvent {
+    teamId: number
+    personId: string
+    eventName: string
 }
 
 export interface HookPayload {

@@ -43,6 +43,7 @@ class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
+    surveys: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
     api_queries_read_bytes: Optional[OrganizationUsageResource]
