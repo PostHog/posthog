@@ -442,7 +442,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.billingAuthorizationStatus()]: [Scene.BillingAuthorizationStatus, 'billingAuthorizationStatus'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
-    [urls.cohorts()]: [Scene.PersonsManagement, 'cohorts'],
+    [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.createAction()]: [Scene.Action, 'createAction'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
