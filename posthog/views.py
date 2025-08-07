@@ -11,6 +11,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
+from django.db.models import Q
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
@@ -286,15 +287,8 @@ def api_key_search_view(request: HttpRequest):
 
         try:
             # don't use the cache so that we can differentiate btwn the primary and the backup key
-            team_object = Team.objects.get(secret_api_token=query)
-            team_object_key_type = "primary"
-
-        except Team.DoesNotExist:
-            pass
-
-        try:
-            team_object = Team.objects.get(secret_api_token_backup=query)
-            team_object_key_type = "backup"
+            team_object = Team.objects.get(Q(secret_api_token=query) | Q(secret_api_token_backup=query))
+            team_object_key_type = "primary" if team_object.secret_api_token == query else "backup"
 
         except Team.DoesNotExist:
             pass
