@@ -214,11 +214,9 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPARATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
-    EXPERIMENT_P_VALUE: 'experiment-p-value', // owner: @jurajmajerik #team-experiments
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
-    EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
     RECORDINGS_AI_REGEX: 'recordings-ai-regex', // owner: @veryayskiy #team-replay
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny #team-growth
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
@@ -271,7 +269,6 @@ export const FEATURE_FLAGS = {
     REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU: 'replay-exclude-from-hide-recordings-menu', // owner: @veryayskiy #team-replay
     USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-product-analytics
     EXPERIMENTS_DEV_STATS_METHOD_TOGGLE: 'experiments-dev-stats-method-toggle', // owner: #team-experiments
-    NEW_BAYESIAN_STATS_METHOD: 'new-bayesian-stats-method', // owner: @andehen #team-experiments
     META_ADS_DWH: 'meta-ads-dwh', // owner: @EDsCODE #team-data-warehouse
     AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
