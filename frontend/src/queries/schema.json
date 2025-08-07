@@ -21123,6 +21123,10 @@
                 },
                 "revenueProperty": {
                     "type": "string"
+                },
+                "subscriptionProperty": {
+                    "description": "Property used to identify what subscription the revenue event refers to Useful when trying to detect churn/LTV/ARPU/etc.",
+                    "type": "string"
                 }
             },
             "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],

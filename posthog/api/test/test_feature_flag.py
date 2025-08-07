@@ -1320,6 +1320,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
+    def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
+        # Create two teams with different secret keys
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        other_team = Team.objects.create(
+            organization=self.organization, api_token="phc_other_team_token", name="Other Team"
+        )
+        other_team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        # Create a flag in the other team
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="other-team-flag",
+            name="Other Team Flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                "payloads": {"true": '{"other_team": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        self.client.logout()
+
+        # Try to access other team's flag using this team's secret key + other team's project_api_key in body
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+        )
+
+        # Should be forbidden due to team mismatch
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_remote_config_returns_not_found_for_unknown_flag(self):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

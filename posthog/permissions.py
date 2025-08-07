@@ -643,17 +643,31 @@ class PostHogFeatureFlagPermission(BasePermission):
 class ProjectSecretAPITokenPermission(BasePermission):
     """
     Controls access to the local_evaluation and remote_config endpoints when authenticated via a project secret API token.
+    Also validates that the authenticated team matches the resolved team (analogous to TeamMemberAccessPermission for personal keys).
     """
 
     def has_permission(self, request, view) -> bool:
         if not isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
             return True
 
-        return request.resolver_match.view_name in (
+        # Check that the endpoint is allowed for secret API keys
+        if request.resolver_match.view_name not in (
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
             "project_feature_flags-local-evaluation",
-        )
+        ):
+            return False
+
+        # Check team consistency: authenticated team must match resolved team
+        # This prevents cross-team access when project_api_key is provided in request body
+        authenticated_team = request.user.team  # From ProjectSecretAPIKeyUser
+        try:
+            resolved_team = view.team  # From routing logic (may use project_api_key override)
+        except (AttributeError, Team.DoesNotExist):
+            # If team resolution fails, let it be handled as a 404 in the viewset
+            return True
+
+        return authenticated_team.id == resolved_team.id
 
 
 class UserCanInvitePermission(BasePermission):

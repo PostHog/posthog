@@ -197,7 +197,14 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
                     ast.Alias(alias="created_at", expr=ast.Field(chain=["timestamp"])),
-                    ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
+                    ast.Alias(
+                        alias="is_recurring",
+                        expr=ast.Call(
+                            name="notEmpty", args=[ast.Field(chain=["properties", event.subscriptionProperty])]
+                        )
+                        if event.subscriptionProperty
+                        else ast.Constant(value=False),
+                    ),
                     ast.Alias(
                         alias="product_id",
                         expr=ast.Field(chain=["properties", event.productProperty])
@@ -208,7 +215,12 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                         alias="customer_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["person_id"])])
                     ),
                     ast.Alias(alias="invoice_id", expr=ast.Constant(value=None)),
-                    ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
+                    ast.Alias(
+                        alias="subscription_id",
+                        expr=ast.Field(chain=["properties", event.subscriptionProperty])
+                        if event.subscriptionProperty
+                        else ast.Constant(value=None),
+                    ),
                     ast.Alias(
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
