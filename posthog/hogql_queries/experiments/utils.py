@@ -17,6 +17,7 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     ProportionStatistic,
+    RatioStatistic,
     StatisticError,
 )
 from products.experiments.stats.bayesian.method import BayesianMethod, BayesianConfig
@@ -115,14 +116,34 @@ def validate_variant_result(
 
 def metric_variant_to_statistic(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric, variant: ExperimentStatsBaseValidated
-) -> SampleMeanStatistic | ProportionStatistic:
+) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.sum,
             sum_squares=variant.sum_squares,
         )
+    elif isinstance(metric, ExperimentRatioMetric):
+        # For ratio metrics, create statistics for both numerator and denominator
+        # and combine them using RatioStatistic
+        numerator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.sum,
+            sum_squares=variant.sum_squares,
+        )
+        denominator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.denominator_sum or 0.0,
+            sum_squares=variant.denominator_sum_squares or 0.0,
+        )
+        return RatioStatistic(
+            n=variant.number_of_samples,
+            m_statistic=numerator_stat,
+            d_statistic=denominator_stat,
+            m_d_sum_of_products=variant.main_denominator_sum_product or 0.0,
+        )
     else:
+        # ExperimentFunnelMetric case
         return ProportionStatistic(
             n=variant.number_of_samples,
             sum=int(variant.sum),

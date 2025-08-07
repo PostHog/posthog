@@ -91,8 +91,10 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             and getattr(source, "math_hogql", None) is not None
         ):
             # Extract the inner expression from the HogQL expression
-            _, inner_expr = extract_aggregation_and_inner_expr(source.math_hogql)
-            return inner_expr
+            math_hogql = getattr(source, "math_hogql")
+            if math_hogql:
+                _, inner_expr = extract_aggregation_and_inner_expr(math_hogql)
+                return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
         if metric_property:
@@ -103,7 +105,7 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
 
 
 def get_metric_value(
-    metric: ExperimentMeanMetric, source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode] = None
+    metric: ExperimentMeanMetric, source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, None] = None
 ) -> ast.Expr:
     """
     Backward compatibility wrapper for get_source_value_expr.
