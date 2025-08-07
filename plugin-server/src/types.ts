@@ -191,12 +191,16 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
+    COUNTERS_DATABASE_URL: string // Optional read-write Postgres database for counters
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
+    POSTGRES_COUNTERS_HOST: string
+    POSTGRES_COUNTERS_USER: string
+    POSTGRES_COUNTERS_PASSWORD: string
     CASSANDRA_HOST: string
     CASSANDRA_PORT: number
     CASSANDRA_KEYSPACE: string
