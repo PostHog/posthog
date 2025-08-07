@@ -7,6 +7,8 @@ from typing import Any
 from collections.abc import Callable
 
 from django.db import transaction
+from posthog.api.personal_api_key import PersonalAPIKeySerializer
+
 
 from posthog.models import Organization, Project, Team, User
 from posthog.schema import (
@@ -44,24 +46,16 @@ def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrga
             user.set_password("12345678")
             user.save()
 
-        # Create organization
         organization = Organization.objects.create(name=org_name, slug=f"test-org-{org_name.lower().replace(' ', '-')}")
-
-        # Add user to organization
         organization.members.add(user)
 
-        # Create project
         project = Project.objects.create(name=project_name, organization=organization)
 
-        # Create team (environment)
         team = Team.objects.create(name=f"{project_name} Default", project=project, organization=organization)
 
-        # Create personal API key using the actual API serializer
-        from posthog.api.personal_api_key import PersonalAPIKeySerializer
-
-        serializer = PersonalAPIKeySerializer()
         # Mock a request context with the user
-        serializer.context = {"request": type("MockRequest", (), {"user": user})()}
+        mock_request = type("MockRequest", (), {"user": user})()
+        serializer = PersonalAPIKeySerializer(context={"request": mock_request})
         api_key = serializer.create({"label": "Test API Key", "scopes": ["*"]})
 
         return BasicOrganizationSetupResult(
