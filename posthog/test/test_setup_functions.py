@@ -13,11 +13,6 @@ from posthog.models import Organization, Project, Team
 from posthog.schema import (
     BasicOrganizationSetupData,
     BasicOrganizationSetupResult,
-    UserWithOrganizationSetupData,
-    UserWithOrganizationSetupResult,
-    EmptyDatabaseSetupResult,
-    FeatureFlagsTestSetupData,
-    FeatureFlagsTestSetupResult,
     InsightsTestSetupData,
     InsightsTestSetupResult,
 )
@@ -26,19 +21,32 @@ from posthog.schema import (
 def setup_basic_organization(data: BasicOrganizationSetupData) -> BasicOrganizationSetupResult:
     """
     Creates a basic organization with a project and team for testing.
+    Also creates/updates the test@posthog.com user and adds them to the organization.
 
     Args:
         data: Request data (can contain custom org/project names)
 
     Returns:
-        Dict with created organization, project, and team IDs
+        Dict with created organization, project, team IDs and user info
     """
     org_name = data.get("organization_name", "Test Organization")
     project_name = data.get("project_name", "Test Project")
 
     with transaction.atomic():
+        # Create or get the test user
+        user, created = User.objects.get_or_create(
+            email="test@posthog.com",
+            defaults={"username": "test@posthog.com", "first_name": "Test", "last_name": "User"},
+        )
+        if created or not user.check_password("12345678"):
+            user.set_password("12345678")
+            user.save()
+
         # Create organization
         organization = Organization.objects.create(name=org_name, slug=f"test-org-{org_name.lower().replace(' ', '-')}")
+
+        # Add user to organization
+        organization.members.add(user)
 
         # Create project
         project = Project.objects.create(name=project_name, organization=organization)
@@ -53,86 +61,9 @@ def setup_basic_organization(data: BasicOrganizationSetupData) -> BasicOrganizat
             "organization_name": organization.name,
             "project_name": project.name,
             "team_name": team.name,
-        }
-
-
-def setup_user_with_organization(data: UserWithOrganizationSetupData) -> UserWithOrganizationSetupResult:
-    """
-    Creates a test user with an organization.
-
-    Args:
-        data: Request data (can contain user email, password, org name)
-
-    Returns:
-        Dict with created user and organization details
-    """
-    email = data.get("email", "test@posthog.com")
-    password = data.get("password", "testpassword123")
-    org_name = data.get("organization_name", "Test Organization")
-
-    with transaction.atomic():
-        # Create user
-        user = User.objects.create_user(
-            username=email,
-            email=email,
-            password=password,
-            first_name=data.get("first_name", "Test"),
-            last_name=data.get("last_name", "User"),
-        )
-
-        # Create organization
-        organization = Organization.objects.create(name=org_name, slug=f"test-org-{org_name.lower().replace(' ', '-')}")
-
-        # Add user to organization
-        organization.members.add(user)
-
-        return {
             "user_id": str(user.id),
             "user_email": user.email,
-            "organization_id": str(organization.id),
-            "organization_name": organization.name,
         }
-
-
-def setup_empty_database(data: dict[str, Any]) -> EmptyDatabaseSetupResult:
-    """
-    Clears all test data (for clean slate tests).
-
-    Args:
-        data: Request data (unused)
-
-    Returns:
-        Dict with cleanup confirmation
-    """
-    with transaction.atomic():
-        # Clear main models (in dependency order)
-        Team.objects.all().delete()
-        Project.objects.all().delete()
-        Organization.objects.all().delete()
-
-        # Clear users (except superusers to avoid breaking admin access)
-        User.objects.filter(is_superuser=False).delete()
-
-        return {"cleared": True, "message": "Test database cleared successfully"}
-
-
-def setup_feature_flags_test(data: FeatureFlagsTestSetupData) -> FeatureFlagsTestSetupResult:
-    """
-    Sets up data for feature flags testing.
-
-    Args:
-        data: Request data (can contain flag configurations)
-
-    Returns:
-        Dict with created feature flag details
-    """
-    # First create basic org structure
-    org_data = setup_basic_organization(data)
-
-    # Add feature flags setup here when needed
-    # This is a placeholder for feature flag specific setup
-
-    return {**org_data, "feature_flags_setup": True, "message": "Feature flags test environment ready"}
 
 
 def setup_insights_test(data: InsightsTestSetupData) -> InsightsTestSetupResult:
@@ -157,8 +88,5 @@ def setup_insights_test(data: InsightsTestSetupData) -> InsightsTestSetupResult:
 # Registry of all available test setup functions
 TEST_SETUP_FUNCTIONS: dict[str, Callable[[Any], Any]] = {
     "basic_organization": setup_basic_organization,
-    "user_with_organization": setup_user_with_organization,
-    "empty_database": setup_empty_database,
-    "feature_flags_test": setup_feature_flags_test,
     "insights_test": setup_insights_test,
 }

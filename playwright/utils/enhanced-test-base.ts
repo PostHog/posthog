@@ -23,43 +23,28 @@ export const test = baseTest.extend<{ testSetup: TestSetup }>({
 export { expect } from './playwright-test-base'
 
 /**
- * Test with automatic database cleanup and setup
- * Clears the database before each test to ensure isolation
- */
-export const testWithCleanDatabase = test.extend<{}>({
-    page: async ({ page, testSetup }, use) => {
-        // Clear database before each test
-        await testSetup.clearDatabase()
-
-        await use(page)
-
-        // Optionally clear after test too (can be disabled for debugging)
-        if (process.env.CLEANUP_AFTER_TEST !== 'false') {
-            await testSetup.clearDatabase()
-        }
-    },
-})
-
-/**
  * Test with a pre-configured basic organization
  * Useful for tests that need a minimal setup
+ * Creates ONE organization and shares the IDs across all fixtures
  */
 export const testWithBasicOrg = test.extend<{
-    organizationId: string
-    projectId: string
-    teamId: string
+    basicOrgSetup: {
+        organizationId: string
+        projectId: string
+        teamId: string
+        userId: string
+        userEmail: string
+    }
 }>({
-    organizationId: async ({ testSetup }, use) => {
+    basicOrgSetup: async ({ testSetup }, use) => {
         const result = await testSetup.setupBasicOrganization()
-        await use(result.result.organization_id)
-    },
-    projectId: async ({ testSetup }, use) => {
-        const result = await testSetup.setupBasicOrganization()
-        await use(result.result.project_id)
-    },
-    teamId: async ({ testSetup }, use) => {
-        const result = await testSetup.setupBasicOrganization()
-        await use(result.result.team_id)
+        await use({
+            organizationId: result.result.organization_id,
+            projectId: result.result.project_id,
+            teamId: result.result.team_id,
+            userId: result.result.user_id,
+            userEmail: result.result.user_email,
+        })
     },
 })
 

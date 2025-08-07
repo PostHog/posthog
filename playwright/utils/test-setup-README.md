@@ -20,11 +20,13 @@ The system consists of two parts:
 import { test, expect } from '../utils/enhanced-test-base'
 
 test('my test with setup', async ({ page, testSetup }) => {
-    // Setup a basic organization
+    // Setup a basic organization with test@posthog.com user
     const result = await testSetup.setupBasicOrganization('My Org', 'My Project')
     
-    // Navigate and test
-    await page.goto('/')
+    // Login and navigate to project page
+    await testSetup.loginAndNavigateToProject(page, result.result.team_id)
+    
+    // Now you're logged in and on the project page
     // Your test assertions here...
 })
 ```
@@ -41,24 +43,18 @@ test('my test', async ({ page, testSetup }) => {
 })
 ```
 
-#### 2. Test with Clean Database
-```typescript
-import { testWithCleanDatabase } from '../utils/enhanced-test-base'
-
-testWithCleanDatabase('isolated test', async ({ page, testSetup }) => {
-    // Database is automatically cleared before this test
-    await testSetup.setupUserWithOrganization()
-    // Test code...
-})
-```
-
-#### 3. Test with Pre-configured Organization
+#### 2. Test with Pre-configured Organization
 ```typescript
 import { testWithBasicOrg } from '../utils/enhanced-test-base'
 
-testWithBasicOrg('test with org', async ({ page, organizationId, projectId, teamId }) => {
-    // Organization already exists
-    console.log('Using org:', organizationId)
+testWithBasicOrg('test with org', async ({ page, basicOrgSetup, testSetup }) => {
+    // Organization already exists (creates ONE org, not multiple!)
+    console.log('Organization ID:', basicOrgSetup.organizationId)
+    console.log('Team ID:', basicOrgSetup.teamId)
+    
+    // Login and navigate to project
+    await testSetup.loginAndNavigateToProject(page, basicOrgSetup.teamId)
+    
     // Test code...
 })
 ```
@@ -67,31 +63,18 @@ testWithBasicOrg('test with org', async ({ page, organizationId, projectId, team
 
 ### Built-in Setup Functions
 
-1. **`basic_organization`** - Creates organization, project, and team
+1. **`basic_organization`** - Creates organization, project, team, and test@posthog.com user
    ```typescript
-   await testSetup.setupBasicOrganization('Org Name', 'Project Name')
+   const result = await testSetup.setupBasicOrganization('Org Name', 'Project Name')
+   // Then login and navigate to project:
+   await testSetup.loginAndNavigateToProject(page, result.result.team_id)
    ```
 
-2. **`user_with_organization`** - Creates user and organization
-   ```typescript
-   await testSetup.setupUserWithOrganization({
-       email: 'user@example.com',
-       password: 'password123',
-       organizationName: 'My Org'
-   })
-   ```
 
-3. **`empty_database`** - Clears all test data
-   ```typescript
-   await testSetup.clearDatabase()
-   ```
 
-4. **`feature_flags_test`** - Sets up feature flags environment
-   ```typescript
-   await testSetup.setupFeatureFlagsTest({ flag_name: 'my-flag' })
-   ```
 
-5. **`insights_test`** - Sets up analytics/insights environment
+
+2. **`insights_test`** - Sets up analytics/insights environment
    ```typescript
    await testSetup.setupInsightsTest({ create_sample_events: true })
    ```
@@ -125,10 +108,11 @@ To add new setup functions:
 
 - **`setupTest(testName, options)`** - Run any setup function
 - **`setupBasicOrganization(orgName?, projectName?)`** - Create basic org structure
-- **`setupUserWithOrganization(options)`** - Create user with org
-- **`clearDatabase()`** - Clear all test data
-- **`setupFeatureFlagsTest(data?)`** - Setup feature flags environment
+
+
+
 - **`setupInsightsTest(data?)`** - Setup insights environment
+- **`loginAndNavigateToProject(page, teamId)`** - Login as test@posthog.com and go to project
 - **`getAvailableTests()`** - List available setup functions
 
 #### Options
@@ -166,10 +150,11 @@ if (!result.success) {
 ## Best Practices
 
 ### 1. Test Isolation
-Always clear the database between tests for isolation:
+Use separate test databases or unique identifiers to ensure test isolation:
 ```typescript
-testWithCleanDatabase('my test', async ({ page, testSetup }) => {
-    // Database is clean, setup what you need
+test('my test', async ({ page, testSetup }) => {
+    // Create unique test data with timestamps or UUIDs
+    await testSetup.setupBasicOrganization(`Test Org ${Date.now()}`)
 })
 ```
 

@@ -3671,40 +3671,8 @@ export interface BasicOrganizationSetupResult {
     organization_name: string
     project_name: string
     team_name: string
-}
-
-export interface UserWithOrganizationSetupData {
-    email?: string
-    password?: string
-    organization_name?: string
-    first_name?: string
-    last_name?: string
-}
-
-export interface UserWithOrganizationSetupResult {
     user_id: string
     user_email: string
-    organization_id: string
-    organization_name: string
-}
-
-export interface EmptyDatabaseSetupResult {
-    cleared: boolean
-    message: string
-}
-
-export interface FeatureFlagsTestSetupData {
-    flag_name?: string
-    flag_key?: string
-    enabled?: boolean
-    rollout_percentage?: number
-    flag_filters?: any[]
-}
-
-export interface FeatureFlagsTestSetupResult extends BasicOrganizationSetupResult {
-    feature_flags_setup: boolean
-    message: string
-    feature_flag_ids?: string[]
 }
 
 export interface InsightsTestSetupData {

@@ -8,11 +8,6 @@ import type {
     TestSetupResponse,
     BasicOrganizationSetupData,
     BasicOrganizationSetupResult,
-    UserWithOrganizationSetupData,
-    UserWithOrganizationSetupResult,
-    EmptyDatabaseSetupResult,
-    FeatureFlagsTestSetupData,
-    FeatureFlagsTestSetupResult,
     InsightsTestSetupData,
     InsightsTestSetupResult,
 } from '~/queries/schema/schema-general'
@@ -80,6 +75,7 @@ export class TestSetup {
 
     /**
      * Setup a basic organization for testing
+     * Creates organization, project, team and test@posthog.com user
      */
     async setupBasicOrganization(
         organizationName?: string,
@@ -94,30 +90,22 @@ export class TestSetup {
     }
 
     /**
-     * Setup a user with an organization
+     * Login as test@posthog.com and navigate to project page
+     * Call this after setupBasicOrganization to login and navigate
      */
-    async setupUserWithOrganization(
-        options: UserWithOrganizationSetupData = {}
-    ): Promise<TestSetupResponse & { result: UserWithOrganizationSetupResult }> {
-        return this.setupTest('user_with_organization', {
-            data: options,
+    async loginAndNavigateToProject(page: any, teamId: string, baseURL?: string): Promise<void> {
+        const url = baseURL || this.baseURL
+
+        // Login via API
+        await this.request.post(`${url}/api/login/`, {
+            data: {
+                email: 'test@posthog.com',
+                password: '12345678',
+            },
         })
-    }
 
-    /**
-     * Clear all test data for a clean slate
-     */
-    async clearDatabase(): Promise<TestSetupResponse & { result: EmptyDatabaseSetupResult }> {
-        return this.setupTest('empty_database')
-    }
-
-    /**
-     * Setup environment for feature flags testing
-     */
-    async setupFeatureFlagsTest(
-        data?: FeatureFlagsTestSetupData
-    ): Promise<TestSetupResponse & { result: FeatureFlagsTestSetupResult }> {
-        return this.setupTest('feature_flags_test', { data })
+        // Navigate to project page
+        await page.goto(`${url}/project/${teamId}`)
     }
 
     /**
@@ -192,11 +180,6 @@ export type {
     TestSetupResponse,
     BasicOrganizationSetupData,
     BasicOrganizationSetupResult,
-    UserWithOrganizationSetupData,
-    UserWithOrganizationSetupResult,
-    EmptyDatabaseSetupResult,
-    FeatureFlagsTestSetupData,
-    FeatureFlagsTestSetupResult,
     InsightsTestSetupData,
     InsightsTestSetupResult,
 }

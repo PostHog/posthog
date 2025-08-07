@@ -4,68 +4,63 @@
  */
 
 import { expect } from '@playwright/test'
-import { test, testWithCleanDatabase, testWithBasicOrg } from '../utils/enhanced-test-base'
+import { test, testWithBasicOrg } from '../utils/enhanced-test-base'
 import { setupTestData } from '../utils/test-setup'
 
-// Example 1: Manual test setup in test
-test('manual setup - basic organization', async ({ page, testSetup }) => {
-    // Setup test data
+// Example 1: Setup organization and login to project page
+test('setup organization and login', async ({ page, testSetup }) => {
+    // Setup test data - creates org, project, team and test@posthog.com user
     const setupResult = await testSetup.setupBasicOrganization('My Test Org', 'My Test Project')
     expect(setupResult.success).toBe(true)
     expect(setupResult.result.organization_name).toBe('My Test Org')
+    expect(setupResult.result.user_email).toBe('test@posthog.com')
 
-    // Navigate to the organization
-    await page.goto('/')
+    // Login as test@posthog.com and navigate to the project page
+    await testSetup.loginAndNavigateToProject(page, setupResult.result.team_id)
 
-    // Test that the organization was created
-    // (Add your actual test assertions here)
+    // Now you're logged in and on the project page
+    // Add your test logic here
 })
 
 // Example 2: Using the convenience function
 test('convenience function setup', async ({ page, request }) => {
-    const setupResult = await setupTestData(request, 'user_with_organization', {
-        email: 'testuser@example.com',
+    const setupResult = await setupTestData(request, 'basic_organization', {
         organization_name: 'Test Org via Function',
+        project_name: 'Test Project',
     })
 
     expect(setupResult.success).toBe(true)
-    expect(setupResult.result.user_email).toBe('testuser@example.com')
+    expect(setupResult.result.user_email).toBe('test@posthog.com')
 
     await page.goto('/')
     // Add your test logic here
 })
 
-// Example 3: Using test with automatic clean database
-testWithCleanDatabase('test with clean database', async ({ page, testSetup }) => {
-    // Database is automatically cleared before this test
-
-    await testSetup.setupFeatureFlagsTest({
-        flag_name: 'test-flag',
-        enabled: true,
+// Example 3: Insights test setup
+test('insights setup test', async ({ page, testSetup }) => {
+    await testSetup.setupInsightsTest({
+        create_sample_events: true,
+        event_count: 50,
     })
 
     await page.goto('/')
-    // Test feature flags functionality
+    // Test insights functionality
 })
 
 // Example 4: Using test with pre-configured organization
-testWithBasicOrg('test with basic org fixture', async ({ page, organizationId, projectId, teamId }) => {
-    // Organization, project, and team are already created
+testWithBasicOrg('test with basic org fixture', async ({ page, basicOrgSetup, testSetup }) => {
+    // Organization, project, and team are already created (ONE organization, not three!)
 
-    await page.goto('/')
+    // Login and navigate to the project page
+    await testSetup.loginAndNavigateToProject(page, basicOrgSetup.teamId)
+
     // Test with the pre-created organization
 })
 
 // Example 5: Multiple setup calls in one test
 test('multiple setup operations', async ({ page, testSetup }) => {
-    // Clear database first
-    await testSetup.clearDatabase()
-
-    // Setup user and organization
-    const userResult = await testSetup.setupUserWithOrganization({
-        email: 'admin@test.com',
-        organizationName: 'Admin Org',
-    })
+    // Setup basic organization
+    const orgResult = await testSetup.setupBasicOrganization('Admin Org', 'Admin Project')
 
     // Setup insights test environment
     const insightsResult = await testSetup.setupInsightsTest({
@@ -73,10 +68,12 @@ test('multiple setup operations', async ({ page, testSetup }) => {
         event_count: 100,
     })
 
-    expect(userResult.success).toBe(true)
+    expect(orgResult.success).toBe(true)
     expect(insightsResult.success).toBe(true)
 
-    await page.goto('/')
+    // Login and navigate to project
+    await testSetup.loginAndNavigateToProject(page, orgResult.result.team_id)
+
     // Test insights functionality with sample data
 })
 
@@ -114,8 +111,5 @@ test('test setup API availability', async ({ testSetup }) => {
     const availableTests = await testSetup.getAvailableTests()
 
     expect(availableTests).toContain('basic_organization')
-    expect(availableTests).toContain('user_with_organization')
-    expect(availableTests).toContain('empty_database')
-    expect(availableTests).toContain('feature_flags_test')
     expect(availableTests).toContain('insights_test')
 })

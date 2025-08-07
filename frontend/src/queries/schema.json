@@ -9551,19 +9551,6 @@
             "required": ["attributes", "tag_name"],
             "type": "object"
         },
-        "EmptyDatabaseSetupResult": {
-            "additionalProperties": false,
-            "properties": {
-                "cleared": {
-                    "type": "boolean"
-                },
-                "message": {
-                    "type": "string"
-                }
-            },
-            "required": ["cleared", "message"],
-            "type": "object"
-        },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
             "type": "object"

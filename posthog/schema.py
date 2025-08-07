@@ -1000,14 +1000,6 @@ class ElementType(BaseModel):
     text: Optional[str] = None
 
 
-class EmptyDatabaseSetupResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cleared: bool
-    message: str
-
-
 class EmptyPropertyFilter(BaseModel):
     pass
     model_config = ConfigDict(
