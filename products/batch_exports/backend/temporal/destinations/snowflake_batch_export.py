@@ -7,7 +7,6 @@ import functools
 import io
 import json
 import logging
-import tempfile
 import time
 import typing
 
@@ -81,6 +80,99 @@ from products.batch_exports.backend.temporal.utils import (
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
+
+
+class InMemoryBuffer(io.IOBase):
+    """In-memory buffer that mimics a file for Snowflake uploads.
+
+    This class provides file-like interface while keeping data entirely in memory,
+    avoiding both disk I/O and the complexity of named pipes.
+    """
+
+    def __init__(self, data: bytes, suffix: str = ".jsonl"):
+        super().__init__()
+        self.data = data
+        self.name = f"/dev/null{suffix}"  # Fake filename for compatibility
+        self._position = 0
+        self._logger = LOGGER.bind(buffer_size=len(data))
+
+    def __enter__(self):
+        """Enter context manager."""
+        self._logger.info("Created in-memory buffer for Snowflake upload with %d bytes", len(self.data))
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager."""
+        del exc_type, exc_val, exc_tb  # Unused parameters
+        self._logger.info("In-memory buffer cleanup complete")
+
+    def seek(self, offset, whence=0):
+        """Seek within the in-memory buffer."""
+        if whence == 0:  # SEEK_SET
+            self._position = min(max(0, offset), len(self.data))
+        elif whence == 1:  # SEEK_CUR
+            self._position = min(max(0, self._position + offset), len(self.data))
+        elif whence == 2:  # SEEK_END
+            self._position = len(self.data)
+        return self._position
+
+    def seekable(self) -> bool:
+        """In-memory buffers support seeking."""
+        return True
+
+    def tell(self) -> int:
+        """Return current position."""
+        return self._position
+
+    def readable(self) -> bool:
+        """In-memory buffers are readable."""
+        return True
+
+    def writable(self) -> bool:
+        """In-memory buffers are writable (though we don't implement write)."""
+        return False
+
+    def read(self, size=-1):
+        """Read from the in-memory buffer."""
+        if size == -1:
+            size = len(self.data) - self._position
+
+        end_pos = min(self._position + size, len(self.data))
+        data = self.data[self._position : end_pos]
+        self._position = end_pos
+
+        self._logger.info(
+            "Read %d bytes from in-memory buffer (position %d-%d)",
+            len(data),
+            self._position - len(data),
+            self._position,
+        )
+        return data
+
+    def readinto(self, b):
+        """Read data from the in-memory buffer into a pre-allocated buffer."""
+        buffer_size = len(b)
+        available = len(self.data) - self._position
+        bytes_to_read = min(buffer_size, available)
+
+        if bytes_to_read > 0:
+            data = self.data[self._position : self._position + bytes_to_read]
+            b[:bytes_to_read] = data
+            self._position += bytes_to_read
+
+        self._logger.info(
+            "Read %d bytes into buffer from in-memory buffer (position now %d)", bytes_to_read, self._position
+        )
+        return bytes_to_read
+
+    def fileno(self):
+        """Return file descriptor - not supported for in-memory buffers."""
+        raise io.UnsupportedOperation("In-memory buffers don't support fileno()")
+
+    def close(self):
+        """Close method for IOBase compatibility."""
+        pass
+
 
 # One batch export allowed to connect at a time (in theory) per worker.
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
@@ -862,28 +954,24 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         self.current_buffer.clear()
 
     async def _upload_current_buffer(self):
-        """Upload the current buffer to Snowflake using a temporary file."""
+        """Upload the current buffer to Snowflake using a named pipe (in-memory)."""
         if len(self.current_buffer) == 0:
             return  # Nothing to upload
 
         data = bytes(self.current_buffer)
 
         self.logger.debug(
-            "Uploading file %d with %d bytes to Snowflake table '%s'",
+            "Uploading file %d with %d bytes to Snowflake table '%s' using named pipe",
             self.current_file_index,
             len(data),
             self.snowflake_table,
         )
 
-        # TODO - see if we can remove the need for a temporary file
-        # Create a temporary file for the data
-
-        with tempfile.NamedTemporaryFile(suffix=".jsonl") as temp_file:
-            temp_file.write(data)
-
+        # Use in-memory buffer instead of temporary file to avoid disk I/O
+        with InMemoryBuffer(data, suffix=".jsonl") as buffer:
             # Upload to Snowflake
             await self.snowflake_client.put_file_to_snowflake_table(
-                temp_file,
+                buffer,
                 self.snowflake_table_stage_prefix,
                 self.snowflake_table,
             )
@@ -1243,7 +1331,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     json_columns=known_variant_columns,
                 )
 
-                # TODO - move this into the consumer finalize method
+                # TODO - maybe move this into the consumer finalize method?
                 # Copy all staged files to the table
                 await snow_client.copy_loaded_files_to_snowflake_table(
                     snow_stage_table if requires_merge else snow_table, data_interval_end_str

@@ -636,8 +636,8 @@ class TestInsertIntoSnowflakeActivity:
         that they appear in the expected Snowflake table. This function runs against a real Snowflake
         instance, so the environment should be populated with the necessary credentials.
         """
-        if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
-            pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+        if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+            pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
         batch_export_schema: BatchExportSchema | None = None
         batch_export_model: BatchExportModel | None = None
@@ -1322,8 +1322,8 @@ class TestSnowflakeExportWorkflow:
         The workflow should update the batch export run status to completed and produce the expected
         records to the provided Snowflake instance.
         """
-        if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
-            pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+        if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+            pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
         batch_export_schema: BatchExportSchema | None = None
         batch_export_model: BatchExportModel | None = None
@@ -1369,8 +1369,8 @@ class TestSnowflakeExportWorkflow:
         means we are uploading one file at a time, which is very innefficient. For this reason, this test
         can take longer, so we keep the event count low and bump the Workflow timeout.
         """
-        if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
-            pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+        if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+            pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
         batch_export_schema: BatchExportSchema | None = None
         batch_export_model: BatchExportModel | None = None
