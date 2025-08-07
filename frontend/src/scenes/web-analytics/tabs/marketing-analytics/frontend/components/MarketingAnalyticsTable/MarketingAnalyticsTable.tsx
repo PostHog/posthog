@@ -5,12 +5,7 @@ import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
 import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
-import {
-    DataTableNode,
-    MARKETING_ANALYTICS_SCHEMA,
-    MarketingAnalyticsColumnsSchemaNames,
-    MarketingAnalyticsTableQuery,
-} from '~/queries/schema/schema-general'
+import { DataTableNode, MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
@@ -28,28 +23,21 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
 
-    // Filter out columns that are not numbers because they can't be compared between periods
-    const nonNumberColumns = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
-        (column) => !MARKETING_ANALYTICS_SCHEMA[column as MarketingAnalyticsColumnsSchemaNames].type.includes('number')
-    )
-
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
         ...webAnalyticsDataTableQueryContext,
         insightProps,
         columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
-        columns: (query.source as MarketingAnalyticsTableQuery).select
-            ?.filter((column) => !nonNumberColumns.includes(column))
-            .reduce(
-                (acc, column) => {
-                    acc[column] = {
-                        title: column,
-                        render: (props) => renderMarketingAnalyticsCell(props.value),
-                    }
-                    return acc
-                },
-                {} as Record<string, QueryContextColumn>
-            ),
+        columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
+            (acc, column) => {
+                acc[column] = {
+                    title: column,
+                    render: (props) => renderMarketingAnalyticsCell(props.value),
+                }
+                return acc
+            },
+            {} as Record<string, QueryContextColumn>
+        ),
     }
 
     return (
