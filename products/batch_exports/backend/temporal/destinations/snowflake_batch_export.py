@@ -832,33 +832,29 @@ def _get_snowflake_merge_config(
 class SnowflakeConsumerFromStage(ConsumerFromStage):
     """A consumer that uploads data to Snowflake from the internal stage.
 
-    This is a simpler version that works like the existing SnowflakeConsumer,
-    without concurrent uploads, just using the new pipeline interface.
+    This works in a similar way to the existing SnowflakeConsumer, but uses the new pipeline interface.
+
+    It also removes the need for a temporary file, and instead uses an in-memory buffer.
+
+    At the moment, it doesn't support concurrent uploads, but we can add that later to improve performance.
     """
 
     def __init__(
         self,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
         snowflake_client: SnowflakeClient,
         snowflake_table: str,
         snowflake_table_stage_prefix: str,
     ):
-        super().__init__(data_interval_start, data_interval_end)
+        super().__init__()
 
         self.snowflake_client = snowflake_client
         self.snowflake_table = snowflake_table
         self.snowflake_table_stage_prefix = snowflake_table_stage_prefix
 
-        # Simple file management - no concurrent uploads
+        # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
         self.current_buffer = bytearray()
         self._finalized = False
-
-    async def finalize_file(self):
-        """Finalize the current file and start a new one."""
-        await self._upload_current_buffer()
-        self._start_new_file()
 
     async def consume_chunk(self, data: bytes):
         """Consume a chunk of data by buffering it."""
@@ -866,6 +862,11 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
             raise RuntimeError("Consumer already finalized")
 
         self.current_buffer.extend(data)
+
+    async def finalize_file(self):
+        """Finalize the current file and start a new one."""
+        await self._upload_current_buffer()
+        self._start_new_file()
 
     def _start_new_file(self):
         """Start a new file (reset state for file splitting)."""
@@ -889,9 +890,9 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
 
         # Upload to Snowflake
         await self.snowflake_client.put_file_to_snowflake_table(
-            buffer,
-            self.snowflake_table_stage_prefix,
-            self.snowflake_table,
+            file=buffer,
+            table_stage_prefix=self.snowflake_table_stage_prefix,
+            table_name=self.snowflake_table,
         )
 
         self.external_logger.info(
@@ -1177,11 +1178,6 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
 
-        data_interval_start = (
-            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-        )
-        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
-
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
         assert inputs.batch_export_id is not None
@@ -1230,8 +1226,6 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                 ) as snow_stage_table,
             ):
                 consumer = SnowflakeConsumerFromStage(
-                    data_interval_start=data_interval_start,
-                    data_interval_end=data_interval_end,
                     snowflake_client=snow_client,
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
                     snowflake_table_stage_prefix=data_interval_end_str,
@@ -1242,6 +1236,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     consumer=consumer,
                     producer_task=producer_task,
                     schema=record_batch_schema,
+                    # TODO - look into using a different file format, like Parquet to improve performance
                     file_format="JSONLines",
                     compression=None,
                     include_inserted_at=False,

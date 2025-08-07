@@ -414,6 +414,7 @@ async def assert_clickhouse_records_in_snowflake(
     if expect_duplicates:
         inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
 
+    assert inserted_records, "No records were inserted into Snowflake"
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
     inserted_column_names.sort()
