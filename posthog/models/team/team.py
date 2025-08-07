@@ -223,6 +223,13 @@ class CookielessServerHashMode(models.IntegerChoices):
     STATEFUL = 2, "Stateful"
 
 
+class SessionRecordingRetentionPeriod(models.TextChoices):
+    THIRTY_DAYS = "30d", "30 Days"
+    NINETY_DAYS = "90d", "90 Days"
+    ONE_YEAR = "1y", "1 Year"
+    FIVE_YEARS = "5y", "5 Years"
+
+
 class Team(UUIDClassicModel):
     """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
@@ -323,6 +330,11 @@ class Team(UUIDClassicModel):
     )
     session_recording_trigger_match_type_config = models.CharField(null=True, blank=True, max_length=24)
     session_replay_config = models.JSONField(null=True, blank=True)
+    session_recording_retention_period = models.CharField(
+        max_length=3,
+        choices=SessionRecordingRetentionPeriod.choices,
+        default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
+    )
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
