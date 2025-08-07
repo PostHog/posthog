@@ -305,8 +305,8 @@ class TestCacheKeyConsistency(TestCase):
 
     def test_cache_ttl_uses_default_value(self):
         """Test that cache TTL uses default value when no env var is set."""
-        # Default should be 600 seconds (10 minutes)
-        self.assertEqual(FlagDefinitionsCache.CACHE_TTL, 600)
+        # Default should be 3600 seconds (1 hour)
+        self.assertEqual(FlagDefinitionsCache.CACHE_TTL, 3600)
 
     def test_cache_version_is_consistent(self):
         """Test that cache version is consistent."""

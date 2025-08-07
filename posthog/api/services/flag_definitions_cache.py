@@ -17,7 +17,7 @@ class FlagDefinitionsCache:
 
     # Cache configuration
     CACHE_VERSION = "v1"
-    CACHE_TTL = int(os.getenv("FLAG_DEFINITIONS_CACHE_TTL", 600))  # Default: 10 minutes
+    CACHE_TTL = int(os.getenv("FLAG_DEFINITIONS_CACHE_TTL", 3600))  # Default: 1 hour
 
     @classmethod
     def get_cache_key(cls, project_id: int, include_cohorts: bool = False) -> str:
