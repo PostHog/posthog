@@ -310,7 +310,7 @@ class CohortSerializer(serializers.ModelSerializer):
             effective_type = cohort_type
 
         # For updates, check if type change affects dependencies
-        if self.instance and effective_type:
+        if self.instance and effective_type and isinstance(self.instance, Cohort):
             current_type = self.instance.cohort_type or self.instance.determine_cohort_type()
 
             if current_type != effective_type:
