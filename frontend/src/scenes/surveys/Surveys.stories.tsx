@@ -261,8 +261,10 @@ export const NewSurvey: Story = {
 
 export const NewSurveyCustomisationSection: StoryFn = () => {
     useOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
+        window.setTimeout(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
+        }, 700)
     })
 
     return <App />
