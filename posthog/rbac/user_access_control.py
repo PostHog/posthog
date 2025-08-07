@@ -361,9 +361,9 @@ class UserAccessControl:
             access_controls = [
                 ac for ac in access_controls if ac.role is not None or ac.organization_member is not None
             ]
-        # If we're looking for specific access controls and there are none we don't want to return the default access level
-        if specific_only and not access_controls:
-            return None
+            # If we're looking for specific access controls and there are none we don't want to return the default access level
+            if not access_controls:
+                return None
 
         # If there is no specified controls on the resource then we return the default access level
         if not access_controls:
