@@ -2952,7 +2952,7 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'advanced_permissions',
-                            name: 'Advanced permissions',
+                            name: 'Access control',
                             description:
                                 'Control who can access and modify data and features within your organization.',
                             unit: null,
@@ -3167,7 +3167,7 @@ export const billingJson: BillingType = {
                                 },
                                 {
                                     key: 'advanced_permissions',
-                                    name: 'Advanced permissions',
+                                    name: 'Access control',
                                     description:
                                         'Control who can access and modify data and features within your organization.',
                                     unit: null,
@@ -3309,7 +3309,7 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'advanced_permissions',
-                            name: 'Advanced permissions',
+                            name: 'Access control',
                             description:
                                 'Control who can access and modify data and features within your organization.',
                             images: null,
@@ -3463,7 +3463,7 @@ export const billingJson: BillingType = {
                 },
                 {
                     key: 'advanced_permissions',
-                    name: 'Advanced permissions',
+                    name: 'Access control',
                     description: 'Control who can access and modify data and features within your organization.',
                     images: null,
                     icon_key: null,
