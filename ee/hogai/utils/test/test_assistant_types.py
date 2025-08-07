@@ -77,3 +77,15 @@ class TestAssistantTypes(BaseTest):
 
         # Should return a PartialAssistantState instance
         self.assertIsInstance(reset_state, PartialAssistantState)
+
+    async def test_messages_reducer(self):
+        """Test that memory_collection_messages is reset by explicitly set values"""
+        graph = StateGraph(AssistantState)
+        graph.add_node("node", lambda _: AssistantState(messages=[AssistantMessage(content="2")]))
+        graph.add_edge(START, "node")
+        graph.add_edge("node", END)
+        compiled_graph = graph.compile()
+        res = await compiled_graph.ainvoke({"messages": [AssistantMessage(content="1")]})
+        self.assertEqual(len(res["messages"]), 2)
+        self.assertEqual(res["messages"][0].content, "1")
+        self.assertEqual(res["messages"][1].content, "2")

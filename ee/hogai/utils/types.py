@@ -112,11 +112,11 @@ class BaseState(BaseModel):
         return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
 
-class _SharedAssistantState(BaseState):
+class AssistantState(BaseState):
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
     """
-    The state of the root node.
+    Messages exposed to the user.
     """
-
     start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
@@ -126,6 +126,19 @@ class _SharedAssistantState(BaseState):
     Whether the graph was interrupted or resumed.
     """
 
+
+class PartialAssistantState(AssistantState):
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
+    """
+    Messages exposed to the user.
+    """
+
+
+class AssistantToolState(AssistantState):
+    tool_call_id: Optional[str] = Field(default=None)
+
+
+class InsightsState(AssistantToolState):
     intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
     """
     Actions taken by the query planner agent.
@@ -133,37 +146,6 @@ class _SharedAssistantState(BaseState):
     plan: Optional[str] = Field(default=None)
     """
     The insight generation plan.
-    """
-
-    onboarding_question: Optional[str] = Field(default=None)
-    """
-    A clarifying question asked during the onboarding process.
-    """
-
-    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], merge] = Field(default=None)
-    """
-    The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
-    """
-
-    root_conversation_start_id: Optional[str] = Field(default=None)
-    """
-    The ID of the message to start from to keep the message window short enough.
-    """
-    root_tool_call_id: Optional[str] = Field(default=None)
-    """
-    The ID of the tool call from the root node.
-    """
-    root_tool_insight_plan: Optional[str] = Field(default=None)
-    """
-    The insight plan to generate.
-    """
-    root_tool_insight_type: Optional[str] = Field(default=None)
-    """
-    The type of insight to generate.
-    """
-    root_tool_calls_count: Optional[int] = Field(default=None)
-    """
-    Tracks the number of tool calls made by the root node to terminate the loop.
     """
     query_planner_previous_response_id: Optional[str] = Field(default=None)
     """
@@ -177,23 +159,49 @@ class _SharedAssistantState(BaseState):
     """
     Tracks the number of times the query generation has been retried.
     """
+    root_tool_call_id: Optional[str] = Field(default=None)
+    """
+    The ID of the tool call from the root node.
+    """
+    root_tool_insight_plan: Optional[str] = Field(default=None)
+    """
+    The insight plan to generate.
+    """
+    root_tool_insight_type: Optional[str] = Field(default=None)
+    """
+    The type of insight to generate.
+    """
+
+
+class MemoryOnboardingState(AssistantState):
+    onboarding_question: Optional[str] = Field(default=None)
+    """
+    A clarifying question asked during the onboarding process.
+    """
+
+
+class MemoryCollectorState(AssistantState):
+    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], merge] = Field(default=None)
+    """
+    The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
+    """
+
+
+class RootState(AssistantToolState):
+    root_conversation_start_id: Optional[str] = Field(default=None)
+    """
+    The ID of the message to start from to keep the message window short enough.
+    """
+    root_tool_calls_count: Optional[int] = Field(default=None)
+    """
+    Tracks the number of tool calls made by the root node to terminate the loop.
+    """
+
+
+class SearchInsightsState(AssistantToolState):
     search_insights_query: Optional[str] = Field(default=None)
     """
     The user's search query for finding existing insights.
-    """
-
-
-class AssistantState(_SharedAssistantState):
-    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
-    """
-    Messages exposed to the user.
-    """
-
-
-class PartialAssistantState(_SharedAssistantState):
-    messages: Sequence[AssistantMessageUnion] = Field(default=[])
-    """
-    Messages exposed to the user.
     """
 
 

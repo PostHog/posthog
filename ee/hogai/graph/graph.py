@@ -1,22 +1,24 @@
 from collections.abc import Hashable
-from typing import Literal, Optional, cast, Generic
+from typing import Generic, Literal, Optional, cast
 
 from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.billing.nodes import BillingNode
+from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, InsightsState
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from .base import StateType
 from .funnels.nodes import (
     FunnelGeneratorNode,
     FunnelGeneratorToolsNode,
 )
 from .inkeep_docs.nodes import InkeepDocsNode
+from .insights.nodes import InsightSearchNode
 from .memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
@@ -36,8 +38,6 @@ from .retention.nodes import (
 from .root.nodes import RootNode, RootNodeTools
 from .sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
-from .base import StateType
-from .insights.nodes import InsightSearchNode
 
 global_checkpointer = DjangoCheckpointer()
 
@@ -69,9 +69,9 @@ class BaseAssistantGraph(Generic[StateType]):
         return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
 
 
-class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
+class InsightsAssistantGraph(BaseAssistantGraph[InsightsState]):
     def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+        super().__init__(team, user, InsightsState)
 
     def add_rag_context(self):
         builder = self._graph
