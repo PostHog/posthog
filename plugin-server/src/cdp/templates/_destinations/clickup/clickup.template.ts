@@ -36,7 +36,6 @@ if (res.status >= 400) {
             type: 'integration',
             integration: 'clickup',
             label: 'ClickUp account',
-            requiredScopes: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email',
             secret: false,
             required: true,
         },
