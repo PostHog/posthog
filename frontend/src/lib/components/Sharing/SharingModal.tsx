@@ -1,7 +1,7 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -126,18 +126,14 @@ export function SharingModalContent({
                 ) : (
                     <>
                         <h3>Sharing</h3>
+                        {!sharingAllowed && (
+                            <LemonBanner type="warning">
+                                Publicly sharing resources is disabled for this organization.
+                            </LemonBanner>
+                        )}
                         <LemonSwitch
                             id="sharing-switch"
-                            label={
-                                <span>
-                                    Share {resource} publicly
-                                    {!sharingAllowed && (
-                                        <Tooltip title="Public sharing is disabled for this organization. Contact your organization admin to enable it.">
-                                            <IconInfo className="ml-1" />
-                                        </Tooltip>
-                                    )}
-                                </span>
-                            }
+                            label={`Share ${resource} publicly`}
                             checked={sharingConfiguration.enabled && sharingAllowed}
                             data-attr="sharing-switch"
                             onChange={(active) => setIsEnabled(active)}
@@ -146,7 +142,7 @@ export function SharingModalContent({
                             fullWidth
                         />
 
-                        {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
+                        {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="deprecated-space-y-2">
                                     <LemonButton
