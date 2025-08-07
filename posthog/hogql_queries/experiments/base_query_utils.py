@@ -200,15 +200,17 @@ def get_experiment_date_range(experiment: Experiment, team: Team) -> DateRange:
     )
 
 
-def get_metric_time_window(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+def get_source_time_window(
     date_range_query: QueryDateRange,
     left: ast.Expr,
+    conversion_window: int | None = None,
+    conversion_window_unit=None,
 ) -> list[ast.CompareOperation]:
     """
-    Returns the time window conditions for the metric based on conversion window and date range.
+    Returns the time window conditions based on conversion window and date range.
+    Pure source-based function that doesn't depend on metric object.
     """
-    if metric.conversion_window is not None and metric.conversion_window_unit is not None:
+    if conversion_window is not None and conversion_window_unit is not None:
         # Define conversion window as hours after exposure
         time_window_clause = ast.CompareOperation(
             left=left,
@@ -220,9 +222,7 @@ def get_metric_time_window(
                         name="toIntervalSecond",
                         args=[
                             ast.Constant(
-                                value=conversion_window_to_seconds(
-                                    metric.conversion_window, metric.conversion_window_unit
-                                )
+                                value=conversion_window_to_seconds(conversion_window, conversion_window_unit)
                             ),
                         ],
                     ),
@@ -253,6 +253,19 @@ def get_metric_time_window(
         ),
         time_window_clause,
     ]
+
+
+def get_metric_time_window(
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+    date_range_query: QueryDateRange,
+    left: ast.Expr,
+) -> list[ast.CompareOperation]:
+    """
+    Backward compatibility wrapper for get_source_time_window.
+    """
+    return get_source_time_window(
+        date_range_query, left, metric.conversion_window, metric.conversion_window_unit
+    )
 
 
 def get_experiment_exposure_query(
@@ -324,6 +337,120 @@ def get_experiment_exposure_query(
     )
 
 
+def build_source_events_query(
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
+    exposure_query: ast.SelectQuery,
+    team: Team,
+    entity_key: str,
+    date_range_query: QueryDateRange,
+    conversion_window: int | None = None,
+    conversion_window_unit=None,
+    experiment=None,
+) -> ast.SelectQuery:
+    """
+    Pure source-based function to build events query.
+    Returns the query to get events for a specific source. One row per event, so multiple rows per entity.
+    Columns: timestamp, entity_identifier, variant, value
+    """
+    match source:
+        case ExperimentDataWarehouseNode():
+            return ast.SelectQuery(
+                select=[
+                    ast.Alias(
+                        alias="timestamp",
+                        expr=ast.Field(chain=[source.table_name, source.timestamp_field]),
+                    ),
+                    ast.Alias(
+                        alias="entity_identifier",
+                        expr=ast.Field(
+                            chain=[
+                                source.table_name,
+                                *source.data_warehouse_join_key.split("."),
+                            ]
+                        ),
+                    ),
+                    ast.Field(chain=["exposure_data", "variant"]),
+                    ast.Alias(alias="value", expr=get_source_value_expr(source)),
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=[source.table_name]),
+                    next_join=ast.JoinExpr(
+                        table=exposure_query,
+                        join_type="INNER JOIN",
+                        alias="exposure_data",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                left=ast.Field(
+                                    chain=[
+                                        source.table_name,
+                                        *source.data_warehouse_join_key.split("."),
+                                    ]
+                                ),
+                                right=ast.Call(
+                                    name="toString",
+                                    args=[ast.Field(chain=["exposure_data", "exposure_identifier"])],
+                                ),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                            constraint_type="ON",
+                        ),
+                    ),
+                ),
+                where=ast.And(
+                    exprs=[
+                        *get_source_time_window(
+                            date_range_query,
+                            left=ast.Field(chain=[source.table_name, source.timestamp_field]),
+                            conversion_window=conversion_window,
+                            conversion_window_unit=conversion_window_unit,
+                        ),
+                        data_warehouse_node_to_filter(team, source),
+                    ],
+                ),
+            )
+
+        case EventsNode() | ActionsNode():
+            filters = [
+                *get_source_time_window(
+                    date_range_query,
+                    left=ast.Field(chain=["events", "timestamp"]),
+                    conversion_window=conversion_window,
+                    conversion_window_unit=conversion_window_unit,
+                ),
+                event_or_action_to_filter(team, source),
+            ]
+            # Add test accounts filter only if experiment is provided
+            if experiment:
+                filters.extend(get_test_accounts_filter(team, experiment.exposure_criteria))
+
+            return ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["events", "timestamp"]),
+                    ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", entity_key])),
+                    ast.Field(chain=["exposure_data", "variant"]),
+                    ast.Field(chain=["events", "event"]),
+                    ast.Alias(alias="value", expr=get_source_value_expr(source)),
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        table=exposure_query,
+                        join_type="INNER JOIN",
+                        alias="exposure_data",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["events", entity_key]),
+                                right=ast.Field(chain=["exposure_data", "entity_id"]),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                            constraint_type="ON",
+                        ),
+                    ),
+                ),
+                where=ast.And(exprs=filters),
+            )
+
+
 def get_source_events_query(
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
     exposure_query: ast.SelectQuery,
@@ -335,17 +462,10 @@ def get_source_events_query(
     conversion_window_unit=None,
 ) -> ast.SelectQuery:
     """
-    Returns the query to get events for a specific source. One row per event, so multiple rows per entity.
-    Columns: timestamp, entity_identifier, variant, value
+    Backward compatibility wrapper for build_source_events_query.
     """
-    # Create a temporary mean metric for processing - this allows us to reuse existing logic
-    temp_metric = ExperimentMeanMetric(
-        source=source,
-        conversion_window=conversion_window,
-        conversion_window_unit=conversion_window_unit,
-    )
-    return _get_metric_events_for_source(
-        temp_metric, exposure_query, team, entity_key, experiment, date_range_query, source
+    return build_source_events_query(
+        source, exposure_query, team, entity_key, date_range_query, conversion_window, conversion_window_unit, experiment
     )
 
 
@@ -558,31 +678,34 @@ def _get_metric_events_for_source(
             raise ValueError(f"Unsupported metric: {metric}")
 
 
-def get_source_aggregation_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
+def get_source_aggregation_expr(
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode], table_alias: str = "metric_events"
+) -> ast.Expr:
     """
     Returns the aggregation expression for a specific source based on its math type.
+    Uses the specified table_alias for field references.
     """
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         math_type = getattr(source, "math", None)
         if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-            return parse_expr("toFloat(count(distinct metric_events.value))")
+            return parse_expr(f"toFloat(count(distinct {table_alias}.value))")
         elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"min(coalesce(toFloat({table_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"max(coalesce(toFloat({table_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"avg(coalesce(toFloat({table_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
                 aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
+                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({table_alias}.value), 0))")
             # Default to sum if no aggregation function is found
-            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
     # Default aggregation for all other cases (including data warehouse)
-    return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+    return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
 
 def get_metric_aggregation_expr(
