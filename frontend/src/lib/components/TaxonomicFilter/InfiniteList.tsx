@@ -240,7 +240,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         const item = results[rowIndex]
         const itemGroup = getItemGroup(item, taxonomicGroups, group)
         const itemValue = item ? itemGroup?.getValue?.(item) : null
-        const isSelected = listGroupType === groupType && itemValue === value
+
+        // Normalize value to match itemValue type before comparison
+        const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
+
+        const isSelected = listGroupType === groupType && itemValue === normalizedValue
+
         const isHighlighted = rowIndex === index && isActiveTab
 
         // Show create custom event option when there are no results

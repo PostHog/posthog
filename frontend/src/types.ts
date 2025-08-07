@@ -3607,6 +3607,7 @@ export enum PropertyType {
     Cohort = 'Cohort',
     Assignee = 'Assignee',
     StringArray = 'StringArray',
+    Flag = 'Flag',
 }
 
 export enum PropertyDefinitionType {
@@ -3620,6 +3621,7 @@ export enum PropertyDefinitionType {
     Meta = 'meta',
     Resource = 'resource',
     Log = 'log',
+    FlagValue = 'flag_value',
 }
 
 export interface PropertyDefinition {
@@ -3674,10 +3676,11 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: GroupTypeIndex
-    group_key: string
     created_at: string
+    group_key: string
+    group_type_index: GroupTypeIndex
     group_properties: Record<string, any>
+    notebook: string | null
 }
 
 export interface UserInterviewType {
@@ -5149,6 +5152,7 @@ export type CyclotronJobFilterPropertyFilter =
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
+    | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
     source?: 'events' | 'person-updates'
@@ -5262,6 +5266,8 @@ export enum HogWatcherState {
     healthy = 1,
     overflowed = 2,
     disabled = 3,
+    forcefully_degraded = 11,
+    forcefully_disabled = 12,
 }
 
 export type HogFunctionStatus = {
