@@ -128,13 +128,11 @@ class ExperimentQueryRunner(QueryRunner):
             from posthog.hogql_queries.experiments.base_query_utils import get_source_aggregation_expr
 
             denominator_source = self.metric.denominator
-            # Replace metric_events with denominator_events in the aggregation expression
-            denominator_agg_expr = get_source_aggregation_expr(denominator_source)
-            # Convert the expression to use denominator_events alias
-            denominator_agg_str = str(denominator_agg_expr).replace("metric_events", "denominator_events")
+            # Use the new table_alias parameter to avoid string replacement
+            denominator_agg_expr = get_source_aggregation_expr(denominator_source, "denominator_events")
             select_fields.append(
                 ast.Alias(
-                    expr=parse_expr(denominator_agg_str),
+                    expr=denominator_agg_expr,
                     alias="denominator_value",
                 ),
             )
