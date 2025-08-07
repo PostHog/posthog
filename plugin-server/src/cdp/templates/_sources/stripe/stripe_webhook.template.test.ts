@@ -166,7 +166,6 @@ describe('stripe webhook template', () => {
             }
         )
 
-        console.log(response.logs)
         expect(response.capturedPostHogEvents).toHaveLength(1)
         expect(response.capturedPostHogEvents[0].distinct_id).toEqual(`${key}:1234`)
     })
