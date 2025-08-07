@@ -166,8 +166,8 @@ class GraphExecutionEngine:
             response = requests.post(
                 "http://localhost:8000/api/marketing_research/find_competitors/",
                 json={
-                    "websiteurl": website_url,
-                    "summaryText": f"{domain.title()} is a platform that helps businesses with analytics and insights",
+                    "website_url": website_url,
+                    "summary_text": f"{domain.title()} is a platform that helps businesses with analytics and insights",
                 },
                 timeout=100,
             )
