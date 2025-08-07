@@ -70,7 +70,9 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             # Replace placeholders with dummy values to compile the generated query.
             finder = find_placeholders(parsed_query)
             if finder.placeholder_fields or finder.has_filters:
-                dummy_placeholders = {str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields}
+                dummy_placeholders: dict[str, ast.Expr] = {
+                    str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
+                }
                 if finder.has_filters:
                     dummy_placeholders["filters"] = ast.Constant(value=1)
                 parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
