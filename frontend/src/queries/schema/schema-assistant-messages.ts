@@ -11,6 +11,22 @@ import {
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 
+// Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
+// which leads to improper type naming
+// This matches the TipTap/Prosemirror JSONContent structure
+export interface ProsemirrorJSONContent {
+    type?: string
+    attrs?: Record<string, any>
+    content?: ProsemirrorJSONContent[]
+    marks?: {
+        type: string
+        attrs?: Record<string, any>
+        [key: string]: any
+    }[]
+    text?: string
+    [key: string]: any
+}
+
 export enum AssistantMessageType {
     Human = 'human',
     ToolCall = 'tool',
@@ -18,6 +34,8 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
+    Notebook = 'notebook',
+    Planning = 'ai/planning',
 }
 
 export interface BaseAssistantMessage {
@@ -81,18 +99,44 @@ export interface FailureMessage extends BaseAssistantMessage {
     content?: string
 }
 
+export interface NotebookUpdateMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Notebook
+    notebook_id: string
+    content: ProsemirrorJSONContent
+    tool_calls?: AssistantToolCall[]
+}
+
+export enum PlanningStepStatus {
+    Pending = 'pending',
+    InProgress = 'in_progress',
+    Completed = 'completed',
+}
+
+export interface PlanningStep {
+    description: string
+    status: PlanningStepStatus
+}
+
+export interface PlanningMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Planning
+    steps: PlanningStep[]
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
+    | NotebookUpdateMessage
+    | PlanningMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
     Conversation = 'conversation',
+    Notebook = 'notebook',
 }
 
 export enum AssistantGenerationStatusType {
