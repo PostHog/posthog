@@ -8,7 +8,12 @@ import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 
 export class PersonPropertiesSizeViolationError extends Error {
-    constructor(message: string, public teamId: number, public personId?: string, public distinctId?: string) {
+    constructor(
+        message: string,
+        public teamId: number,
+        public personId?: string,
+        public distinctId?: string
+    ) {
         super(message)
         this.name = 'PersonPropertiesSizeViolationError'
     }
