@@ -285,7 +285,9 @@ class CohortSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        """Validate cohort type matches the filters"""
+        """Validate cohort type matches the filters and check dependencies"""
+        from posthog.models.cohort.util import validate_cohort_dependency_types
+
         cohort_type = attrs.get("cohort_type")
         filters = attrs.get("filters")
         is_static = attrs.get("is_static", False)
@@ -301,6 +303,30 @@ class CohortSerializer(serializers.ModelSerializer):
                     f"Cohort type '{cohort_type}' does not match the provided filters. "
                     f"Based on the filters, this cohort should be of type '{determined_type}'."
                 )
+
+            # Use determined type if cohort_type not provided
+            effective_type = cohort_type or determined_type
+        else:
+            effective_type = cohort_type
+
+        # For updates, check if type change affects dependencies
+        if self.instance and effective_type:
+            current_type = self.instance.cohort_type or self.instance.determine_cohort_type()
+
+            if current_type != effective_type:
+                # Check if this type change would require updating dependent cohorts
+                affected_cohorts = validate_cohort_dependency_types(self.instance, effective_type)
+
+                if affected_cohorts:
+                    affected_names = [f"'{dep.name}'" for dep, _ in affected_cohorts[:3]]  # Show first 3
+                    if len(affected_cohorts) > 3:
+                        affected_names.append(f"and {len(affected_cohorts) - 3} more")
+
+                    raise ValidationError(
+                        f"Changing this cohort's type to '{effective_type}' would require updating "
+                        f"{len(affected_cohorts)} dependent cohort(s): {', '.join(affected_names)}. "
+                        f"Please update dependent cohorts first or use the bulk update endpoint."
+                    )
 
         return attrs
 
@@ -719,6 +745,53 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             activity="updated",
             detail=Detail(changes=changes, name=instance.name),
         )
+
+    @action(methods=["POST"], detail=True, url_path="update_with_dependencies")
+    def update_with_dependencies(self, request: Request, **kwargs) -> Response:
+        """
+        Update cohort type and automatically cascade changes to dependent cohorts.
+        Useful when a cohort type change affects multiple dependent cohorts.
+        """
+        from posthog.models.cohort.util import validate_cohort_dependency_types
+        from django.db import transaction
+
+        cohort: Cohort = self.get_object()
+        new_type = request.data.get("cohort_type")
+
+        if not new_type or new_type not in ["static", "person_property", "behavioral", "analytical"]:
+            return Response({"error": "Valid cohort_type is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        current_type = cohort.cohort_type or cohort.determine_cohort_type()
+
+        if current_type == new_type:
+            return Response({"message": "No type change needed"})
+
+        # Get all affected cohorts
+        affected_cohorts = validate_cohort_dependency_types(cohort, new_type)
+
+        # Create update summary
+        updates = []
+        with transaction.atomic():
+            # Update the main cohort
+            cohort.cohort_type = new_type
+            cohort.save()
+            updates.append({"id": cohort.id, "name": cohort.name, "old_type": current_type, "new_type": new_type})
+
+            # Update dependent cohorts
+            for dependent_cohort, required_type in affected_cohorts:
+                old_type = dependent_cohort.cohort_type or dependent_cohort.determine_cohort_type()
+                dependent_cohort.cohort_type = required_type
+                dependent_cohort.save()
+                updates.append(
+                    {
+                        "id": dependent_cohort.id,
+                        "name": dependent_cohort.name,
+                        "old_type": old_type,
+                        "new_type": required_type,
+                    }
+                )
+
+        return Response({"message": f"Updated {len(updates)} cohort(s)", "updates": updates})
 
 
 class LegacyCohortViewSet(CohortViewSet):

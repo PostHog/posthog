@@ -2392,6 +2392,92 @@ class TestCalculateCohortCommand(APIBaseTest):
         cohort = Cohort.objects.get(id=response.json()["id"])
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
 
+    def test_cohort_dependency_validation_blocks_type_changes(self):
+        """Test that type changes are blocked when they would affect dependencies"""
+        # Create base cohort
+        base_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Base Cohort",
+            cohort_type="person_property",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Create dependent cohort
+        Cohort.objects.create(
+            team=self.team,
+            name="Dependent Cohort",
+            cohort_type="person_property",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "value": base_cohort.id}]}],
+                }
+            },
+        )
+
+        # Try to change base cohort to behavioral (should fail due to dependency)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{base_cohort.id}/",
+            {"cohort_type": "behavioral"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        error = response.json()
+        self.assertIn("would require updating", str(error))
+        self.assertIn("dependent cohort", str(error))
+
+    def test_cohort_bulk_update_with_dependencies(self):
+        """Test that the bulk update endpoint works correctly"""
+        # Create base cohort
+        base_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Base Cohort",
+            cohort_type="person_property",
+        )
+
+        # Create dependent cohort
+        dependent_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dependent Cohort",
+            cohort_type="person_property",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "value": base_cohort.id}]}],
+                }
+            },
+        )
+
+        # Use bulk update endpoint
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/{base_cohort.id}/update_with_dependencies/",
+            {"cohort_type": "behavioral"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(len(result["updates"]), 2)  # Base + dependent
+
+        # Verify updates were applied
+        base_cohort.refresh_from_db()
+        dependent_cohort.refresh_from_db()
+        self.assertEqual(base_cohort.cohort_type, "behavioral")
+        self.assertEqual(dependent_cohort.cohort_type, "behavioral")
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
