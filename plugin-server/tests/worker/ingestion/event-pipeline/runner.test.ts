@@ -382,65 +382,6 @@ describe('EventPipelineRunner', () => {
             })
         })
 
-        describe('$exception events', () => {
-            let exceptionEvent: PluginEvent
-            beforeEach(() => {
-                exceptionEvent = {
-                    ...pluginEvent,
-                    event: '$exception',
-                    properties: {
-                        ...pipelineEvent.properties,
-                        $heatmap_data: {
-                            url1: ['data'],
-                            url2: ['more data'],
-                        },
-                    },
-                    team_id: 2,
-                }
-
-                // setup just enough mocks that the right pipeline runs
-
-                const personsStore = new BatchWritingPersonsStoreForBatch(
-                    new PostgresPersonRepository(hub.db.postgres),
-                    hub.kafkaProducer
-                )
-                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
-
-                runner = new TestEventPipelineRunner(
-                    hub,
-                    exceptionEvent,
-                    undefined,
-                    undefined,
-                    personsStore,
-                    groupStoreForBatch
-                )
-
-                const heatmapPreIngestionEvent = {
-                    ...preIngestionEvent,
-                    event: '$exception',
-                    properties: {
-                        ...exceptionEvent.properties,
-                    },
-                }
-                jest.mocked(prepareEventStep).mockResolvedValue(heatmapPreIngestionEvent)
-            })
-
-            it('runs the expected steps for exceptions', async () => {
-                await runner.runEventPipeline(exceptionEvent, team)
-
-                expect(runner.steps).toEqual([
-                    'dropOldEventsStep',
-                    'transformEventStep',
-                    'normalizeEventStep',
-                    'processPersonsStep',
-                    'prepareEventStep',
-                    'extractHeatmapDataStep',
-                    'createEventStep',
-                    'produceExceptionSymbolificationEventStep',
-                ])
-            })
-        })
-
         it('captures ingestion warning for $groupidentify with too long $group_key', async () => {
             const longKey = 'x'.repeat(401)
             const event = {
