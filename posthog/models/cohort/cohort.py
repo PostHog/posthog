@@ -26,6 +26,17 @@ from posthog.models.person import PersonDistinctId
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
+COHORT_TYPE_STATIC = "static"
+COHORT_TYPE_PERSON_PROPERTY = "person_property"
+COHORT_TYPE_BEHAVIORAL = "behavioral"
+COHORT_TYPE_ANALYTICAL = "analytical"
+
+COHORT_TYPE_CHOICES = [
+    (COHORT_TYPE_STATIC, "Static"),
+    (COHORT_TYPE_PERSON_PROPERTY, "Person Property"),
+    (COHORT_TYPE_BEHAVIORAL, "Behavioral"),
+    (COHORT_TYPE_ANALYTICAL, "Analytical"),
+]
 
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
 # set in cohorts_cache
@@ -164,6 +175,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     is_static = models.BooleanField(default=False)
 
+    cohort_type = models.CharField(
+        max_length=20,
+        choices=COHORT_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Type of cohort based on supported filters",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
@@ -268,6 +287,66 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             ]:
                 return True
         return False
+
+    def determine_cohort_type(self) -> str:
+        """Determine cohort type based on filters"""
+        if self.is_static:
+            return COHORT_TYPE_STATIC
+
+        # Analyze all properties to determine maximum complexity
+        has_cohort_filters = False
+        has_person_filters = False
+        has_behavioral_filters = False
+        has_complex_behavioral = False
+
+        for prop in self.properties.flat:
+            if prop.type == "cohort":
+                has_cohort_filters = True
+            elif prop.type == "person":
+                has_person_filters = True
+            elif prop.type == "behavioral":
+                has_behavioral_filters = True
+                # Check if it's a complex behavioral filter
+                if prop.value in [
+                    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                    BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
+                    BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
+                    BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
+                    BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
+                ]:
+                    has_complex_behavioral = True
+
+        # Return the most complex type
+        if has_complex_behavioral:
+            return COHORT_TYPE_ANALYTICAL
+        elif has_behavioral_filters:
+            return COHORT_TYPE_BEHAVIORAL
+        elif has_person_filters or has_cohort_filters:
+            return COHORT_TYPE_PERSON_PROPERTY
+        else:
+            return COHORT_TYPE_PERSON_PROPERTY  # Default for empty cohorts
+
+    def can_be_used_in_feature_flag(self) -> bool:
+        """Determine if cohort can be used in feature flag targeting"""
+        if self.is_static:
+            return True
+
+        # Legacy check for backward compatibility
+        if not self.cohort_type:
+            # Fall back to determining type dynamically for unmigrated cohorts
+            # This ensures consistent behavior for legacy cohorts
+            determined_type = self.determine_cohort_type()
+            return determined_type in [COHORT_TYPE_STATIC, COHORT_TYPE_PERSON_PROPERTY]
+
+        # New explicit type checking
+        return self.cohort_type in [COHORT_TYPE_STATIC, COHORT_TYPE_PERSON_PROPERTY]
+
+    def can_be_expanded_inline(self) -> bool:
+        """Determine if cohort can be expanded inline for local evaluation"""
+        if not self.cohort_type:
+            # Backward compatibility - use can_be_used_in_feature_flag logic
+            return self.can_be_used_in_feature_flag()
+        return self.cohort_type in [COHORT_TYPE_STATIC, COHORT_TYPE_PERSON_PROPERTY]
 
     def get_analytics_metadata(self):
         return {

@@ -586,3 +586,140 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
             dfs(cohort_id, seen, sorted_cohort_ids)
 
     return sorted_cohort_ids
+
+
+def get_dependent_cohorts_reverse(
+    cohort: Cohort,
+    using_database: str = "default",
+) -> list[Cohort]:
+    """
+    Get cohorts that depend on the given cohort (reverse dependencies).
+    This is the opposite of get_dependent_cohorts - it finds cohorts that reference this one.
+    """
+    from posthog.models.cohort.cohort import Cohort
+    from django.db.models import Q
+
+    # Use database-level JSON query to filter cohorts that reference this one
+    # This is much more efficient than loading all cohorts and checking in Python
+    cohort_id_str = str(cohort.id)
+
+    # Build a query that checks if the filters JSON contains references to our cohort
+    # We check both the new filters format and legacy groups format
+    filter_conditions = Q()
+
+    # Check for cohort references in filters.properties structure
+    filter_conditions |= Q(filters__icontains=f'"value": {cohort.id}')
+    filter_conditions |= Q(filters__icontains=f'"value": "{cohort_id_str}"')
+
+    # Also check legacy groups format for backward compatibility
+    filter_conditions |= Q(groups__icontains=f'"value": {cohort.id}')
+    filter_conditions |= Q(groups__icontains=f'"value": "{cohort_id_str}"')
+
+    # Get potentially dependent cohorts using database filtering
+    candidate_cohorts = (
+        Cohort.objects.db_manager(using_database)
+        .filter(filter_conditions, team=cohort.team, deleted=False)
+        .exclude(id=cohort.id)
+    )
+
+    dependent_cohorts = []
+
+    # Now verify the matches (since JSON icontains can have false positives)
+    for candidate_cohort in candidate_cohorts:
+        # Check if this cohort actually references our target cohort
+        for prop in candidate_cohort.properties.flat:
+            if prop.type == "cohort" and not isinstance(prop.value, list):
+                try:
+                    referenced_cohort_id = int(prop.value)
+                    if referenced_cohort_id == cohort.id:
+                        dependent_cohorts.append(candidate_cohort)
+                        break  # Found dependency, no need to check more properties
+                except (ValueError, TypeError):
+                    continue
+
+    return dependent_cohorts
+
+
+def get_minimum_required_type_for_dependency(dependency_type: str, current_type: str) -> str:
+    """
+    Determine the minimum required cohort type when a dependency changes type.
+
+    Args:
+        dependency_type: The new type of the dependency
+        current_type: The current type of the dependent cohort
+
+    Returns:
+        The minimum required type for the dependent cohort
+    """
+    type_hierarchy = {
+        "static": 0,
+        "person_property": 1,
+        "behavioral": 2,
+        "analytical": 3,
+    }
+
+    dependency_level = type_hierarchy.get(dependency_type, 3)
+    current_level = type_hierarchy.get(current_type, 0)
+
+    # The dependent cohort must be at least as complex as its dependencies
+    required_level = max(dependency_level, current_level)
+
+    # Convert back to type string
+    level_to_type = {v: k for k, v in type_hierarchy.items()}
+    return level_to_type.get(required_level, "analytical")
+
+
+def validate_cohort_dependency_types(cohort: Cohort, new_type: str) -> list[tuple[Cohort, str]]:
+    """
+    Check if changing cohort to new_type would require updating dependent cohorts.
+
+    Args:
+        cohort: The cohort whose type is changing
+        new_type: The new type being assigned
+
+    Returns:
+        List of (dependent_cohort, required_new_type) tuples for cohorts that need updating
+    """
+    affected_cohorts = []
+    dependents = get_dependent_cohorts_reverse(cohort)
+
+    for dependent in dependents:
+        current_max_type = dependent.cohort_type or dependent.determine_cohort_type()
+        required_type = get_minimum_required_type_for_dependency(new_type, current_max_type)
+
+        if required_type != current_max_type:
+            affected_cohorts.append((dependent, required_type))
+
+    return affected_cohorts
+
+
+def get_dependency_impact_summary(cohort: Cohort, new_type: str) -> dict:
+    """
+    Get a summary of the impact of changing a cohort's type, suitable for UI warnings.
+
+    Args:
+        cohort: The cohort whose type is changing
+        new_type: The new type being assigned
+
+    Returns:
+        Dict with impact summary including counts and affected cohort info
+    """
+    affected_cohorts = validate_cohort_dependency_types(cohort, new_type)
+
+    if not affected_cohorts:
+        return {"has_impact": False, "affected_count": 0, "affected_cohorts": []}
+
+    return {
+        "has_impact": True,
+        "affected_count": len(affected_cohorts),
+        "affected_cohorts": [
+            {
+                "id": dependent.id,
+                "name": dependent.name or f"Cohort {dependent.id}",
+                "current_type": dependent.cohort_type or dependent.determine_cohort_type(),
+                "required_new_type": required_type,
+                "type_change_description": f"{dependent.cohort_type or dependent.determine_cohort_type()} → {required_type}",
+            }
+            for dependent, required_type in affected_cohorts
+        ],
+    }

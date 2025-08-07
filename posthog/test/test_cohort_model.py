@@ -3,6 +3,7 @@ import pytest
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, Person, Team
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.property import BehavioralPropertyType
 from posthog.test.base import BaseTest
 
 
@@ -370,3 +371,188 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    def test_determine_cohort_type_static(self):
+        """Test that static cohorts are correctly identified as 'static' type"""
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        self.assertEqual(cohort.determine_cohort_type(), "static")
+
+    def test_determine_cohort_type_person_property(self):
+        """Test that cohorts with only person properties are identified as 'person_property' type"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "person_property")
+
+    def test_determine_cohort_type_with_cohort_filter(self):
+        """Test that cohorts with cohort filters are identified as 'person_property' type"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "AND", "values": [{"key": "id", "type": "cohort", "value": 123, "negation": False}]}
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "person_property")
+
+    def test_determine_cohort_type_behavioral(self):
+        """Test that cohorts with simple behavioral filters are identified as 'behavioral' type"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "behavioral")
+
+    def test_determine_cohort_type_analytical(self):
+        """Test that cohorts with complex behavioral filters are identified as 'analytical' type"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "analytical")
+
+    def test_determine_cohort_type_mixed_filters_returns_most_complex(self):
+        """Test that cohorts with mixed filter types return the most complex type"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"},
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                    "seq_event": ["$pageview", "$feature_interaction"],
+                                    "seq_event_type": "events",
+                                    "seq_time_value": 30,
+                                    "seq_time_interval": "day",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "analytical")
+
+    def test_can_be_used_in_feature_flag_static(self):
+        """Test that static cohorts can be used in feature flags"""
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        self.assertTrue(cohort.can_be_used_in_feature_flag())
+
+    def test_can_be_used_in_feature_flag_person_property(self):
+        """Test that person property cohorts can be used in feature flags"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type="person_property",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "AND", "values": [{"key": "email", "type": "person", "value": "@posthog.com"}]}
+                    ],
+                }
+            },
+        )
+        self.assertTrue(cohort.can_be_used_in_feature_flag())
+
+    def test_can_be_used_in_feature_flag_behavioral(self):
+        """Test that behavioral cohorts cannot be used in feature flags"""
+        cohort = Cohort.objects.create(team=self.team, cohort_type="behavioral")
+        self.assertFalse(cohort.can_be_used_in_feature_flag())
+
+    def test_can_be_used_in_feature_flag_analytical(self):
+        """Test that analytical cohorts cannot be used in feature flags"""
+        cohort = Cohort.objects.create(team=self.team, cohort_type="analytical")
+        self.assertFalse(cohort.can_be_used_in_feature_flag())
+
+    def test_can_be_used_in_feature_flag_legacy_behavioral(self):
+        """Test backward compatibility: cohorts with behavioral filters but no explicit type"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        # Should return False for legacy behavioral cohorts without explicit type
+        self.assertFalse(cohort.can_be_used_in_feature_flag())

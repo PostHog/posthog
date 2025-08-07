@@ -1467,6 +1467,13 @@ export type AnyCohortCriteriaType = CohortCriteriaType | EmptyCohortCriteriaType
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
+export enum ExplicitCohortTypeEnum {
+    Static = 'static',
+    PersonProperty = 'person_property',
+    Behavioral = 'behavioral',
+    Analytical = 'analytical',
+}
+
 export interface CohortType {
     count?: number
     description?: string
@@ -1478,6 +1485,7 @@ export interface CohortType {
     errors_calculating?: number
     last_calculation?: string
     is_static?: boolean
+    cohort_type?: ExplicitCohortTypeEnum
     name?: string
     csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
@@ -4104,7 +4112,7 @@ export enum ActorGroupType {
 
 export enum BehavioralEventType {
     PerformEvent = 'performed_event',
-    PerformMultipleEvents = 'performed_event_multiple',
+    PerformEventMultiple = 'performed_event_multiple',
     PerformSequenceEvents = 'performed_event_sequence',
     NotPerformedEvent = 'not_performed_event',
     NotPerformSequenceEvents = 'not_performed_event_sequence',
