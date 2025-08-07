@@ -186,7 +186,7 @@ class TestCheckpointSerializer:
     def test_loads_with_real_legacy_fixture(self):
         """Test loading real legacy checkpoint data from fixture."""
 
-        fixture_path = os.path.join(os.path.dirname(__file__), "./legacy_checkpoints_fixtures.json")
+        fixture_path = os.path.join(os.path.dirname(__file__), "legacy_checkpoints_fixtures.json")
 
         with open(fixture_path) as f:
             fixtures = json.load(f)

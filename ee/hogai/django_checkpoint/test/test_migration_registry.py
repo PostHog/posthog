@@ -75,7 +75,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0001_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
         migration2 = type(
@@ -83,7 +83,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0002_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
         migration3 = type(
@@ -91,7 +91,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0003_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
 
@@ -114,7 +114,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0001_first",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
         migration2 = type(
@@ -122,7 +122,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0001_duplicate",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
 
@@ -142,7 +142,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0001_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
         migration2 = type(
@@ -150,7 +150,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0002_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
         migration3 = type(
@@ -158,7 +158,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0003_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
 
@@ -182,7 +182,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0001_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
         migration2 = type(
@@ -190,7 +190,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0002_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
         migration3 = type(
@@ -198,7 +198,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0003_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
 
@@ -226,7 +226,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0001_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
         registry.register_migration(migration1)

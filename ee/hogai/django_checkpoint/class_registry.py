@@ -13,7 +13,7 @@ class ClassRegistry:
     Automatically discovers and registers Pydantic classes.
     """
 
-    _cache: dict[str, type[BaseModel]] = {}
+    _cache: dict[str, type[BaseModel]]
 
     def __init__(self):
         # Scan all types.py files in ee.hogai
@@ -24,6 +24,8 @@ class ClassRegistry:
 
         # Register langchain Pydantic classes that might be serialized
         self._register_langchain_classes()
+
+        self._cache = {}
 
     def _scan_hogai_types(self):
         """Scan all types.py files within ee/hogai directory tree."""

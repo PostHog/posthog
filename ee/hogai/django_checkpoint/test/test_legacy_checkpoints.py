@@ -527,7 +527,7 @@ class TestLegacyFixtures:
     @pytest.fixture
     def legacy_fixtures(self):
         """Load legacy checkpoint fixtures."""
-        fixture_path = os.path.join(os.path.dirname(__file__), "./legacy_checkpoints_fixtures.json")
+        fixture_path = os.path.join(os.path.dirname(__file__), "legacy_checkpoints_fixtures.json")
         with open(fixture_path) as f:
             return json.load(f)
 

@@ -148,14 +148,11 @@ class TestCheckpointLazyMigration(APIBaseTest, TransactionTestCase):
         # If the current version is > 0, this should trigger migration
         if migration_registry.current_version > 0:
             await self.checkpointer.aget_tuple(config)
-
-            # Migration should happen if registry has migrations
-            if migration_registry.current_version > 0:
-                # Reload and check version was updated
-                await blob_record.arefresh_from_db()
-                if blob_record.blob:
-                    new_data = json.loads(blob_record.blob.decode("utf-8"))
-                assert new_data["_version"] == migration_registry.current_version
+            # Reload and check version was updated
+            await blob_record.arefresh_from_db()
+            if blob_record.blob:
+                new_data = json.loads(blob_record.blob.decode("utf-8"))
+            assert new_data["_version"] == migration_registry.current_version
 
 
 if __name__ == "__main__":
