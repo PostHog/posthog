@@ -26,15 +26,15 @@ describe('RecipientsManager', () => {
     })
 
     async function createRecipient(teamId: number, identifier: string, preferences: Record<string, string> = {}) {
-        const uuid = new UUIDT().toString()
+        const id = new UUIDT().toString()
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_messagerecipientpreference (uuid, team_id, identifier, preferences, created_at, updated_at, deleted)
+            `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
              VALUES ($1, $2, $3, $4, NOW(), NOW(), false)`,
-            [uuid, teamId, identifier, JSON.stringify(preferences)],
+            [id, teamId, identifier, JSON.stringify(preferences)],
             'testInsertRecipient'
         )
-        return uuid
+        return id
     }
 
     describe('get', () => {
@@ -46,13 +46,13 @@ describe('RecipientsManager', () => {
 
         it('should return recipient when it exists', async () => {
             const preferences = { 'category-1': 'OPTED_IN', 'category-2': 'OPTED_OUT' }
-            const uuid = await createRecipient(team.id, 'user@example.com', preferences)
+            const id = await createRecipient(team.id, 'user@example.com', preferences)
 
             const args: RecipientGetArgs = { teamId: team.id, identifier: 'user@example.com' }
             const result = await manager.get(args)
 
             expect(result).toEqual({
-                id: uuid,
+                id: id,
                 team_id: team.id,
                 identifier: 'user@example.com',
                 preferences: preferences,
@@ -75,12 +75,12 @@ describe('RecipientsManager', () => {
         })
 
         it('should filter out deleted recipients', async () => {
-            const uuid = await createRecipient(team.id, 'user@example.com', {})
+            const id = await createRecipient(team.id, 'user@example.com', {})
 
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_messagerecipientpreference SET deleted = true WHERE uuid = $1`,
-                [uuid],
+                `UPDATE posthog_messagerecipientpreference SET deleted = true WHERE id = $1`,
+                [id],
                 'testMarkDeleted'
             )
 
@@ -92,9 +92,9 @@ describe('RecipientsManager', () => {
 
     describe('getMany', () => {
         it('should return multiple recipients', async () => {
-            const uuid1 = await createRecipient(team.id, 'user1@example.com', { 'cat-1': 'OPTED_IN' })
-            const uuid2 = await createRecipient(team.id, 'user2@example.com', { 'cat-1': 'OPTED_OUT' })
-            const uuid3 = await createRecipient(team2.id, 'user3@example.com', { 'cat-1': 'NO_PREFERENCE' })
+            const id1 = await createRecipient(team.id, 'user1@example.com', { 'cat-1': 'OPTED_IN' })
+            const id2 = await createRecipient(team.id, 'user2@example.com', { 'cat-1': 'OPTED_OUT' })
+            const id3 = await createRecipient(team2.id, 'user3@example.com', { 'cat-1': 'NO_PREFERENCE' })
 
             const args: RecipientGetArgs[] = [
                 { teamId: team.id, identifier: 'user1@example.com' },
@@ -106,7 +106,7 @@ describe('RecipientsManager', () => {
             const results = await manager.getMany(args)
 
             expect(results[`${team.id}:user1@example.com`]).toEqual({
-                id: uuid1,
+                id: id1,
                 team_id: team.id,
                 identifier: 'user1@example.com',
                 preferences: { 'cat-1': 'OPTED_IN' },
@@ -115,7 +115,7 @@ describe('RecipientsManager', () => {
             })
 
             expect(results[`${team.id}:user2@example.com`]).toEqual({
-                id: uuid2,
+                id: id2,
                 team_id: team.id,
                 identifier: 'user2@example.com',
                 preferences: { 'cat-1': 'OPTED_OUT' },
@@ -124,7 +124,7 @@ describe('RecipientsManager', () => {
             })
 
             expect(results[`${team2.id}:user3@example.com`]).toEqual({
-                id: uuid3,
+                id: id3,
                 team_id: team2.id,
                 identifier: 'user3@example.com',
                 preferences: { 'cat-1': 'NO_PREFERENCE' },
@@ -163,25 +163,25 @@ describe('RecipientsManager', () => {
 
     describe('caching', () => {
         it('should cache results and not hit database on second call', async () => {
-            const uuid = await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
+            const id = await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
             const args: RecipientGetArgs = { teamId: team.id, identifier: 'user@example.com' }
 
             const result1 = await manager.get(args)
-            expect(result1?.id).toBe(uuid)
+            expect(result1?.id).toBe(id)
 
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `DELETE FROM posthog_messagerecipientpreference WHERE uuid = $1`,
-                [uuid],
+                `DELETE FROM posthog_messagerecipientpreference WHERE id = $1`,
+                [id],
                 'testDeleteRecipient'
             )
 
             const result2 = await manager.get(args)
-            expect(result2?.id).toBe(uuid)
+            expect(result2?.id).toBe(id)
         })
 
         it('should clear cache', async () => {
-            const uuid = await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
+            const id = await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
             const args: RecipientGetArgs = { teamId: team.id, identifier: 'user@example.com' }
 
             await manager.get(args)
@@ -190,8 +190,8 @@ describe('RecipientsManager', () => {
 
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `DELETE FROM posthog_messagerecipientpreference WHERE uuid = $1`,
-                [uuid],
+                `DELETE FROM posthog_messagerecipientpreference WHERE id = $1`,
+                [id],
                 'testDeleteRecipient'
             )
 
