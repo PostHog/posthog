@@ -63,7 +63,7 @@ const getPersistedTabs: () => SceneTab[] | null = () => {
     }
     return null
 }
-const generateTabId = (): string => ('crypto' in window ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
+const generateTabId = (): string => crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
 
 export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.SESSION_REPLAY]: [urls.replay()],
