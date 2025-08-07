@@ -456,6 +456,8 @@ class BasicOrganizationSetupResult(BaseModel):
     project_name: str
     team_id: str
     team_name: str
+    user_email: str
+    user_id: str
 
 
 class BillingSpendResponseBreakdownType(StrEnum):
@@ -1273,32 +1275,6 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
-class FeatureFlagsTestSetupData(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    enabled: Optional[bool] = None
-    flag_filters: Optional[list] = None
-    flag_key: Optional[str] = None
-    flag_name: Optional[str] = None
-    rollout_percentage: Optional[float] = None
-
-
-class FeatureFlagsTestSetupResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    feature_flag_ids: Optional[list[str]] = None
-    feature_flags_setup: bool
-    message: str
-    organization_id: str
-    organization_name: str
-    project_id: str
-    project_name: str
-    team_id: str
-    team_name: str
-
-
 class FileSystemCount(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1644,6 +1620,8 @@ class InsightsTestSetupResult(BaseModel):
     team_id: str
     team_name: str
     user_count: Optional[float] = None
+    user_email: str
+    user_id: str
 
 
 class InsightsThresholdBounds(BaseModel):
@@ -2738,27 +2716,6 @@ class UserBasicType(BaseModel):
     is_email_verified: Optional[Any] = None
     last_name: Optional[str] = None
     uuid: str
-
-
-class UserWithOrganizationSetupData(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    email: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    organization_name: Optional[str] = None
-    password: Optional[str] = None
-
-
-class UserWithOrganizationSetupResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    organization_id: str
-    organization_name: str
-    user_email: str
-    user_id: str
 
 
 class VectorSearchResponseItem(BaseModel):
