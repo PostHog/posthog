@@ -126,7 +126,8 @@ export class PlaywrightSetup {
      * The user will end up on /project/{teamId} ready to test.
      */
     async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        await this.request.post(`${this.baseURL}/api/login/`, {
+        // Use page.request to share cookies/session with the browser context
+        await page.request.post(`${this.baseURL}/api/login/`, {
             data: {
                 email: workspace.user_email,
                 password: LOGIN_PASSWORD,
