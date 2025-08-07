@@ -34,7 +34,7 @@ export function useOnMountEffect(effect: React.EffectCallback): void {
     useEffect(effect, []) // oxlint-disable-line react-hooks/exhaustive-deps
 }
 
-export function useDelayedOnMountEffect(effect: React.EffectCallback, timeout = 700): void {
+export function useDelayedOnMountEffect(effect: React.EffectCallback, timeout = 500): void {
     useEffect(() => {
         window.setTimeout(effect, timeout)
     }, []) // oxlint-disable-line react-hooks/exhaustive-deps

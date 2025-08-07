@@ -9,7 +9,7 @@ import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@cu
 import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from './sidePanelStateLogic'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     component: App,
@@ -44,7 +44,7 @@ export default meta
 
 const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    useDelayedOnMountEffect(() => openSidePanel(props.panel))
+    useOnMountEffect(() => openSidePanel(props.panel))
 
     return <App />
 }
@@ -98,7 +98,7 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
         },
     })
 
-    useDelayedOnMountEffect(openEmailForm)
+    useOnMountEffect(openEmailForm)
 
     return <BaseTemplate panel={SidePanelTab.Support} />
 }
