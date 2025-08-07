@@ -159,7 +159,7 @@ def migrate_data(self, data: dict[str, Any], type_hint: str, context: Checkpoint
 
 ```python
 def migrate_data(self, data: dict[str, Any], type_hint: str, context: CheckpointContext) -> tuple[dict[str, Any], str]:
-    if context.thread_type = Conversation.Type.TOOL_CALL and context.graph_context == GraphContext.SUBGRAPH:
+    if context.thread_type == Conversation.Type.TOOL_CALL and context.graph_context == GraphContext.SUBGRAPH:
         # Do something that only applies to subgraphs in tool calls
     
     return data, type_hint
