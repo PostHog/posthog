@@ -286,7 +286,7 @@ export const NewMultiQuestionSurveySection: StoryFn = () => {
                     ],
                 } as MultipleSurveyQuestion,
             ])
-        }, 300)
+        }, 700)
     })
 
     return <App />
@@ -317,7 +317,7 @@ export const NewSurveyTargetingSection: StoryFn = () => {
                     },
                 ],
             })
-        }, 300)
+        }, 700)
     })
 
     return <App />
@@ -374,7 +374,7 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
                     descriptionContentType: 'html',
                 },
             ])
-        }, 300)
+        }, 700)
     })
 
     return <App />
@@ -399,7 +399,7 @@ export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn 
                     descriptionContentType: 'text',
                 },
             ])
-        }, 300)
+        }, 700)
     })
 
     return <App />

@@ -207,10 +207,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     preflight?.demo ? 'PostHog Demo' : 'PostHog',
                 ].join(' • '),
         ],
-        title: [
-            (s) => [s.sceneBreadcrumbs],
-            (sceneBreadcrumbs): string => sceneBreadcrumbs.map((breadcrumb) => String(breadcrumb.name)).pop() || '...',
-        ],
     })),
     subscriptions({
         documentTitle: (documentTitle: string) => {
