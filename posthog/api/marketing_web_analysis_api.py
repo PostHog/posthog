@@ -4,12 +4,14 @@ Simple Marketing Web Analysis API.
 
 from collections.abc import Generator
 
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.permissions import AllowAny
 
+from ee.hogai.utils.asgi import SyncIterableToAsync
 from posthog.marketing_graph_execution.core import MarketingGraphExecutor
 
 
@@ -36,7 +38,10 @@ class MarketingWebAnalysisViewSet(viewsets.ViewSet):
         """Analyze website with streaming response."""
         data = request.query_params
 
-        return StreamingHttpResponse(
-            self._stream_response(data),
+        response = self._stream_response(data)
+
+        stream = StreamingHttpResponse(
+            SyncIterableToAsync(response) if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else response,
             content_type="text/event-stream",
         )
+        return stream
