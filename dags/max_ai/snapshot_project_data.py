@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from contextlib import contextmanager
 from tempfile import TemporaryFile
 
@@ -39,12 +40,15 @@ def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
 @contextmanager
 def dump_model(*, s3: S3Resource, schema: type[AvroBase], file_key: str):
     with TemporaryFile() as f:
+        parsed_schema = parse_schema(schema.avro_schema())
 
-        def dump(models: list[AvroBase]):
-            writer(f, parse_schema(schema.avro_schema()), [model.model_dump() for model in models])
-            s3.get_client().upload_fileobj(f, settings.OBJECT_STORAGE_BUCKET, file_key)
+        def dump(models: Sequence[AvroBase]):
+            writer(f, parsed_schema, (model.model_dump() for model in models))
 
         yield dump
+
+        f.seek(0)
+        s3.get_client().upload_fileobj(f, settings.OBJECT_STORAGE_BUCKET, file_key)
 
 
 SnapshotModelOutput = tuple[str, str]
