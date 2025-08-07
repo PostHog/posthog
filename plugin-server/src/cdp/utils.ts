@@ -112,6 +112,13 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
         }
     }
 
+    let properties = data.event.properties
+
+    if ('exception_props' in properties) {
+        properties = { ...properties, ...properties.exception_props }
+        delete properties.exception_props
+    }
+
     const context: HogFunctionInvocationGlobals = {
         project: {
             id: team.id,
@@ -123,7 +130,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
             event: data.event.event,
             elements_chain: '', // Not applicable but left here for compatibility
             distinct_id: data.event.distinct_id,
-            properties: data.event.properties,
+            properties: properties,
             timestamp: data.event.timestamp,
             url: data.event.url ?? '',
         },
