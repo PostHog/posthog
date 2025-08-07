@@ -18,10 +18,6 @@ export const test = baseTest.extend<{ playwrightSetup: PlaywrightSetup; workspac
         const playwrightSetup = createPlaywrightSetup(request, baseURL)
         await use(playwrightSetup)
     },
-    // Backward compatibility alias
-    workspaceSetup: async ({ playwrightSetup }, use) => {
-        await use(playwrightSetup)
-    },
 })
 
 /**

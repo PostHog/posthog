@@ -156,10 +156,5 @@ export async function createTestWorkspace(
     return playwrightSetup['callSetupEndpoint'](setupType, { data })
 }
 
-// Backward compatibility aliases
-export const WorkspaceSetup = PlaywrightSetup
-export const createWorkspaceSetup = createPlaywrightSetup
-export type WorkspaceSetupOptions = PlaywrightSetupOptions
-
 // Re-export types for convenience
 export type { TestSetupResponse, PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult }
