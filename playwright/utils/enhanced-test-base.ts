@@ -7,7 +7,7 @@
 
 /* eslint-disable react-hooks/rules-of-hooks */
 import { test as baseTest } from './playwright-test-base'
-import { PlaywrightSetup, createPlaywrightSetup, PostHogWorkspace } from './playwright-setup'
+import { PlaywrightSetup, createPlaywrightSetup, PlaywrightWorkspaceSetupResult } from './playwright-setup'
 
 /**
  * Base test with workspace setup capabilities
@@ -26,7 +26,7 @@ export const test = baseTest.extend<{ playwrightSetup: PlaywrightSetup; workspac
  *
  * The workspace includes: Organization → Project → Team + test@posthog.com user
  */
-export const testWithWorkspace = test.extend<{ workspace: PostHogWorkspace }>({
+export const testWithWorkspace = test.extend<{ workspace: PlaywrightWorkspaceSetupResult }>({
     workspace: async ({ playwrightSetup }, use) => {
         const workspace = await playwrightSetup.createWorkspace()
         await use(workspace)
@@ -38,4 +38,4 @@ export { expect } from './playwright-test-base'
 
 // Re-export playwright setup utilities
 export { createPlaywrightSetup, createTestWorkspace } from './playwright-setup'
-export type { PostHogWorkspace, PlaywrightSetupOptions } from './playwright-setup'
+export type { PlaywrightWorkspaceSetupResult, PlaywrightSetupOptions } from './playwright-setup'
