@@ -23,6 +23,7 @@ import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPart
 import { logger } from '../../../../utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/utils'
 import { oversizedPersonPropertiesTrimmedCounter, personPropertiesSizeViolationCounter } from '../metrics'
+import { canTrimProperty } from '../person-property-utils'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
@@ -52,78 +53,6 @@ export class PostgresPersonRepository
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
-
-    private readonly protectedPropertyKeys: string[] = [
-        // Core person properties
-        'email',
-        'name',
-
-        // Properties automatically mapped from events to persons
-        '$app_build',
-        '$app_name',
-        '$app_namespace',
-        '$app_version',
-        '$browser',
-        '$browser_version',
-        '$device_type',
-        '$current_url',
-        '$pathname',
-        '$os',
-        '$os_version',
-        '$referring_domain',
-        '$referrer',
-        '$screen_height',
-        '$screen_width',
-        '$viewport_height',
-        '$viewport_width',
-        '$raw_user_agent',
-
-        // UTM and campaign tracking properties
-        'utm_source',
-        'utm_medium',
-        'utm_campaign',
-        'utm_content',
-        'utm_term',
-        'gclid',
-        'gad_source',
-        'gclsrc',
-        'dclid',
-        'gbraid',
-        'wbraid',
-        'fbclid',
-        'msclkid',
-        'twclid',
-        'li_fat_id',
-        'mc_cid',
-        'igshid',
-        'ttclid',
-        'rdt_cid',
-        'epik',
-        'qclid',
-        'sccid',
-        'irclid',
-        '_kx',
-
-        // Session and page tracking
-        '$session_id',
-        '$window_id',
-        '$pageview_id',
-        '$host',
-
-        // Identity and device tracking
-        '$user_id',
-        '$device_id',
-        '$anon_distinct_id',
-
-        // Initial/first-touch properties
-        '$initial_referrer',
-        '$initial_referring_domain',
-        '$initial_utm_source',
-        '$initial_utm_medium',
-        '$initial_utm_campaign',
-        '$initial_utm_content',
-        '$initial_utm_term',
-    ]
 
     private async handleOversizedPersonProperties(
         person: InternalPerson,
@@ -179,8 +108,7 @@ export class PostgresPersonRepository
                 // NOTE: we exclude the properties in the update and just try to trim the existing properties for simplicity
                 // we are throwing data away either way
                 person.properties,
-                this.options.personPropertiesSizeLimit,
-                this.protectedPropertyKeys
+                this.options.personPropertiesSizeLimit
             )
 
             const trimmedUpdate: Partial<InternalPerson> = {
@@ -218,11 +146,7 @@ export class PostgresPersonRepository
         }
     }
 
-    private trimPropertiesToFitSize(
-        properties: Record<string, any>,
-        targetSizeBytes: number,
-        protectedKeys: string[] = []
-    ): Record<string, any> {
+    private trimPropertiesToFitSize(properties: Record<string, any>, targetSizeBytes: number): Record<string, any> {
         const trimmedProperties = { ...properties }
 
         let currentSizeBytes = Buffer.byteLength(JSON.stringify(trimmedProperties), 'utf8')
@@ -232,10 +156,10 @@ export class PostgresPersonRepository
         }
 
         let removedCount = 0
-        const propertyKeys = Object.keys(trimmedProperties)
+        const propertyKeys = Object.keys(trimmedProperties).sort()
 
         for (const prop of propertyKeys) {
-            if (protectedKeys.includes(prop)) {
+            if (!canTrimProperty(prop)) {
                 continue
             }
 

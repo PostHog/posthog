@@ -1149,13 +1149,8 @@ describe('PostgresPersonRepository', () => {
             it('should return original properties if they are under the size limit', () => {
                 const properties = { name: 'John', age: 30 }
                 const targetSize = 1000
-                const protectedKeys: string[] = []
 
-                const result = (oversizedRepository as any).trimPropertiesToFitSize(
-                    properties,
-                    targetSize,
-                    protectedKeys
-                )
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
 
                 expect(result).toEqual(properties)
             })
@@ -1169,13 +1164,8 @@ describe('PostgresPersonRepository', () => {
                     city: 'New York',
                 }
                 const targetSize = 50
-                const protectedKeys: string[] = []
 
-                const result = (oversizedRepository as any).trimPropertiesToFitSize(
-                    properties,
-                    targetSize,
-                    protectedKeys
-                )
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
 
                 expect(Object.keys(result).length).toBeLessThan(Object.keys(properties).length)
                 expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize)
@@ -1183,77 +1173,68 @@ describe('PostgresPersonRepository', () => {
 
             it('should preserve protected properties even when trimming', () => {
                 const properties = {
-                    url: 'https://example.com',
-                    name: 'John Doe',
-                    email: 'john@example.com',
                     description: 'A very long description that takes up a lot of space',
                     age: 30,
+                    customField: 'some custom data',
+                    name: 'John Doe',
+                    email: 'john@example.com',
                 }
                 const targetSize = 50
-                const protectedKeys = ['url']
 
-                const result = (oversizedRepository as any).trimPropertiesToFitSize(
-                    properties,
-                    targetSize,
-                    protectedKeys
-                )
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
 
-                expect(result).toHaveProperty('url', 'https://example.com')
+                expect(result).toHaveProperty('name')
+                expect(result).toHaveProperty('email')
+
                 expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize)
             })
 
             it('should handle empty properties object', () => {
                 const properties = {}
                 const targetSize = 50
-                const protectedKeys: string[] = []
 
-                const result = (oversizedRepository as any).trimPropertiesToFitSize(
-                    properties,
-                    targetSize,
-                    protectedKeys
-                )
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
 
                 expect(result).toEqual({})
             })
 
-            it('should handle case where even protected properties exceed size limit', () => {
+            it('should preserve protected properties even when removing in alphabetical order', () => {
                 const properties = {
-                    url: 'https://example.com/very/long/path/that/exceeds/our/tiny/size/limit/for/testing/purposes',
-                    name: 'John',
+                    zebra: 'last in alphabet',
+                    email: 'john@example.com',
+                    apple: 'first in alphabet',
+                    banana: 'middle in alphabet',
+                    cherry: 'also middle',
                 }
-                const targetSize = 50
-                const protectedKeys = ['url']
+                const targetSize = 70
 
-                const result = (oversizedRepository as any).trimPropertiesToFitSize(
-                    properties,
-                    targetSize,
-                    protectedKeys
-                )
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
 
-                expect(result).toHaveProperty('url')
-
-                expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeGreaterThan(targetSize)
+                expect(result).toHaveProperty('email')
+                expect(result).toHaveProperty('zebra')
+                expect(result).not.toHaveProperty('banana')
+                expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize + 50)
             })
 
-            it('should remove properties in order until size limit is met', () => {
+            it('should process properties in deterministic alphabetical order', () => {
                 const properties = {
-                    a: '1',
-                    b: '2',
-                    c: '3',
-                    d: '4',
-                    e: '5',
+                    z_property: '1',
+                    a_property: '2',
+                    m_property: '3',
+                    b_property: '4',
                 }
-                const targetSize = 20
-                const protectedKeys: string[] = []
+                const targetSize = 25
 
-                const result = (oversizedRepository as any).trimPropertiesToFitSize(
-                    properties,
-                    targetSize,
-                    protectedKeys
-                )
+                const result1 = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
 
-                expect(Object.keys(result).length).toBeLessThan(Object.keys(properties).length)
-                expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize)
+                const result2 = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
+
+                expect(result1).toEqual(result2)
+
+                const remainingKeys = Object.keys(result1).sort()
+                if (remainingKeys.length > 0) {
+                    expect(remainingKeys).toContain('z_property')
+                }
             })
         })
 
@@ -1576,13 +1557,8 @@ describe('PostgresPersonRepository', () => {
                     moreData: 'y'.repeat(50),
                 }
                 const targetSize = 100
-                const protectedKeys = (oversizedRepository as any).protectedPropertyKeys
 
-                const result = (oversizedRepository as any).trimPropertiesToFitSize(
-                    properties,
-                    targetSize,
-                    protectedKeys
-                )
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
 
                 expect(result).toHaveProperty('email', 'user@example.com')
                 expect(result).toHaveProperty('name', 'John Doe')
@@ -1623,13 +1599,7 @@ describe('PostgresPersonRepository', () => {
                 }
                 const targetSize = 60
 
-                const actualProtectedKeys = (oversizedRepository as any).protectedPropertyKeys
-
-                const result = (oversizedRepository as any).trimPropertiesToFitSize(
-                    properties,
-                    targetSize,
-                    actualProtectedKeys
-                )
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(properties, targetSize)
 
                 expect(result).toHaveProperty('email', 'john@example.com')
                 expect(result).toHaveProperty('name', 'John Doe')
