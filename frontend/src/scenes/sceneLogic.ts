@@ -351,8 +351,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
                 (state, props): string => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
-                    const activeScene = s.activeScene(state, props)
-
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         try {
                             const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
@@ -360,12 +358,13 @@ export const sceneLogic = kea<sceneLogicType>([
                                 state,
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                             )
-                            return bc.length > 0 ? bc[0].name : '...'
+                            return bc.length > 0 ? bc[bc.length - 1].name : '...'
                         } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return a placeholder value below
                         }
                     }
 
+                    const activeScene = s.activeScene(state, props)
                     if (activeScene) {
                         const sceneConfig = s.sceneConfig(state, props)
                         return sceneConfig?.name ?? identifierToHuman(activeScene)
@@ -659,7 +658,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                breakpoint()
+                if (values.scene !== scene) {
+                    breakpoint()
+                }
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {

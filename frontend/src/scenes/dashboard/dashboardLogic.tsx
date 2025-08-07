@@ -1180,7 +1180,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         : dashboardFailedToLoad
                           ? 'Could not load'
                           : !dashboardLoading
-                            ? 'Not found'
+                            ? '...'
                             : null,
                     onRename: canEditDashboard
                         ? async (name) => {
