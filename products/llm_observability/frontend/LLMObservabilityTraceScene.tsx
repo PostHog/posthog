@@ -26,8 +26,10 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { SearchHighlight } from './SearchHighlight'
+import { DataTableNode, LLMTrace, LLMTraceEvent, NodeKind } from '~/queries/schema/schema-general'
 
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
@@ -69,7 +71,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmObservabilityTraceLogic)
-    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents } =
+    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, searchQuery } =
         useValues(llmObservabilityTraceDataLogic)
 
     return (
@@ -92,7 +94,7 @@ function TraceSceneWrapper(): JSX.Element {
                     </div>
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
-                        <EventContent event={event} tree={enrichedTree} />
+                        <EventContent event={event} tree={enrichedTree} searchQuery={searchQuery} />
                     </div>
                 </div>
             )}
@@ -180,8 +182,23 @@ function TraceSidebar({
     tree: EnrichedTraceTreeNode[]
 }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { searchQuery, mostRelevantEvent } = useValues(llmObservabilityTraceDataLogic)
+    const { mostRelevantEvent, searchOccurrences } = useValues(llmObservabilityTraceDataLogic)
+    const { searchQuery } = useValues(llmObservabilityTraceLogic)
     const { setSearchQuery, setEventId } = useActions(llmObservabilityTraceLogic)
+
+    // Use debounced query for search input - need to create a dummy Node to satisfy the type
+    const dummyQuery = {
+        kind: NodeKind.DataTableNode,
+        source: { kind: NodeKind.TracesQuery },
+        search: searchQuery,
+    } as unknown as DataTableNode
+    const { value: searchValue, onChange: onSearchChange } = useDebouncedQuery(
+        dummyQuery,
+        (query: DataTableNode) => setSearchQuery((query as any).search || ''),
+        (query: DataTableNode) => (query as any).search || '',
+        (query: any, value: string) => ({ ...query, search: value }),
+        300
+    )
 
     useEffect(() => {
         if (eventId && ref.current) {
@@ -209,10 +226,22 @@ function TraceSidebar({
                 <LemonInput
                     placeholder="Search trace..."
                     prefix={<IconSearch />}
-                    value={searchQuery}
-                    onChange={setSearchQuery}
+                    value={searchValue}
+                    onChange={onSearchChange}
                     size="small"
                 />
+                {searchValue.trim() && (
+                    <div className="text-xs text-muted ml-1 mt-1">
+                        {searchOccurrences.length > 0 ? (
+                            <>
+                                {searchOccurrences.length}{' '}
+                                {searchOccurrences.length === 1 ? 'occurrence' : 'occurrences'}
+                            </>
+                        ) : (
+                            'No occurrences'
+                        )}
+                    </div>
+                )}
             </div>
             <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                 <TreeNode
@@ -224,8 +253,9 @@ function TraceSidebar({
                         displayUsage: formatLLMUsage(trace),
                     }}
                     isSelected={!eventId || eventId === trace.id}
+                    searchQuery={searchQuery}
                 />
-                <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
+                <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} searchQuery={searchQuery} />
             </ul>
         </aside>
     )
@@ -262,12 +292,14 @@ const TreeNode = React.memo(function TraceNode({
     topLevelTrace,
     node,
     isSelected,
+    searchQuery,
 }: {
     topLevelTrace: LLMTrace
     node:
         | EnrichedTraceTreeNode
         | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
+    searchQuery?: string
 }): JSX.Element {
     const totalCost = node.displayTotalCost
     const latency = node.displayLatency
@@ -310,10 +342,18 @@ const TreeNode = React.memo(function TraceNode({
                 <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
                     <Tooltip title={formatLLMEventTitle(item)}>
-                        <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                        {searchQuery?.trim() ? (
+                            <SearchHighlight
+                                string={formatLLMEventTitle(item)}
+                                substring={searchQuery}
+                                className="flex-1"
+                            />
+                        ) : (
+                            <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                        )}
                     </Tooltip>
                 </div>
-                {renderModelRow(item)}
+                {renderModelRow(item, searchQuery)}
                 {hasChildren && (
                     <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
                 )}
@@ -322,7 +362,7 @@ const TreeNode = React.memo(function TraceNode({
     )
 })
 
-export function renderModelRow(event: LLMTrace | LLMTraceEvent): React.ReactNode | null {
+export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: string): React.ReactNode | null {
     if (isLLMTraceEvent(event)) {
         if (event.event === '$ai_generation') {
             // if we don't have a span name, we don't want to render the model row as its covered by the event title
@@ -333,7 +373,11 @@ export function renderModelRow(event: LLMTrace | LLMTraceEvent): React.ReactNode
             if (event.properties.$ai_provider) {
                 model = `${model} (${event.properties.$ai_provider})`
             }
-            return <span className="flex-1 truncate"> {model} </span>
+            return searchQuery?.trim() ? (
+                <SearchHighlight string={model} substring={searchQuery} className="flex-1" />
+            ) : (
+                <span className="flex-1 truncate"> {model} </span>
+            )
         }
     }
     return null
@@ -343,10 +387,12 @@ function TreeNodeChildren({
     tree,
     trace,
     selectedEventId,
+    searchQuery,
 }: {
     tree: EnrichedTraceTreeNode[]
     trace: LLMTrace
     selectedEventId?: string | null
+    searchQuery?: string
 }): JSX.Element {
     const [isCollapsed, setIsCollapsed] = useState(false)
 
@@ -359,9 +405,15 @@ function TreeNodeChildren({
                             topLevelTrace={trace}
                             node={node}
                             isSelected={!!selectedEventId && selectedEventId === node.event.id}
+                            searchQuery={searchQuery}
                         />
                         {node.children && (
-                            <TreeNodeChildren tree={node.children} trace={trace} selectedEventId={selectedEventId} />
+                            <TreeNodeChildren
+                                tree={node.children}
+                                trace={trace}
+                                selectedEventId={selectedEventId}
+                                searchQuery={searchQuery}
+                            />
                         )}
                     </React.Fragment>
                 ))
@@ -436,7 +488,15 @@ function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): Enric
 }
 
 const EventContent = React.memo(
-    ({ event, tree }: { event: LLMTrace | LLMTraceEvent | null; tree: EnrichedTraceTreeNode[] }): JSX.Element => {
+    ({
+        event,
+        tree,
+        searchQuery,
+    }: {
+        event: LLMTrace | LLMTraceEvent | null
+        tree: EnrichedTraceTreeNode[]
+        searchQuery?: string
+    }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
@@ -578,6 +638,7 @@ const EventContent = React.memo(
                                                         }
                                                         httpStatus={event.properties.$ai_http_status}
                                                         raisedError={event.properties.$ai_is_error}
+                                                        searchQuery={searchQuery}
                                                     />
                                                 ) : (
                                                     <EventContentDisplay

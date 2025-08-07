@@ -3,14 +3,16 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { JSONViewer } from 'lib/components/JSONViewer'
+import { HighlightableJSONViewer } from 'lib/components/HighlightableJSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
-import { llmObservabilityTraceLogic, DisplayOption } from '../llmObservabilityTraceLogic'
+import { SearchHighlight } from '../SearchHighlight'
+import { containsSearchQuery } from '../searchUtils'
+import { llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
 
 export function ConversationMessagesDisplay({
@@ -20,6 +22,7 @@ export function ConversationMessagesDisplay({
     httpStatus,
     raisedError,
     bordered = false,
+    searchQuery,
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
@@ -27,52 +30,53 @@ export function ConversationMessagesDisplay({
     httpStatus?: number
     raisedError?: boolean
     bordered?: boolean
+    searchQuery?: string
 }): JSX.Element {
-    const { inputMessageShowStates, outputMessageShowStates, displayOption } = useValues(
-        llmObservabilityTraceLogic
-    ) as any
     const {
-        setInputMessageShowStates,
-        setOutputMessageShowStates,
-        toggleInputMessage,
-        toggleOutputMessage,
-        showAllInputMessages,
-        hideAllInputMessages,
-        showAllOutputMessages,
-        hideAllOutputMessages,
-    } = useActions(llmObservabilityTraceLogic) as any
+        inputMessageShowStates,
+        outputMessageShowStates,
+        searchQuery: currentSearchQuery,
+    } = useValues(llmObservabilityTraceLogic)
+    const { initializeMessageStates, toggleMessage, showAllMessages, hideAllMessages, applySearchResults } =
+        useActions(llmObservabilityTraceLogic)
 
+    // Initialize message states when component mounts or messages change
     React.useEffect(() => {
-        const initialInputStates = inputNormalized.map((message, i) => {
-            if (displayOption === DisplayOption.ExpandAll) {
-                return true
-            }
-            // For 'collapse_except_output_and_last_input', show only the last input message (and not system/tool messages)
-            return (
-                i === inputNormalized.length - 1 &&
-                message.role !== 'system' &&
-                message.role !== 'tool' &&
-                message.role !== 'tools'
-            )
-        })
+        initializeMessageStates(inputNormalized.length, outputNormalized.length)
+    }, [inputNormalized.length, outputNormalized.length, initializeMessageStates])
 
-        setInputMessageShowStates(initialInputStates)
-    }, [inputNormalized, displayOption, setInputMessageShowStates])
-
+    // Apply search results when search query changes
     React.useEffect(() => {
-        const initialOutputStates = outputNormalized.map(() => {
-            return true
-        })
-        setOutputMessageShowStates(initialOutputStates)
-    }, [outputNormalized, displayOption, setOutputMessageShowStates])
+        if (searchQuery?.trim()) {
+            const inputMatches = inputNormalized.map((msg) => {
+                const msgStr = JSON.stringify(msg)
+                return containsSearchQuery(msgStr, searchQuery)
+            })
+            const outputMatches = outputNormalized.map((msg) => {
+                const msgStr = JSON.stringify(msg)
+                return containsSearchQuery(msgStr, searchQuery)
+            })
+            applySearchResults(inputMatches, outputMatches)
+        } else if (currentSearchQuery !== searchQuery) {
+            // Reset to display option defaults when search is cleared
+            initializeMessageStates(inputNormalized.length, outputNormalized.length)
+        }
+    }, [
+        searchQuery,
+        currentSearchQuery,
+        inputNormalized,
+        outputNormalized,
+        applySearchResults,
+        initializeMessageStates,
+    ])
 
     const inputButtons =
         inputNormalized.length > 0 ? (
             <div className="flex items-center gap-1">
-                <LemonButton size="xsmall" onClick={showAllInputMessages} icon={<IconEye />}>
+                <LemonButton size="xsmall" onClick={() => showAllMessages('input')} icon={<IconEye />}>
                     Expand all
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={hideAllInputMessages} icon={<IconEyeHidden />}>
+                <LemonButton size="xsmall" onClick={() => hideAllMessages('input')} icon={<IconEyeHidden />}>
                     Collapse all
                 </LemonButton>
             </div>
@@ -81,10 +85,10 @@ export function ConversationMessagesDisplay({
     const outputButtons =
         outputNormalized.length > 0 && !raisedError ? (
             <div className="flex items-center gap-1">
-                <LemonButton size="xsmall" onClick={showAllOutputMessages} icon={<IconEye />}>
+                <LemonButton size="xsmall" onClick={() => showAllMessages('output')} icon={<IconEye />}>
                     Expand all
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={hideAllOutputMessages} icon={<IconEyeHidden />}>
+                <LemonButton size="xsmall" onClick={() => hideAllMessages('output')} icon={<IconEyeHidden />}>
                     Collapse all
                 </LemonButton>
             </div>
@@ -94,14 +98,14 @@ export function ConversationMessagesDisplay({
         <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
-                <JSONViewer src={output} collapsed={4} />
+                <HighlightableJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
             ) : (
                 <span className="font-mono">
                     {(() => {
                         try {
                             const parsedJson = JSON.parse(output)
                             return isObject(parsedJson) ? (
-                                <JSONViewer src={parsedJson} collapsed={5} />
+                                <HighlightableJSONViewer src={parsedJson} collapsed={5} searchQuery={searchQuery} />
                             ) : (
                                 JSON.stringify(output ?? null)
                             )
@@ -119,7 +123,8 @@ export function ConversationMessagesDisplay({
                 message={message}
                 show={outputMessageShowStates[i] || false}
                 isOutput
-                onToggle={() => toggleOutputMessage(i)}
+                onToggle={() => toggleMessage('output', i)}
+                searchQuery={searchQuery}
             />
         ))
     ) : (
@@ -133,7 +138,8 @@ export function ConversationMessagesDisplay({
                     <LLMMessageDisplay
                         message={message}
                         show={inputMessageShowStates[i] || false}
-                        onToggle={() => toggleInputMessage(i)}
+                        onToggle={() => toggleMessage('input', i)}
+                        searchQuery={searchQuery}
                     />
                     {i < inputNormalized.length - 1 && (
                         <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
@@ -178,11 +184,13 @@ export const LLMMessageDisplay = React.memo(
         isOutput,
         show,
         onToggle,
+        searchQuery,
     }: {
         message: CompatMessage
         isOutput?: boolean
         show: boolean
         onToggle?: () => void
+        searchQuery?: string
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
@@ -210,7 +218,8 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage | object[]
+            content: string | { type: string; content: string } | VercelSDKImageMessage | object[],
+            searchQuery?: string
         ): JSX.Element | null => {
             if (!content) {
                 return null
@@ -223,13 +232,29 @@ export const LLMMessageDisplay = React.memo(
                         {content.map((item, index) => (
                             <React.Fragment key={index}>
                                 {typeof item === 'string' ? (
-                                    <span className="whitespace-pre-wrap">{item}</span>
+                                    searchQuery?.trim() ? (
+                                        <SearchHighlight
+                                            string={item}
+                                            substring={searchQuery}
+                                            className="whitespace-pre-wrap"
+                                        />
+                                    ) : (
+                                        <span className="whitespace-pre-wrap">{item}</span>
+                                    )
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
                                   item.type === 'text' &&
                                   'text' in item ? (
-                                    <span className="whitespace-pre-wrap">{item.text}</span>
+                                    searchQuery?.trim() && typeof item.text === 'string' ? (
+                                        <SearchHighlight
+                                            string={item.text}
+                                            substring={searchQuery}
+                                            className="whitespace-pre-wrap"
+                                        />
+                                    ) : (
+                                        <span className="whitespace-pre-wrap">{item.text}</span>
+                                    )
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
@@ -245,7 +270,12 @@ export const LLMMessageDisplay = React.memo(
                                         }}
                                     />
                                 ) : (
-                                    <JSONViewer src={item} name={null} collapsed={5} />
+                                    <HighlightableJSONViewer
+                                        src={item}
+                                        name={null}
+                                        collapsed={5}
+                                        searchQuery={searchQuery}
+                                    />
                                 )}
                                 {index < content.length - 1 && <div className="border-t my-2" />}
                             </React.Fragment>
@@ -276,7 +306,9 @@ export const LLMMessageDisplay = React.memo(
                         return <ImageMessageDisplay message={message} />
                     }
                     if (typeof parsed === 'object' && parsed !== null) {
-                        return <JSONViewer src={parsed} name={null} collapsed={5} />
+                        return (
+                            <HighlightableJSONViewer src={parsed} name={null} collapsed={5} searchQuery={searchQuery} />
+                        )
                     }
                 } catch {
                     // Not valid JSON. Fall through to Markdown/plain text handling.
@@ -305,12 +337,25 @@ export const LLMMessageDisplay = React.memo(
                         return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                     }
                 } else {
-                    return <span className="font-mono whitespace-pre-wrap">{content}</span>
+                    return searchQuery?.trim() ? (
+                        <SearchHighlight
+                            string={content}
+                            substring={searchQuery}
+                            className="font-mono whitespace-pre-wrap"
+                        />
+                    ) : (
+                        <span className="font-mono whitespace-pre-wrap">{content}</span>
+                    )
                 }
             }
 
             // Fallback: render as plain text.
-            return <span className="whitespace-pre-wrap">{content}</span>
+            const contentStr = typeof content === 'string' ? content : JSON.stringify(content)
+            return searchQuery?.trim() ? (
+                <SearchHighlight string={contentStr} substring={searchQuery} className="whitespace-pre-wrap" />
+            ) : (
+                <span className="whitespace-pre-wrap">{contentStr}</span>
+            )
         }
 
         return (
@@ -354,14 +399,20 @@ export const LLMMessageDisplay = React.memo(
                         </>
                     )}
                 </div>
-                {show && !!content && <div className="p-2 border-t">{renderMessageContent(content)}</div>}
+                {show && !!content && <div className="p-2 border-t">{renderMessageContent(content, searchQuery)}</div>}
                 {show && Object.keys(additionalKwargsEntries).length > 0 && (
                     <div className="p-2 text-xs border-t">
-                        <JSONViewer src={additionalKwargsEntries} name={null} collapsed={5} />
+                        <HighlightableJSONViewer
+                            src={additionalKwargsEntries}
+                            name={null}
+                            collapsed={5}
+                            searchQuery={searchQuery}
+                        />
                     </div>
                 )}
             </div>
         )
     }
 )
+
 LLMMessageDisplay.displayName = 'LLMMessageDisplay'
