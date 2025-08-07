@@ -218,6 +218,15 @@ describe('EventPipelineRunner', () => {
             expect(runner.steps).toEqual([])
         })
 
+        it('drops $exception events', async () => {
+            const event = {
+                ...pluginEvent,
+                event: '$exception',
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([])
+        })
+
         it('does not drop disallowed token mismatching distinct_id events', async () => {
             const event = {
                 ...pluginEvent,
