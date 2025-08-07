@@ -28,7 +28,7 @@ export const manifest: ProductManifest = {
             name: 'Replay playlist',
             icon: <IconRewindPlay />,
             href: (ref: string) => urls.replayPlaylist(ref),
-            iconColor: ['var(--product-session-replay-light)', 'var(--product-session-replay-dark)'],
+            iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
             filterKey: 'session_recording_playlist',
         },
     },
