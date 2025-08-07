@@ -10,7 +10,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.test.test_setup_functions import TEST_SETUP_FUNCTIONS
+from posthog.test.playwright_setup_functions import PLAYWRIGHT_SETUP_FUNCTIONS
 
 
 @api_view(["POST"])
@@ -32,16 +32,16 @@ def setup_test(request: Request, test_name: str) -> Response:
         return Response({"error": "Test setup endpoint only available in TEST mode"}, status=status.HTTP_403_FORBIDDEN)
 
     # Check if test setup function exists
-    if test_name not in TEST_SETUP_FUNCTIONS:
-        available_tests = list(TEST_SETUP_FUNCTIONS.keys())
+    if test_name not in PLAYWRIGHT_SETUP_FUNCTIONS:
+        available_tests = list(PLAYWRIGHT_SETUP_FUNCTIONS.keys())
         return Response(
-            {"error": f"Test setup function '{test_name}' not found", "available_tests": available_tests},
+            {"error": f"Playwright setup function '{test_name}' not found", "available_tests": available_tests},
             status=status.HTTP_404_NOT_FOUND,
         )
 
     try:
         # Get the setup function
-        setup_function = TEST_SETUP_FUNCTIONS[test_name]
+        setup_function = PLAYWRIGHT_SETUP_FUNCTIONS[test_name]
 
         # Run the setup function with request data
         result = setup_function(request.data if hasattr(request, "data") else {})
@@ -50,6 +50,6 @@ def setup_test(request: Request, test_name: str) -> Response:
 
     except Exception as e:
         return Response(
-            {"error": f"Failed to run test setup '{test_name}': {str(e)}", "test_name": test_name},
+            {"error": f"Failed to run playwright setup '{test_name}': {str(e)}", "test_name": test_name},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )

@@ -452,6 +452,7 @@ class BasicOrganizationSetupResult(BaseModel):
     )
     organization_id: str
     organization_name: str
+    personal_api_key: str
     project_id: str
     project_name: str
     team_id: str
@@ -1593,37 +1594,6 @@ class InsightThresholdType(StrEnum):
     PERCENTAGE = "percentage"
 
 
-class InsightsTestSetupData(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    create_sample_events: Optional[bool] = None
-    date_range_days: Optional[float] = None
-    event_count: Optional[float] = None
-    event_count_per_user: Optional[float] = None
-    event_types: Optional[list[str]] = None
-    user_count: Optional[float] = None
-
-
-class InsightsTestSetupResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event_count: Optional[float] = None
-    insights_setup: bool
-    message: str
-    organization_id: str
-    organization_name: str
-    project_id: str
-    project_name: str
-    sample_event_ids: Optional[list[str]] = None
-    team_id: str
-    team_name: str
-    user_count: Optional[float] = None
-    user_email: str
-    user_id: str
-
-
 class InsightsThresholdBounds(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2648,7 +2618,7 @@ class TestSetupRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    data: Optional[dict[str, Any]] = Field(default=None, description="Custom data to pass to the setup function")
+    data: Optional[dict[str, Any]] = None
 
 
 class TestSetupResponse(BaseModel):

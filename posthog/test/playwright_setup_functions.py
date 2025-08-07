@@ -1,5 +1,5 @@
 """
-Registry of test setup functions for Playwright tests.
+Registry of playwright setup functions for Playwright tests.
 Each function takes request data and returns setup results.
 """
 
@@ -9,12 +9,10 @@ from collections.abc import Callable
 from django.contrib.auth.models import User
 from django.db import transaction
 
-from posthog.models import Organization, Project, Team
+from posthog.models import Organization, Project, Team, PersonalAPIKey
 from posthog.schema import (
     BasicOrganizationSetupData,
     BasicOrganizationSetupResult,
-    InsightsTestSetupData,
-    InsightsTestSetupResult,
 )
 
 
@@ -59,6 +57,13 @@ def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrga
         # Create team (environment)
         team = Team.objects.create(name=f"{project_name} Default", project=project, organization=organization)
 
+        # Create personal API key for the user
+        api_key = PersonalAPIKey.objects.create(
+            label="Test API Key",
+            user=user,
+            secure_value="phx_test_api_key_123456789",  # Fixed test API key for consistency
+        )
+
         return {
             "organization_id": str(organization.id),
             "project_id": str(project.id),
@@ -68,35 +73,12 @@ def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrga
             "team_name": team.name,
             "user_id": str(user.id),
             "user_email": user.email,
+            "personal_api_key": api_key.value,  # Return the API key value
         }
 
 
-def create_analytics_workspace(data: InsightsTestSetupData) -> InsightsTestSetupResult:
-    """
-    Creates a workspace with sample analytics data for testing insights/dashboards.
-
-    Sets up:
-    - Complete organization + project + team (via create_organization_with_team)
-    - Sample events and analytics data (placeholder for now)
-
-    Args:
-        data: Analytics configuration (event counts, date ranges, etc.)
-
-    Returns:
-        Workspace details + analytics setup confirmation
-    """
-    # Create the base workspace first
-    workspace_data = create_organization_with_team(data)
-
-    # TODO: Add sample events/analytics data here when needed
-    # Could create sample events, users, properties, etc.
-
-    return {**workspace_data, "analytics_ready": True, "message": "Analytics workspace ready for testing"}
-
-
-# Registry of all available workspace setup functions
+# Registry of all available playwright setup functions
 # Maps endpoint names to their implementation functions
-TEST_SETUP_FUNCTIONS: dict[str, Callable[[Any], Any]] = {
-    "organization_with_team": create_organization_with_team,  # Creates org → project → team + user
-    "analytics_workspace": create_analytics_workspace,  # Above + sample analytics data
+PLAYWRIGHT_SETUP_FUNCTIONS: dict[str, Callable[[Any], Any]] = {
+    "organization_with_team": create_organization_with_team,  # Creates org → project → team + user + API key
 }

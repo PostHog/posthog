@@ -8,16 +8,20 @@
 /* eslint-disable react-hooks/rules-of-hooks */
 
 import { test as baseTest } from './playwright-test-base'
-import { WorkspaceSetup, createWorkspaceSetup, PostHogWorkspace } from './workspace-setup'
+import { PlaywrightSetup, createPlaywrightSetup, PostHogWorkspace } from './playwright-setup'
 
 /**
  * Base test with workspace setup capabilities
  * Use this for most tests where you want to manually create workspaces
  */
-export const test = baseTest.extend<{ workspaceSetup: WorkspaceSetup }>({
-    workspaceSetup: async ({ request }, use) => {
-        const workspaceSetup = createWorkspaceSetup(request)
-        await use(workspaceSetup)
+export const test = baseTest.extend<{ playwrightSetup: PlaywrightSetup; workspaceSetup: PlaywrightSetup }>({
+    playwrightSetup: async ({ request }, use) => {
+        const playwrightSetup = createPlaywrightSetup(request)
+        await use(playwrightSetup)
+    },
+    // Backward compatibility alias
+    workspaceSetup: async ({ playwrightSetup }, use) => {
+        await use(playwrightSetup)
     },
 })
 
@@ -28,19 +32,8 @@ export const test = baseTest.extend<{ workspaceSetup: WorkspaceSetup }>({
  * The workspace includes: Organization → Project → Team + test@posthog.com user
  */
 export const testWithWorkspace = test.extend<{ workspace: PostHogWorkspace }>({
-    workspace: async ({ workspaceSetup }, use) => {
-        const workspace = await workspaceSetup.createWorkspace()
-        await use(workspace)
-    },
-})
-
-/**
- * Test with a pre-created analytics workspace (includes sample data)
- * Use this for testing insights, dashboards, or anything needing analytics data
- */
-export const testWithAnalytics = test.extend<{ workspace: PostHogWorkspace & { analytics_ready: boolean } }>({
-    workspace: async ({ workspaceSetup }, use) => {
-        const workspace = await workspaceSetup.createAnalyticsWorkspace()
+    workspace: async ({ playwrightSetup }, use) => {
+        const workspace = await playwrightSetup.createWorkspace()
         await use(workspace)
     },
 })
@@ -48,6 +41,10 @@ export const testWithAnalytics = test.extend<{ workspace: PostHogWorkspace & { a
 // Re-export everything from the base test
 export { expect } from './playwright-test-base'
 
-// Re-export workspace setup utilities
-export { createWorkspaceSetup, createTestWorkspace } from './workspace-setup'
-export type { PostHogWorkspace, WorkspaceSetupOptions } from './workspace-setup'
+// Re-export playwright setup utilities
+export { createPlaywrightSetup, createTestWorkspace } from './playwright-setup'
+export type { PostHogWorkspace, PlaywrightSetupOptions } from './playwright-setup'
+
+// Backward compatibility exports
+export { createPlaywrightSetup as createWorkspaceSetup } from './playwright-setup'
+export type { PlaywrightSetupOptions as WorkspaceSetupOptions } from './playwright-setup'

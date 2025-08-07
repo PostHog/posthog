@@ -32,7 +32,7 @@ from posthog.api import (
     sharing,
     signup,
     site_app,
-    test_setup,
+    playwright_setup,
     unsubscribe,
     uploaded_media,
     user,
@@ -198,7 +198,7 @@ urlpatterns = [
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
     ),
     # Test setup endpoint (only available in TEST mode)
-    path("api/setup_test/<str:test_name>/", csrf_exempt(test_setup.setup_test)),
+    path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(
