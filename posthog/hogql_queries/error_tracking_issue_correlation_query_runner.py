@@ -112,6 +112,7 @@ SELECT groupUniqArray(issue_id) as value
     WHERE timestamp > now() - INTERVAL 12 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
 )
 SELECT
+    '{self.query.events[0]}' as event,
     (SELECT * FROM issue_list) as issue_ids,
     sumForEach(both) as both,
     sumForEach(success_only) as success_only,

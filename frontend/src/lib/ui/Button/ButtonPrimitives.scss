@@ -64,6 +64,27 @@
     }
 }
 
+.button-primitive--variant-panel {
+    background-color: var(--bg-fill-button-panel);
+    border: 1px solid transparent;
+
+    &:not([aria-disabled='true']) {
+        &[data-active='true'],
+        &[data-current='true'],
+        &[data-state='open'],
+        &[data-state='checked'],
+        &[data-highlighted],
+        &.button-primitive--active {
+            background-color: var(--bg-fill-button-panel-active);
+        }
+
+        &[data-focused='true'],
+        &:hover {
+            background-color: var(--bg-fill-button-panel-hover);
+        }
+    }
+}
+
 .button-primitive--variant-danger {
     color: var(--text-error);
     border: 1px solid transparent;
