@@ -207,8 +207,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         await breakpoint(breakpointLength)
                     }
                     const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
+                    const blob_v2_lts = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY]
                     const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {
                         blob_v2,
+                        blob_v2_lts,
                     })
 
                     if (!response.sources) {
