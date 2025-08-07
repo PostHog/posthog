@@ -3645,7 +3645,7 @@ export const externalDataSources = [
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-// Test Setup Types for Playwright Testing
+// PostHog Workspace Setup Types for Playwright Testing
 export interface TestSetupRequest {
     /** Custom data to pass to the setup function */
     data?: Record<string, any>
@@ -3685,7 +3685,7 @@ export interface InsightsTestSetupData {
 }
 
 export interface InsightsTestSetupResult extends BasicOrganizationSetupResult {
-    insights_setup: boolean
+    analytics_ready: boolean
     message: string
     event_count?: number
     user_count?: number

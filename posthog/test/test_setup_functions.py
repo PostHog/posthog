@@ -18,16 +18,21 @@ from posthog.schema import (
 )
 
 
-def setup_basic_organization(data: BasicOrganizationSetupData) -> BasicOrganizationSetupResult:
+def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrganizationSetupResult:
     """
-    Creates a basic organization with a project and team for testing.
-    Also creates/updates the test@posthog.com user and adds them to the organization.
+    Creates a complete PostHog workspace: Organization → Project → Team + test@posthog.com user.
+
+    This sets up the full hierarchy that PostHog needs:
+    - Organization (top-level company/account)
+    - Project (within the organization)
+    - Team/Environment (within the project - where actual data lives)
+    - User (test@posthog.com) who is a member of the organization
 
     Args:
-        data: Request data (can contain custom org/project names)
+        data: Optional org/project names (defaults to "Test Organization"/"Test Project")
 
     Returns:
-        Dict with created organization, project, team IDs and user info
+        All created IDs and details for the test workspace
     """
     org_name = data.get("organization_name", "Test Organization")
     project_name = data.get("project_name", "Test Project")
@@ -66,27 +71,32 @@ def setup_basic_organization(data: BasicOrganizationSetupData) -> BasicOrganizat
         }
 
 
-def setup_insights_test(data: InsightsTestSetupData) -> InsightsTestSetupResult:
+def create_analytics_workspace(data: InsightsTestSetupData) -> InsightsTestSetupResult:
     """
-    Sets up data for insights/analytics testing.
+    Creates a workspace with sample analytics data for testing insights/dashboards.
+
+    Sets up:
+    - Complete organization + project + team (via create_organization_with_team)
+    - Sample events and analytics data (placeholder for now)
 
     Args:
-        data: Request data (can contain insight configurations)
+        data: Analytics configuration (event counts, date ranges, etc.)
 
     Returns:
-        Dict with created insights test data
+        Workspace details + analytics setup confirmation
     """
-    # First create basic org structure
-    org_data = setup_basic_organization(data)
+    # Create the base workspace first
+    workspace_data = create_organization_with_team(data)
 
-    # Add insights/events setup here when needed
-    # This is a placeholder for insights specific setup
+    # TODO: Add sample events/analytics data here when needed
+    # Could create sample events, users, properties, etc.
 
-    return {**org_data, "insights_setup": True, "message": "Insights test environment ready"}
+    return {**workspace_data, "analytics_ready": True, "message": "Analytics workspace ready for testing"}
 
 
-# Registry of all available test setup functions
+# Registry of all available workspace setup functions
+# Maps endpoint names to their implementation functions
 TEST_SETUP_FUNCTIONS: dict[str, Callable[[Any], Any]] = {
-    "basic_organization": setup_basic_organization,
-    "insights_test": setup_insights_test,
+    "organization_with_team": create_organization_with_team,  # Creates org → project → team + user
+    "analytics_workspace": create_analytics_workspace,  # Above + sample analytics data
 }

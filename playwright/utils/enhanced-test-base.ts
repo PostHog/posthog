@@ -1,64 +1,53 @@
 /**
- * Enhanced Playwright test base with database setup capabilities
+ * Enhanced Playwright test base with PostHog workspace setup capabilities
+ *
+ * This provides clean test fixtures for creating PostHog workspaces
+ * (organizations, projects, teams) before running tests.
  */
 
 /* eslint-disable react-hooks/rules-of-hooks */
 
-import {} from '@playwright/test'
-import { TestSetup, createTestSetup } from './test-setup'
 import { test as baseTest } from './playwright-test-base'
+import { WorkspaceSetup, createWorkspaceSetup, PostHogWorkspace } from './workspace-setup'
 
-export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
-export const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || 'password123'
+/**
+ * Base test with workspace setup capabilities
+ * Use this for most tests where you want to manually create workspaces
+ */
+export const test = baseTest.extend<{ workspaceSetup: WorkspaceSetup }>({
+    workspaceSetup: async ({ request }, use) => {
+        const workspaceSetup = createWorkspaceSetup(request)
+        await use(workspaceSetup)
+    },
+})
 
-// Extend the existing test fixtures with testSetup
-export const test = baseTest.extend<{ testSetup: TestSetup }>({
-    testSetup: async ({ request }, use) => {
-        const testSetup = createTestSetup(request)
-        await use(testSetup)
+/**
+ * Test with a pre-created PostHog workspace
+ * Use this when you want a workspace automatically created before your test runs
+ *
+ * The workspace includes: Organization → Project → Team + test@posthog.com user
+ */
+export const testWithWorkspace = test.extend<{ workspace: PostHogWorkspace }>({
+    workspace: async ({ workspaceSetup }, use) => {
+        const workspace = await workspaceSetup.createWorkspace()
+        await use(workspace)
+    },
+})
+
+/**
+ * Test with a pre-created analytics workspace (includes sample data)
+ * Use this for testing insights, dashboards, or anything needing analytics data
+ */
+export const testWithAnalytics = test.extend<{ workspace: PostHogWorkspace & { analytics_ready: boolean } }>({
+    workspace: async ({ workspaceSetup }, use) => {
+        const workspace = await workspaceSetup.createAnalyticsWorkspace()
+        await use(workspace)
     },
 })
 
 // Re-export everything from the base test
 export { expect } from './playwright-test-base'
 
-/**
- * Test with a pre-configured basic organization
- * Useful for tests that need a minimal setup
- * Creates ONE organization and shares the IDs across all fixtures
- */
-export const testWithBasicOrg = test.extend<{
-    basicOrgSetup: {
-        organizationId: string
-        projectId: string
-        teamId: string
-        userId: string
-        userEmail: string
-    }
-}>({
-    basicOrgSetup: async ({ testSetup }, use) => {
-        const result = await testSetup.setupBasicOrganization()
-        await use({
-            organizationId: result.result.organization_id,
-            projectId: result.result.project_id,
-            teamId: result.result.team_id,
-            userId: result.result.user_id,
-            userEmail: result.result.user_email,
-        })
-    },
-})
-
-/**
- * Utility function to setup test data at the beginning of a test
- * This is a convenience function for simple setups
- */
-export async function withTestSetup<T>(
-    testName: string,
-    testFn: (setupResult: any) => Promise<T>,
-    request: any,
-    data?: Record<string, any>
-): Promise<T> {
-    const testSetup = createTestSetup(request)
-    const setupResult = await testSetup.setupTest(testName, { data })
-    return testFn(setupResult.result)
-}
+// Re-export workspace setup utilities
+export { createWorkspaceSetup, createTestWorkspace } from './workspace-setup'
+export type { PostHogWorkspace, WorkspaceSetupOptions } from './workspace-setup'
