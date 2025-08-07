@@ -296,7 +296,7 @@ class GraphExecutionEngine:
             "website_url": initial_data.get("website_url", "unknown"),
             "dependency_graph": {node_id: node.dependencies for node_id, node in self.nodes.items()},
         }
-        yield f"event: graph-started\ndata: {json.dumps(start_data)}\n\n"
+        yield {"event": "graph-started", "data": json.dumps(start_data)}
 
         # Execute nodes in dependency order
         completed_count = 0
@@ -322,7 +322,7 @@ class GraphExecutionEngine:
                     "dependencies": node.dependencies,
                     "dependencies_satisfied": True,
                 }
-                yield f"event: node-started\ndata: {json.dumps(node_start_data)}\n\n"
+                yield {"event": "step-started", "data": {json.dumps(node_start_data)}}
 
                 # Determine step_id for function mapping
                 if node_id == "get_site_content" or node_id.startswith("get_competitor_"):
@@ -362,7 +362,7 @@ class GraphExecutionEngine:
                     "completed_nodes": completed_count,
                     "total_nodes": len(self.nodes),
                 }
-                yield f"event: step-completed\ndata: {json.dumps(step_data)}\n\n"
+                yield {"event": "step-completed", "data": {json.dumps(step_data)}}
 
         # Final completion event
         final_output = {
@@ -374,7 +374,7 @@ class GraphExecutionEngine:
             "final_results": {node_id: node.result for node_id, node in self.nodes.items()},
         }
 
-        yield f"event: graph-completed\ndata: {json.dumps(final_output)}\n\n"
+        yield {"event": "graph-completed", "data": {json.dumps(final_output)}}
 
 
 def create_marketing_analysis_graph() -> GraphExecutionEngine:
