@@ -45,6 +45,7 @@ export interface SavedInsightFilters {
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
+    events: string[] | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -59,6 +60,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         dateTo: values.dateTo || undefined,
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
+        events: values.events,
     }
 }
 
