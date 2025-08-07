@@ -77,7 +77,7 @@ export function FunnelBarHorizontal({
                                     {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                         <span>Completed {step.order + 1} steps</span>
                                     ) : (
-                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
                                     )}
                                 </div>
                                 {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
