@@ -1,5 +1,6 @@
 import logging
 from typing import Optional, Any
+from urllib.parse import urlparse
 
 from posthog.settings import get_from_env
 from .exceptions import ExaConfigurationError, ExaAPIError, ExaValidationError
@@ -14,7 +15,7 @@ except ImportError:
 
 
 class ExaClient:
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None) -> None:
         self.api_key = api_key or get_from_env("EXA_API_KEY", optional=True)
         self._client: Optional[Exa] = None
 
@@ -92,7 +93,25 @@ class ExaClient:
                 results = search_results
 
             formatted_results = []
+            excluded_domains_set = set()
+
+            # Build a comprehensive set of domains to exclude
+            if exclude_domains:
+                for domain in exclude_domains:
+                    excluded_domains_set.add(self._extract_domain(domain).lower())
+
             for result in results.results:
+                # Additional filtering: check if result domain matches any excluded domain
+                result_domain = self._extract_domain(result.url).lower()
+
+                # Skip if this result is from an excluded domain
+                if any(
+                    excluded_domain in result_domain or result_domain in excluded_domain
+                    for excluded_domain in excluded_domains_set
+                ):
+                    logger.info(f"Filtering out same-domain result: {result.url}")
+                    continue
+
                 formatted_result = {
                     "url": result.url,
                     "title": result.title,
@@ -109,9 +128,28 @@ class ExaClient:
 
                 formatted_results.append(formatted_result)
 
-            logger.info(f"Exa search_and_contents completed. Found {len(formatted_results)} results for query: {query}")
+            logger.info(
+                f"Exa search_and_contents completed. Found {len(formatted_results)} results after filtering for query: {query}"
+            )
             return formatted_results
 
         except Exception as e:
             logger.exception(f"Error performing search and contents: {e}")
             raise ExaAPIError(f"Search and contents failed: {e}")
+
+    def _extract_domain(self, url: str) -> str:
+        try:
+            if not url.startswith(("http://", "https://")):
+                url = "https://" + url
+
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+
+            # Remove 'www.' prefix if present
+            if domain.startswith("www."):
+                domain = domain[4:]
+
+            return domain
+        except Exception:
+            # If parsing fails, return the original string lowercased
+            return url.lower()
