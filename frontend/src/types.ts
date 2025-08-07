@@ -4105,7 +4105,7 @@ export enum ActorGroupType {
 
 export enum BehavioralEventType {
     PerformEvent = 'performed_event',
-    PerformMultipleEvents = 'performed_event_multiple',
+    PerformEventMultiple = 'performed_event_multiple',
     PerformSequenceEvents = 'performed_event_sequence',
     NotPerformedEvent = 'not_performed_event',
     NotPerformSequenceEvents = 'not_performed_event_sequence',

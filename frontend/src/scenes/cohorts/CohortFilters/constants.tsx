@@ -123,7 +123,7 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [BehavioralEventType.NotPerformedEvent]: {
                 label: 'Did not complete event',
             },
-            [BehavioralEventType.PerformMultipleEvents]: {
+            [BehavioralEventType.PerformEventMultiple]: {
                 label: 'Completed an event multiple times',
             },
         },
@@ -317,7 +317,7 @@ export const SCALE_FIELD_VALUES = {
             [BehavioralEventType.NotPerformedEvent]: {
                 label: 'Did not complete event',
             },
-            [BehavioralEventType.PerformMultipleEvents]: {
+            [BehavioralEventType.PerformEventMultiple]: {
                 label: 'Completed an event multiple times',
             },
             [BehavioralEventType.PerformSequenceEvents]: {
@@ -411,9 +411,9 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
         ],
     },
-    [BehavioralEventType.PerformMultipleEvents]: {
+    [BehavioralEventType.PerformEventMultiple]: {
         type: BehavioralFilterKey.Behavioral,
-        value: BehavioralEventType.PerformMultipleEvents,
+        value: BehavioralEventType.PerformEventMultiple,
         negation: false,
         fields: [
             {

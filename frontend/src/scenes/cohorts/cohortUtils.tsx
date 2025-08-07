@@ -35,7 +35,7 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
     if (
         [
             BehavioralEventType.PerformEvent,
-            BehavioralEventType.PerformMultipleEvents,
+            BehavioralEventType.PerformEventMultiple,
             BehavioralEventType.PerformSequenceEvents,
             BehavioralEventType.NotPerformSequenceEvents,
             BehavioralLifecycleType.PerformEventFirstTime,
@@ -289,16 +289,19 @@ export function validateGroup(
                     ? CohortClientErrors.EmptyEventFilters
                     : undefined
 
+            const criteriaAsRecord = c as Record<string, any>
             const criteriaErrors = Object.fromEntries(
                 requiredFields.map(({ fieldKey, type }) => [
                     fieldKey,
                     (
-                        Array.isArray(c[fieldKey])
-                            ? c[fieldKey].length > 0
-                            : c[fieldKey] !== undefined && c[fieldKey] !== null && c[fieldKey] !== ''
+                        Array.isArray(criteriaAsRecord[fieldKey])
+                            ? criteriaAsRecord[fieldKey].length > 0
+                            : criteriaAsRecord[fieldKey] !== undefined &&
+                              criteriaAsRecord[fieldKey] !== null &&
+                              criteriaAsRecord[fieldKey] !== ''
                     )
                         ? undefined
-                        : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
+                        : CRITERIA_VALIDATIONS?.[type](criteriaAsRecord[fieldKey]),
                 ])
             )
 
@@ -385,7 +388,7 @@ export function resolveCohortFieldValue(
     if (fieldKey === 'value') {
         return criteriaToBehavioralFilterType(criteria)
     }
-    return criteria?.[fieldKey] ?? null
+    return (criteria as Record<string, any>)?.[fieldKey] ?? null
 }
 
 export function applyAllCriteriaGroup(
