@@ -353,6 +353,32 @@ export type SupportFormLogicProps = {
     onClose?: () => void
 }
 
+export interface ReactErrorContext {
+    type: 'react_error'
+    error: {
+        name: string
+        message: string
+        stack?: string | null
+    }
+    feature?: string
+    url?: string
+    teamId?: number | null
+    posthogEventUuid?: string
+    commitHash?: string
+}
+
+export interface AnalyticsErrorContext {
+    type: 'analytics_error'
+    queryId?: string
+    title?: string
+    query?: Record<string, unknown> | null
+    url?: string
+    posthogEventUuid?: string
+    commitHash?: string
+}
+
+export type SupportErrorContext = ReactErrorContext | AnalyticsErrorContext
+
 export type SupportFormFields = {
     name: string
     email: string
@@ -361,7 +387,7 @@ export type SupportFormFields = {
     severity_level: SupportTicketSeverityLevel | null
     message: string
     isEmailFormOpen?: boolean | 'true' | 'false'
-    errorContext?: any
+    errorContext?: SupportErrorContext | null
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -533,7 +559,7 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: area,
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
-                errorContext: enhancedErrorContext ?? null,
+                errorContext: enhancedErrorContext || null,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -689,7 +715,7 @@ export const supportLogic = kea<supportLogicType>([
                                       teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
                                       'unknown')
                                 : '') +
-                            getErrorContextString(errorContext),
+                            getErrorContextString(errorContext ?? null),
                     },
                 },
             }
@@ -866,20 +892,20 @@ export const supportLogic = kea<supportLogicType>([
     })),
 ])
 
-function getErrorContextString(errorContext: any): string {
+function getErrorContextString(errorContext: SupportErrorContext | null): string {
     try {
         if (!errorContext) {
             return ''
         }
 
         const formatters = {
-            react_error: (ctx: any) =>
+            react_error: (ctx: ReactErrorContext) =>
                 [
                     'Bug Type: React Error',
                     ctx.error?.name && ctx.error?.message && `Error: ${ctx.error.name} - ${ctx.error.message}`,
                 ].filter(Boolean),
 
-            analytics_error: (ctx: any) =>
+            analytics_error: (ctx: AnalyticsErrorContext) =>
                 [
                     'Bug Type: Analytics Error',
                     ctx.queryId && `Query ID: ${ctx.queryId}`,
@@ -887,14 +913,23 @@ function getErrorContextString(errorContext: any): string {
                 ].filter(Boolean),
         }
 
-        const formatter = formatters[errorContext.type as keyof typeof formatters]
+        const formatter = formatters[errorContext.type]
         if (!formatter) {
+            return ''
+        }
+
+        let formattedContext: string[]
+        if (errorContext.type === 'react_error') {
+            formattedContext = formatters.react_error(errorContext).filter((item): item is string => Boolean(item))
+        } else if (errorContext.type === 'analytics_error') {
+            formattedContext = formatters.analytics_error(errorContext).filter((item): item is string => Boolean(item))
+        } else {
             return ''
         }
 
         const lines = [
             '=== Error Context ===',
-            ...formatter(errorContext),
+            ...formattedContext,
             errorContext.posthogEventUuid && `Event: ${errorContext.posthogEventUuid}`,
             errorContext.commitHash && `Commit: ${errorContext.commitHash}`,
         ].filter(Boolean)

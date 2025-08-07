@@ -16,7 +16,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { supportLogic, AnalyticsErrorContext } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
@@ -622,13 +622,13 @@ export function InsightErrorState({
                                 data-attr="insight-error-bug-report"
                                 onClick={() => {
                                     // Create error context for support ticket - gracefully handle failures
-                                    let errorContext = null
+                                    let errorContext: AnalyticsErrorContext | null = null
                                     try {
                                         errorContext = {
                                             type: 'analytics_error',
-                                            query: query,
-                                            queryId: queryId,
-                                            title: title,
+                                            query: query as Record<string, unknown> | null,
+                                            queryId: queryId ?? undefined,
+                                            title: title ?? undefined,
                                             url: window.location.href,
                                         }
                                     } catch (contextError) {

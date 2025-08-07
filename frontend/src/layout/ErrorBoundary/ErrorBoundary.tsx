@@ -2,7 +2,7 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { supportLogic, ReactErrorContext } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PostHogErrorBoundary } from 'posthog-js/react'
 import posthog from 'posthog-js'
@@ -31,7 +31,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
             additionalProperties={additionalProperties}
             fallback={({ error: { stack, name, message } }: { error: Error }) => {
                 // Create error context for support ticket - gracefully handle failures
-                let errorContext = null
+                let errorContext: ReactErrorContext | null = null
                 try {
                     errorContext = {
                         type: 'react_error',
