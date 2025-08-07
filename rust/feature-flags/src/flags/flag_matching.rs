@@ -424,7 +424,7 @@ impl FeatureFlagMatcher {
                         continue;
                     }
                 }
-                
+
                 let match_result =
                     evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
                 e.insert(match_result);
