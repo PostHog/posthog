@@ -37,6 +37,11 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
             taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
         },
         {
+            key: 'comment_text',
+            propertyFilterType: PropertyFilterType.Recording,
+            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+        },
+        {
             key: 'level',
             propertyFilterType: PropertyFilterType.LogEntry,
             taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
