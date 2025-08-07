@@ -120,9 +120,9 @@
     .LemonTag--default {
         font-weight: 600; // Aligning with breadcrumb font-weightq
         text-transform: uppercase; // Increase readability at tiny size
-        border-color: var(
-            --color-text-secondary
-        ); // The default is --border, which is invisible on the top bar's background
+
+        // The default is --border, which is invisible on the top bar's background
+        border-color: var(--color-text-secondary);
         opacity: var(--opacity-disabled);
     }
 
