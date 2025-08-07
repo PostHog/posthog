@@ -1,6 +1,6 @@
 """
 Test setup API endpoint for Playwright tests.
-Only available in TEST mode for security.
+Only available in TEST, DEBUG, CI, or E2E_TESTING modes for security.
 """
 
 from django.conf import settings
@@ -18,7 +18,7 @@ from posthog.test.playwright_setup_functions import PLAYWRIGHT_SETUP_FUNCTIONS
 def setup_test(request: Request, test_name: str) -> Response:
     """
     Endpoint to setup test data for Playwright tests.
-    Only accessible in TEST mode for security.
+    Only accessible in TEST, DEBUG, CI, or E2E_TESTING modes for security.
 
     Args:
         request: Django request object
@@ -27,9 +27,17 @@ def setup_test(request: Request, test_name: str) -> Response:
     Returns:
         JSON response with setup result
     """
-    # Only allow in TEST mode
-    if not getattr(settings, "TEST", False):
-        return Response({"error": "Test setup endpoint only available in TEST mode"}, status=status.HTTP_403_FORBIDDEN)
+    # Only allow in TEST, DEBUG, CI, or E2E_TESTING modes
+    is_test_mode = getattr(settings, "TEST", False)
+    is_debug_mode = getattr(settings, "DEBUG", False)
+    is_ci_mode = getattr(settings, "CI", False)
+    is_e2e_testing = getattr(settings, "E2E_TESTING", False)
+
+    if not (is_test_mode or is_debug_mode or is_ci_mode or is_e2e_testing):
+        return Response(
+            {"error": "Test setup endpoint only available in TEST, DEBUG, CI, or E2E_TESTING modes"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     # Check if test setup function exists
     if test_name not in PLAYWRIGHT_SETUP_FUNCTIONS:
