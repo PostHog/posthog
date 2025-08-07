@@ -271,20 +271,22 @@ NewSurveyCustomisationSection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewMultiQuestionSurveySection: StoryFn = () => {
     useOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.MultipleChoice,
-                question: "We're sorry to see you go. What's your reason for unsubscribing?",
-                choices: [
-                    'I no longer need the product',
-                    'I found a better product',
-                    'I found the product too difficult to use',
-                    'Other',
-                ],
-            } as MultipleSurveyQuestion,
-        ])
+        window.setTimeout(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+                {
+                    type: SurveyQuestionType.MultipleChoice,
+                    question: "We're sorry to see you go. What's your reason for unsubscribing?",
+                    choices: [
+                        'I no longer need the product',
+                        'I found a better product',
+                        'I found the product too difficult to use',
+                        'Other',
+                    ],
+                } as MultipleSurveyQuestion,
+            ])
+        }, 300)
     })
 
     return <App />
@@ -397,7 +399,7 @@ export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn 
                     descriptionContentType: 'text',
                 },
             ])
-        })
+        }, 300)
     })
 
     return <App />
