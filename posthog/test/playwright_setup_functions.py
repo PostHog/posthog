@@ -1,14 +1,17 @@
 """Playwright setup functions for test data creation."""
 
+import datetime as dt
+import secrets
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from pydantic import BaseModel
 
-from django.db import transaction
-from posthog.models import Organization, Team, User, PersonalAPIKey
+from posthog.models import PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import mask_key_value
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
+from posthog.demo.matrix import MatrixManager
+from posthog.demo.products.hedgebox import HedgeboxMatrix
 
 
 @runtime_checkable
@@ -17,45 +20,55 @@ class PlaywrightSetupFunction(Protocol):
 
 
 def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> PlaywrightWorkspaceSetupResult:
-    """Creates PostHog workspace with organization, team, user, and API key."""
+    """Creates PostHog workspace with organization, team, user, API key, and demo data."""
     org_name = data.organization_name or "Test Organization"
 
-    with transaction.atomic():
-        user, created = User.objects.get_or_create(
-            email="test@posthog.com",
-            defaults={"first_name": "Test", "last_name": "User"},
-        )
-        if created or not user.check_password("12345678"):
-            user.set_password("12345678")
-            user.save()
+    # Generate unique email to avoid collisions between parallel tests
+    unique_suffix = secrets.token_hex(8)  # 16 character hex string
+    user_email = f"test-{unique_suffix}@posthog.com"
 
-        organization = Organization.objects.create(name=org_name, slug=f"test-org-{org_name.lower().replace(' ', '-')}")
-        organization.members.add(user)
+    # Create Matrix with demo data (using smaller dataset for tests)
+    now = dt.datetime.now(dt.UTC)
+    matrix = HedgeboxMatrix(
+        seed="playwright_test_seed",
+        now=now,
+        days_past=30,  # Smaller dataset for faster tests
+        days_future=0,  # No future events for tests
+        n_clusters=10,  # Much smaller than default 500
+    )
 
-        team = Team.objects.create(name="Default Team", organization=organization)
+    # Use MatrixManager to create workspace with demo data
+    matrix_manager = MatrixManager(matrix, print_steps=False)  # Quiet for tests
 
-        # Use a constant API key value for consistent testing
-        api_key_value = "phx_test_api_key_for_playwright_tests_123456789"
-        mask_value = mask_key_value(api_key_value)
-        secure_value = hash_key_value(api_key_value)
+    organization, team, user = matrix_manager.ensure_account_and_save(
+        email=user_email,
+        first_name="Test User",
+        organization_name=org_name,
+        password="12345678",
+        is_staff=False,
+        disallow_collision=True,  # Each test gets a fresh user
+    )
 
-        # Get or create the API key to avoid hitting the 10 key limit
-        api_key, created = PersonalAPIKey.objects.get_or_create(
-            user=user,
-            label="Test API Key",
-            defaults={"secure_value": secure_value, "mask_value": mask_value, "scopes": ["*"]},
-        )
-        api_key._value = api_key_value
+    # Create personal API key for the user
+    api_key_value = f"phx_test_api_key_for_playwright_tests_{unique_suffix}"
+    secure_value = hash_key_value(api_key_value)
+    mask_value = mask_key_value(api_key_value)
+    api_key, _ = PersonalAPIKey.objects.get_or_create(
+        user=user,
+        label="Test API Key",
+        defaults={"secure_value": secure_value, "mask_value": mask_value, "scopes": ["*"]},
+    )
+    api_key._value = api_key_value
 
-        return PlaywrightWorkspaceSetupResult(
-            organization_id=str(organization.id),
-            team_id=str(team.id),
-            organization_name=organization.name,
-            team_name=team.name,
-            user_id=str(user.id),
-            user_email=user.email,
-            personal_api_key=api_key._value,  # type: ignore
-        )
+    return PlaywrightWorkspaceSetupResult(
+        organization_id=str(organization.id),
+        team_id=str(team.id),
+        organization_name=organization.name,
+        team_name=team.name,
+        user_id=str(user.id),
+        user_email=user.email,
+        personal_api_key=api_key._value,  # type: ignore
+    )
 
 
 @dataclass(frozen=True)
