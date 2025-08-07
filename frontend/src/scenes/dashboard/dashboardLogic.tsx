@@ -263,6 +263,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
             loadLayoutFromServerOnPreview,
         }),
+        dashboardNotFound: true,
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -896,6 +897,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 updateDashboardLastRefresh: (_, { lastDashboardRefresh }) => lastDashboardRefresh,
             },
         ],
+        error404: [
+            false,
+            {
+                dashboardNotFound: () => true,
+                loadDashboardSuccess: () => false,
+                loadDashboardFailure: () => false,
+            },
+        ],
     })),
     selectors(() => ({
         canAutoPreview: [
@@ -1166,8 +1175,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s._dashboardLoading, s.dashboardFailedToLoad, s.canEditDashboard],
-            (dashboard, dashboardLoading, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, s.canEditDashboard],
+            (dashboard, error404, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
                 {
                     key: Scene.Dashboards,
                     name: 'Dashboards',
@@ -1179,9 +1188,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ? dashboard.name
                         : dashboardFailedToLoad
                           ? 'Could not load'
-                          : !dashboardLoading
+                          : error404
                             ? 'Not found'
-                            : null,
+                            : '...',
                     onRename: canEditDashboard
                         ? async (name) => {
                               if (dashboard) {
@@ -1558,6 +1567,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             void sharedListeners.reportLoadTiming(...args)
 
             if (!values.dashboard) {
+                actions.dashboardNotFound()
                 return // We hit a 404
             }
 
