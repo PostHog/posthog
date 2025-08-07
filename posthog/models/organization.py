@@ -128,26 +128,33 @@ class Organization(UUIDModel):
         related_name="organizations",
         related_query_name="organization",
     )
+
+    # General settings
     name = models.CharField(max_length=64)
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    plugins_access_level = models.PositiveSmallIntegerField(
-        default=PluginsAccessLevel.CONFIG,
-        choices=PluginsAccessLevel.choices,
-    )
+
+    # Security / management settings
     session_cookie_age = models.IntegerField(
         null=True,
         blank=True,
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
-    for_internal_metrics = models.BooleanField(default=False)
     is_member_join_email_enabled = models.BooleanField(default=True)
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
+    allow_publicly_shared_resources = models.BooleanField(default=True)
+
+    # Misc
+    plugins_access_level = models.PositiveSmallIntegerField(
+        default=PluginsAccessLevel.CONFIG,
+        choices=PluginsAccessLevel.choices,
+    )
+    for_internal_metrics = models.BooleanField(default=False)
     default_experiment_stats_method = models.CharField(
         max_length=20,
         choices=DefaultExperimentStatsMethod.choices,
@@ -156,7 +163,6 @@ class Organization(UUIDModel):
         null=True,
         blank=True,
     )
-
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing

@@ -8,7 +8,6 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-    KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
     KAFKA_LOG_ENTRIES,
 } from './kafka-topics'
 
@@ -100,7 +99,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -246,7 +244,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
-        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '',
+        // in both the PostHog cloud environment and development
+        // we want this metadata switchover to be in blob ingestion v2 mode
+        // hobby installs will set this metadata value to a datetime
+        // since they may be running v1 and being upgraded
+        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '*',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
