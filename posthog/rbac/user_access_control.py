@@ -316,11 +316,17 @@ class UserAccessControl:
     # ------------------------------------------------------------
 
     def access_level_for_object(
-        self, obj: Model, resource: Optional[APIScopeObject] = None, explicit=False
+        self, obj: Model, resource: Optional[APIScopeObject] = None, explicit=False, specific_only=False
     ) -> Optional[AccessControlLevel]:
         """
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
+
+        Args:
+            obj: The model object to check access for
+            resource: The resource type (auto-detected if not provided)
+            explicit: If True, only return explicit access controls (no fallback to default)
+            specific_only: If True, only consider access controls with roles or organization members
         """
 
         resource = resource or model_to_resource(obj)
@@ -349,6 +355,15 @@ class UserAccessControl:
 
         filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         access_controls = self._get_access_controls(filters)
+
+        # Filter to specific access controls if requested
+        if specific_only:
+            access_controls = [
+                ac for ac in access_controls if ac.role is not None or ac.organization_member is not None
+            ]
+        # If we're looking for specific access controls and there are none we don't want to return the default access level
+        if specific_only and not access_controls:
+            return None
 
         # If there is no specified controls on the resource then we return the default access level
         if not access_controls:
@@ -471,46 +486,7 @@ class UserAccessControl:
         This is different than access_level_for_object, it's only looking at access levels that have
         a role or member for the object. It will fallback to access_level_for_object if none is found.
         """
-
-        resource = model_to_resource(obj)
-        org_membership = self._organization_membership
-
-        if not resource or not org_membership:
-            return None
-
-        # Creators always have highest access
-        if getattr(obj, "created_by", None) == self._user:
-            return highest_access_level(resource)
-
-        # Org admins always have highest access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
-            return highest_access_level(resource)
-
-        if resource == "organization":
-            # Organization access is controlled via membership level only
-            if org_membership.level >= OrganizationMembership.Level.ADMIN:
-                return "admin"
-            return "member"
-
-        # If access controls aren't supported, then we return the default access level
-        if not self.access_controls_supported:
-            return default_access_level(resource) if not explicit else None
-
-        filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
-        access_controls = self._get_access_controls(filters)
-
-        # These are already pre-loaded so filter what's in memory
-        access_controls = [ac for ac in access_controls if ac.role is not None or ac.organization_member is not None]
-
-        # If there is no specified controls on the resource then we return the default access level
-        if not access_controls:
-            return None
-
-        # If there are access controls we pick the highest level the user has
-        return max(
-            access_controls,
-            key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
-        ).access_level
+        return self.access_level_for_object(obj, explicit=explicit, specific_only=True)
 
     # ------------------------------------------------------------
     # Resource level - checking conditions for the resource type
