@@ -4,6 +4,7 @@ import time
 from functools import lru_cache
 from typing import Optional
 from django.conf import settings
+from django.urls import resolve
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
@@ -12,7 +13,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
+from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
@@ -21,14 +22,14 @@ from posthog.models.personal_api_key import hash_key_value
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
-    "Dropped requests due to rate-limiting, per team_id, scope and path.",
-    labelnames=[LABEL_TEAM_ID, "scope", LABEL_PATH],
+    "Dropped requests due to rate-limiting, per team_id, scope and route.",
+    labelnames=[LABEL_TEAM_ID, "scope", LABEL_PATH, LABEL_ROUTE],
 )
 
 RATE_LIMIT_BYPASSED_COUNTER = Counter(
     "rate_limit_bypassed_total",
     "Requests that should be dropped by rate-limiting but allowed by configuration.",
-    labelnames=[LABEL_TEAM_ID, LABEL_PATH],
+    labelnames=[LABEL_TEAM_ID, LABEL_PATH, LABEL_ROUTE],
 )
 
 DECIDE_RATE_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -79,6 +80,32 @@ path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
 path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
 
 
+def get_route_from_path(path: str) -> str:
+    """
+    Extract a generic route identifier from a request path to avoid high cardinality
+    in metrics. This uses Django's URL resolver to get the actual route pattern
+    and normalizes parameter names for use as metric labels.
+    """
+    if not path:
+        return "unknown"
+
+    try:
+        resolved = resolve(path)
+        route_pattern = resolved.route
+        if route_pattern:
+            # Convert Django URL parameter syntax to a label-friendly format
+            # e.g., "<team_id>" becomes "TEAM_ID"
+            route_id = re.sub(r"<(\w+)>", lambda m: m.group(1).upper(), route_pattern)
+            return route_id
+        else:
+            return "unknown"
+    except Exception:
+        # Fallback to the existing path normalization patterns
+        route_id = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
+        route_id = path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
+        return route_id
+
+
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_team_id_from_view(view):
@@ -127,16 +154,14 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                 return True
 
             path = getattr(request, "path", None)
-            if path:
-                path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
-                path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
+            route = get_route_from_path(path)
 
             if team_is_allowed_to_bypass_throttle(team_id):
                 statsd.incr(
                     "team_allowed_to_bypass_rate_limit_exceeded",
-                    tags={"team_id": team_id, "path": path},
+                    tags={"team_id": team_id, "path": route, "route": route},
                 )
-                RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=path).inc()
+                RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=route, route=route).inc()
                 return True
             else:
                 scope = getattr(self, "scope", None)
@@ -148,11 +173,12 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                         "team_id": team_id,
                         "scope": scope,
                         "rate": rate,
-                        "path": path,
+                        "path": route,
+                        "route": route,
                         "hashed_personal_api_key": hash_key_value(personal_api_key[0]) if personal_api_key else None,
                     },
                 )
-                RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
+                RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=route, route=route).inc()
 
             return False
         except Team.DoesNotExist as e:

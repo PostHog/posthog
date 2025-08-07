@@ -3,6 +3,7 @@ import json
 from datetime import timedelta
 from unittest.mock import ANY, call, patch, Mock
 from urllib.parse import quote
+from parameterized import parameterized
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -18,7 +19,7 @@ from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import HogQLQueryThrottle, AISustainedRateThrottle, AIBurstRateThrottle
+from posthog.rate_limit import HogQLQueryThrottle, AISustainedRateThrottle, AIBurstRateThrottle, get_route_from_path
 from posthog.api.feature_flag import LocalEvaluationThrottle
 from posthog.test.base import APIBaseTest
 
@@ -593,3 +594,71 @@ class TestUserAPI(APIBaseTest):
             self.assertEqual(throttle.rate, "1200/minute")
             self.assertEqual(throttle.num_requests, 1200)
             self.assertEqual(throttle.duration, 60)  # 1 minute in seconds
+
+    @parameterized.expand(
+        [
+            # Test Django route pattern normalization
+            (
+                "/api/environments/123/query/abc-123-def/progress/",
+                "api/environments/<int:team_id>/query/<str:query_uuid>/progress/",
+                "api/environments/TEAM_ID/query/QUERY_UUID/progress/",
+                "Django route pattern with int and str parameters",
+            ),
+            # Test fallback pattern for projects
+            (
+                "/api/projects/123/some/endpoint",
+                None,  # resolve will raise exception
+                "/api/projects/TEAM_ID/some/endpoint",
+                "Fallback pattern for team/project IDs",
+            ),
+            # Test fallback pattern for organizations
+            (
+                "/api/organizations/org-123/plugins",
+                None,  # resolve will raise exception
+                "/api/organizations/ORG_ID/plugins",
+                "Fallback pattern for organization IDs",
+            ),
+            # Test empty/None paths
+            ("", None, "unknown", "Empty path"),
+            (None, None, "unknown", "None path"),
+            # Test when resolve returns no route
+            (
+                "/some/path",
+                None,  # resolve returns object with route=None
+                "unknown",
+                "No route pattern found",
+            ),
+        ]
+    )
+    def test_get_route_from_path(self, test_path, mock_route, expected_result, description):
+        """Test that get_route_from_path correctly extracts and normalizes route patterns"""
+        if test_path in ("", None):
+            # Direct test for empty/None paths
+            result = get_route_from_path(test_path)
+            self.assertEqual(result, expected_result, description)
+        elif mock_route is None and test_path == "/some/path":
+            # Test when resolve returns no route
+            with patch("posthog.rate_limit.resolve") as mock_resolve:
+                mock_resolved = Mock()
+                mock_resolved.route = None
+                mock_resolve.return_value = mock_resolved
+
+                result = get_route_from_path(test_path)
+                self.assertEqual(result, expected_result, description)
+        elif mock_route is None:
+            # Test fallback pattern matching when resolve fails
+            with patch("posthog.rate_limit.resolve") as mock_resolve:
+                mock_resolve.side_effect = Exception("Route not found")
+
+                result = get_route_from_path(test_path)
+                self.assertEqual(result, expected_result, description)
+        else:
+            # Test Django route pattern normalization
+            with patch("posthog.rate_limit.resolve") as mock_resolve:
+                mock_resolved = Mock()
+                mock_resolved.route = mock_route
+                mock_resolve.return_value = mock_resolved
+
+                result = get_route_from_path(test_path)
+                self.assertEqual(result, expected_result, description)
+                mock_resolve.assert_called_once_with(test_path)
