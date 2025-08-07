@@ -20,7 +20,11 @@ class Command(BaseCommand):
         self.dry_run = options["dry_run"]
         self.batch_size = options["batch_size"]
 
-        self.failed_records = {"EventDefinition": [], "PropertyDefinition": [], "GroupTypeMapping": []}
+        self.failed_records: dict[str, list[int]] = {
+            "EventDefinition": [],
+            "PropertyDefinition": [],
+            "GroupTypeMapping": [],
+        }
 
         self.stdout.write(self.style.SUCCESS("Starting definition project_id alignment process"))
 
