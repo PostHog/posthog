@@ -100,8 +100,11 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .funnel-step-title {
                 font-weight: bold;
-
-                @extend %mixin-text-ellipsis;
+                max-width: calc(100% - 8px);
+                overflow: hidden;
+                word-wrap: break-word;
+                word-break: break-word;
+                white-space: normal;
             }
 
             button {
@@ -123,9 +126,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             position: relative;
             height: 100%;
             background: var(--color-accent);
-            transition:
-                width 0.2s ease,
-                height 0.2s ease;
+            transition: width 0.2s ease, height 0.2s ease;
 
             &.first {
                 border-radius: var(--radius) 0 0 4px;
