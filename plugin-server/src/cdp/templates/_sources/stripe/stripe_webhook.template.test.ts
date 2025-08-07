@@ -172,17 +172,12 @@ describe('stripe webhook template', () => {
 })
 
 const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
-    const endpointSecret = secret
-
     const payload = JSON.stringify({
         ...(body ? body : stripeWebhook),
     })
 
     const timestamp = Math.floor(Date.now() / 1000)
-    const signature = crypto
-        .createHmac('sha256', endpointSecret)
-        .update(`${timestamp}.${payload}`, 'utf8')
-        .digest('hex')
+    const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${payload}`, 'utf8').digest('hex')
 
     const sigHeader = `t=${timestamp},v1=${signature}`
 
