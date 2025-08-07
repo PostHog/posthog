@@ -1308,5 +1308,5 @@ def schedule_query_metadata_extract(sender, instance: Insight, created: bool, **
             "scheduled extract_insight_query_metadata",
             insight_id=instance.id,
             task_id=query_meta_task.id,
-            trigger="update_insight",
+            trigger="create_insight",
         )
