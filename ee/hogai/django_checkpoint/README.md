@@ -2,7 +2,7 @@
 
 ## Overview
 
-This folder contains a implementation for a LangGraph Checkpointer that integrates with Django models, allowing state models to change over time while maintaining backward compatibility with existing checkpoints stored in the database.
+This folder contains an implementation for a LangGraph Checkpointer that integrates with Django models, allowing state models to change over time while maintaining backward compatibility with existing checkpoints stored in the database.
 
 ## The Problem We're Solving
 
