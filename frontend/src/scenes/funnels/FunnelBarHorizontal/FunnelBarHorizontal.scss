@@ -102,8 +102,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 font-weight: bold;
                 max-width: calc(100% - 8px);
                 overflow: hidden;
-                word-wrap: break-word;
-                word-break: break-word;
+                overflow-wrap: break-word;
                 white-space: normal;
             }
 
