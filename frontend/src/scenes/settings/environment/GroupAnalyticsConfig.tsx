@@ -77,18 +77,16 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                             LemonDialog.open({
                                 title: 'Delete group type',
                                 description: (
-                                    <div className="mt-2">
-                                        Deleting a group type will not free up a slot out of the 5 group types per
-                                        project.
+                                    <div className="mt-2 w-150">
+                                        Deleting a group type makes it available for reuse, but group data will not be
+                                        deleted from existing events.
                                         <br />
                                         <br />
-                                        If a new event with the deleted group type is sent, the group type will be
-                                        recreated.
-                                        <br />
-                                        Make sure to clean up your event triggers before deleting the group type.
+                                        This means if a new event uses the deleted group type slot, any existing events
+                                        from the previous group will fall under the new definition.
                                         <br />
                                         <br />
-                                        Group data will not be deleted from existing events.
+                                        Make sure to update your event triggers before deleting the group type.
                                         <br />
                                         <br />
                                         For more information about groups, see{' '}
