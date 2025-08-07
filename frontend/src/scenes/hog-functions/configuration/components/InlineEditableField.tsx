@@ -47,7 +47,7 @@ export function InlineEditableField({ value, onChange, className, multiline }: I
             visible={isEditing}
             onVisibilityChange={(visible) => setIsEditing(visible)}
             overlay={
-                <div className="">
+                <div>
                     {multiline ? (
                         <LemonTextArea
                             value={editingValue}
