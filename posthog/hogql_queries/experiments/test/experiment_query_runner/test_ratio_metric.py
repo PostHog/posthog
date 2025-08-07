@@ -30,12 +30,12 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_basic_ratio_metric(self):
-        """Test basic ratio metric functionality with revenue per visitor"""
+        """Test basic ratio metric functionality with revenue per purchase event"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
 
-        # Create a ratio metric: total revenue / total visitors
+        # Create a ratio metric: total revenue / total purchase events
         metric = ExperimentRatioMetric(
             numerator=EventsNode(
                 event="purchase",
@@ -43,7 +43,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 math_property="amount",
             ),
             denominator=EventsNode(
-                event="pageview",
+                event="purchase",
                 math=ExperimentMetricMathType.TOTAL,
             ),
         )
@@ -59,7 +59,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        # Control group: 10 visitors, 6 make purchases totaling $60, 50 pageviews total
+        # Control group: 10 visitors, 6 make purchases with varying amounts
         for i in range(10):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
             _create_event(
@@ -74,27 +74,30 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 },
             )
 
-            # Each user views 5 pages
-            for j in range(5):
-                _create_event(
-                    team=self.team,
-                    event="pageview",
-                    distinct_id=f"user_control_{i}",
-                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
-                    properties={feature_flag_property: "control"},
-                )
-
             # First 6 users make purchases
             if i < 6:
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_control_{i}",
-                    timestamp="2020-01-02T12:06:00Z",
-                    properties={feature_flag_property: "control", "amount": 10},
-                )
+                # Some users make multiple purchases to test aggregation
+                if i < 3:
+                    # Users 0,1,2 make single purchases of $10 each
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_control_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: "control", "amount": 10},
+                    )
+                else:
+                    # Users 3,4,5 make two purchases each of $15
+                    for j in range(2):
+                        _create_event(
+                            team=self.team,
+                            event="purchase",
+                            distinct_id=f"user_control_{i}",
+                            timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                            properties={feature_flag_property: "control", "amount": 15},
+                        )
 
-        # Test group: 10 visitors, 8 make purchases totaling $120, 50 pageviews total
+        # Test group: 10 visitors, 8 make purchases with varying amounts
         for i in range(10):
             _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
             _create_event(
@@ -109,25 +112,27 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 },
             )
 
-            # Each user views 5 pages
-            for j in range(5):
-                _create_event(
-                    team=self.team,
-                    event="pageview",
-                    distinct_id=f"user_test_{i}",
-                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
-                    properties={feature_flag_property: "test"},
-                )
-
             # First 8 users make purchases
             if i < 8:
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_test_{i}",
-                    timestamp="2020-01-02T12:06:00Z",
-                    properties={feature_flag_property: "test", "amount": 15},
-                )
+                if i < 4:
+                    # Users 0,1,2,3 make single purchases of $20 each
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_test_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: "test", "amount": 20},
+                    )
+                else:
+                    # Users 4,5,6,7 make two purchases each of $10
+                    for j in range(2):
+                        _create_event(
+                            team=self.team,
+                            event="purchase",
+                            distinct_id=f"user_test_{i}",
+                            timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                            properties={feature_flag_property: "test", "amount": 10},
+                        )
 
         flush_persons_and_events()
 
@@ -141,17 +146,18 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        # Check main metric values (numerator)
-        self.assertEqual(control_variant.sum, 60)  # 6 purchases * $10
-        self.assertEqual(test_variant.sum, 120)    # 8 purchases * $15
+        # Check main metric values (numerator - total revenue)
+        self.assertEqual(control_variant.sum, 120)  # 3×$10 + 6×$15 = $30 + $90 = $120
+        self.assertEqual(test_variant.sum, 160)  # 4×$20 + 8×$10 = $80 + $80 = $160
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
-        # Check ratio-specific fields (denominator)
-        self.assertEqual(control_variant.denominator_sum, 50)  # 10 users * 5 pageviews
-        self.assertEqual(test_variant.denominator_sum, 50)    # 10 users * 5 pageviews
+        # Check ratio-specific fields (denominator - total purchase events)
+        self.assertEqual(control_variant.denominator_sum, 9)  # 3 + 6 = 9 purchase events
+        self.assertEqual(test_variant.denominator_sum, 12)  # 4 + 8 = 12 purchase events
 
-        # Check denominator sum squares (50^2 for control, 50^2 for test when aggregated by user)
+        # Check denominator sum squares and main-denominator sum product exist
+        # (specific values depend on how purchase events are aggregated per user)
         self.assertIsNotNone(control_variant.denominator_sum_squares)
         self.assertIsNotNone(test_variant.denominator_sum_squares)
 
@@ -215,15 +221,17 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
             # Add purchase events
             for i, amount in enumerate(purchase_amounts):
-                events.append({
-                    "event": "purchase",
-                    "timestamp": f"2024-01-02T12:0{2+i}:00",
-                    "properties": {
-                        ff_property: variant,
-                        "amount": amount,
-                        "$session_id": session_id,
-                    },
-                })
+                events.append(
+                    {
+                        "event": "purchase",
+                        "timestamp": f"2024-01-02T12:0{2+i}:00",
+                        "properties": {
+                            ff_property: variant,
+                            "amount": amount,
+                            "$session_id": session_id,
+                        },
+                    }
+                )
 
             return events
 
@@ -232,7 +240,6 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 # Control: 2 users, 2 sessions, average purchase amounts [20, 30] and [40]
                 "control_1": _create_events_for_user("control", "session_c1", [20, 30]),
                 "control_2": _create_events_for_user("control", "session_c2", [40]),
-
                 # Test: 2 users, 2 sessions, average purchase amounts [50, 60] and [80]
                 "test_1": _create_events_for_user("test", "session_t1", [50, 60]),
                 "test_2": _create_events_for_user("test", "session_t2", [80]),
@@ -298,8 +305,12 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         def _create_events_for_user(variant: str, within_window: bool) -> list[dict]:
             # Events within or outside conversion window
-            purchase_timestamp = "2024-01-02T12:30:00" if within_window else "2024-01-02T14:00:00"  # 30min vs 2h after exposure
-            pageview_timestamp = "2024-01-02T12:15:00" if within_window else "2024-01-02T13:30:00"  # 15min vs 1.5h after exposure
+            purchase_timestamp = (
+                "2024-01-02T12:30:00" if within_window else "2024-01-02T14:00:00"
+            )  # 30min vs 2h after exposure
+            pageview_timestamp = (
+                "2024-01-02T12:15:00" if within_window else "2024-01-02T13:30:00"
+            )  # 15min vs 1.5h after exposure
 
             return [
                 {
@@ -334,7 +345,6 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 "control_1": _create_events_for_user("control", within_window=True),
                 "control_2": _create_events_for_user("control", within_window=True),
                 "control_3": _create_events_for_user("control", within_window=False),  # Should be excluded
-
                 # Test: 3 users within window
                 "test_1": _create_events_for_user("test", within_window=True),
                 "test_2": _create_events_for_user("test", within_window=True),
@@ -358,7 +368,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         # Control: 2 purchases within window ($200), 2 pageviews within window
         self.assertEqual(control_variant.sum, 200)
         self.assertEqual(control_variant.number_of_samples, 3)  # All users are exposed
-        self.assertEqual(control_variant.denominator_sum, 2)    # Only 2 pageviews within window
+        self.assertEqual(control_variant.denominator_sum, 2)  # Only 2 pageviews within window
 
         # Test: 3 purchases within window ($300), 3 pageviews within window
         self.assertEqual(test_variant.sum, 300)
@@ -419,13 +429,15 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ]
 
             if include_special_event:
-                events.append({
-                    "event": "special_event",
-                    "timestamp": "2024-01-02T12:02:00",
-                    "properties": {
-                        ff_property: variant,
-                    },
-                })
+                events.append(
+                    {
+                        "event": "special_event",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: variant,
+                        },
+                    }
+                )
 
             return events
 
@@ -434,7 +446,6 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 # Control: purchases but no special_events (denominator = 0)
                 "control_1": _create_events_for_user("control", include_special_event=False),
                 "control_2": _create_events_for_user("control", include_special_event=False),
-
                 # Test: purchases and special_events
                 "test_1": _create_events_for_user("test", include_special_event=True),
                 "test_2": _create_events_for_user("test", include_special_event=True),
@@ -455,14 +466,14 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
 
         # Control: purchases exist, but no denominator events
-        self.assertEqual(control_variant.sum, 100)           # 2 * $50
+        self.assertEqual(control_variant.sum, 100)  # 2 * $50
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(control_variant.denominator_sum, 0)  # No special_events
 
         # Test: both numerator and denominator exist
-        self.assertEqual(test_variant.sum, 100)              # 2 * $50
+        self.assertEqual(test_variant.sum, 100)  # 2 * $50
         self.assertEqual(test_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.denominator_sum, 2)    # 2 special_events
+        self.assertEqual(test_variant.denominator_sum, 2)  # 2 special_events
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -511,37 +522,50 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ]
 
             for i, purchase in enumerate(purchases):
-                events.append({
-                    "event": "purchase",
-                    "timestamp": f"2024-01-02T12:0{i+1}:00",
-                    "properties": {
-                        ff_property: variant,
-                        "revenue": purchase["revenue"],
-                        "quantity": purchase["quantity"],
-                    },
-                })
+                events.append(
+                    {
+                        "event": "purchase",
+                        "timestamp": f"2024-01-02T12:0{i+1}:00",
+                        "properties": {
+                            ff_property: variant,
+                            "revenue": purchase["revenue"],
+                            "quantity": purchase["quantity"],
+                        },
+                    }
+                )
 
             return events
 
         journeys_for(
             {
                 # Control: Lower prices, higher quantities
-                "control_1": _create_events_for_user("control", [
-                    {"revenue": 10, "quantity": 5},  # $2 per unit
-                    {"revenue": 20, "quantity": 8},  # $2.5 per unit
-                ]),
-                "control_2": _create_events_for_user("control", [
-                    {"revenue": 30, "quantity": 10}, # $3 per unit
-                ]),
-
+                "control_1": _create_events_for_user(
+                    "control",
+                    [
+                        {"revenue": 10, "quantity": 5},  # $2 per unit
+                        {"revenue": 20, "quantity": 8},  # $2.5 per unit
+                    ],
+                ),
+                "control_2": _create_events_for_user(
+                    "control",
+                    [
+                        {"revenue": 30, "quantity": 10},  # $3 per unit
+                    ],
+                ),
                 # Test: Higher prices, lower quantities
-                "test_1": _create_events_for_user("test", [
-                    {"revenue": 50, "quantity": 5},  # $10 per unit
-                    {"revenue": 60, "quantity": 6},  # $10 per unit
-                ]),
-                "test_2": _create_events_for_user("test", [
-                    {"revenue": 80, "quantity": 8},  # $10 per unit
-                ]),
+                "test_1": _create_events_for_user(
+                    "test",
+                    [
+                        {"revenue": 50, "quantity": 5},  # $10 per unit
+                        {"revenue": 60, "quantity": 6},  # $10 per unit
+                    ],
+                ),
+                "test_2": _create_events_for_user(
+                    "test",
+                    [
+                        {"revenue": 80, "quantity": 8},  # $10 per unit
+                    ],
+                ),
             },
             self.team,
         )
@@ -559,11 +583,11 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
 
         # Control: total revenue = $60, total quantity = 23
-        self.assertEqual(control_variant.sum, 60)             # 10 + 20 + 30
+        self.assertEqual(control_variant.sum, 60)  # 10 + 20 + 30
         self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(control_variant.denominator_sum, 23) # 5 + 8 + 10
+        self.assertEqual(control_variant.denominator_sum, 23)  # 5 + 8 + 10
 
         # Test: total revenue = $190, total quantity = 19
-        self.assertEqual(test_variant.sum, 190)              # 50 + 60 + 80
+        self.assertEqual(test_variant.sum, 190)  # 50 + 60 + 80
         self.assertEqual(test_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.denominator_sum, 19)   # 5 + 6 + 8
+        self.assertEqual(test_variant.denominator_sum, 19)  # 5 + 6 + 8
