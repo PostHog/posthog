@@ -767,7 +767,7 @@ export class IngestionConsumer {
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
-                    key: preservePartitionLocality ? message.key ?? null : null,
+                    key: preservePartitionLocality ? (message.key ?? null) : null,
                     headers: parseKafkaHeaders(headers),
                 })
             })

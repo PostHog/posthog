@@ -167,7 +167,9 @@ class OrganizationInvite(UUIDModel):
                     "organization_id": self.organization_id,
                 }
             )
-        OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
+        OrganizationInvite.objects.filter(
+            organization=self.organization, target_email__iexact=self.target_email
+        ).delete()
 
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""

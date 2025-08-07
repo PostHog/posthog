@@ -66,10 +66,10 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
                         name: kind
                             ? `New ${capitalizeFirstLetter(kind)} source`
                             : pluginId
-                            ? 'New'
-                            : batchDestination
-                            ? `New ${batchDestination} destination`
-                            : `New ${parsedStage}`.trim(),
+                              ? 'New'
+                              : batchDestination
+                                ? `New ${batchDestination} destination`
+                                : `New ${parsedStage}`.trim(),
                     },
                 ]
             },

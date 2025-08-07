@@ -4,7 +4,7 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { getRelativeNextPath } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import posthog from 'posthog-js'
 import {
@@ -92,11 +92,18 @@ export const sceneLogic = kea<sceneLogicType>([
             method,
         }),
         // 3. Set the `scene` reducer
-        setScene: (scene: string, sceneKey: string | null, params: SceneParams, scrollToTop: boolean = false) => ({
+        setScene: (
+            scene: string,
+            sceneKey: string | null,
+            params: SceneParams,
+            scrollToTop: boolean = false,
+            loadedScene?: LoadedScene
+        ) => ({
             scene,
             sceneKey,
             params,
             scrollToTop,
+            loadedScene,
         }),
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
@@ -241,14 +248,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 return
             }
 
-            // Redirect to the scene's canonical pathname if needed
-            const currentPathname = router.values.location.pathname
-            const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
-            if (currentPathname !== canonicalPathname) {
-                router.actions.replace(canonicalPathname, router.values.searchParams, router.values.hashParams)
-                return
-            }
-
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
@@ -345,12 +344,12 @@ export const sceneLogic = kea<sceneLogicType>([
         loadScene: async ({ scene, sceneKey, params, method }, breakpoint) => {
             const clickedLink = method === 'PUSH'
             if (values.scene === scene) {
-                actions.setScene(scene, sceneKey, params, clickedLink)
+                actions.setScene(scene, sceneKey, params, clickedLink, values.loadedScenes[scene])
                 return
             }
 
             if (!props.scenes?.[scene]) {
-                actions.setScene(Scene.Error404, null, emptySceneParams, clickedLink)
+                actions.setScene(Scene.Error404, null, emptySceneParams, clickedLink, values.loadedScenes[scene])
                 return
             }
 
@@ -428,7 +427,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
             }
-            actions.setScene(scene, sceneKey, params, clickedLink || wasNotLoaded)
+            actions.setScene(scene, sceneKey, params, clickedLink || wasNotLoaded, loadedScene)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()

@@ -4,6 +4,7 @@ import { tryJsonParse } from 'lib/utils'
 
 import { hogFunctionConfigurationLogic, HogFunctionConfigurationLogicProps } from '../hogFunctionConfigurationLogic'
 import type { hogFunctionSourceWebhookTestLogicType } from './hogFunctionSourceWebhookTestLogicType'
+import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 export type HogFunctionSourceWebhookTestForm = {
     headers: string
@@ -68,10 +69,11 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
             submit: async (data) => {
                 actions.setTestResult(null)
 
-                const response = await fetch(`${window.location.origin}/public/webhooks/${props.id ?? 'unknown'}`, {
+                const response = await fetch(`${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`, {
                     method: 'POST',
                     headers: tryJsonParse(data.headers),
                     body: data.body,
+                    credentials: 'omit',
                 })
 
                 actions.setTestResult({
@@ -95,7 +97,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
 
                 return `curl -X POST ${headers} \\
   -d '${testInvocation.body}' \\
-  ${window.location.origin}/public/webhooks/${props.id ?? 'unknown'}`
+  ${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`
             },
         ],
     }),

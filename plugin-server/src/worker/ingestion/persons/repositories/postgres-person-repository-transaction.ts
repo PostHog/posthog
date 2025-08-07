@@ -9,7 +9,10 @@ import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
 export class PostgresPersonRepositoryTransaction implements PersonRepositoryTransaction {
-    constructor(private transaction: TransactionClient, private repository: RawPostgresPersonRepository) {}
+    constructor(
+        private transaction: TransactionClient,
+        private repository: RawPostgresPersonRepository
+    ) {}
 
     async createPerson(
         createdAt: DateTime,

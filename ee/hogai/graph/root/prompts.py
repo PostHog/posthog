@@ -86,6 +86,7 @@ Follow these guidelines when searching documentation:
 - Use this tool when users need step-by-step instructions
 - Use this tool when users ask about sdk integration or instrumentation
 - Use this tool when users ask about troubleshooting missing or unexpected data
+- Use this tool when users explain why they disabled session replay and need help turning it back on
 - If the documentation search doesn't provide enough information, acknowledge this and suggest alternative resources or ways to get help
 </posthog_documentation>
 
@@ -101,6 +102,7 @@ Follow these guidelines when searching insights:
 </insight_search>
 
 {{{ui_context}}}
+{{{billing_context}}}
 """.strip()
 )
 
@@ -226,4 +228,20 @@ Results:
 ```
 {{{query}}}
 ```
+""".strip()
+
+ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT = """
+<billing_context>
+If the user asks about billing, their subscription, their usage, or their spending, use the `retrieve_billing_information` tool to answer.
+You can use the information retrieved to check which PostHog products and add-ons the user has activated, how much they are spending, their usage history across all products in the last 30 days, as well as trials, spending limits, billing period, and more.
+If the user wants to reduce their spending, always call this tool to get suggestions on how to do so.
+If an insight shows zero data, it could mean either the query is looking at the wrong data or there was a temporary data collection issue. You can investigate potential dips in usage/captured data using the billing tool.
+</billing_context>
+""".strip()
+
+ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT = """
+<billing_context>
+The user does not have admin access to view detailed billing information. They would need to contact an organization admin for billing details.
+In case the user asks to debug problems that relate to billing, suggest them to contact an admin.
+</billing_context>
 """.strip()

@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Optional, TypeVar, Union
+from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -36,6 +36,10 @@ AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
+
+
+def merge(_: Any | None, right: Any | None) -> Any | None:
+    return right
 
 
 def add_and_merge_messages(
@@ -80,9 +84,6 @@ def add_and_merge_messages(
     return merged
 
 
-IntermediateStep = tuple[AgentAction, Optional[str]]
-
-
 def merge_retry_counts(left: int, right: int) -> int:
     """Merges two retry counts by taking the maximum value.
 
@@ -96,6 +97,8 @@ def merge_retry_counts(left: int, right: int) -> int:
     return max(left, right)
 
 
+IntermediateStep = tuple[AgentAction, Optional[str]]
+
 StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
@@ -104,7 +107,7 @@ class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
     @classmethod
-    def get_reset_state(cls: type[StateType]) -> StateType:
+    def get_reset_state(cls) -> Self:
         """Returns a new instance with all fields reset to their default values."""
         return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
@@ -137,7 +140,7 @@ class _SharedAssistantState(BaseState):
     A clarifying question asked during the onboarding process.
     """
 
-    memory_collection_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
+    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], merge] = Field(default=None)
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
@@ -197,6 +200,7 @@ class PartialAssistantState(_SharedAssistantState):
 class AssistantNodeName(StrEnum):
     START = START
     END = END
+    BILLING = "billing"
     MEMORY_INITIALIZER = "memory_initializer"
     MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
     MEMORY_ONBOARDING = "memory_onboarding"

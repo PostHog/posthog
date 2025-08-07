@@ -37,7 +37,9 @@ class TestProperty(BaseTest):
         self,
         property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
         team: Optional[Team] = None,
-        scope: Optional[Literal["event", "person", "group"]] = None,
+        scope: Optional[
+            Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
+        ] = None,
     ):
         return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
 
@@ -815,6 +817,29 @@ class TestProperty(BaseTest):
         self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
         self.assertEqual(compare_op_2.right.value, "test")
 
+    def test_revenue_analytics_property(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "revenue_analytics", "key": "product", "value": ["Product A"], "operator": "exact"},
+                scope="revenue_analytics",
+            ),
+            self._parse_expr("revenue_analytics_product.name = 'Product A'"),
+        )
+
+    def test_revenue_analytics_property_multiple_values(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "revenue_analytics",
+                    "key": "product",
+                    "value": ["Product A", "Product C"],
+                    "operator": "exact",
+                },
+                scope="revenue_analytics",
+            ),
+            self._parse_expr("revenue_analytics_product.name IN ('Product A', 'Product C')"),
+        )
+
     def test_property_to_expr_event_metadata(self):
         self.assertEqual(
             self._property_to_expr(
@@ -847,10 +872,17 @@ class TestProperty(BaseTest):
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"
         ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
 
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
+        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
         ) == self._parse_expr("person.$virt_initial_channel_type = 'Organic Search'")
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
+        ) == self._parse_expr("person.$virt_revenue = 100")
 
     def test_map_virtual_properties(self):
         assert map_virtual_properties(
@@ -859,6 +891,10 @@ class TestProperty(BaseTest):
         assert map_virtual_properties(ast.Field(chain=["properties", "$virt_initial_channel_type"])) == ast.Field(
             chain=["$virt_initial_channel_type"]
         )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", "$virt_revenue"])) == ast.Field(
+            chain=["person", "$virt_revenue"]
+        )
+
         assert map_virtual_properties(ast.Field(chain=["person", "properties", "other property"])) == ast.Field(
             chain=["person", "properties", "other property"]
         )

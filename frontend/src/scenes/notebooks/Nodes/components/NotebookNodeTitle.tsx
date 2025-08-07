@@ -15,7 +15,7 @@ export function NotebookNodeTitle(): JSX.Element {
 
     useEffect(() => {
         setNewValue(nodeAttributes.title ?? '')
-    }, [isEditingTitle])
+    }, [isEditingTitle]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const commitEdit = (): void => {
         updateAttributes({

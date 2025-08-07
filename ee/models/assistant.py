@@ -9,6 +9,8 @@ from posthog.models.utils import UUIDModel
 
 
 class Conversation(UUIDModel):
+    TITLE_MAX_LENGTH = 250
+
     class Meta:
         indexes = [
             models.Index(fields=["updated_at"]),
@@ -29,7 +31,7 @@ class Conversation(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
-    title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=250)
+    title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=TITLE_MAX_LENGTH)
 
 
 class ConversationCheckpoint(UUIDModel):

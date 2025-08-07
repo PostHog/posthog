@@ -500,6 +500,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             }
 
     def get_volume_buckets(self) -> list[datetime.datetime]:
+        if self.query.volumeResolution == 0:
+            return []
         total_ms = (self.date_to - self.date_from).total_seconds() * 1000
         bin_size = int(total_ms / self.query.volumeResolution)
         return [

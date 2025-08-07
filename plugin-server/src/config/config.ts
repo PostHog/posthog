@@ -8,7 +8,6 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-    KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
     KAFKA_LOG_ENTRIES,
 } from './kafka-topics'
 
@@ -22,15 +21,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
@@ -41,6 +40,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CASSANDRA_HOST: 'localhost',
         CASSANDRA_PORT: 9042,
         CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
+        CASSANDRA_LOCAL_DATACENTER: 'datacenter1',
         CASSANDRA_USER: null,
         CASSANDRA_PASSWORD: null,
         WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
@@ -99,7 +99,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -166,7 +165,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_DISABLED_TEMPORARY_TTL: 60 * 10, // 5 minutes
         CDP_WATCHER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_WATCHER_REFILL_RATE: 10,
+        CDP_WATCHER_STATE_LOCK_TTL: 60, // 1 minute
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
+        CDP_WATCHER_SEND_EVENTS: isProdEnv() ? false : true,
+        CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: 500,
+        CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: 500,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
@@ -185,10 +188,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
-        CDP_FETCH_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        CDP_FETCH_TIMEOUT_MS: 3000, // 3 seconds
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
+        CDP_OVERFLOW_QUEUE_ENABLED: false,
+        CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: isProdEnv() ? false : true, // For prod we primarily use overflow and some more manual control
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -239,7 +244,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
-        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '',
+        // in both the PostHog cloud environment and development
+        // we want this metadata switchover to be in blob ingestion v2 mode
+        // hobby installs will set this metadata value to a datetime
+        // since they may be running v1 and being upgraded
+        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '*',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

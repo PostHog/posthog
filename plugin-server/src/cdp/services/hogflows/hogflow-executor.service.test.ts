@@ -391,7 +391,7 @@ describe('Hogflow Executor', () => {
                     finished: boolean
                     scheduledAt?: DateTime
                     nextActionId: string
-                }
+                },
             ][] = [
                 [
                     'wait_until_condition',

@@ -338,7 +338,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             const currentScene = sceneLogic.findMounted()?.values

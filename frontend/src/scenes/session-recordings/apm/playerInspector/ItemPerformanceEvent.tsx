@@ -249,32 +249,35 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
     // NOTE: This is a bit of a quick-fix for the fact that each event has all values despite most not applying.
     // We should probably do a specific mapping depending on the event type to display it properly (and probably give an info indicator what it all means...)
 
-    const sanitizedProps = Object.entries(otherProps).reduce((acc, [key, value]) => {
-        if (value === 0 || value === '') {
-            return acc
-        }
+    const sanitizedProps = Object.entries(otherProps).reduce(
+        (acc, [key, value]) => {
+            if (value === 0 || value === '') {
+                return acc
+            }
 
-        if (
-            [
-                'response_headers',
-                'request_headers',
-                'request_body',
-                'response_body',
-                'response_status',
-                'raw',
-                'server_timings',
-            ].includes(key)
-        ) {
-            return acc
-        }
+            if (
+                [
+                    'response_headers',
+                    'request_headers',
+                    'request_body',
+                    'response_body',
+                    'response_status',
+                    'raw',
+                    'server_timings',
+                ].includes(key)
+            ) {
+                return acc
+            }
 
-        if (key.includes('time') || key.includes('end') || key.includes('start')) {
-            return acc
-        }
+            if (key.includes('time') || key.includes('end') || key.includes('start')) {
+                return acc
+            }
 
-        acc[key] = typeof value === 'number' ? Math.round(value) : value
-        return acc
-    }, {} as Record<string, any>)
+            acc[key] = typeof value === 'number' ? Math.round(value) : value
+            return acc
+        },
+        {} as Record<string, any>
+    )
 
     return (
         <div className="p-2 text-xs border-t font-light w-full">

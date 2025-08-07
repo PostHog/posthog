@@ -2,12 +2,12 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { ModifiedRequest } from '~/router'
+import { ModifiedRequest } from '~/api/router'
 
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
-import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
+import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
@@ -92,6 +92,7 @@ export class CdpApi {
         router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
+        router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/public/messaging/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
@@ -108,7 +109,7 @@ export class CdpApi {
         () =>
         async (req: express.Request, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.getState(id)
+            const summary = await this.hogWatcher.getPersistedState(id)
 
             res.json(summary)
         }
@@ -125,7 +126,7 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.getState(id)
+            const summary = await this.hogWatcher.getPersistedState(id)
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
             if (!hogFunction) {
@@ -142,7 +143,45 @@ export class CdpApi {
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.getState(id))
+            res.json(await this.hogWatcher.getPersistedState(id))
+        }
+
+    private getFunctionStates =
+        () =>
+        async (req: express.Request, res: express.Response): Promise<void> => {
+            try {
+                const allStates = await this.hogWatcher.getAllFunctionStates()
+
+                // Transform the data for better consumption by Grafana and sort by tokens ascending
+                const statesArray = Object.entries(allStates)
+                    .map(([functionId, state]) => ({
+                        function_id: functionId,
+                        state: HogWatcherState[state.state], // Convert numeric state to readable string
+                        tokens: state.tokens,
+                        state_numeric: state.state,
+                    }))
+                    .sort((a, b) => b.state_numeric - a.state_numeric)
+
+                const hogFunctions = await this.hogFunctionManager.getHogFunctions(
+                    statesArray.map((x) => x.function_id)
+                )
+
+                const results = statesArray.map((x) => ({
+                    ...x,
+                    function_name: hogFunctions[x.function_id]?.name,
+                    function_team_id: hogFunctions[x.function_id]?.team_id,
+                    function_type: hogFunctions[x.function_id]?.type,
+                    function_enabled: hogFunctions[x.function_id]?.enabled && !hogFunctions[x.function_id]?.deleted,
+                }))
+
+                res.json({
+                    results,
+                    total: results.length,
+                })
+            } catch (error) {
+                logger.error('[CdpApi] Error getting all function states', error)
+                res.status(500).json({ error: 'Failed to get function states' })
+            }
         }
 
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
@@ -464,6 +503,9 @@ export class CdpApi {
                     status: 'ok',
                 })
             } catch (error) {
+                if (error instanceof SourceWebhookError) {
+                    return res.status(error.status).json({ error: error.message })
+                }
                 return res.status(500).json({ error: 'Internal error' })
             }
         }

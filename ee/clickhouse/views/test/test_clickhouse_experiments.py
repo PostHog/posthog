@@ -3140,7 +3140,6 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                 "filters": {},
                 "stats_config": {
                     "method": "bayesian",
-                    "use_new_bayesian_method": True,
                 },
             },
         )
@@ -3152,4 +3151,3 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         # Verify stats_config is preserved with custom fields
         stats_config = response.json()["stats_config"]
         self.assertEqual(stats_config["method"], "bayesian")
-        self.assertEqual(stats_config["use_new_bayesian_method"], True)

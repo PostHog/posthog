@@ -38,6 +38,11 @@ import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { maxBillingContextLogic } from './maxBillingContextLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { getRandomThinkingMessage } from './utils/thinkingMessages'
+import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -89,6 +94,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
+            maxBillingContextLogic,
+            ['billingContext'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             maxLogic,
@@ -128,11 +137,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
+        selectCommand: (command: SlashCommand) => ({ command }),
+        activateCommand: (command: SlashCommand) => ({ command }),
     }),
 
     reducers(({ props }) => ({
         conversation: [
-            props.conversation ? removeConversationMessages(props.conversation) ?? null : null,
+            props.conversation ? (removeConversationMessages(props.conversation) ?? null) : null,
             {
                 setConversation: (_, { conversation }) => conversation,
             },
@@ -248,6 +259,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const traceId = uuid()
                 actions.setTraceId(traceId)
                 apiData.trace_id = traceId
+
+                if (values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
+                    apiData.billing_context = values.billingContext
+                }
 
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
@@ -455,6 +470,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }, 0)
             }
         },
+        selectCommand: ({ command }) => {
+            if (command.arg) {
+                actions.setQuestion(command.name + ' ')
+            } else {
+                actions.setQuestion(command.name)
+            }
+        },
+        activateCommand: ({ command }) => {
+            if (command.arg) {
+                actions.setQuestion(command.name + ' ') // Rest must be filled in by the user
+            } else {
+                actions.askMax(command.name)
+            }
+        },
     })),
 
     selectors({
@@ -505,7 +534,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
                     const thinkingMessage: ReasoningMessage & ThreadMessage = {
                         type: AssistantMessageType.Reasoning,
-                        content: 'Thinking',
+                        content: getRandomThinkingMessage(),
                         status: 'completed',
                         id: 'loader',
                     }
@@ -580,6 +609,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 return undefined
             },
+        ],
+
+        filteredCommands: [
+            (s) => [s.question],
+            (question): SlashCommand[] =>
+                MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
         ],
     }),
 

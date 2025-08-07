@@ -26,8 +26,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     const marketingAnalyticsContext: QueryContext = {
         ...webAnalyticsDataTableQueryContext,
         insightProps,
-        formatNumbers: true,
-        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove],
+        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
     }
 
     return (

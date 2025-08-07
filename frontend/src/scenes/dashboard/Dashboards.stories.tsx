@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -11,8 +10,10 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const dashboardRaw = require('./__mocks__/dashboard1.json')
+
 // Mark all tiles as cached to prevent refresh attempts in storybook
 const dashboard = {
     ...dashboardRaw,
@@ -112,18 +113,18 @@ export const List: Story = {}
 
 export const New = (): JSX.Element => {
     useAvailableFeatures([])
-    useEffect(() => {
+    useOnMountEffect(() => {
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
         dashboardTemplatesLogic.mount()
-    }, [])
+    })
 
     return <App />
 }
 
 export const NewSelectVariables = (): JSX.Element => {
     useAvailableFeatures([])
-    useEffect(() => {
+    useOnMountEffect(() => {
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
         newDashboardLogic.actions.setActiveDashboardTemplate({
@@ -174,7 +175,7 @@ export const NewSelectVariables = (): JSX.Element => {
             tags: [],
             image_url: 'https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png',
         })
-    }, [])
+    })
 
     return <App />
 }
@@ -186,13 +187,13 @@ export const Show: Story = {
 }
 
 export const Edit = (): JSX.Element => {
-    useEffect(() => {
+    useOnMountEffect(() => {
         dashboardLogic({ id: BASE_DASHBOARD_ID }).mount()
         dashboardLogic({ id: BASE_DASHBOARD_ID }).actions.setDashboardMode(
             DashboardMode.Edit,
             DashboardEventSource.Browser
         )
-    }, [])
+    })
 
     return <App />
 }

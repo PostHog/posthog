@@ -144,6 +144,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            selectFirstItem={!cohortOrOtherValue}
         />
     )
 
@@ -164,7 +165,7 @@ export function TaxonomicPropertyFilter({
                 if (filter?.key && filter?.type) {
                     setFilter(index, {
                         key: filter?.key,
-                        value: newValue || null,
+                        value: newValue === undefined ? null : newValue,
                         operator: newOperator,
                         type: filter?.type,
                         label: filter?.label,
@@ -188,15 +189,17 @@ export function TaxonomicPropertyFilter({
         filter?.type === 'cohort'
             ? filter.cohort_name || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
-            ? filter.label || `Group ${filter?.value}`
-            : filter?.key && (
-                  <PropertyKeyInfo
-                      value={filter.key}
-                      disablePopover
-                      ellipsis
-                      type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                  />
-              )
+              ? filter.label || `Group ${filter?.value}`
+              : filter?.type === PropertyFilterType.Flag && filter?.label
+                ? filter.label
+                : filter?.key && (
+                      <PropertyKeyInfo
+                          value={filter.key}
+                          disablePopover
+                          ellipsis
+                          type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                      />
+                  )
 
     return (
         <div

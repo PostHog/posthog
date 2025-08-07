@@ -1807,9 +1807,9 @@ describe('processResultsForSurveyQuestions', () => {
             ]
             // For multiple choice questions, the response at questionIndex is an array of selected choices
             const results: SurveyRawResults = [
-                [['A', 'B']], // User 1: picked A and B for question 0
-                [['A']], // User 2: picked A only for question 0
-                [['C', 'Custom']], // User 3: picked C and a custom answer for question 0
+                [['A', 'B'], '', 'user1', '2024-01-15T10:00:00Z'], // User 1: picked A and B for question 0
+                [['A'], '', 'user2', '2024-01-15T10:15:00Z'], // User 2: picked A only for question 0
+                [['C', 'Custom'], '', 'user3', '2024-01-15T10:30:00Z'], // User 3: picked C and a custom answer for question 0
             ]
 
             const processed = processResultsForSurveyQuestions(questions, results)
@@ -1820,10 +1820,38 @@ describe('processResultsForSurveyQuestions', () => {
 
             // Check that data exists for each choice
             const dataMap = new Map(multiData.data.map((item) => [item.label, item]))
-            expect(dataMap.get('A')).toEqual({ label: 'A', value: 2, isPredefined: true })
-            expect(dataMap.get('B')).toEqual({ label: 'B', value: 1, isPredefined: true })
-            expect(dataMap.get('C')).toEqual({ label: 'C', value: 1, isPredefined: true })
-            expect(dataMap.get('Custom')).toEqual({ label: 'Custom', value: 1, isPredefined: false })
+            expect(dataMap.get('A')).toEqual({
+                label: 'A',
+                value: 2,
+                isPredefined: true,
+                distinctId: 'user1',
+                personProperties: undefined,
+                timestamp: '2024-01-15T10:00:00Z',
+            })
+            expect(dataMap.get('B')).toEqual({
+                label: 'B',
+                value: 1,
+                isPredefined: true,
+                distinctId: 'user1',
+                personProperties: undefined,
+                timestamp: '2024-01-15T10:00:00Z',
+            })
+            expect(dataMap.get('C')).toEqual({
+                label: 'C',
+                value: 1,
+                isPredefined: true,
+                distinctId: 'user3',
+                personProperties: undefined,
+                timestamp: '2024-01-15T10:30:00Z',
+            })
+            expect(dataMap.get('Custom')).toEqual({
+                label: 'Custom',
+                value: 1,
+                isPredefined: false,
+                distinctId: 'user3',
+                personProperties: undefined,
+                timestamp: '2024-01-15T10:30:00Z',
+            })
         })
     })
 
@@ -1837,9 +1865,9 @@ describe('processResultsForSurveyQuestions', () => {
                 },
             ]
             const results = [
-                ['Great product!', '{"name": "John"}', 'user123'], // User 1: response, person props, distinct_id
-                ['Could be better', null, 'user456'], // User 2: response, no person props, distinct_id
-                ['', null, 'user789'], // User 3: empty response (should be ignored)
+                ['Great product!', '{"name": "John"}', 'user123', '2024-01-15T10:30:00Z'], // User 1: response, person props, distinct_id, timestamp
+                ['Could be better', null, 'user456', '2024-01-15T11:45:00Z'], // User 2: response, no person props, distinct_id, timestamp
+                ['', null, 'user789', '2024-01-15T12:00:00Z'], // User 3: empty response (should be ignored)
             ] as Array<Array<string | string[]>>
 
             const processed = processResultsForSurveyQuestions(questions, results)
@@ -1853,11 +1881,13 @@ describe('processResultsForSurveyQuestions', () => {
                 distinctId: 'user123',
                 response: 'Great product!',
                 personProperties: { name: 'John' },
+                timestamp: '2024-01-15T10:30:00Z',
             })
             expect(openData.data[1]).toEqual({
                 distinctId: 'user456',
                 response: 'Could be better',
                 personProperties: undefined,
+                timestamp: '2024-01-15T11:45:00Z',
             })
         })
     })

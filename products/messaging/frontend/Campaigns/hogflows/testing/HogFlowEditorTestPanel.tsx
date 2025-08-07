@@ -116,15 +116,15 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
                                 testResult.status === 'success'
                                     ? 'success'
                                     : testResult.status === 'skipped'
-                                    ? 'warning'
-                                    : 'error'
+                                      ? 'warning'
+                                      : 'error'
                             }
                         >
                             {testResult.status === 'success'
                                 ? 'Success'
                                 : testResult.status === 'skipped'
-                                ? 'Workflow was skipped because the event did not match the filter criteria'
-                                : 'Error'}
+                                  ? 'Workflow was skipped because the event did not match the filter criteria'
+                                  : 'Error'}
                         </LemonBanner>
 
                         <div className="flex flex-col gap-2">

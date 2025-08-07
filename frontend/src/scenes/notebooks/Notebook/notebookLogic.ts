@@ -21,13 +21,19 @@ import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentTy
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
 import type { notebookLogicType } from './notebookLogicType'
-// NOTE: Annoyingly, if we import this then kea logic type-gen generates
-// two imports and fails so, we reimport it from a utils file
 import { notebookSettingsLogic } from './notebookSettingsLogic'
-import { TableOfContentData } from '@tiptap/extension-table-of-contents'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
-import { NotebookTarget, NotebookNodeType, NotebookEditor, NotebookType, NotebookSyncStatus } from '../types'
+// NOTE: Annoyingly, if we import this then kea logic type-gen generates
+// two imports and fails so, we reimport it from the types file
+import {
+    NotebookTarget,
+    NotebookNodeType,
+    NotebookEditor,
+    NotebookType,
+    NotebookSyncStatus,
+    TableOfContentData,
+} from '../types'
 
 const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
@@ -346,8 +352,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         values.mode === 'canvas'
                             ? 'Canvas'
                             : values.notebook?.short_id === 'scratchpad'
-                            ? 'Scratchpad'
-                            : 'Template'
+                              ? 'Scratchpad'
+                              : 'Template'
                     lemonToast.success(`Notebook created from ${source}!`)
 
                     if (values.notebook?.short_id === 'scratchpad') {
@@ -447,7 +453,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         nodeLogicsWithChildren: [
             (s) => [s.nodeLogics, s.content],
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            // oxlint-disable-next-line @typescript-eslint/no-unused-vars
             (nodeLogics, _content) => {
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
                 return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)

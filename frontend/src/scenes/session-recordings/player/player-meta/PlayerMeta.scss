@@ -8,13 +8,15 @@
     .PlayerMetaPersonProperties {
         padding: 0.5rem;
         overflow: auto;
-        background: var(--bg-primary);
+        background: var(--color-bg-primary);
         border-bottom: 1px solid transparent;
     }
 
     &:not(.PlayerMeta--fullscreen) {
         .PlayerMetaPersonProperties {
-            transition: 200ms height ease-out, 200ms border-bottom-color ease-out;
+            transition:
+                200ms height ease-out,
+                200ms border-bottom-color ease-out;
 
             &--enter {
                 height: 0;
@@ -23,12 +25,12 @@
             &--enter-active,
             &--enter-done {
                 height: 14rem;
-                border-bottom-color: var(--border-primary);
+                border-bottom-color: var(--color-border-primary);
             }
 
             &--exit {
                 height: 14rem;
-                border-bottom-color: var(--border-primary);
+                border-bottom-color: var(--color-border-primary);
             }
 
             &--exit-active {
@@ -52,7 +54,7 @@
             z-index: 1;
             width: 100%;
             max-width: 40rem;
-            border-right: 1px solid var(--border-primary);
+            border-right: 1px solid var(--color-border-primary);
             transition: 200ms transform ease-out;
 
             &--enter {
@@ -78,7 +80,7 @@
         color: var(--text-3000);
 
         &:hover {
-            color: var(--accent);
+            color: var(--color-accent);
         }
     }
 }
