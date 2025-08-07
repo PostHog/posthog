@@ -1491,7 +1491,7 @@ class FeatureFlagViewSet(
         )
 
     @action(
-        methods=["GET", "POST"],
+        methods=["GET"],
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
