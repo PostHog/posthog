@@ -5,14 +5,13 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import React, { PropsWithChildren, useEffect, useRef, useState } from 'react'
+import React, { PropsWithChildren, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
+import { SceneTabs } from '~/layout/scenes/SceneTabs'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { SceneTabs } from '~/layout/scenes/SceneTabs'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -90,39 +89,9 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setSceneContainerRef, setForceScenePanelClosedWhenRelative } =
         useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs, scenePanelIsRelative } = useValues(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs, scenePanelIsRelative, sceneContainerRect } =
+        useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
-    const [outerRight, setOuterRight] = useState<number>(0)
-
-    useOnMountEffect(() => {
-        const updateOuterRight = (): void => {
-            if (sceneLayoutContainer.current) {
-                setOuterRight(sceneLayoutContainer.current.getBoundingClientRect().right)
-            }
-        }
-
-        // Update on mount
-        updateOuterRight()
-
-        // Watch for window resize
-        window.addEventListener('resize', updateOuterRight)
-
-        // Watch for container size changes
-        let resizeObserver: ResizeObserver | null = null
-        if (sceneLayoutContainer.current) {
-            resizeObserver = new ResizeObserver(() => {
-                updateOuterRight()
-            })
-            resizeObserver.observe(sceneLayoutContainer.current)
-        }
-
-        return () => {
-            window.removeEventListener('resize', updateOuterRight)
-            if (resizeObserver) {
-                resizeObserver.disconnect()
-            }
-        }
-    })
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -137,7 +106,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             ref={sceneLayoutContainer}
             style={
                 {
-                    '--scene-layout-outer-right': outerRight + 'px',
+                    '--scene-layout-rect-right': sceneContainerRect?.right + 'px',
                 } as React.CSSProperties
             }
         >
@@ -176,7 +145,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width))] bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
+                                'scene-layout__content-panel order-2 fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width))] bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
                                 {
                                     hidden: !scenePanelOpen,
                                 }

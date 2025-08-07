@@ -136,7 +136,7 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
-    const { setSceneWidth } = useActions(sceneLayoutLogic)
+    const { setSceneContainerRect } = useActions(sceneLayoutLogic)
     const { sceneContainerRef } = useValues(sceneLayoutLogic)
 
     useEffect(() => {
@@ -149,9 +149,9 @@ export function SidePanel(): JSX.Element | null {
     // Trigger scene width recalculation when SidePanel size changes
     useEffect(() => {
         if (sceneContainerRef?.current) {
-            setSceneWidth(sceneContainerRef.current.offsetWidth)
+            setSceneContainerRect(sceneContainerRef.current.getBoundingClientRect())
         }
-    }, [desiredSize, sidePanelOpen, setSceneWidth, sceneContainerRef])
+    }, [desiredSize, sidePanelOpen, setSceneContainerRect, sceneContainerRef])
 
     if (!visibleTabs.length) {
         return null
