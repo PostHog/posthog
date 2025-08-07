@@ -166,18 +166,18 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                                 : setScenePanelOpen(false)
                                         }
                                         tooltip={
-                                            scenePanelIsRelative
-                                                ? 'Force close info panel'
-                                                : scenePanelOpen
-                                                  ? 'Close info panel'
-                                                  : 'Open info panel'
+                                            !scenePanelOpen
+                                                ? 'Open info panel'
+                                                : scenePanelIsRelative
+                                                  ? 'Force close info panel'
+                                                  : 'Close info panel'
                                         }
                                         aria-label={
-                                            scenePanelIsRelative
-                                                ? 'Force close info panel'
-                                                : scenePanelOpen
-                                                  ? 'Close info panel'
-                                                  : 'Open info panel'
+                                            !scenePanelOpen
+                                                ? 'Open info panel'
+                                                : scenePanelIsRelative
+                                                  ? 'Force close info panel'
+                                                  : 'Close info panel'
                                         }
                                     >
                                         <IconX className="size-4" />
