@@ -138,7 +138,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     def test_autocomplete_lazy_join(self):
         query = "select pdi. from events"
         results = self._select(query=query, start=11, end=11)
-        assert len(results.suggestions) == 4
+        assert len(results.suggestions) == 5
 
     def test_autocomplete_virtual_table(self):
         query = "select poe. from events"
