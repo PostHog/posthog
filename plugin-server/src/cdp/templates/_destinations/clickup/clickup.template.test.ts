@@ -38,7 +38,7 @@ describe('clickup template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"name":"test-name","description":"test-description","assignees":["test-assignee-id"],"tags":null,"due_date":null,"status":"to do","priority":"3"}",
+              "body": "{"name":"test-name","description":"test-description","assignees":["test-assignee-id"],"status":"to do","priority":"3"}",
               "headers": {
                 "Authorization": "Bearer test-access-token",
                 "Content-Type": "application/json",
