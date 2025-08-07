@@ -80,7 +80,6 @@ from posthog.models.activity_logging.activity_log import log_activity, Detail
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 
-USE_BLOB_V2_LTS = "use-blob-v2-lts"
 MAX_RECORDINGS_PER_BULK_ACTION = 20
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
@@ -299,6 +298,9 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
     # need to ignore type here because mypy is being weird
     source = serializers.CharField(required=False, allow_null=True)  # type: ignore
     blob_v2 = serializers.BooleanField(default=False, help_text="Whether to enable v2 blob functionality")
+    blob_v2_lts = serializers.BooleanField(
+        required=False, default=False, help_text="Whether to enable v2 blob functionality for LTS recordings"
+    )
     blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
 
     # v2
@@ -893,6 +895,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response({"success": True})
 
+    @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
     @action(
         methods=["GET"],
@@ -934,26 +937,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         source_log_label = source or "listing"
 
         is_v2_enabled: bool = validated_data.get("blob_v2", False)
-        user_distinct_id: str = str(cast(User, request.user).distinct_id) if isinstance(request.user, User) else "anon"
-        is_v2_lts_enabled: bool = (
-            posthoganalytics.feature_enabled(
-                USE_BLOB_V2_LTS,
-                user_distinct_id,
-                groups={
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team_id),
-                },
-                group_properties={
-                    "organization": {
-                        "id": str(self.team.organization_id),
-                    },
-                    "project": {
-                        "id": str(self.team_id),
-                    },
-                },
-            )
-            or False
-        )
+        is_v2_lts_enabled: bool = validated_data.get("blob_v2_lts", False)
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 

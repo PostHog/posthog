@@ -91,7 +91,7 @@ export function ConversationMessagesDisplay({
         ) : undefined
 
     const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--color-bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
                 <JSONViewer src={output} collapsed={4} />
@@ -123,7 +123,7 @@ export function ConversationMessagesDisplay({
             />
         ))
     ) : (
-        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
+        <div className="rounded border text-default p-2 italic bg-[var(--color-bg-fill-error-tertiary)]">No output</div>
     )
 
     const inputDisplay =
@@ -210,10 +210,48 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage
+            content: string | { type: string; content: string } | VercelSDKImageMessage | object[]
         ): JSX.Element | null => {
             if (!content) {
                 return null
+            }
+
+            // Handle array-based content
+            if (Array.isArray(content)) {
+                return (
+                    <>
+                        {content.map((item, index) => (
+                            <React.Fragment key={index}>
+                                {typeof item === 'string' ? (
+                                    <span className="whitespace-pre-wrap">{item}</span>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'text' &&
+                                  'text' in item ? (
+                                    <span className="whitespace-pre-wrap">{item.text}</span>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'image' &&
+                                  'image' in item &&
+                                  typeof item.image === 'string' ? (
+                                    <ImageMessageDisplay
+                                        message={{
+                                            content: {
+                                                type: 'image',
+                                                image: item.image,
+                                            },
+                                        }}
+                                    />
+                                ) : (
+                                    <JSONViewer src={item} name={null} collapsed={5} />
+                                )}
+                                {index < content.length - 1 && <div className="border-t my-2" />}
+                            </React.Fragment>
+                        ))}
+                    </>
+                )
             }
             const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
 
@@ -280,11 +318,11 @@ export const LLMMessageDisplay = React.memo(
                 className={clsx(
                     'rounded border text-default',
                     isOutput
-                        ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
+                        ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                          ? 'bg-[var(--bg-fill-tertiary)]'
+                          ? 'bg-[var(--color-bg-fill-tertiary)]'
                           : role === 'assistant'
-                            ? 'bg-[var(--bg-fill-info-tertiary)]'
+                            ? 'bg-[var(--color-bg-fill-info-tertiary)]'
                             : null
                 )}
             >

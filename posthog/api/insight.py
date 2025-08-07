@@ -429,7 +429,13 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
         # schedule the insight query metadata extraction
-        extract_insight_query_metadata.delay(insight_id=insight.id)
+        query_meta_task = extract_insight_query_metadata.delay(insight_id=insight.id)
+        logger.warn(
+            "scheduled extract_insight_query_metadata",
+            insight_id=insight.id,
+            task_id=query_meta_task.id,
+            trigger="create_insight",
+        )
 
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
@@ -503,7 +509,13 @@ class InsightSerializer(InsightBasicSerializer):
         self.user_permissions.reset_insights_dashboard_cached_results()
 
         if not before_update or before_update.query != updated_insight.query:
-            extract_insight_query_metadata.delay(insight_id=updated_insight.id)
+            query_meta_task = extract_insight_query_metadata.delay(insight_id=updated_insight.id)
+            logger.warn(
+                "scheduled extract_insight_query_metadata",
+                insight_id=updated_insight.id,
+                task_id=query_meta_task.id,
+                trigger="update_insight",
+            )
 
         return updated_insight
 

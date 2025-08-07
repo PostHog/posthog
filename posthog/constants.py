@@ -16,7 +16,8 @@ class AvailableFeature(StrEnum):
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    ADVANCED_PERMISSIONS = "advanced_permissions"
+    ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
+    ACCESS_CONTROL = "access_control"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
@@ -307,6 +308,7 @@ class FlagRequestType(StrEnum):
 
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
