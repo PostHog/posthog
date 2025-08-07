@@ -84,7 +84,7 @@ postHogCapture({
         {
             type: 'string',
             key: 'signing_secret',
-            label: 'Signing secet',
+            label: 'Signing secret',
             required: false,
             secret: true,
             hidden: false,
