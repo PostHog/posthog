@@ -22,7 +22,14 @@ class MarketingWebAnalysisViewSet(viewsets.ViewSet):
         """Generate streaming response."""
         executor = GraphExecutor()
 
-        yield from executor.execute_with_streaming(data)
+        # Convert QueryDict to regular dict with single values
+        processed_data = {}
+        for key, value in data.items():
+            # QueryDict.items() returns (key, value) where value is a list
+            # We want the first (and usually only) value
+            processed_data[key] = value if isinstance(value, str) else value[0] if value else ""
+
+        yield from executor.execute_with_streaming(processed_data)
 
     @action(detail=False, methods=["GET"])
     def competitor_analysis(self, request: Request) -> StreamingHttpResponse:
