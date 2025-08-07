@@ -3548,3 +3548,89 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         variable_data = response_data["query"]["source"]["variables"][variable_id]
         self.assertEqual(variable_data["code_name"], "test_var")
         self.assertEqual(variable_data["variableId"], variable_id)
+
+    def test_list_insights_with_short_id_includes_all_if_admin(self) -> None:
+        """
+        Test that when listing insights with short_id parameter, organization admins can see all insights
+        regardless of access controls, but regular users are still filtered by access controls.
+        """
+        from ee.models.rbac.access_control import AccessControl
+        from posthog.models.organization import OrganizationMembership
+
+        # Create insights with different access levels
+        filter_dict = {"events": [{"id": "$pageview"}]}
+
+        # Create an insight that will be blocked for regular users
+        blocked_insight_short_id = "block123"
+        blocked_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id=blocked_insight_short_id,
+            name="Blocked Insight",
+        )
+
+        # Create an insight that will be accessible
+        accessible_insight_short_id = "access_456"
+        accessible_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id=accessible_insight_short_id,
+            name="Accessible Insight",
+        )
+
+        # Create access control that blocks the first insight for regular users
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(blocked_insight.id),
+            access_level="none",
+        )
+
+        # Test 1: Regular user should not see blocked insight in regular list
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        insight_ids = [insight["id"] for insight in results]
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
+
+        # Test 2: Regular user should not see blocked insight even with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 0)  # Should be filtered out
+
+        # Test 3: Regular user should see accessible insight with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+
+        # Test 4: Organization admin should see all insights regardless of access controls
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Admin should see only accessible insight in regular list
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        insight_ids = [insight["id"] for insight in results]
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
+
+        # Admin should see blocked insight with short_id (include_all_if_admin=True)
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], blocked_insight.id)
+        self.assertEqual(results[0]["short_id"], blocked_insight_short_id)
+
+        # Admin should see accessible insight with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+        self.assertEqual(results[0]["short_id"], accessible_insight_short_id)
