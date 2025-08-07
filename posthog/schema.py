@@ -4805,11 +4805,21 @@ class TrendsQueryResponse(BaseModel):
     )
 
 
+class WebAnalyticsExternalSummaryQueryResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    previous: Optional[float] = None
+    value: Optional[float] = None
+
+
 class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    data: dict[str, Any]
+    data: dict[str, WebAnalyticsExternalSummaryQueryResponseItem]
     error: Optional[ExternalQueryError] = None
     status: ExternalQueryStatus
 
