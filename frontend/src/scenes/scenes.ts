@@ -66,6 +66,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/blog/introducing-notebooks',
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
+    [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
     [Scene.Dashboard]: {
         projectBased: true,
