@@ -68,8 +68,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
     actions({
         addEvent: (eventName: string, revenueCurrency: CurrencyCode) => ({ eventName, revenueCurrency }),
         deleteEvent: (eventName: string) => ({ eventName }),
-        updateEventRevenueProperty: (eventName: string, property: string) => ({ eventName, property }),
-        updateEventProductProperty: (eventName: string, property: string) => ({ eventName, property }),
+
         updateEventCouponProperty: (eventName: string, property: string) => ({ eventName, property }),
         updateEventCurrencyProperty: (eventName: string, property: RevenueCurrencyPropertyConfig) => ({
             eventName,
@@ -79,6 +78,9 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             eventName,
             property,
         }),
+        updateEventProductProperty: (eventName: string, property: string) => ({ eventName, property }),
+        updateEventRevenueProperty: (eventName: string, property: string) => ({ eventName, property }),
+        updateEventSubscriptionProperty: (eventName: string, property: string) => ({ eventName, property }),
 
         addGoal: (goal: RevenueAnalyticsGoal) => ({ goal }),
         deleteGoal: (index: number) => ({ index }),
@@ -130,6 +132,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 updateEventCurrencyProperty: updateStatePropertyBuilder('revenueCurrencyProperty'),
                 updateEventProductProperty: updateStatePropertyBuilder('productProperty'),
                 updateEventRevenueProperty: updateStatePropertyBuilder('revenueProperty'),
+                updateEventSubscriptionProperty: updateStatePropertyBuilder('subscriptionProperty'),
 
                 addGoal: (state: RevenueAnalyticsConfig | null, { goal }) => {
                     if (!state) {
