@@ -50,76 +50,83 @@ def stripe_source(
             api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=5
         )
         default_params = {"limit": DEFAULT_LIMIT}
-        resources: dict[str, StripeResource] = {
-            ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
-            BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
-            CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
-            CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
-            DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
-            INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
-            INVOICE_RESOURCE_NAME: StripeResource(
-                method=lambda params: InvoiceListWithAllLines(client, params, logger)  # type: ignore
-            ),
-            PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
-            PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
-            PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
-            REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
-            SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
-            CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        resourceMap: dict[str, list[StripeResource]] = {
+            ACCOUNT_RESOURCE_NAME: [StripeResource(method=client.accounts.list)],
+            BALANCE_TRANSACTION_RESOURCE_NAME: [StripeResource(method=client.balance_transactions.list)],
+            CHARGE_RESOURCE_NAME: [StripeResource(method=client.charges.list)],
+            CUSTOMER_RESOURCE_NAME: [StripeResource(method=client.customers.list)],
+            DISPUTE_RESOURCE_NAME: [StripeResource(method=client.disputes.list)],
+            INVOICE_ITEM_RESOURCE_NAME: [StripeResource(method=client.invoice_items.list)],
+            INVOICE_RESOURCE_NAME: [
+                StripeResource(
+                    method=lambda params: InvoiceListWithAllLines(client, params, logger)  # type: ignore
+                )
+            ],
+            PAYOUT_RESOURCE_NAME: [StripeResource(method=client.payouts.list)],
+            PRICE_RESOURCE_NAME: [
+                StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
+                StripeResource(method=client.prices.list, params={"expand[]": "data.tiers", "active": False}),
+            ],
+            PRODUCT_RESOURCE_NAME: [StripeResource(method=client.products.list)],
+            REFUND_RESOURCE_NAME: [StripeResource(method=client.refunds.list)],
+            SUBSCRIPTION_RESOURCE_NAME: [StripeResource(method=client.subscriptions.list, params={"status": "all"})],
+            CREDIT_NOTE_RESOURCE_NAME: [StripeResource(method=client.credit_notes.list)],
         }
 
-        resource = resources.get(endpoint, None)
-        if not resource:
-            raise Exception(f"Stripe endpoint does not exist: {endpoint}")
+        resources = resourceMap.get(endpoint, None)
 
-        logger.debug(f"Stripe: reading from resource {resource}")
+        for resource in resources:
+            if not resource:
+                raise Exception(f"Stripe endpoint does not exist: {endpoint}")
 
-        # Get the incremental field name for this endpoint
-        incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
-        incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
+            logger.debug(f"Stripe: reading from resource {resource}")
 
-        if not should_use_incremental_field or (
-            db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
-        ):
-            logger.debug(f"Stripe: iterating all objects from resource")
+            # Get the incremental field name for this endpoint
+            incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+            incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
-            stripe_objects = resource.method(params={**default_params, **resource.params})
-            yield from stripe_objects.auto_paging_iter()
-            return
+            if not should_use_incremental_field or (
+                db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
+            ):
+                logger.debug(f"Stripe: iterating all objects from resource")
 
-        # check for any objects less than the minimum object we already have
-        if db_incremental_field_earliest_value is not None:
-            logger.debug(
-                f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
-            )
+                stripe_objects = resource.method(params={**default_params, **resource.params})
+                yield from stripe_objects.auto_paging_iter()
+                return
 
-            stripe_objects = resource.method(
-                params={
-                    **default_params,
-                    **resource.params,
-                    f"created[lt]": db_incremental_field_earliest_value,
-                }
-            )
-            yield from stripe_objects.auto_paging_iter()
+            # check for any objects less than the minimum object we already have
+            if db_incremental_field_earliest_value is not None:
+                logger.debug(
+                    f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
+                )
 
-        # check for any objects more than the maximum object we already have
-        if db_incremental_field_last_value is not None:
-            logger.debug(
-                f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}"
-            )
+                stripe_objects = resource.method(
+                    params={
+                        **default_params,
+                        **resource.params,
+                        f"created[lt]": db_incremental_field_earliest_value,
+                    }
+                )
+                yield from stripe_objects.auto_paging_iter()
 
-            stripe_objects = resource.method(
-                params={
-                    **default_params,
-                    **resource.params,
-                    f"created[gt]": db_incremental_field_last_value,
-                }
-            )
-            for obj in stripe_objects.auto_paging_iter():
-                if obj[incremental_field_name] <= db_incremental_field_last_value:
-                    break
+            # check for any objects more than the maximum object we already have
+            if db_incremental_field_last_value is not None:
+                logger.debug(
+                    f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}"
+                )
 
-                yield obj
+                stripe_objects = resource.method(
+                    params={
+                        **default_params,
+                        **resource.params,
+                        f"created[gt]": db_incremental_field_last_value,
+                    }
+                )
+                for obj in stripe_objects.auto_paging_iter():
+                    if obj[incremental_field_name] <= db_incremental_field_last_value:
+                        break
+
+                    yield obj
 
     column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
