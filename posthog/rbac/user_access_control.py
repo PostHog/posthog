@@ -497,7 +497,9 @@ class UserAccessControl:
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
         """
-        if resource == "organization" or resource == "project":
+
+        # These are resources which we don't have resource level access controls for
+        if resource == "organization" or resource == "project" or resource == "plugin":
             return default_access_level(resource)
 
         org_membership = self._organization_membership
