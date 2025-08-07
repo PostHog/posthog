@@ -278,8 +278,10 @@ class TestTaxonomyAgentToolsNode(BaseTest):
             state.output = {"result": "test"}
             state.intermediate_steps = [(AgentAction("final_answer", {}, ""), None)]
         elif scenario == "ask_user_for_help":
+            state.output = "I need more information to proceed."
             state.intermediate_steps = [(AgentAction("ask_user_for_help", {}, ""), None)]
         elif scenario == "max_iterations":
+            state.output = "MAX_ITERATIONS"
             state.intermediate_steps = [(AgentAction("max_iterations", {}, ""), None)]
         elif scenario == "normal_tool":
             state.intermediate_steps = [(AgentAction("normal_tool", {}, ""), "result")]
