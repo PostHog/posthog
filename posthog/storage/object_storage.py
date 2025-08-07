@@ -155,7 +155,7 @@ class ObjectStorage(ObjectStorageClient):
             else:
                 capture_exception(
                     Exception("object_storage.no_contents_found_list_objects_in_bucket"),
-                    extra={"bucket": bucket, "prefix": prefix},
+                    {"bucket": bucket, "prefix": prefix},
                 )
                 logger.info("object_storage.no_contents_found_list_objects_in_bucket", bucket=bucket, prefix=prefix)
                 return None
