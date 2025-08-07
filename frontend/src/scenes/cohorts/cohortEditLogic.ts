@@ -11,6 +11,7 @@ import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
     cleanCriteria,
+    createCohortDataNodeLogicKey,
     createCohortFormData,
     isCohortCriteriaGroup,
     validateGroup,
@@ -34,6 +35,7 @@ import {
 } from '~/types'
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
@@ -267,6 +269,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    if (cohort.id !== 'new') {
+                        const mountedDataNodeLogic = dataNodeLogic.findMounted({
+                            key: createCohortDataNodeLogicKey(cohort.id),
+                        })
+                        mountedDataNodeLogic?.actions.loadData('force_blocking')
+                    }
                     return processCohort(cohort)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {
