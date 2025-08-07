@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Person, SessionRecording, User, PersonalAPIKey
+from posthog.models.comment import Comment
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, uuid7
@@ -2129,3 +2130,90 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Should only delete 2 viewed records
         assert response_data["not_viewed_count"] == 2
         assert response_data["total_requested"] == 3
+
+    @parameterized.expand(
+        [
+            ("no_match", "xyz123", []),
+            ("exact_match", "needle", ["session_with_needle"]),
+            ("partial_match", "need", ["session_with_needle", "session_with_need"]),
+            ("case_insensitive", "NEEDLE", ["session_with_needle"]),
+            ("phrase_match", "bug fix", ["session_with_bug"]),
+            ("emoji_match", "💖", ["session_with_emoji"]),
+            ("emoji_not_match", "😱", []),
+        ]
+    )
+    def test_comment_text_search(self, _name: str, search_text: str, expected_session_ids: list[str]) -> None:
+        session_no_comment = str(uuid7())
+        session_with_needle = "session_with_needle"
+        session_with_bug = "session_with_bug"
+        session_with_emoji = "session_with_emoji"
+        session_with_need = "session_with_need"
+
+        base_time = now() - timedelta(hours=1)
+
+        [
+            self.produce_replay_summary(
+                distinct_id=f"user{i}",
+                session_id=x,
+                timestamp=base_time + timedelta(minutes=i * 10),
+            )
+            for i, x in enumerate(
+                [session_no_comment, session_with_needle, session_with_bug, session_with_emoji, session_with_need]
+            )
+        ]
+
+        Comment.objects.create(
+            team=self.team,
+            content="This comment contains the word needle for searching",
+            scope="recording",
+            item_id=session_with_needle,
+            created_by=self.user,
+        )
+        Comment.objects.create(
+            team=self.team,
+            content="This comment contains the word need for searching",
+            scope="recording",
+            item_id=session_with_need,
+            created_by=self.user,
+        )
+        Comment.objects.create(
+            team=self.team,
+            content="Fixed the bug fix issue in the login form",
+            scope="recording",
+            item_id=session_with_bug,
+            created_by=self.user,
+        )
+        Comment.objects.create(
+            team=self.team,
+            content="Some unrelated content here",
+            scope="recording",
+            item_id=str(uuid7()),
+            created_by=self.user,
+        )
+        Comment.objects.create(
+            team=self.team,
+            content="heart eyes 💖",
+            scope="recording",
+            item_id=str(uuid7()),
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings",
+            {
+                "kind": "RecordingsQuery",
+                "order": "start_time",
+                "order_direction": "DESC",
+                "date_from": "-3d",
+                "comment_text": search_text,
+                "limit": "20",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        actual_session_ids = [recording["id"] for recording in response_data["results"]]
+
+        assert set(actual_session_ids) == set(
+            expected_session_ids
+        ), f"Search '{search_text}': Expected {expected_session_ids}, got {actual_session_ids}"

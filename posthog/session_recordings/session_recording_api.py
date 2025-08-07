@@ -146,7 +146,7 @@ def _get_session_ids_from_comment_search(team: Team, comment_text: str) -> list[
             # TODO: discussions created `Replay` and comments create `recording`
             # TODO: that's an unnecessary distinction but we'll ignore it for now
             scope__in=["recording"],
-            content__search=comment_text,  # Case-insensitive contains search
+            content__icontains=comment_text,
         )
         .exclude(deleted=True)
         .values_list("item_id", flat=True)
