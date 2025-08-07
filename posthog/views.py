@@ -385,6 +385,10 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
 
         for pref in preferences:
             category_id, opted_in = pref.split(":")
+
+            if opted_in not in ["true", "false"]:
+                return JsonResponse({"error": "Preference values must be 'true' or 'false'"}, status=400)
+
             status = PreferenceStatus.OPTED_IN if opted_in == "true" else PreferenceStatus.OPTED_OUT
             preferences_dict[category_id] = status.value
 
