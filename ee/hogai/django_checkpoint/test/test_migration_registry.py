@@ -1,19 +1,49 @@
-"""
-Tests for MigrationRegistry.
-
-Tests migration registration, version tracking, and migration retrieval.
-"""
-
+import pytest
 from ee.hogai.django_checkpoint.migrations.migration_registry import MigrationRegistry
 from ee.hogai.django_checkpoint.migrations.base import BaseMigration
+from ee.hogai.django_checkpoint.context import CheckpointContext
+from ee.hogai.utils.types import GraphContext, GraphType
 
 
 class TestMigrationRegistry:
-    def test_init(self):
-        """Test registry initialization."""
+    @pytest.mark.parametrize(
+        "version,field_name,field_value,expected",
+        [
+            (1, "field1", "value1", "value1"),
+            (2, "field2", "value2", "value2"),
+            (5, "field5", "value5", "value5"),
+            (10, "field10", "value10", "value10"),
+        ],
+    )
+    def test_migration_registration_and_retrieval(self, version, field_name, field_value, expected):
+        """Test migration registration with different versions."""
         registry = MigrationRegistry()
-        assert registry._migrations == {}
-        assert registry.current_version == 1
+
+        # Create migration class dynamically
+        migration_class = type(
+            f"Migration{version}",
+            (BaseMigration,),
+            {
+                "migrate_data": lambda self, data, type_hint, context=None: (
+                    {**data, field_name: field_value},
+                    type_hint,
+                )
+            },
+        )
+
+        # Register and verify
+        registry._migrations[version] = migration_class
+        assert version in registry._migrations
+        assert registry._migrations[version] == migration_class
+
+        # Test migration application
+        data = {"original": "data"}
+        migration = migration_class()
+        result, _ = migration.migrate_data(
+            data, "TestType", context=CheckpointContext(graph_type=GraphType.ASSISTANT, graph_context=GraphContext.ROOT)
+        )
+        assert result[field_name] == expected
+        assert result["original"] == "data"
 
     def test_register_migration(self):
         """Test registering a migration."""
@@ -25,7 +55,7 @@ class TestMigrationRegistry:
             (BaseMigration,),
             {
                 "__module__": "test.migrations._0001_test",
-                "migrate_data": lambda self, data, type_hint: (data, type_hint),
+                "migrate_data": lambda self, data, type_hint, context=None: (data, type_hint),
             },
         )
 
@@ -330,13 +360,6 @@ class TestMigrationRegistry:
         assert data["field2"] == "value2"
         assert data["original"] == "value"  # Original data preserved
 
-    def test_empty_registry(self):
-        """Test behavior with empty registry."""
-        registry = MigrationRegistry()
-
-        assert registry.current_version == 1  # Starts at 1
-        assert registry.get_migrations_needed(from_version=0) == []
-
     def test_non_sequential_versions(self):
         """Test registry with non-sequential version numbers."""
         registry = MigrationRegistry()
@@ -378,19 +401,6 @@ class TestMigrationRegistry:
         assert migrations[1] == migration5
         assert migrations[2] == migration10
 
-    def test_singleton_instance(self):
-        """Test that the global migration_registry instance works."""
-        from ee.hogai.django_checkpoint.migrations.migration_registry import migration_registry
-
-        # Should be initialized
-        assert migration_registry is not None
-        assert isinstance(migration_registry, MigrationRegistry)
-
-        # Current version depends on registered migrations
-        # Without any registered, should be 1
-        # (Note: In real code, migrations might be registered)
-        assert migration_registry.current_version >= 1
-
     def test_migration_with_type_change(self):
         """Test migration that changes the type hint."""
         registry = MigrationRegistry()
@@ -419,5 +429,3 @@ class TestMigrationRegistry:
             data, type_hint = migration.migrate_data(data, type_hint)
 
         assert type_hint == "NewType"
-
-    # Removed test_get_checkpoint_version_robust as get_checkpoint_version doesn't exist

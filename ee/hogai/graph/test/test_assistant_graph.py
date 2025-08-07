@@ -2,7 +2,7 @@ from langchain_core.runnables import RunnableLambda
 from langgraph.checkpoint.memory import InMemorySaver
 
 from ee.hogai.graph.graph import BaseAssistantGraph
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, GraphContext, GraphType, PartialAssistantState
 from posthog.test.base import BaseTest
 
 
@@ -13,7 +13,9 @@ class TestAssistantGraph(BaseTest):
         async def runnable(state: AssistantState) -> PartialAssistantState:
             return PartialAssistantState(start_id=None)
 
-        graph = BaseAssistantGraph(self.team, self.user, state_type=AssistantState)
+        graph = BaseAssistantGraph(
+            self.team, self.user, state_type=AssistantState, graph_type=GraphType.INSIGHTS, context=GraphContext.ROOT
+        )
         compiled_graph = (
             graph.add_node(AssistantNodeName.ROOT, RunnableLambda(runnable))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)

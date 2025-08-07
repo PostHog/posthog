@@ -668,7 +668,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         assert loaded == complex_data
 
     @pytest.mark.asyncio
-    async def test_put_writes_with_new_serializer(self):
+    async def test_put_writes(self):
         """Test put_writes uses the new serializer."""
         checkpointer = DjangoCheckpointer()
 

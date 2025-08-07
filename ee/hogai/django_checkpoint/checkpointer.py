@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q
 from langchain_core.runnables import RunnableConfig
@@ -17,8 +18,8 @@ from langgraph.checkpoint.base import (
     PendingWrite,
     get_checkpoint_id,
 )
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from ee.hogai.django_checkpoint.serializer import CheckpointSerializer, CheckpointContext
+from ee.hogai.django_checkpoint.serializer import CheckpointSerializer
+from ee.hogai.django_checkpoint.context import CheckpointContext
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
@@ -28,18 +29,27 @@ logger = logging.getLogger(__name__)
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
-    jsonplus_serde = JsonPlusSerializer()
+    _context: Optional[CheckpointContext] = None
 
-    def __init__(self, context: CheckpointContext, *args, **kwargs):
+    def __init__(self, context: Optional[CheckpointContext] = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._context = context
 
-    def _get_context(self, checkpoint: ConversationCheckpoint) -> CheckpointContext:
-        return CheckpointContext(
-            graph_type=self._context.graph_type,
-            graph_context=self._context.graph_context,
-            thread_id=checkpoint.thread_id,
-            thread_type=checkpoint.thread.type,
+        if not settings.TEST and not context:
+            raise ValueError("Context is required")
+
+        self._context = context
+        self.serde = CheckpointSerializer(context=context)
+
+    def _get_context(self, checkpoint: ConversationCheckpoint) -> Optional[CheckpointContext]:
+        return (
+            CheckpointContext(
+                graph_type=self._context.graph_type,
+                graph_context=self._context.graph_context,
+                thread_id=str(checkpoint.thread_id),
+                thread_type=checkpoint.thread.type,
+            )
+            if self._context
+            else None
         )
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
@@ -58,10 +68,10 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         )
 
     def _load_json(self, obj: Any):
-        return self.jsonplus_serde.loads(self.jsonplus_serde.dumps(obj))
+        return self.serde.loads(self.serde.dumps(obj))
 
     def _dump_json(self, obj: Any) -> dict[str, Any]:
-        serialized_metadata = self.jsonplus_serde.dumps(obj)
+        serialized_metadata = self.serde.dumps(obj)
         # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
         nulls_removed = serialized_metadata.decode().replace("\\u0000", "")
         return json.loads(nulls_removed)
@@ -145,9 +155,12 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             qs = qs[:limit]
 
         async for checkpoint in qs:
-            channel_values = self._get_checkpoint_channel_values(checkpoint)
+            channel_values_qs = self._get_checkpoint_channel_values(checkpoint)
             loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
             serde = CheckpointSerializer(context=self._get_context(checkpoint))
+
+            # Track if any migration happened
+            any_migration = False
 
             pending_sends = (
                 [
@@ -158,18 +171,26 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 if checkpoint.parent_checkpoint
                 else []
             )
+            any_migration = any_migration or serde.was_migrated
 
-            channel_values = (
-                {
-                    checkpoint_blob.channel: serde.loads_typed((checkpoint_blob.type, checkpoint_blob.blob))
-                    async for checkpoint_blob in channel_values
-                    if checkpoint_blob.type is not None
-                    and checkpoint_blob.type != "empty"
-                    and checkpoint_blob.blob is not None
-                }
-                if channel_values is not None
-                else {}
-            )
+            channel_values = {}
+            if channel_values_qs is not None:
+                async for checkpoint_blob in channel_values_qs:
+                    if (
+                        checkpoint_blob.type is not None
+                        and checkpoint_blob.type != "empty"
+                        and checkpoint_blob.blob is not None
+                    ):
+                        loaded_value = serde.loads_typed((checkpoint_blob.type, checkpoint_blob.blob))
+                        if serde.was_migrated:
+                            any_migration = True
+                            # Update the blob with migrated data
+                            await self._update_checkpoint_blob(checkpoint_blob, loaded_value, serde)
+                        channel_values[checkpoint_blob.channel] = loaded_value
+
+            # If checkpoint data itself was migrated, update it
+            if any_migration and checkpoint.checkpoint:
+                await self._update_checkpoint_data(checkpoint, loaded_checkpoint)
 
             checkpoint_dict: Checkpoint = {
                 **loaded_checkpoint,
@@ -280,7 +301,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
             blobs = []
             for channel, version in new_versions.items():
-                type, blob = (
+                type_str, blob = (
                     serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
                 )
                 blobs.append(
@@ -289,7 +310,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                         thread_id=thread_id,
                         channel=channel,
                         version=str(version),
-                        type=type,
+                        type=type_str,
                         blob=blob,
                     )
                 )
@@ -339,14 +360,14 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
             writes_to_create = []
             for idx, (channel, value) in enumerate(writes):
-                type, blob = serde.dumps_typed(value)
+                type_str, blob = serde.dumps_typed(value)
                 writes_to_create.append(
                     ConversationCheckpointWrite(
                         checkpoint=checkpoint,
                         task_id=task_id,
                         idx=idx,
                         channel=channel,
-                        type=type,
+                        type=type_str,
                         blob=blob,
                     )
                 )
@@ -357,6 +378,20 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 unique_fields=["checkpoint", "task_id", "idx"],
                 update_fields=["channel", "type", "blob"],
             )
+
+    async def _update_checkpoint_blob(
+        self, blob: ConversationCheckpointBlob, value: Any, serde: CheckpointSerializer
+    ) -> None:
+        """Update a checkpoint blob with migrated data."""
+        type_str, new_blob = serde.dumps_typed(value)
+        blob.type = type_str
+        blob.blob = new_blob
+        await blob.asave(update_fields=["type", "blob"])
+
+    async def _update_checkpoint_data(self, checkpoint: ConversationCheckpoint, data: Checkpoint) -> None:
+        """Update checkpoint data after migration."""
+        checkpoint.checkpoint = self._dump_json(data)
+        await checkpoint.asave(update_fields=["checkpoint"])
 
     def get_next_version(self, current: Optional[str | int], channel: ChannelProtocol) -> str:
         if current is None:

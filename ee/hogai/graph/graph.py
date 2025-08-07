@@ -45,7 +45,7 @@ class BaseAssistantGraph(Generic[StateType]):
     _team: Team
     _user: User
     _graph: StateGraph
-    _context: CheckpointContext
+    _checkpoint_context: CheckpointContext
 
     def __init__(
         self, team: Team, user: User, state_type: type[StateType], graph_type: GraphType, context: GraphContext
@@ -72,7 +72,7 @@ class BaseAssistantGraph(Generic[StateType]):
             raise ValueError("Start node not added to the graph")
 
         if not checkpointer:
-            checkpointer = DjangoCheckpointer(context=self._context)
+            checkpointer = DjangoCheckpointer(context=self._checkpoint_context)
 
         return self._graph.compile(checkpointer=checkpointer)
 

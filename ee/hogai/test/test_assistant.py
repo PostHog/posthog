@@ -17,7 +17,6 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
@@ -107,11 +106,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ).start()
 
-        self.checkpointer_patch = patch("ee.hogai.graph.graph.global_checkpointer", new=DjangoCheckpointer())
-        self.checkpointer_patch.start()
-
     def tearDown(self):
-        self.checkpointer_patch.stop()
         self.azure_client_mock.stop()
         self.embed_query_mock.stop()
         super().tearDown()
@@ -1631,7 +1626,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 AssistantToolCallMessage(
                     content="The results indicate a great future for you.",
                     tool_call_id="xyz",
-                    ui_payload={"create_and_query_insight": query.model_dump()},
+                    ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                     visible=False,
                 ),
             ),
@@ -1657,7 +1652,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantToolCallMessage(
                 content="The results indicate a great future for you.",
                 tool_call_id="xyz",
-                ui_payload={"create_and_query_insight": query.model_dump()},
+                ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                 visible=False,
             ),
             AssistantMessage(content="Everything is fine"),

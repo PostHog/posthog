@@ -1,8 +1,8 @@
-from typing import Any
+from typing import Any, Optional
 import logging
 
 from ee.hogai.django_checkpoint.migrations.base import BaseMigration
-from ee.hogai.django_checkpoint.serializer import CheckpointContext
+from ee.hogai.django_checkpoint.context import CheckpointContext
 from ee.hogai.utils.types import GraphContext
 
 logger = logging.getLogger(__name__)
@@ -14,9 +14,9 @@ class Migration0001(BaseMigration):
     """
 
     def migrate_data(
-        self, data: dict[str, Any], type_hint: str, context: CheckpointContext
+        self, data: dict[str, Any], type_hint: str, context: Optional[CheckpointContext] = None
     ) -> tuple[dict[str, Any], str]:
-        if type_hint == "AssistantState" and context.graph_context == GraphContext.ROOT:
+        if type_hint == "AssistantState" and context and context.graph_context == GraphContext.ROOT:
             if data.get("foo") is None:
                 data["foo"] = "bar"
 

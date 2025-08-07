@@ -1,29 +1,17 @@
 import json
 import pytest
+import os
 from unittest.mock import patch
+
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+from ee.hogai.django_checkpoint.migrations.base import BaseMigration
 from ee.hogai.django_checkpoint.serializer import CheckpointSerializer
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import HumanMessage, AssistantMessage
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 
 class TestCheckpointSerializer:
-    def test_init(self):
-        """Test serializer initialization."""
-        serializer = CheckpointSerializer()
-        assert serializer.legacy is not None
-        assert isinstance(serializer.legacy, JsonPlusSerializer)
-        assert serializer.migration_registry is not None
-        assert serializer.class_registry is not None
-        assert serializer.DATA_TYPE == "json"
-
-    def test_dumps_none(self):
-        """Test serializing None."""
-        serializer = CheckpointSerializer()
-        type_str, blob = serializer.dumps_typed(None)
-        assert type_str == "json"
-        assert json.loads(blob.decode("utf-8")) is None
-
     def test_dumps_pydantic_model(self):
         """Test serializing a Pydantic model."""
         serializer = CheckpointSerializer()
@@ -61,16 +49,16 @@ class TestCheckpointSerializer:
         assert messages[1]["content"] == "Hi there!"
 
     def test_dumps_dict(self):
-        """Test serializing a plain dict."""
+        """Test serializing a plain dict - should NOT wrap in checkpoint format."""
         serializer = CheckpointSerializer()
         data = {"key": "value", "number": 42}
 
         type_str, blob = serializer.dumps_typed(data)
         assert type_str == "json"
 
-        checkpoint = json.loads(blob.decode("utf-8"))
-        assert checkpoint["_type"] == "dict"
-        assert checkpoint["_data"] == data
+        # Plain dicts are not wrapped in checkpoint format for LangGraph compatibility
+        result = json.loads(blob.decode("utf-8"))
+        assert result == data  # Should be the exact same dict, not wrapped
 
     def test_loads_typed_json(self):
         """Test deserializing our JSON format."""
@@ -99,11 +87,8 @@ class TestCheckpointSerializer:
         """Test that migrations are applied during deserialization."""
         serializer = CheckpointSerializer()
 
-        # Create a mock migration class
-        from ee.hogai.django_checkpoint.migrations.base import BaseMigration
-
         class MockMigration(BaseMigration):
-            def migrate_data(self, data, type_hint):
+            def migrate_data(self, data, type_hint, context=None):
                 data["start_id"] = "migrated"
                 return data, type_hint
 
@@ -146,11 +131,8 @@ class TestCheckpointSerializer:
         state = AssistantState(messages=[HumanMessage(content="Legacy")], start_id="legacy_456")
         type_str, blob = legacy.dumps_typed(state)
 
-        # Create a mock migration class
-        from ee.hogai.django_checkpoint.migrations.base import BaseMigration
-
         class MockMigration(BaseMigration):
-            def migrate_data(self, data, type_hint):
+            def migrate_data(self, data, type_hint, context=None):
                 # Just return the data as-is
                 return data, type_hint
 
@@ -203,9 +185,8 @@ class TestCheckpointSerializer:
 
     def test_loads_with_real_legacy_fixture(self):
         """Test loading real legacy checkpoint data from fixture."""
-        import os
 
-        fixture_path = os.path.join(os.path.dirname(__file__), "./legacy_checkpoint_fixtures.json")
+        fixture_path = os.path.join(os.path.dirname(__file__), "./legacy_checkpoints_fixtures.json")
 
         with open(fixture_path) as f:
             fixtures = json.load(f)

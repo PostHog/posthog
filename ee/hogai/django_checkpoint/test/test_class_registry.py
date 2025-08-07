@@ -1,10 +1,4 @@
-"""
-Tests for ClassRegistry.
-
-Tests auto-discovery, class construction, and nested object handling.
-"""
-
-from ee.hogai.django_checkpoint.class_registry import ClassRegistry, class_registry
+from ee.hogai.django_checkpoint.class_registry import ClassRegistry
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import HumanMessage, AssistantMessage
 from pydantic import BaseModel
@@ -131,17 +125,6 @@ class TestClassRegistry:
         assert isinstance(result, PartialAssistantState)
         assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantMessage)
-
-    def test_singleton_instance(self):
-        """Test that the global class_registry instance works."""
-        # This uses the actual global instance
-
-        # Should be able to construct known classes
-        data = {"_type": "HumanMessage", "content": "Test global", "type": "human"}
-
-        result = class_registry.construct("HumanMessage", data)
-        assert isinstance(result, HumanMessage)
-        assert result.content == "Test global"
 
     def test_handles_missing_type_field(self):
         """Test handling data without _type field."""

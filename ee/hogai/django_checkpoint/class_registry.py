@@ -3,6 +3,7 @@ from typing import Any, Optional
 from pydantic import BaseModel
 import importlib
 import inspect
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -13,17 +14,89 @@ class ClassRegistry:
     """
 
     _cache: dict[str, type[BaseModel]] = {}
-    _modules_to_scan = [
-        "ee.hogai.utils.types",  # All state types
-        "posthog.schema",  # All message types
-    ]
 
     def __init__(self):
-        for module_name in self._modules_to_scan:
+        # Scan all types.py files in ee.hogai
+        self._scan_hogai_types()
+
+        # Also scan posthog.schema for message types
+        self._scan_module("posthog.schema")
+
+        # Register langchain Pydantic classes that might be serialized
+        self._register_langchain_classes()
+
+    def _scan_hogai_types(self):
+        """Scan all types.py files within ee/hogai directory tree."""
+
+        # Get the ee/hogai directory path
+        ee_hogai_path = os.path.join(os.path.dirname(__file__), "..", "..")
+        ee_hogai_path = os.path.abspath(ee_hogai_path)
+
+        # Walk through all directories in ee/hogai
+        for root, _, files in os.walk(ee_hogai_path):
+            if "types.py" in files:
+                # Convert file path to module path
+                rel_path = os.path.relpath(root, os.path.dirname(ee_hogai_path))
+                module_path = rel_path.replace(os.sep, ".") + ".types"
+
+                # Skip test directories
+                if "test" in module_path:
+                    continue
+
+                try:
+                    self._scan_module(module_path)
+                except Exception as e:
+                    logger.warning(f"Could not scan {module_path}: {e}")
+
+    def _scan_module(self, module_name: str):
+        """Scan a module for Pydantic BaseModel classes."""
+        try:
             module = importlib.import_module(module_name)
             for name, obj in inspect.getmembers(module):
                 if inspect.isclass(obj) and issubclass(obj, BaseModel):
-                    self._cache[name] = obj
+                    # Only register if not already present
+                    if name not in self._cache:
+                        self._cache[name] = obj
+        except ImportError as e:
+            logger.warning(f"Could not import module {module_name}: {e}")
+
+    def _register_langchain_classes(self):
+        """Automatically register all Pydantic classes from langchain modules."""
+
+        # List of langchain modules that commonly contain Pydantic models
+        langchain_modules = [
+            "langchain_core.agents",
+            "langchain_core.messages",
+            "langchain_core.outputs",
+            "langchain_core.documents",
+            "langchain_core.prompt_values",
+            "langchain_core.tools",
+            "langchain_core.callbacks",
+            "langchain_core.chat_history",
+        ]
+
+        for module_name in langchain_modules:
+            try:
+                module = importlib.import_module(module_name)
+                # Scan all members of the module
+                for name, obj in inspect.getmembers(module):
+                    # Register if it's a Pydantic BaseModel class (not an instance)
+                    if (
+                        inspect.isclass(obj)
+                        and issubclass(obj, BaseModel)
+                        and obj.__module__.startswith("langchain")  # Only langchain classes
+                        and not name.startswith("_")
+                    ):  # Skip private classes
+                        # Use the simple class name as key (e.g., "AIMessage" not "langchain_core.messages.AIMessage")
+                        class_name = obj.__name__
+                        if class_name not in self._cache:
+                            self._cache[class_name] = obj
+
+            except ImportError:
+                # Module not available, skip it
+                continue
+            except Exception as e:
+                logger.warning(f"Could not scan langchain module {module_name}: {e}")
 
     def get_class(self, class_name: str) -> Optional[type[BaseModel]]:
         """

@@ -6,9 +6,9 @@ This makes them simple, synchronous, and testable.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
-from ee.hogai.django_checkpoint.serializer import CheckpointContext
+from ee.hogai.django_checkpoint.context import CheckpointContext
 
 
 class BaseMigration(ABC):
@@ -21,7 +21,7 @@ class BaseMigration(ABC):
 
     @abstractmethod
     def migrate_data(
-        self, data: dict[str, Any], type_hint: str, context: CheckpointContext
+        self, data: dict[str, Any], type_hint: str, context: Optional[CheckpointContext] = None
     ) -> tuple[dict[str, Any], str]:
         """
         Apply the migration to a data dictionary.
@@ -37,6 +37,7 @@ class BaseMigration(ABC):
             data: The data dictionary to migrate
             type_hint: The type hint (e.g., "AssistantState", "PartialAssistantState")
                       to help determine if migration applies
+            context: The context of the checkpoint
 
         Returns:
             Tuple of (migrated_data, new_type_hint)
