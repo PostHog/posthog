@@ -10,7 +10,7 @@ import backoff
 import pytest
 from asgiref.sync import async_to_sync, sync_to_async
 from dagster_pipes import PipesContext, open_dagster_pipes
-from fastavro import parse_schema, reader
+from fastavro import reader
 from pydantic_avro import AvroBase
 
 from ee.hogai.eval.schema import (
@@ -79,8 +79,8 @@ class SnapshotLoader:
         return BytesIO(content)
 
     def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T, None, None]:
-        avro_schema = parse_schema(schema.avro_schema())
-        for record in reader(buffer, avro_schema):
+        buffer.seek(0)
+        for record in reader(buffer):
             yield schema.model_validate(record)
 
     async def _load_project_snapshot(self, project: Project, team_id: int, buffer: BytesIO) -> Team:
