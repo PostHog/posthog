@@ -65,15 +65,26 @@ export class PlaywrightSetup {
 
         try {
             const response = await this.request.post(url, { data })
-            const result: TestSetupResponse = await response.json()
+
+            const responseText = await response.text()
+
+            let result: TestSetupResponse
+            try {
+                result = JSON.parse(responseText)
+            } catch (parseError) {
+                console.error(`[PlaywrightSetup] Failed to parse response as JSON:`, parseError)
+                throw new Error(`Invalid JSON response from setup endpoint: ${responseText}`)
+            }
 
             if (!response.ok() && throwOnError) {
+                console.error(`[PlaywrightSetup] Setup failed - Status: ${response.status()}, Result:`, result)
                 throw new Error(`Playwright setup failed for '${setupType}': ${result.error || 'Unknown error'}`)
             }
 
             return result
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error)
+            console.error(`[PlaywrightSetup] Setup endpoint error:`, errorMessage)
 
             if (throwOnError) {
                 throw new Error(`Failed to call setup endpoint: ${errorMessage}`)
@@ -102,10 +113,23 @@ export class PlaywrightSetup {
         })
 
         if (!result.success) {
+            console.error(`[PlaywrightSetup] Workspace creation failed:`, result)
             throw new Error(`Failed to create workspace: ${result.error}`)
         }
 
-        return result.result as PostHogWorkspace
+        const workspace = result.result as PostHogWorkspace
+
+        // Validate required fields
+        const requiredFields = ['organizationId', 'projectId', 'teamId', 'personalApiKey']
+        const missingFields = requiredFields.filter((field) => !workspace[field as keyof PostHogWorkspace])
+
+        if (missingFields.length > 0) {
+            console.error(`[PlaywrightSetup] Workspace missing required fields:`, missingFields)
+            console.error(`[PlaywrightSetup] Full workspace object:`, workspace)
+            throw new Error(`Workspace creation returned incomplete data. Missing fields: ${missingFields.join(', ')}`)
+        }
+
+        return workspace
     }
 
     /**
