@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'beta',
+    status: 'hidden',
     type: 'destination',
     id: 'template-clickup',
     name: 'ClickUp',
