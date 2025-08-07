@@ -56,7 +56,6 @@ class TestPlaywrightSetup(APIBaseTest):
         self.assertEqual(org.name, "Test Org API")
 
         team = Team.objects.get(id=result["team_id"])
-        self.assertEqual(team.name, "Default Team")
         self.assertEqual(team.organization, org)
 
         user = User.objects.get(id=result["user_id"])

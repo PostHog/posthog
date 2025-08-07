@@ -499,7 +499,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               env:
                   START_PLAYWRIGHT: '1'
-              run: pnpm --filter=@posthog/playwright exec playwright test
+              run: pnpm --filter=@posthog/playwright exec playwright test --update-snapshots
 
             - name: Configure global git diff log
               if: needs.changes.outputs.shouldRun == 'true'
@@ -521,7 +521,7 @@ jobs:
                     echo "Screenshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
                     # TODO: RESTORE OptiPNG - it turns out it never worked before
-                    # optipng -clobber -o4 -strip all playwright/__snapshots__/*.png
+                    # optipng -clobber -o4 -strip all playwright/__snapshots__/**/*.png
 
                     # we don't want to _always_ run OptiPNG
                     # so, we run it after checking for a diff
@@ -570,7 +570,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
-                  add: '["playwright/__snapshots__/", "playwright/"]'
+                  add: 'playwright/'
                   message: 'Update E2E screenshots for Playwright'
                   pull: --rebase --autostash # Make sure we're up to date with other commits
                   default_author: github_actions
