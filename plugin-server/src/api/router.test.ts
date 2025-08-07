@@ -1,7 +1,7 @@
 import supertest from 'supertest'
 
-import { PluginServer } from './server'
-import { PluginServerMode } from './types'
+import { PluginServer } from '../server'
+import { PluginServerMode } from '../types'
 
 describe('router', () => {
     jest.retryTimes(3) // Flakey due to reliance on kafka/clickhouse

@@ -12,7 +12,6 @@ import { RecordingComment } from 'scenes/session-recordings/player/inspector/pla
 import {
     parseEncodedSnapshots,
     processAllSnapshots,
-    processAllSnapshotsRaw,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,7 +34,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { ExportedSessionRecordingFileV2, ExportedSessionType } from '../file-playback/types'
+import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
@@ -208,8 +207,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         await breakpoint(breakpointLength)
                     }
                     const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
+                    const blob_v2_lts = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY]
                     const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {
                         blob_v2,
+                        blob_v2_lts,
                     })
 
                     if (!response.sources) {
@@ -898,22 +899,6 @@ AND properties.$lib != 'web'`
             },
         ],
 
-        snapshotsRaw: [
-            (s) => [s.snapshotSources, s.viewportForTimestamp],
-            (
-                sources,
-                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCount
-            ): RecordingSnapshot[] => {
-                if (!sources || !cache.snapshotsBySource) {
-                    return []
-                }
-
-                const processedSnapshots = processAllSnapshotsRaw(sources, cache.snapshotsBySource || {})
-                return processedSnapshots || []
-            },
-        ],
-
         snapshotsByWindowId: [
             (s) => [s.snapshots],
             (snapshots): Record<string, eventWithTime[]> => {
@@ -1005,21 +990,16 @@ AND properties.$lib != 'web'`
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (
-                sessionPlayerMetaData,
-                snapshots
-            ): ((type?: ExportedSessionType) => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
-                return (type?: ExportedSessionType) => {
-                    return type === 'rrweb'
-                        ? snapshots
-                        : {
-                              version: '2023-04-28',
-                              data: {
-                                  id: sessionPlayerMetaData?.id ?? '',
-                                  person: sessionPlayerMetaData?.person,
-                                  snapshots: snapshots,
-                              },
-                          }
+            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
+                return (): ExportedSessionRecordingFileV2 => {
+                    return {
+                        version: '2023-04-28',
+                        data: {
+                            id: sessionPlayerMetaData?.id ?? '',
+                            person: sessionPlayerMetaData?.person,
+                            snapshots: snapshots,
+                        },
+                    }
                 }
             },
         ],

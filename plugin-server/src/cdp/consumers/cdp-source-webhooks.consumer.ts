@@ -6,6 +6,7 @@ import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUID, UUIDT } from '../../utils/utils'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -90,10 +91,27 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         webhookId: string,
         req: express.Request
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const hogFunction = await this.getWebhook(webhookId)
+        const [hogFunction, hogFunctionState] = await Promise.all([
+            this.getWebhook(webhookId),
+            this.hogWatcher.getCachedEffectiveState(webhookId),
+        ])
 
         if (!hogFunction) {
             throw new SourceWebhookError(404, 'Not found')
+        }
+
+        if (hogFunctionState?.state === HogWatcherState.disabled) {
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: hogFunction.team_id,
+                    app_source_id: hogFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'disabled_permanently',
+                    count: 1,
+                },
+                'hog_function'
+            )
+            throw new SourceWebhookError(429, 'Disabled')
         }
 
         const body: Record<string, any> = req.body
@@ -145,34 +163,53 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             // TODO: Add error handling and logging
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
-            // TODO: Do we want to use hogwatcher here as well?
             const invocation = createInvocation(globalsWithInputs, hogFunction)
-            // Run the initial step - this allows functions not using fetches to respond immediately
-            result = await this.hogExecutor.execute(invocation)
 
-            const addLog = createAddLogFunction(result.logs)
+            if (hogFunctionState?.state === HogWatcherState.degraded) {
+                // Degraded functions are not executed immediately
+                invocation.queue = 'hog_overflow'
+                await this.cyclotronJobQueue.queueInvocations([invocation])
 
-            // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
-            if (!result.finished) {
-                await this.cyclotronJobQueue.queueInvocationResults([result])
+                result = createInvocationResult(
+                    invocation,
+                    {},
+                    {
+                        finished: false,
+                        logs: [
+                            {
+                                level: 'warn',
+                                message: 'Function scheduled for future execution due to degraded state',
+                                timestamp: DateTime.now(),
+                            },
+                        ],
+                    }
+                )
+
+                result.execResult = {
+                    // TODO: Add support for a default response as an input
+                    httpResponse: {
+                        status: 200,
+                        body: '',
+                    },
+                }
+            } else {
+                // Run the initial step - this allows functions not using fetches to respond immediately
+                result = await this.hogExecutor.execute(invocation)
+
+                const addLog = createAddLogFunction(result.logs)
+
+                // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
+                if (!result.finished) {
+                    await this.cyclotronJobQueue.queueInvocationResults([result])
+                }
+
+                const customHttpResponse = getCustomHttpResponse(result)
+                if (customHttpResponse) {
+                    const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
+                    addLog(level, `Responded with response status - ${customHttpResponse.status}`)
+                }
             }
-
-            const customHttpResponse = getCustomHttpResponse(result)
-            if (customHttpResponse) {
-                const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
-                addLog(level, `Responded with response status - ${customHttpResponse.status}`)
-            }
-
-            void this.promiseScheduler.schedule(
-                Promise.all([
-                    this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
-                        return this.hogFunctionMonitoringService.produceQueuedMessages()
-                    }),
-                    this.hogWatcher.observeResults([result]),
-                ])
-            )
         } catch (error) {
-            // TODO: Make this more robust
             logger.error('Error executing hog function', { error })
             result = createInvocationResult(
                 createInvocation({} as any, hogFunction),
@@ -183,15 +220,16 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     logs: [{ level: 'error', message: error.message, timestamp: DateTime.now() }],
                 }
             )
-            void this.promiseScheduler.schedule(
-                Promise.all([
-                    this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
-                        return this.hogFunctionMonitoringService.produceQueuedMessages()
-                    }),
-                    this.hogWatcher.observeResults([result]),
-                ])
-            )
         }
+
+        void this.promiseScheduler.schedule(
+            Promise.all([
+                this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
+                    return this.hogFunctionMonitoringService.produceQueuedMessages()
+                }),
+                this.hogWatcher.observeResultsBuffered(result),
+            ])
+        )
 
         return result
     }

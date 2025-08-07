@@ -3,10 +3,11 @@ import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
-import { BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
+import { BillingPeriod, BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingUsageInteractionProps } from './types'
@@ -388,4 +389,45 @@ export const isAddonVisible = (
     }
 
     return true
+}
+
+/**
+ * Calculate billing period markers for a given date range
+ * @param billingPeriodUTC - The billing period with UTC dates (start, end, interval)
+ * @param dateFrom - Start date string (can be relative like '30d' or absolute)
+ * @param dateTo - End date string
+ * @returns Array of billing period markers
+ */
+export function calculateBillingPeriodMarkers(
+    billingPeriodUTC: BillingPeriod,
+    dateFrom: string,
+    dateTo: string
+): Array<{ date: dayjs.Dayjs }> {
+    if (!billingPeriodUTC?.start || !billingPeriodUTC?.interval) {
+        return []
+    }
+
+    // Convert user dates to UTC for comparison with billingPeriodUTC
+    const from = dateStringToDayJs(dateFrom)?.utc() || dayjs(dateFrom).utc()
+    const to = dateStringToDayJs(dateTo)?.utc() || dayjs(dateTo).utc()
+    const interval = billingPeriodUTC.interval
+
+    // Find the first period start that could be visible
+    const periodsSinceStart = Math.ceil(billingPeriodUTC.start.diff(from, interval))
+    const firstVisiblePeriod = billingPeriodUTC.start.subtract(Math.max(0, periodsSinceStart), interval)
+
+    // Collect all period starts within the range
+    const markers = []
+    let periodStart = firstVisiblePeriod
+
+    while (periodStart.isSameOrBefore(to)) {
+        if (periodStart.isSameOrAfter(from)) {
+            markers.push({
+                date: periodStart,
+            })
+        }
+        periodStart = periodStart.add(1, interval)
+    }
+
+    return markers
 }
