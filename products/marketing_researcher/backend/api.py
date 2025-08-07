@@ -9,8 +9,8 @@ from .service import marketing_researcher_service
 
 
 class MarketingResearchSerializer(serializers.Serializer):
-    websiteurl = serializers.URLField(help_text="Website URL to find competitors for")
-    summaryText = serializers.CharField(max_length=2000, help_text="Summary text describing what the company does")
+    website_url = serializers.URLField(help_text="Website URL to find competitors for")
+    summary_text = serializers.CharField(max_length=2000, help_text="Summary text describing what the company does")
 
 
 class MarketingResearchViewSet(ViewSet):
@@ -19,6 +19,7 @@ class MarketingResearchViewSet(ViewSet):
 
     @action(detail=False, methods=["post"])
     def find_competitors(self, request):
+        """Research competitors with comprehensive analysis and insights"""
         if not marketing_researcher_service.is_available:
             return Response(
                 {
@@ -33,17 +34,19 @@ class MarketingResearchViewSet(ViewSet):
 
         try:
             validated_data = serializer.validated_data
-            website_url = validated_data["websiteurl"]
-            summary_text = validated_data["summaryText"]
+            website_url = validated_data["website_url"]
+            summary_text = validated_data["summary_text"]
 
             if not website_url or not summary_text:
                 return Response(
                     {"error": "Website URL and summary text are required"}, status=status.HTTP_400_BAD_REQUEST
                 )
 
-            result = marketing_researcher_service.find_competitors(website_url, summary_text)
+            result = marketing_researcher_service.analyze_competitor_landscape(website_url, summary_text)
 
-            return Response({"results": result})
+            return Response(result)
 
         except Exception as e:
-            return Response({"error": f"Failed to perform search | {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": f"Failed to research competitors | {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

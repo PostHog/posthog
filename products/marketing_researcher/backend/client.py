@@ -113,11 +113,13 @@ class ExaClient:
                     continue
 
                 formatted_result = {
+                    "id": getattr(result, "id", result.url),
                     "url": result.url,
                     "title": result.title,
                     "score": result.score,
                     "published_date": result.published_date,
                     "author": result.author,
+                    "favicon": getattr(result, "favicon", None),
                 }
 
                 if include_text and hasattr(result, "text"):
