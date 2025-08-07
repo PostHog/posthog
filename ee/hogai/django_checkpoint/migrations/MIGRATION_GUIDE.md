@@ -54,6 +54,7 @@ Example: `_0002_add_user_context.py`
 ```python
 from typing import Any
 import logging
+from ee.hogai.django_checkpoint.serializer import CheckpointContext
 from ee.hogai.django_checkpoint.migrations.base import BaseMigration
 from ee.hogai.django_checkpoint.migrations.migration_registry import migration_registry
 
@@ -64,7 +65,7 @@ class Migration0002AddUserContext(BaseMigration):
     Add user_context field to AssistantState with empty dict default.
     """
     
-    def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, Any], str]:
+    def migrate_data(self, data: dict[str, Any], type_hint: str, context: CheckpointContext) -> tuple[dict[str, Any], str]:
         # Only apply to AssistantState objects
         if type_hint == "AssistantState":
             # Add new field if it doesn't exist
@@ -83,7 +84,7 @@ migration_registry.register_migration(Migration0002AddUserContext)
 ### Adding a New Field with Default Value
 
 ```python
-def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, Any], str]:
+def migrate_data(self, data: dict[str, Any], type_hint: str, context: CheckpointContext) -> tuple[dict[str, Any], str]:
     if type_hint == "AssistantState":
         # Add field with default value
         if "foo" not in data:
@@ -95,7 +96,7 @@ def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, 
 ### Renaming a Field
 
 ```python
-def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, Any], str]:
+def migrate_data(self, data: dict[str, Any], type_hint: str, context: CheckpointContext) -> tuple[dict[str, Any], str]:
     if type_hint == "AssistantState":
         # Rename old_field to new_field
         if "old_field" in data:
@@ -107,7 +108,7 @@ def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, 
 ### Changing Field Structure
 
 ```python
-def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, Any], str]:
+def migrate_data(self, data: dict[str, Any], type_hint: str, context: CheckpointContext) -> tuple[dict[str, Any], str]:
     if type_hint == "AssistantState":
         # Convert string to list
         if isinstance(data.get("tags"), str):
@@ -126,7 +127,7 @@ def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, 
 ### Renaming a Class
 
 ```python
-def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, Any], str]:
+def migrate_data(self, data: dict[str, Any], type_hint: str, context: CheckpointContext) -> tuple[dict[str, Any], str]:
     # Rename OldAssistantState to AssistantState
     if type_hint == "OldAssistantState":
         type_hint = "AssistantState"
@@ -141,7 +142,7 @@ def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, 
 ### Handling Nested Objects
 
 ```python
-def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, Any], str]:
+def migrate_data(self, data: dict[str, Any], type_hint: str, context: CheckpointContext) -> tuple[dict[str, Any], str]:
     if type_hint == "AssistantState":
         # Migrate nested messages
         messages = data.get("messages", [])
@@ -150,6 +151,16 @@ def migrate_data(self, data: dict[str, Any], type_hint: str) -> tuple[dict[str, 
                 # Add timestamp to old messages
                 if "timestamp" not in message:
                     message["timestamp"] = "2024-01-01T00:00:00Z"
+    
+    return data, type_hint
+```
+
+### Using the CheckpointContext
+
+```python
+def migrate_data(self, data: dict[str, Any], type_hint: str, context: CheckpointContext) -> tuple[dict[str, Any], str]:
+    if context.thread_type = Conversation.Type.TOOL_CALL and context.graph_context == GraphContext.SUBGRAPH:
+        # Do something that only applies to subgraphs in tool calls
     
     return data, type_hint
 ```

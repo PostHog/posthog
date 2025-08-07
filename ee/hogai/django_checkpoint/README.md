@@ -73,7 +73,7 @@ Design principles:
 
 Migration interface:
 ```python
-def migrate_data(self, data: dict, type_hint: str) -> tuple[dict, str]:
+def migrate_data(self, data: dict, type_hint: str, context: CheckpointContext) -> tuple[dict, str]:
     # Transform data
     # Optionally change type_hint for class renames
     return modified_data, new_type_hint
@@ -89,6 +89,7 @@ Changes from original:
 - Uses `CheckpointSerializer` instead of `JsonPlusSerializer`
 - Maintains same public API for LangGraph compatibility
 - Handles channel values and pending writes with new serializer
+- Requires additional context `ContextSerializer` to be passed to the migrations
 
 ## Data Storage Format
 
