@@ -103,7 +103,10 @@ class ExperimentQueryRunner(QueryRunner):
         self.metric = self.query.metric
 
     def _get_metrics_aggregated_per_entity_query(
-        self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery, denominator_events_query: ast.SelectQuery = None
+        self,
+        exposure_query: ast.SelectQuery,
+        metric_events_query: ast.SelectQuery,
+        denominator_events_query: ast.SelectQuery = None,
     ) -> ast.SelectQuery:
         """
         Aggregates all events per entity to get their total contribution to the metric
@@ -124,7 +127,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.is_ratio_metric and denominator_events_query:
             select_fields.append(
                 ast.Alias(
-                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team, "denominator"),
+                    expr=parse_expr("sum(coalesce(toFloat(denominator_events.value), 0))"),
                     alias="denominator_value",
                 ),
             )
@@ -211,11 +214,15 @@ class ExperimentQueryRunner(QueryRunner):
 
         # For ratio metrics, add additional aggregations
         if self.is_ratio_metric:
-            select_fields.extend([
-                parse_expr("sum(metric_events.denominator_value) as denominator_sum"),
-                parse_expr("sum(power(metric_events.denominator_value, 2)) as denominator_sum_squares"),
-                parse_expr("sum(metric_events.value * metric_events.denominator_value) as main_denominator_sum_product"),
-            ])
+            select_fields.extend(
+                [
+                    parse_expr("sum(metric_events.denominator_value) as denominator_sum"),
+                    parse_expr("sum(power(metric_events.denominator_value, 2)) as denominator_sum_squares"),
+                    parse_expr(
+                        "sum(metric_events.value * metric_events.denominator_value) as main_denominator_sum_product"
+                    ),
+                ]
+            )
 
         return ast.SelectQuery(
             select=select_fields,
