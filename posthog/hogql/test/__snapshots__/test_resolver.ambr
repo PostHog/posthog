@@ -127,6 +127,9 @@
                           properties: {
                             hidden: False
                           },
+                          revenue_analytics: {
+                            hidden: False
+                          },
                           session: {
                             hidden: False
                           },
@@ -1462,6 +1465,9 @@
                     hidden: False
                   },
                   properties: {
+                    hidden: False
+                  },
+                  revenue_analytics: {
                     hidden: False
                   },
                   session: {
@@ -3259,6 +3265,9 @@
                           properties: {
                             hidden: False
                           },
+                          revenue_analytics: {
+                            hidden: False
+                          },
                           session: {
                             hidden: False
                           },
@@ -4557,6 +4566,9 @@
                             properties: {
                               hidden: False
                             },
+                            revenue_analytics: {
+                              hidden: False
+                            },
                             session: {
                               hidden: False
                             },
@@ -5745,6 +5757,9 @@
                   properties: {
                     hidden: False
                   },
+                  revenue_analytics: {
+                    hidden: False
+                  },
                   session: {
                     hidden: False
                   },
@@ -6674,6 +6689,9 @@
                       hidden: False
                     },
                     properties: {
+                      hidden: False
+                    },
+                    revenue_analytics: {
                       hidden: False
                     },
                     session: {
@@ -7609,6 +7627,9 @@
                       properties: {
                         hidden: False
                       },
+                      revenue_analytics: {
+                        hidden: False
+                      },
                       session: {
                         hidden: False
                       },
@@ -7796,6 +7817,9 @@
                         hidden: False
                       },
                       properties: {
+                        hidden: False
+                      },
+                      revenue_analytics: {
                         hidden: False
                       },
                       session: {
@@ -8295,6 +8319,9 @@
                   properties: {
                     hidden: False
                   },
+                  revenue_analytics: {
+                    hidden: False
+                  },
                   session: {
                     hidden: False
                   },
@@ -8514,6 +8541,9 @@
                       hidden: False
                     },
                     properties: {
+                      hidden: False
+                    },
+                    revenue_analytics: {
                       hidden: False
                     },
                     session: {
@@ -8739,6 +8769,9 @@
                         hidden: False
                       },
                       properties: {
+                        hidden: False
+                      },
+                      revenue_analytics: {
                         hidden: False
                       },
                       session: {
@@ -9000,6 +9033,9 @@
                                 hidden: False
                               },
                               properties: {
+                                hidden: False
+                              },
+                              revenue_analytics: {
                                 hidden: False
                               },
                               session: {
@@ -9268,6 +9304,9 @@
                   properties: {
                     hidden: False
                   },
+                  revenue_analytics: {
+                    hidden: False
+                  },
                   session: {
                     hidden: False
                   },
@@ -9330,6 +9369,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      revenue_analytics: {
                         hidden: False
                       },
                       team_id: {
@@ -9498,6 +9540,9 @@
                     properties: {
                       hidden: False
                     },
+                    revenue_analytics: {
+                      hidden: False
+                    },
                     session: {
                       hidden: False
                     },
@@ -9562,6 +9607,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      revenue_analytics: {
                         hidden: False
                       },
                       team_id: {
@@ -9729,6 +9777,9 @@
                   properties: {
                     hidden: False
                   },
+                  revenue_analytics: {
+                    hidden: False
+                  },
                   session: {
                     hidden: False
                   },
@@ -9779,6 +9830,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    revenue_analytics: {
                       hidden: False
                     },
                     team_id: {
@@ -9946,6 +10000,9 @@
                     properties: {
                       hidden: False
                     },
+                    revenue_analytics: {
+                      hidden: False
+                    },
                     session: {
                       hidden: False
                     },
@@ -9998,6 +10055,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    revenue_analytics: {
                       hidden: False
                     },
                     team_id: {
@@ -10066,6 +10126,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  revenue_analytics: {
                     hidden: False
                   },
                   team_id: {
@@ -10259,6 +10322,9 @@
                     properties: {
                       hidden: False
                     },
+                    revenue_analytics: {
+                      hidden: False
+                    },
                     session: {
                       hidden: False
                     },
@@ -10441,6 +10507,9 @@
                           hidden: False
                         },
                         properties: {
+                          hidden: False
+                        },
+                        revenue_analytics: {
                           hidden: False
                         },
                         session: {
@@ -10637,6 +10706,9 @@
                     hidden: False
                   },
                   properties: {
+                    hidden: False
+                  },
+                  revenue_analytics: {
                     hidden: False
                   },
                   session: {
