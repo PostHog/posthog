@@ -546,9 +546,7 @@ export const supportLogic = kea<supportLogicType>([
                     }
                 }
             } catch (correlationError) {
-                // Log correlation error but continue with original error context
                 console.error('Error context correlation failed:', correlationError)
-                posthog.captureException(correlationError, { context: 'error_context_correlation' })
                 enhancedErrorContext = errorContext
             }
 
@@ -936,9 +934,7 @@ function getErrorContextString(errorContext: SupportErrorContext | null): string
 
         return `\n\n${lines.join('\n')}`
     } catch (formatError) {
-        // Log formatting error but provide fallback
         console.error('Error context formatting failed:', formatError)
-        posthog.captureException(formatError, { context: 'error_context_formatting' })
         return `\n\n=== Error Context ===\nError context formatting failed`
     }
 }

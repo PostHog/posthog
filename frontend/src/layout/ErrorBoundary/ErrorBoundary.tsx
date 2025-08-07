@@ -5,7 +5,6 @@ import { useActions, useValues } from 'kea'
 import { supportLogic, ReactErrorContext } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PostHogErrorBoundary } from 'posthog-js/react'
-import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -45,13 +44,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         teamId: currentTeamId,
                     }
                 } catch (contextError) {
-                    // Log error context creation failure but provide fallback
                     console.error('ErrorBoundary context creation failed:', contextError)
-                    try {
-                        posthog.captureException(contextError, { context: 'error_boundary_context_creation' })
-                    } catch (posthogError) {
-                        console.error('Failed to capture ErrorBoundary context error:', posthogError)
-                    }
 
                     errorContext = {
                         type: 'react_error',
