@@ -10,7 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
-import { sceneTabsLogic } from '~/layout/scenes/sceneTabsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -95,9 +95,13 @@ export function initKea({
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
             getRouterState: () => {
                 // This state is persisted into window.history
-                const logic = sceneTabsLogic.findMounted()
+                const logic = sceneLogic.findMounted()
                 if (logic) {
-                    return { tabs: structuredClone(logic.values.tabs) }
+                    if (typeof structuredClone !== 'undefined') {
+                        return { tabs: structuredClone(logic.values.tabs) }
+                    }
+                    // structuredClone fails in jest for some reason, despite us being on the right versions
+                    return { tabs: JSON.parse(JSON.stringify(logic.values.tabs)) || [] }
                 }
                 return undefined
             },

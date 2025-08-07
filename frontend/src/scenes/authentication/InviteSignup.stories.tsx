@@ -5,7 +5,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { InviteSignup } from './InviteSignup'
 import { inviteSignupLogic } from './inviteSignupLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/InviteSignup',
@@ -51,7 +51,7 @@ export const SelfHosted = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
     })
 
@@ -71,7 +71,7 @@ export const Cloud = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
     })
 
@@ -91,7 +91,7 @@ export const CloudEU = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
     })
 
@@ -111,7 +111,7 @@ export const InvalidLink = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('not-found')
     })
 
@@ -141,7 +141,7 @@ export const LoggedIn = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
     })
 
@@ -177,7 +177,7 @@ export const LoggedInWrongUser = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
     })
 
@@ -196,7 +196,7 @@ export const SSOEnforcedSaml = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
     })
 
@@ -213,7 +213,7 @@ export const SSOEnforcedGoogle = (): JSX.Element => {
         post: { '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false } },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
     })
 

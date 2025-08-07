@@ -18,7 +18,7 @@ import {
 } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -260,7 +260,7 @@ export const NewSurvey: Story = {
 }
 
 export const NewSurveyCustomisationSection: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
     })
@@ -270,7 +270,7 @@ export const NewSurveyCustomisationSection: StoryFn = () => {
 NewSurveyCustomisationSection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewMultiQuestionSurveySection: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
@@ -292,7 +292,7 @@ export const NewMultiQuestionSurveySection: StoryFn = () => {
 NewMultiQuestionSurveySection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewSurveyPresentationSection: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
     })
@@ -302,7 +302,7 @@ export const NewSurveyPresentationSection: StoryFn = () => {
 NewSurveyPresentationSection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewSurveyTargetingSection: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
@@ -326,7 +326,7 @@ NewSurveyTargetingSection.parameters = {
 }
 
 export const NewSurveyAppearanceSection: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
     })
@@ -358,7 +358,7 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
@@ -381,7 +381,7 @@ NewSurveyWithHTMLQuestionDescription.parameters = {
 }
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
