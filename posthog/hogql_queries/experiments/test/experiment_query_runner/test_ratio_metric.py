@@ -162,8 +162,8 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertIsNotNone(test_variant.denominator_sum_squares)
 
         # Check main-denominator sum product
-        self.assertIsNotNone(control_variant.main_denominator_sum_product)
-        self.assertIsNotNone(test_variant.main_denominator_sum_product)
+        self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
+        self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries

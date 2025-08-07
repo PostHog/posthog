@@ -1,28 +1,33 @@
 from typing import TypeVar
+
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentRatioMetric,
-    ExperimentStatsValidationFailure,
-    ExperimentVariantResultBayesian,
     ExperimentQueryResponse,
+    ExperimentRatioMetric,
     ExperimentStatsBase,
     ExperimentStatsBaseValidated,
+    ExperimentStatsValidationFailure,
     ExperimentVariantFunnelsBaseStats,
+    ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
 )
-from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
+from products.experiments.stats.frequentist.method import (
+    FrequentistConfig,
+    FrequentistMethod,
+    TestType,
+)
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
-    SampleMeanStatistic,
     ProportionStatistic,
     RatioStatistic,
+    SampleMeanStatistic,
     StatisticError,
 )
-from products.experiments.stats.bayesian.method import BayesianMethod, BayesianConfig
-from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.errors import ExposedCHQueryError
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
@@ -75,7 +80,7 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
                     sum_squares=result[3],
                     denominator_sum=result[4],
                     denominator_sum_squares=result[5],
-                    main_denominator_sum_product=result[6],
+                    numerator_denominator_sum_product=result[6],
                 )
             )
         else:
@@ -84,7 +89,9 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
 
 
 def validate_variant_result(
-    variant_result: ExperimentStatsBase, metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric, is_baseline=False
+    variant_result: ExperimentStatsBase,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    is_baseline=False,
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
 
@@ -106,10 +113,10 @@ def validate_variant_result(
     )
 
     # Include ratio-specific fields if present
-    if hasattr(variant_result, 'denominator_sum') and variant_result.denominator_sum is not None:
+    if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
         validated_result.denominator_sum = variant_result.denominator_sum
         validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
-        validated_result.main_denominator_sum_product = variant_result.main_denominator_sum_product
+        validated_result.numerator_denominator_sum_product = variant_result.numerator_denominator_sum_product
 
     return validated_result
 
@@ -140,7 +147,7 @@ def metric_variant_to_statistic(
             n=variant.number_of_samples,
             m_statistic=numerator_stat,
             d_statistic=denominator_stat,
-            m_d_sum_of_products=variant.main_denominator_sum_product or 0.0,
+            m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
         )
     else:
         # ExperimentFunnelMetric case
@@ -183,10 +190,12 @@ def get_frequentist_experiment_result(
         )
 
         # Include ratio-specific fields if present
-        if hasattr(test_variant_validated, 'denominator_sum') and test_variant_validated.denominator_sum is not None:
+        if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
             experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
             experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
-            experiment_variant_result.main_denominator_sum_product = test_variant_validated.main_denominator_sum_product
+            experiment_variant_result.numerator_denominator_sum_product = (
+                test_variant_validated.numerator_denominator_sum_product
+            )
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
@@ -254,10 +263,12 @@ def get_bayesian_experiment_result(
         )
 
         # Include ratio-specific fields if present
-        if hasattr(test_variant_validated, 'denominator_sum') and test_variant_validated.denominator_sum is not None:
+        if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
             experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
             experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
-            experiment_variant_result.main_denominator_sum_product = test_variant_validated.main_denominator_sum_product
+            experiment_variant_result.numerator_denominator_sum_product = (
+                test_variant_validated.numerator_denominator_sum_product
+            )
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
