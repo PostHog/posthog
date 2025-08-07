@@ -178,8 +178,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
         # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
-        # "insights" is a special one where we always want to include all insights if you're an org admin because the insights retrieve uses a list call :|
-        if self.scope_object == "project" or self.scope_object == "insight":
+        if self.scope_object == "project":
+            include_all_if_admin = True
+
+        # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
+        # individual insights are retrieved
+        if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
             include_all_if_admin = True
 
         return self.user_access_control.filter_queryset_by_access_level(
@@ -425,11 +429,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     @lru_cache(maxsize=1)
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
-
-        # Special case for project_api_key in the request body.
-        # This ensures we can route deterministically to the correct team for URLs with @current as the team_id.
-        # See https://github.com/PostHog/posthog/issues/35303 for more context.
-        token = self._get_explicit_project_api_key() or get_token(None, self.request)
+        token = get_token(None, self.request)
 
         if token:
             team = Team.objects.get_team_from_token(token)
@@ -439,15 +439,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 raise AuthenticationFailed()
 
         return team_found
-
-    def _get_explicit_project_api_key(self) -> Optional[str]:
-        if (
-            self.request.method in ("POST", "PUT", "PATCH")
-            and hasattr(self.request, "data")
-            and isinstance(self.request.data, dict)
-        ):
-            return self.request.data.get("project_api_key")
-        return None
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":

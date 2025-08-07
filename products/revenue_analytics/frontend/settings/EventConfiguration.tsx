@@ -23,6 +23,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
         updateEventCurrencyProperty,
         updateEventProductProperty,
         updateEventRevenueProperty,
+        updateEventSubscriptionProperty,
         save,
     } = useActions(revenueAnalyticsSettingsLogic)
 
@@ -187,6 +188,29 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                             updateEventCouponProperty(item.eventName, newPropertyName)
                                         }
                                         value={item.couponProperty}
+                                        placeholder="Choose property"
+                                    />
+                                </div>
+                            )
+                        },
+                    },
+                    {
+                        key: 'subscriptionProperty',
+                        dataIndex: 'subscriptionProperty',
+                        title: 'Subscription property',
+                        tooltip:
+                            'The property that tracks which subscription generated this revenue event. Useful if you wanna be able to track ARPU and LTV.',
+                        render: (_, item: RevenueAnalyticsEventItem) => {
+                            return (
+                                <div className="flex flex-row w-full my-1">
+                                    <TaxonomicPopover
+                                        size="small"
+                                        className="my-1"
+                                        groupType={TaxonomicFilterGroupType.EventProperties}
+                                        onChange={(newPropertyName) =>
+                                            updateEventSubscriptionProperty(item.eventName, newPropertyName)
+                                        }
+                                        value={item.subscriptionProperty}
                                         placeholder="Choose property"
                                     />
                                 </div>

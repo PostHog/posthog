@@ -379,7 +379,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {actor.distinct_ids?.[0] && (
                                 <CopyToClipboardInline
                                     explicitValue={actor.distinct_ids[0]}
-                                    iconStyle={{ color: 'var(--accent)' }}
+                                    iconStyle={{ color: 'var(--color-accent)' }}
                                     iconPosition="end"
                                     className="text-xs text-secondary"
                                 >
