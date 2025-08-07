@@ -415,6 +415,7 @@ export interface OrganizationBasicType {
     logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
     members_can_use_personal_api_keys: boolean
+    allow_publicly_shared_resources: boolean
 }
 
 interface OrganizationMetadata {
@@ -434,6 +435,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_data_processing_approved?: boolean
     members_can_invite?: boolean
     members_can_use_personal_api_keys: boolean
+    allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
@@ -4207,6 +4209,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'meta-ads',
+    'clickup',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
