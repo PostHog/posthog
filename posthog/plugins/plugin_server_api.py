@@ -84,6 +84,10 @@ def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) 
     )
 
 
+def validate_messaging_preferences_token(token: str) -> requests.Response:
+    return requests.get(CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}")
+
+
 def get_hog_function_templates() -> requests.Response:
     return requests.get(CDP_API_URL + f"/api/hog_function_templates")
 

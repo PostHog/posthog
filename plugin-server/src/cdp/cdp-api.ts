@@ -52,7 +52,7 @@ export class CdpApi {
         this.recipientsManager = new RecipientsManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
 
-        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
+        this.recipientPreferencesService = new RecipientPreferencesService(hub, this.recipientsManager)
         this.hogFlowExecutor = new HogFlowExecutorService(
             hub,
             this.hogExecutor,
@@ -108,6 +108,7 @@ export class CdpApi {
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
         router.post('/public/messaging/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
@@ -548,6 +549,33 @@ export class CdpApi {
                 return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
+            }
+        }
+
+    private validatePreferencesToken =
+        () =>
+        (req: ModifiedRequest, res: express.Response): any => {
+            try {
+                const { token } = req.params
+
+                if (!token) {
+                    return res.status(400).json({ error: 'Token is required' })
+                }
+
+                const result = this.recipientPreferencesService.validatePreferencesToken(token)
+
+                if (!result.valid) {
+                    return res.status(400).json({ error: 'Invalid or expired token' })
+                }
+
+                return res.status(200).json({
+                    valid: result.valid,
+                    team_id: result.team_id,
+                    identifier: result.identifier,
+                })
+            } catch (error) {
+                logger.error('[CdpApi] Error validating preferences token', error)
+                return res.status(500).json({ error: 'Failed to validate token' })
             }
         }
 }
