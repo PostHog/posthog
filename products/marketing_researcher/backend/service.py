@@ -1,10 +1,13 @@
 import logging
+import json
 from typing import Optional, Any
 from urllib.parse import urlparse
 
+import openai
 from .client import ExaClient
 from .exceptions import ExaConfigurationError
 from .extractor import MarketingExtractor
+from .prompts import MARKETING_RECOMMENDATIONS_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +144,98 @@ class MarketingResearcherService:
         }
 
         return landscape_analysis
+
+    def generate_marketing_recommendations(
+        self, enriched_competitors: list[dict[str, Any]], target_company: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Generate marketing recommendations using OpenAI analysis of competitors."""
+        if not enriched_competitors:
+            return {"marketing_recommendations": "No competitors available for analysis", "status": "failed"}
+
+        try:
+            # Prepare competitive analysis data for the LLM
+            analysis_data = {
+                "target_company": {
+                    "url": target_company.get("url", ""),
+                    "description": target_company.get("description", ""),
+                },
+                "competitors": [],
+            }
+
+            # Include top 5 enriched competitors with their data
+            for i, competitor in enumerate(enriched_competitors[:5]):
+                competitor_data = {
+                    "rank": i + 1,
+                    "title": competitor.get("title", "Unknown Company"),
+                    "url": competitor.get("url", ""),
+                    "summary": competitor.get("summary", ""),
+                    "score": competitor.get("score", 0),
+                }
+
+                # Add SEO data if available
+                if "seo_data" in competitor:
+                    seo = competitor["seo_data"]
+                    competitor_data["seo_insights"] = {
+                        "title": seo.get("title", ""),
+                        "description": seo.get("description", ""),
+                        "keywords": seo.get("keywords", [])[:10],  # Limit to top 10 keywords
+                        "h1_tags": seo.get("h1_tags", [])[:5],  # Limit to first 5 H1s
+                        "load_speed": seo.get("load_speed"),
+                        "technologies": seo.get("technologies", [])[:10],  # Top 10 technologies
+                    }
+
+                analysis_data["competitors"].append(competitor_data)
+
+            # Add remaining competitors without detailed analysis
+            remaining_count = len(enriched_competitors) - 5
+            if remaining_count > 0:
+                analysis_data["additional_competitors_found"] = remaining_count
+
+            # Call OpenAI for recommendations
+            user_content = json.dumps(analysis_data, indent=2)
+
+            logger.info(
+                f"Generating marketing recommendations for {target_company.get('url')} with {len(analysis_data['competitors'])} detailed competitors"
+            )
+
+            llm_response = openai.chat.completions.create(
+                model="gpt-4o-2024-08-06",
+                temperature=0.3,  # Some creativity but focused. hopefully.
+                messages=[
+                    {"role": "system", "content": MARKETING_RECOMMENDATIONS_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                user="ph/marketing/recommendations",
+                stream=False,
+            )
+
+            recommendations = llm_response.choices[0].message.content
+
+            return {
+                "marketing_recommendations": recommendations,
+                "competitors_analyzed": len(enriched_competitors[:5]),
+                "final_analysis": {
+                    "total_competitors": len(enriched_competitors),
+                    "enriched_count": min(5, len(enriched_competitors)),
+                    "target_company": target_company,
+                },
+                "status": "completed",
+            }
+
+        except Exception as e:
+            logger.exception(f"Error generating marketing recommendations: {e}")
+
+            return {
+                "marketing_recommendations": f"Could not generate AI-powered marketing recommendations due to technical error: {str(e)}",
+                "competitors_analyzed": len(enriched_competitors[:5]),
+                "final_analysis": {
+                    "total_competitors": len(enriched_competitors),
+                    "enriched_count": min(5, len(enriched_competitors)),
+                    "target_company": target_company,
+                },
+                "status": "failed",
+                "error": str(e),
+            }
 
 
 marketing_researcher_service = MarketingResearcherService()

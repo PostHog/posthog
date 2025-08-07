@@ -236,10 +236,8 @@ class GraphExecutionEngine:
             }
 
     def _execute_generate_recommendations(self, node_id: str) -> dict[str, Any]:
-        """Generate marketing recommendations using LLM."""
-        time.sleep(4.0)  # Simulate LLM processing time
+        """Generate marketing recommendations using marketing researcher service."""
 
-        # Get enriched competitors from previous node
         enrich_result = self.execution_context.get("enrich_competitors", {})
         enriched_competitors = enrich_result.get("enriched_competitors", [])
         find_result = self.execution_context.get("find_competitors", {})
@@ -249,27 +247,21 @@ class GraphExecutionEngine:
             return {"recommendations": "No competitors available for analysis", "status": "failed"}
 
         try:
-            # Generate marketing recommendations using basic analysis
-            # For now, use fallback logic since LLM integration requires additional setup
-            competitor_names = [comp.get("title", "Unknown") for comp in enriched_competitors[:3]]
-            recommendations = f"""Based on analysis of competitors including {', '.join(competitor_names)}, here are key recommendations:
+            from products.marketing_researcher.backend.service import marketing_researcher_service
 
-1. **Positioning Strategy**: Differentiate from competitors by focusing on unique value propositions
-2. **Content Marketing**: Identify gaps in competitor content strategies
-3. **SEO Optimization**: Target keywords competitors are missing
-4. **Product Development**: Address feature gaps identified in competitive analysis
-5. **Channel Strategy**: Explore underutilized marketing channels"""
+            if not marketing_researcher_service.is_available:
+                return {
+                    "marketing_recommendations": "Marketing researcher service not available",
+                    "status": "failed",
+                    "error": "Service not initialized",
+                }
 
-            return {
-                "marketing_recommendations": recommendations,
-                "competitors_analyzed": len(enriched_competitors[:5]),
-                "final_analysis": {
-                    "total_competitors": len(enriched_competitors),
-                    "enriched_count": min(5, len(enriched_competitors)),
-                    "target_company": target_company,
-                },
-                "status": "completed",
-            }
+            # Use the marketing service to generate recommendations
+            result = marketing_researcher_service.generate_marketing_recommendations(
+                enriched_competitors, target_company
+            )
+
+            return result
 
         except Exception as e:
             logger.exception(f"Error generating recommendations: {e}")
@@ -280,7 +272,7 @@ class GraphExecutionEngine:
                 "error": str(e),
             }
 
-    def _execute_init(self, node: GraphNode) -> dict[str, Any]:
+    def _execute_init(self, node_id: str) -> dict[str, Any]:
         """Initialize the analysis."""
         time.sleep(0.3)
         website_url = self.execution_context.get("website_url", "unknown")
@@ -396,7 +388,7 @@ class GraphExecutionEngine:
 
         return result
 
-    def _execute_get_summary(self, node: GraphNode) -> dict[str, Any]:
+    def _execute_get_summary(self, node_id: str) -> dict[str, Any]:
         """Generate final summary based on all previous results."""
         time.sleep(0.8)
 
