@@ -1349,10 +1349,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.client.logout()
 
         # Try to access other team's flag using this team's secret key + other team's project_api_key in body
-        response = self.client.post(
-            f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config",
-            data={"project_api_key": other_team.api_token},  # Other team's project key in body
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",  # This team's secret key
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
         )
 
         # Should be forbidden due to team mismatch
