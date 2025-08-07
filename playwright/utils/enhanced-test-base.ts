@@ -6,7 +6,6 @@
  */
 
 /* eslint-disable react-hooks/rules-of-hooks */
-
 import { test as baseTest } from './playwright-test-base'
 import { PlaywrightSetup, createPlaywrightSetup, PostHogWorkspace } from './playwright-setup'
 
@@ -15,8 +14,8 @@ import { PlaywrightSetup, createPlaywrightSetup, PostHogWorkspace } from './play
  * Use this for most tests where you want to manually create workspaces
  */
 export const test = baseTest.extend<{ playwrightSetup: PlaywrightSetup; workspaceSetup: PlaywrightSetup }>({
-    playwrightSetup: async ({ request }, use) => {
-        const playwrightSetup = createPlaywrightSetup(request)
+    playwrightSetup: async ({ request, baseURL }, use) => {
+        const playwrightSetup = createPlaywrightSetup(request, baseURL)
         await use(playwrightSetup)
     },
     // Backward compatibility alias
@@ -44,7 +43,3 @@ export { expect } from './playwright-test-base'
 // Re-export playwright setup utilities
 export { createPlaywrightSetup, createTestWorkspace } from './playwright-setup'
 export type { PostHogWorkspace, PlaywrightSetupOptions } from './playwright-setup'
-
-// Backward compatibility exports
-export { createPlaywrightSetup as createWorkspaceSetup } from './playwright-setup'
-export type { PlaywrightSetupOptions as WorkspaceSetupOptions } from './playwright-setup'

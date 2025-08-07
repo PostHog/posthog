@@ -8,7 +8,7 @@
  * - Organization: Top-level account (e.g., "Acme Corp")
  * - Project: Container within an org (e.g., "Web App", "Mobile App")
  * - Team: Environment within project where data lives (e.g., "Production", "Staging")
- * - User: test@posthog.com with password 12345678 (auto-created and added to org)
+ * - User: Configurable via LOGIN_USERNAME/LOGIN_PASSWORD env vars (defaults: test@posthog.com/12345678)
  */
 
 import { APIRequestContext, Page } from '@playwright/test'
@@ -17,6 +17,7 @@ import type {
     BasicOrganizationSetupData,
     BasicOrganizationSetupResult,
 } from '~/queries/schema/schema-general'
+import { LOGIN_USERNAME, LOGIN_PASSWORD } from './playwright-test-base'
 
 export interface PlaywrightSetupOptions {
     /** Custom data to pass to the setup function */
@@ -48,6 +49,7 @@ export class PlaywrightSetup {
 
     constructor(request: APIRequestContext, baseURL?: string) {
         this.request = request
+        // Use baseURL from Playwright config if provided, otherwise fall back to environment variable
         this.baseURL = baseURL || process.env.BASE_URL || 'http://localhost:8080'
     }
 
@@ -89,7 +91,7 @@ export class PlaywrightSetup {
      * Creates a complete PostHog workspace: Organization → Project → Team + test@posthog.com user
      *
      * This is the main setup method - creates everything you need for most tests.
-     * The test@posthog.com user will be a member of the organization.
+     * The test user will be a member of the organization.
      */
     async createWorkspace(organizationName?: string, projectName?: string): Promise<PostHogWorkspace> {
         const result = await this.callSetupEndpoint('organization_with_team', {
@@ -115,8 +117,8 @@ export class PlaywrightSetup {
     async loginAndNavigateToTeam(page: Page, teamId: string): Promise<void> {
         await this.request.post(`${this.baseURL}/api/login/`, {
             data: {
-                email: 'test@posthog.com',
-                password: '12345678',
+                email: LOGIN_USERNAME,
+                password: LOGIN_PASSWORD,
             },
         })
 
