@@ -17,7 +17,7 @@ class EvalsDockerImageConfig(BaseModel):
 
     bucket_name: str
     endpoint_url: str
-    project_snapshots: list["Snapshot"]
+    project_snapshots: list["ProjectSnapshot"]
 
 
 T = TypeVar("T", bound=Model)
@@ -132,12 +132,6 @@ class ClickhouseProjectDataSnapshot(BaseModel):
 
 
 class ProjectSnapshot(BaseModel):
-    team_snapshot: TeamTaxonomyItemSchema
-    postgres_snapshot: PostgresProjectDataSnapshot
-    clickhouse_snapshot: ClickhouseProjectDataSnapshot
-
-
-class Snapshot(BaseModel):
     project: int
     postgres: PostgresProjectDataSnapshot
     clickhouse: ClickhouseProjectDataSnapshot

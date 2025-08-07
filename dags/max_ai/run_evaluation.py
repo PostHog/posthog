@@ -9,7 +9,7 @@ from dags.max_ai.snapshot_project_data import (
     snapshot_clickhouse_project_data,
     snapshot_postgres_project_data,
 )
-from ee.hogai.eval.schema import Snapshot
+from ee.hogai.eval.schema import ProjectSnapshot
 
 
 def get_object_storage_endpoint() -> str:
@@ -66,7 +66,7 @@ def spawn_evaluation_container(
             "endpoint_url": get_object_storage_endpoint(),
             "bucket_name": settings.OBJECT_STORAGE_BUCKET,
             "project_snapshots": [
-                Snapshot(project=project_id, postgres=postgres, clickhouse=clickhouse).model_dump()
+                ProjectSnapshot(project=project_id, postgres=postgres, clickhouse=clickhouse).model_dump()
                 for project_id, postgres, clickhouse in zip(project_ids, postgres_snapshots, clickhouse_snapshots)
             ],
         },
