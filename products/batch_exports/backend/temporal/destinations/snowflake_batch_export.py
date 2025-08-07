@@ -82,96 +82,12 @@ LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
 
 
-class InMemoryBuffer(io.IOBase):
-    """In-memory buffer that mimics a file for Snowflake uploads.
+class NamedBytesIO(io.BytesIO):
+    """BytesIO with a name attribute for Snowflake compatibility."""
 
-    This class provides file-like interface while keeping data entirely in memory,
-    avoiding both disk I/O and the complexity of named pipes.
-    """
-
-    def __init__(self, data: bytes, suffix: str = ".jsonl"):
-        super().__init__()
-        self.data = data
-        self.name = f"/dev/null{suffix}"  # Fake filename for compatibility
-        self._position = 0
-        self._logger = LOGGER.bind(buffer_size=len(data))
-
-    def __enter__(self):
-        """Enter context manager."""
-        self._logger.info("Created in-memory buffer for Snowflake upload with %d bytes", len(self.data))
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Exit context manager."""
-        del exc_type, exc_val, exc_tb  # Unused parameters
-        self._logger.info("In-memory buffer cleanup complete")
-
-    def seek(self, offset, whence=0):
-        """Seek within the in-memory buffer."""
-        if whence == 0:  # SEEK_SET
-            self._position = min(max(0, offset), len(self.data))
-        elif whence == 1:  # SEEK_CUR
-            self._position = min(max(0, self._position + offset), len(self.data))
-        elif whence == 2:  # SEEK_END
-            self._position = len(self.data)
-        return self._position
-
-    def seekable(self) -> bool:
-        """In-memory buffers support seeking."""
-        return True
-
-    def tell(self) -> int:
-        """Return current position."""
-        return self._position
-
-    def readable(self) -> bool:
-        """In-memory buffers are readable."""
-        return True
-
-    def writable(self) -> bool:
-        """In-memory buffers are writable (though we don't implement write)."""
-        return False
-
-    def read(self, size=-1):
-        """Read from the in-memory buffer."""
-        if size == -1:
-            size = len(self.data) - self._position
-
-        end_pos = min(self._position + size, len(self.data))
-        data = self.data[self._position : end_pos]
-        self._position = end_pos
-
-        self._logger.info(
-            "Read %d bytes from in-memory buffer (position %d-%d)",
-            len(data),
-            self._position - len(data),
-            self._position,
-        )
-        return data
-
-    def readinto(self, b):
-        """Read data from the in-memory buffer into a pre-allocated buffer."""
-        buffer_size = len(b)
-        available = len(self.data) - self._position
-        bytes_to_read = min(buffer_size, available)
-
-        if bytes_to_read > 0:
-            data = self.data[self._position : self._position + bytes_to_read]
-            b[:bytes_to_read] = data
-            self._position += bytes_to_read
-
-        self._logger.info(
-            "Read %d bytes into buffer from in-memory buffer (position now %d)", bytes_to_read, self._position
-        )
-        return bytes_to_read
-
-    def fileno(self):
-        """Return file descriptor - not supported for in-memory buffers."""
-        raise io.UnsupportedOperation("In-memory buffers don't support fileno()")
-
-    def close(self):
-        """Close method for IOBase compatibility."""
-        pass
+    def __init__(self, data: bytes, name: str = "/dev/null.jsonl"):
+        super().__init__(data)
+        self.name = name
 
 
 # One batch export allowed to connect at a time (in theory) per worker.
@@ -968,20 +884,21 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         )
 
         # Use in-memory buffer instead of temporary file to avoid disk I/O
-        with InMemoryBuffer(data, suffix=".jsonl") as buffer:
-            # Upload to Snowflake
-            await self.snowflake_client.put_file_to_snowflake_table(
-                buffer,
-                self.snowflake_table_stage_prefix,
-                self.snowflake_table,
-            )
+        buffer = NamedBytesIO(data, name="/dev/null.jsonl")
 
-            self.external_logger.info(
-                "File %d with %d bytes uploaded to Snowflake table '%s'",
-                self.current_file_index,
-                len(data),
-                self.snowflake_table,
-            )
+        # Upload to Snowflake
+        await self.snowflake_client.put_file_to_snowflake_table(
+            buffer,
+            self.snowflake_table_stage_prefix,
+            self.snowflake_table,
+        )
+
+        self.external_logger.info(
+            "File %d with %d bytes uploaded to Snowflake table '%s'",
+            self.current_file_index,
+            len(data),
+            self.snowflake_table,
+        )
 
     async def finalize(self):
         """Finalize by uploading any remaining data."""
