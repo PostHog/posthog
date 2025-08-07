@@ -6,7 +6,7 @@
  */
 
 import { expect } from '@playwright/test'
-import { test, testWithWorkspace } from '../utils/enhanced-test-base'
+import { test, testWithWorkspace } from '../utils/workspace-test-base'
 
 test('create custom workspace', async ({ page, playwrightSetup }) => {
     // Create a workspace with custom names
