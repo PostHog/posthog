@@ -49,7 +49,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -196,7 +196,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -522,7 +522,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -848,7 +848,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -1077,7 +1077,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -1306,7 +1306,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -1556,7 +1556,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -1785,7 +1785,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -2111,7 +2111,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -2363,7 +2363,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
@@ -2614,7 +2614,7 @@
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                     any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                     min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
                      max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
               FROM events
