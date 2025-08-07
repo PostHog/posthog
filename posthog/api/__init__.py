@@ -789,6 +789,11 @@ environments_router.register(
     ["team_id"],
 )
 
+# Marketing Web Analysis endpoints (Open API - no auth required)
+from posthog.api.marketing_web_analysis_api import MarketingWebAnalysisViewSet  # noqa: E402
+
+router.register(r"marketing_web_analysis", MarketingWebAnalysisViewSet, "marketing_web_analysis")
+
 environments_router.register(
     r"revenue_analytics/taxonomy",
     revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
