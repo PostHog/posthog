@@ -71,12 +71,14 @@ describe('RecipientPreferencesService', () => {
         describe('for email actions', () => {
             const createEmailAction = (
                 to: string = 'test@example.com',
-                categoryId?: string
+                categoryId: string
             ): Extract<HogFlowAction, { type: 'function_email' }> => ({
                 id: 'email',
+                name: 'Send email',
+                description: 'Send an email to the recipient',
                 type: 'function_email',
                 config: {
-                    template_id: 'template-email',
+                    template_id: 'template-email-native',
                     message_category_id: categoryId,
                     inputs: {
                         email: {
@@ -84,6 +86,8 @@ describe('RecipientPreferencesService', () => {
                         },
                     },
                 },
+                created_at: Date.now(),
+                updated_at: Date.now(),
             })
 
             it('should return true if recipient is opted out for the specific category', async () => {
@@ -107,20 +111,6 @@ describe('RecipientPreferencesService', () => {
                     recipient,
                     '123e4567-e89b-12d3-a456-426614174000'
                 )
-            })
-
-            it('should return true if recipient is opted out for $all category when no category is specified', async () => {
-                const action = createEmailAction('test@example.com')
-                const invocation = createInvocation(action)
-                const recipient = createRecipient('test@example.com', { $all: 'OPTED_OUT' })
-
-                mockRecipientsManagerGet.mockResolvedValue(recipient)
-                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
-
-                const result = await service.shouldSkipAction(invocation, action)
-
-                expect(result).toBe(true)
-                expect(mockRecipientsManagerGetPreference).toHaveBeenCalledWith(recipient, '$all')
             })
 
             it('should return false if recipient is opted in', async () => {
@@ -152,7 +142,7 @@ describe('RecipientPreferencesService', () => {
             })
 
             it('should return false if recipient is not found', async () => {
-                const action = createEmailAction('test@example.com')
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createInvocation(action)
 
                 mockRecipientsManagerGet.mockResolvedValue(null)
@@ -168,7 +158,7 @@ describe('RecipientPreferencesService', () => {
             })
 
             it('should handle errors gracefully and return false', async () => {
-                const action = createEmailAction('test@example.com')
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createInvocation(action)
                 const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
 
@@ -188,15 +178,20 @@ describe('RecipientPreferencesService', () => {
             it('should throw error if no email identifier is found', async () => {
                 const action: Extract<HogFlowAction, { type: 'function_email' }> = {
                     id: 'email',
+                    name: 'Send email',
+                    description: 'Send an email to the recipient',
                     type: 'function_email',
                     config: {
-                        template_id: 'template-email',
+                        message_category_id: '123e4567-e89b-12d3-a456-426614174000',
+                        template_id: 'template-email-native',
                         inputs: {
                             email: {
                                 value: {},
                             },
                         },
                     },
+                    created_at: Date.now(),
+                    updated_at: Date.now(),
                 }
                 const invocation = createInvocation(action)
 
@@ -209,17 +204,23 @@ describe('RecipientPreferencesService', () => {
         describe('for SMS actions', () => {
             const createSmsAction = (
                 toNumber: string = '+1234567890',
-                categoryId?: string
+                categoryId: string
             ): Extract<HogFlowAction, { type: 'function_sms' }> => ({
                 id: 'sms',
+                name: 'Send SMS',
+                description: 'Send an SMS to the recipient',
                 type: 'function_sms',
                 config: {
-                    template_id: 'template-sms',
+                    template_id: 'template-twilio',
                     message_category_id: categoryId,
                     inputs: {
-                        to_number: toNumber,
+                        sms: {
+                            value: { to: toNumber },
+                        },
                     },
                 },
+                created_at: Date.now(),
+                updated_at: Date.now(),
             })
 
             it('should return true if SMS recipient is opted out', async () => {
@@ -259,11 +260,16 @@ describe('RecipientPreferencesService', () => {
             it('should throw error if no SMS identifier is found', async () => {
                 const action: Extract<HogFlowAction, { type: 'function_sms' }> = {
                     id: 'sms',
+                    name: 'Send SMS',
+                    description: 'Send an SMS to the recipient',
                     type: 'function_sms',
                     config: {
-                        template_id: 'template-sms',
+                        template_id: 'template-twilio',
+                        message_category_id: '123e4567-e89b-12d3-a456-426614174000',
                         inputs: {},
                     },
+                    created_at: Date.now(),
+                    updated_at: Date.now(),
                 }
                 const invocation = createInvocation(action)
 
@@ -277,11 +283,15 @@ describe('RecipientPreferencesService', () => {
             it('should return false for function actions', async () => {
                 const action: Extract<HogFlowAction, { type: 'function' }> = {
                     id: 'function',
+                    name: 'Execute function',
+                    description: 'Execute a custom hog function',
                     type: 'function',
                     config: {
                         template_id: 'template-function',
                         inputs: {},
                     },
+                    created_at: Date.now(),
+                    updated_at: Date.now(),
                 }
                 const invocation = createInvocation(action)
 
@@ -294,11 +304,15 @@ describe('RecipientPreferencesService', () => {
             it('should return false for function_slack actions', async () => {
                 const action: Extract<HogFlowAction, { type: 'function_slack' }> = {
                     id: 'slack',
+                    name: 'Send Slack message',
+                    description: 'Send a message to Slack',
                     type: 'function_slack',
                     config: {
                         template_id: 'template-slack',
                         inputs: {},
                     },
+                    created_at: Date.now(),
+                    updated_at: Date.now(),
                 }
                 const invocation = createInvocation(action)
 
@@ -311,11 +325,15 @@ describe('RecipientPreferencesService', () => {
             it('should return false for function_webhook actions', async () => {
                 const action: Extract<HogFlowAction, { type: 'function_webhook' }> = {
                     id: 'webhook',
+                    name: 'Send webhook',
+                    description: 'Send a webhook request',
                     type: 'function_webhook',
                     config: {
                         template_id: 'template-webhook',
                         inputs: {},
                     },
+                    created_at: Date.now(),
+                    updated_at: Date.now(),
                 }
                 const invocation = createInvocation(action)
 
