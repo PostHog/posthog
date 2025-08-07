@@ -926,10 +926,6 @@ class ClickUpIntegration:
 
         self.integration = integration
 
-    @property
-    def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
-
     def list_clickup_spaces(self, workspace_id):
         response = requests.request(
             "GET",
