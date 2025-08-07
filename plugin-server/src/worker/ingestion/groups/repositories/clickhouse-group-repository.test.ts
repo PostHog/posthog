@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { KAFKA_GROUPS } from '~/config/kafka-topics'
+
 import { GroupTypeIndex, TeamId } from '../../../../types'
 import { ClickhouseGroupRepository } from './clickhouse-group-repository'
 
@@ -25,7 +27,7 @@ describe('ClickhouseGroupRepository', () => {
         await repository.upsertGroup(teamId, groupTypeIndex, groupKey, properties, createdAt, version)
 
         expect(kafkaProducer.queueMessages).toHaveBeenCalledWith({
-            topic: 'clickhouse_groups_test',
+            topic: KAFKA_GROUPS,
             messages: [
                 {
                     value: JSON.stringify({
