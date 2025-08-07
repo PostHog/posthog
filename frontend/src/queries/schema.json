@@ -20466,6 +20466,9 @@
                     },
                     "type": "array"
                 },
+                "comment_text": {
+                    "type": "string"
+                },
                 "console_log_filters": {
                     "items": {
                         "$ref": "#/definitions/LogEntryPropertyFilter"

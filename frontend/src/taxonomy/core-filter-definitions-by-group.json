@@ -3971,6 +3971,10 @@
         "visited_page": {
             "description": "URL a user visited during their session",
             "label": "Visited page"
+        },
+        "comment_text": {
+            "description": "Search for text within comments on the recording",
+            "label": "Comment text"
         }
     },
     "revenue_analytics_properties": {
