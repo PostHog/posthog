@@ -5,8 +5,9 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from django.db import transaction
-from posthog.api.personal_api_key import PersonalAPIKeySerializer
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, Team, User, PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import mask_key_value
 from posthog.schema import BasicOrganizationSetupData, BasicOrganizationSetupResult
 
 
@@ -33,9 +34,18 @@ def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrga
 
         team = Team.objects.create(name="Default Team", organization=organization)
 
-        mock_request = type("MockRequest", (), {"user": user})()
-        serializer = PersonalAPIKeySerializer(context={"request": mock_request})
-        api_key = serializer.create({"label": "Test API Key", "scopes": ["*"]})
+        # Use a constant API key value for consistent testing
+        api_key_value = "phx_test_api_key_for_playwright_tests_123456789"
+        mask_value = mask_key_value(api_key_value)
+        secure_value = hash_key_value(api_key_value)
+
+        # Get or create the API key to avoid hitting the 10 key limit
+        api_key, created = PersonalAPIKey.objects.get_or_create(
+            user=user,
+            label="Test API Key",
+            defaults={"secure_value": secure_value, "mask_value": mask_value, "scopes": ["*"]},
+        )
+        api_key._value = api_key_value
 
         return BasicOrganizationSetupResult(
             organization_id=str(organization.id),
