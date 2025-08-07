@@ -1,7 +1,7 @@
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { isTextSelection } from '@tiptap/core'
-import { BubbleMenu } from '@tiptap/react'
+import { BubbleMenu } from '@tiptap/react/menus'
 import { useValues } from 'kea'
 import { IconBold, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { isURL } from 'lib/utils'

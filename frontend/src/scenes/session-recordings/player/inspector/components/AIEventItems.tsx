@@ -4,6 +4,7 @@ import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { ConversationMessagesDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationMessagesDisplay'
 import { LLMInputOutput } from 'products/llm_observability/frontend/LLMInputOutput'
+import { normalizeMessages } from 'products/llm_observability/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
     let input = event.properties.$ai_input_state
@@ -18,8 +19,13 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
         <div>
             {event.event === '$ai_generation' ? (
                 <ConversationMessagesDisplay
-                    input={event.properties.$ai_input}
-                    tools={event.properties.$ai_tools}
+                    inputNormalized={normalizeMessages(event.properties.$ai_input, 'user', event.properties.$ai_tools)}
+                    outputNormalized={normalizeMessages(
+                        event.properties.$ai_is_error
+                            ? event.properties.$ai_error
+                            : (event.properties.$ai_output_choices ?? event.properties.$ai_output),
+                        'assistant'
+                    )}
                     output={
                         event.properties.$ai_is_error
                             ? event.properties.$ai_error
@@ -31,7 +37,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
             ) : (
                 <LLMInputOutput
                     inputDisplay={
-                        <div className="p-2 text-xs border rounded bg-[var(--bg-fill-secondary)]">
+                        <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
                             {isObject(input) ? (
                                 <JSONViewer src={input} collapsed={2} />
                             ) : (
@@ -44,8 +50,8 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                             className={cn(
                                 'p-2 text-xs border rounded',
                                 !raisedError
-                                    ? 'bg-[var(--bg-fill-success-tertiary)]'
-                                    : 'bg-[var(--bg-fill-error-tertiary)]'
+                                    ? 'bg-[var(--color-bg-fill-success-tertiary)]'
+                                    : 'bg-[var(--color-bg-fill-error-tertiary)]'
                             )}
                         >
                             {isObject(output) ? (

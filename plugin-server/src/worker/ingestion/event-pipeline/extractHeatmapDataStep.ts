@@ -74,6 +74,10 @@ function isValidNumber(n: unknown): n is number {
     return typeof n === 'number' && !isNaN(n)
 }
 
+function isValidBoolean(b: unknown): b is boolean {
+    return typeof b === 'boolean'
+}
+
 async function extractScrollDepthHeatmapData(
     event: PreIngestionEvent,
     runner: EventPipelineRunner
@@ -163,7 +167,13 @@ async function extractScrollDepthHeatmapData(
                             target_fixed: boolean
                             type: string
                         }): RawClickhouseHeatmapEvent | null => {
-                            if (!isValidNumber(hme.x) || !isValidNumber(hme.y) || !isValidString(hme.type)) {
+                            if (
+                                !isValidNumber(hme.x) ||
+                                !isValidNumber(hme.y) ||
+                                !isValidString(hme.type) ||
+                                !isValidBoolean(hme.target_fixed)
+                            ) {
+                                // TODO really we should add an ingestion warning here, but no urgency
                                 return null
                             }
 

@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { Handle, Node, useUpdateNodeInternals } from '@xyflow/react'
+import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
@@ -8,7 +8,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
 import { getHogFlowStep } from './HogFlowSteps'
-import { HogFlowStepNodeProps, StepViewNodeHandle } from './types'
+import { HogFlowStepNodeProps } from './types'
 import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
@@ -72,30 +72,11 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
-    const getHandleStyle = (handle: StepViewNodeHandle, node: Node): React.CSSProperties | undefined => {
-        if (handle.type === 'source') {
-            const sourceHandles = node.handles?.filter((h: any) => h.type === 'source') || []
-            const sourceHandleIndex = sourceHandles.findIndex((h: any) => h.id === handle.id)
-            const numSourceHandles = sourceHandles.length
-            return {
-                // Spread out outgoing ports evenly along bottom of nodes
-                left: `${((sourceHandleIndex + 1) / (numSourceHandles + 1)) * 100}%`,
-            }
-        }
-        return undefined
-    }
-
     return (
         <>
             {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
-                <Handle
-                    key={handle.id}
-                    className="opacity-0"
-                    {...handle}
-                    isConnectable={false}
-                    style={getHandleStyle(handle, node)}
-                />
+                <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
             {Step?.renderNode(props) || <StepView action={props.data} />}
         </>

@@ -38,6 +38,7 @@ import {
 import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { GroupNotebookCard } from './cards/GroupNotebookCard'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -117,6 +118,15 @@ export function Group(): JSX.Element {
                         label: <span data-attr="groups-overview-tab">Overview</span>,
                         content: <GroupOverview groupData={groupData} />,
                     },
+                    ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
+                        ? [
+                              {
+                                  key: 'notebook',
+                                  label: <span data-attr="groups-notebook-tab">Notebook</span>,
+                                  content: <GroupNotebookCard shortId={groupData.notebook} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="groups-properties-tab">Properties</span>,

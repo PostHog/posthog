@@ -66,6 +66,7 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
+    local_cdp = 'local-cdp',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -110,6 +111,9 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: boolean // If true then degraded functions will be automatically disabled
+    CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
+    CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
+    CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -201,7 +205,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CASSANDRA_USER: string | null
     CASSANDRA_PASSWORD: string | null
     WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
-    EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
@@ -911,6 +914,7 @@ export interface ClickHousePerson {
     is_identified: number
     is_deleted: number
     timestamp: string
+    version: number
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
@@ -1291,6 +1295,12 @@ export type RawClickhouseHeatmapEvent = {
     team_id: number
 }
 
+export interface CdpPersonPerformedEvent {
+    teamId: number
+    personId: string
+    eventName: string
+}
+
 export interface HookPayload {
     hook: Pick<Hook, 'id' | 'event' | 'target'>
 
@@ -1310,3 +1320,8 @@ export interface HookPayload {
         }
     }
 }
+
+/**
+ * Metadata switchover can be absent, enforced (boolean true), or after a provided date
+ */
+export type SessionRecordingV2MetadataSwitchoverDate = Date | null | true

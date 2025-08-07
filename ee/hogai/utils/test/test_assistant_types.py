@@ -1,3 +1,6 @@
+from langchain_core.messages import AIMessage
+from langgraph.graph import END, START, StateGraph
+
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, add_and_merge_messages
 from posthog.schema import AssistantMessage
 from posthog.test.base import BaseTest
@@ -42,6 +45,26 @@ class TestAssistantTypes(BaseTest):
         self.assertIsNotNone(result[1].id)
         self.assertNotEqual(result[0].id, result[1].id)
 
+    async def test_memory_collection_messages_is_not_reset_by_unset_values(self):
+        """Test that memory_collection_messages is not reset by unset values"""
+        graph = StateGraph(AssistantState)
+        graph.add_node("node", lambda _: PartialAssistantState())
+        graph.add_edge(START, "node")
+        graph.add_edge("node", END)
+        compiled_graph = graph.compile()
+        res = await compiled_graph.ainvoke({"memory_collection_messages": [AIMessage(content="test")]})
+        self.assertEqual(len(res["memory_collection_messages"]), 1)
+
+    async def test_memory_collection_messages_is_reset_by_set_values(self):
+        """Test that memory_collection_messages is reset by explicitly set values"""
+        graph = StateGraph(AssistantState)
+        graph.add_node("node", lambda _: PartialAssistantState(memory_collection_messages=None))
+        graph.add_edge(START, "node")
+        graph.add_edge("node", END)
+        compiled_graph = graph.compile()
+        res = await compiled_graph.ainvoke({"memory_collection_messages": [AIMessage(content="test")]})
+        self.assertIsNone(res["memory_collection_messages"])
+
     def test_all_fields_have_default_values(self):
         """Test that all fields have default values"""
         self.assertIsInstance(AssistantState(), AssistantState)
@@ -54,7 +77,3 @@ class TestAssistantTypes(BaseTest):
 
         # Should return a PartialAssistantState instance
         self.assertIsInstance(reset_state, PartialAssistantState)
-
-    def test_ignoring_fields(self):
-        """Test that all fields have default values"""
-        self.assertNotIn("memory_collection_messages", AssistantState.get_reset_state().model_dump(exclude_unset=True))

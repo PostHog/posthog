@@ -25,6 +25,19 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
             }
 
+        case PluginServerMode.local_cdp:
+            return {
+                ingestionV2: true,
+                cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
+                cdpInternalEvents: true,
+                cdpLegacyOnEvent: true,
+                cdpCyclotronWorker: true,
+                // cdpCyclotronWorkerHogFlow: true,
+                cdpBehaviouralEvents: true,
+                cdpApi: true,
+            }
+
         case PluginServerMode.ingestion_v2:
             // NOTE: this mode will be removed in the future and replaced with
             // `analytics-ingestion` and `recordings-ingestion` modes.
