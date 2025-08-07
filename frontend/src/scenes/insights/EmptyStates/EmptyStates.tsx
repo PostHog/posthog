@@ -16,7 +16,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
-import { supportLogic, AnalyticsErrorContext } from 'lib/components/Support/supportLogic'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -621,33 +621,7 @@ export function InsightErrorState({
                             <Link
                                 data-attr="insight-error-bug-report"
                                 onClick={() => {
-                                    // Create error context for support ticket - gracefully handle failures
-                                    let errorContext: AnalyticsErrorContext | null = null
-                                    try {
-                                        errorContext = {
-                                            type: 'analytics_error',
-                                            query: query as Record<string, unknown> | null,
-                                            queryId: queryId ?? undefined,
-                                            title: title ?? undefined,
-                                            url: window.location.href,
-                                        }
-                                    } catch (contextError) {
-                                        console.error('Analytics error context creation failed:', contextError)
-
-                                        errorContext = {
-                                            type: 'analytics_error',
-                                            query: null,
-                                            queryId: 'unknown',
-                                            title: 'Analytics error context creation failed',
-                                            url: 'unknown',
-                                        }
-                                    }
-
-                                    openSupportForm({
-                                        kind: 'bug',
-                                        target_area: 'analytics',
-                                        errorContext,
-                                    })
+                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
                                 }}
                             >
                                 If this persists, submit a bug report.

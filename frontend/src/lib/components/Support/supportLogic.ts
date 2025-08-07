@@ -367,17 +367,7 @@ export interface ReactErrorContext {
     commitHash?: string
 }
 
-export interface AnalyticsErrorContext {
-    type: 'analytics_error'
-    queryId?: string
-    title?: string
-    query?: Record<string, unknown> | null
-    url?: string
-    posthogEventUuid?: string
-    commitHash?: string
-}
-
-export type SupportErrorContext = ReactErrorContext | AnalyticsErrorContext
+export type SupportErrorContext = ReactErrorContext
 
 export type SupportFormFields = {
     name: string
@@ -525,10 +515,6 @@ export const supportLogic = kea<supportLogicType>([
                                 exception.errorName === errorContext.error.name &&
                                 exception.errorMessage === errorContext.error.message
                         )
-                    } else if (errorContext.type === 'analytics_error') {
-                        // For analytics errors, we might not have exact error name/message
-                        // So we'll use the most recent exception as fallback
-                        matchedPostHogException = null
                     }
 
                     // If no exact match found, use the most recent (latest) exception
@@ -902,13 +888,6 @@ function getErrorContextString(errorContext: SupportErrorContext | null): string
                     'Bug Type: React Error',
                     ctx.error?.name && ctx.error?.message && `Error: ${ctx.error.name} - ${ctx.error.message}`,
                 ].filter(Boolean),
-
-            analytics_error: (ctx: AnalyticsErrorContext) =>
-                [
-                    'Bug Type: Analytics Error',
-                    ctx.queryId && `Query ID: ${ctx.queryId}`,
-                    ctx.title && `Title: ${ctx.title}`,
-                ].filter(Boolean),
         }
 
         const formatter = formatters[errorContext.type]
@@ -919,8 +898,6 @@ function getErrorContextString(errorContext: SupportErrorContext | null): string
         let formattedContext: string[]
         if (errorContext.type === 'react_error') {
             formattedContext = formatters.react_error(errorContext).filter((item): item is string => Boolean(item))
-        } else if (errorContext.type === 'analytics_error') {
-            formattedContext = formatters.analytics_error(errorContext).filter((item): item is string => Boolean(item))
         } else {
             return ''
         }
