@@ -5,7 +5,7 @@ export const template: HogFunctionTemplate = {
     status: 'alpha',
     type: 'source_webhook',
     id: 'template-source-stripe-webhook',
-    name: 'Stripe Webhook',
+    name: 'Stripe webhook',
     description: 'Capture an event via a Stripe webhook',
     icon_url: '/static/services/stripe.svg',
     category: ['Revenue', 'Payment'],
