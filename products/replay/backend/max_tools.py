@@ -7,8 +7,9 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.exceptions import HelpRequested
 from langchain_core.prompts import ChatPromptTemplate
+from ee.hogai.utils.types import AssistantToolCallMessage
+from uuid import uuid4
 from posthog.models import Team, User
 from posthog.schema import MaxRecordingUniversalFilters
 from .prompts import (
@@ -118,22 +119,43 @@ class SearchSessionRecordingsTool(MaxTool):
 
         result = await graph.compile_full_graph().ainvoke(graph_context)
 
-        if "output" not in result or result["output"] is None:
-            last_message, _ = result["intermediate_steps"][-1]
-            tool_call_id = last_message.tool or None
+        if type(result["output"]) is not MaxRecordingUniversalFilters:
+            content = result["output"]
+            filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
 
-            if tool_call_id == "ask_user_for_help" or tool_call_id == "max_iterations":
-                if last_message.tool_input:
-                    content = last_message.tool_input
-                else:
-                    content = "I need more information to proceed."
+            # Add the tool call message to the tool's state copy
+            tool_message = AssistantToolCallMessage(
+                content=content,
+                ui_payload={"search_session_recordings": filters},
+                id=str(uuid4()),
+                tool_call_id=self._state.messages[-1].tool_calls[0].id
+                if self._state.messages
+                and hasattr(self._state.messages[-1], "tool_calls")
+                and self._state.messages[-1].tool_calls
+                else None,
+                visible=False,
+            )
+            self._state.messages.append(tool_message)
 
-                # Instead of returning the help message, raise an exception that will be caught
-                # by the main graph and handled appropriately without adding to state
-                raise HelpRequested(content)
-        try:
-            result = MaxRecordingUniversalFilters.model_validate(result["output"])
-        except Exception as e:
-            raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
+        else:
+            try:
+                content = "✅ Updated session recordings filters."
+                filters = MaxRecordingUniversalFilters.model_validate(result["output"])
+            except Exception as e:
+                raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
 
-        return "✅ Updated session recordings filters.", result
+                # Add the tool call message to the tool's state copy
+            tool_message = AssistantToolCallMessage(
+                content=content,
+                ui_payload={"search_session_recordings": filters},
+                id=str(uuid4()),
+                tool_call_id=self._state.messages[-1].tool_calls[0].id
+                if self._state.messages
+                and hasattr(self._state.messages[-1], "tool_calls")
+                and self._state.messages[-1].tool_calls
+                else None,
+                visible=True,
+            )
+            self._state.messages.append(tool_message)
+
+        return "", filters

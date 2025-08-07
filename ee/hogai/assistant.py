@@ -30,7 +30,7 @@ from ee.hogai.graph import (
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
-from ee.hogai.utils.exceptions import GenerationCanceled, HelpRequested
+from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import (
     extract_content_from_ai_message,
     find_last_ui_context,
@@ -268,15 +268,6 @@ class Assistant:
                     AssistantEventType.MESSAGE,
                     FailureMessage(
                         content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
-                        id=str(uuid4()),
-                    ),
-                )
-            except HelpRequested as e:
-                # Handle help requests from tools by yielding the message without adding to state
-                yield (
-                    AssistantEventType.MESSAGE,
-                    AssistantMessage(
-                        content=e.message,
                         id=str(uuid4()),
                     ),
                 )

@@ -88,3 +88,8 @@ You must fix the exception and try again.
 ITERATION_LIMIT_PROMPT = """I've tried several approaches but haven't been able to find the right options. Could you please be more specific about what kind of properties you're looking for? For example:
 - What type of events or actions are you interested in?
 - Are you looking for specific values or ranges?"""
+
+REACT_HELP_REQUEST_PROMPT = """
+The agent has requested help from the user:
+{request}
+""".strip()

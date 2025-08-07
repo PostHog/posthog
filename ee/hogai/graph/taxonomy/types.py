@@ -2,11 +2,11 @@ from enum import StrEnum, Enum
 from langgraph.graph import END, START
 from pydantic import BaseModel
 from typing import Generic, Optional, TypeVar
-
+from collections.abc import Sequence
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from pydantic import Field
-from ee.hogai.utils.types import BaseState
+from ee.hogai.utils.types import BaseState, AssistantMessageUnion
 
 OutputType = TypeVar("OutputType", bound=BaseModel)
 
@@ -41,6 +41,8 @@ class TaxonomyAgentState(BaseState, Generic[OutputType]):
     """
     The messages with tool calls to collect tool progress.
     """
+
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
 
 
 class TaxonomyNodeName(StrEnum):
