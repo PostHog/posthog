@@ -18,6 +18,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    BillingPeriod,
     BillingPlan,
     BillingPlanType,
     BillingProductV2Type,
@@ -506,6 +507,14 @@ export const billingLogic = kea<billingLogicType>([
         isAnnualPlanCustomer: [
             (s) => [s.billing],
             (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
+        ],
+        billingPeriodUTC: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPeriod => ({
+                start: billing?.billing_period?.current_period_start?.utc() || null,
+                end: billing?.billing_period?.current_period_end?.utc() || null,
+                interval: billing?.billing_period?.interval || null,
+            }),
         ],
         showBillingSummary: [
             (s) => [s.billing, s.isOnboarding],

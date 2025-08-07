@@ -1,10 +1,9 @@
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import ExtensionPlaceholder from '@tiptap/extension-placeholder'
-import TaskItem from '@tiptap/extension-task-item'
-import TaskList from '@tiptap/extension-task-list'
+import { Placeholder } from '@tiptap/extensions'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
 import StarterKit from '@tiptap/starter-kit'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { sampleOne, uuid } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 
@@ -55,8 +54,8 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
-    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents } = useActions(notebookLogic)
-    const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
+        useActions(notebookLogic)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -78,6 +77,7 @@ export function Editor(): JSX.Element {
                 StarterKit.configure({
                     document: false,
                     gapcursor: false,
+                    link: false,
                 }),
                 TableOfContents.configure({
                     getIndex: getHierarchicalIndexes,
@@ -85,7 +85,7 @@ export function Editor(): JSX.Element {
                         setTableOfContents(content)
                     },
                 }),
-                ExtensionPlaceholder.configure({
+                Placeholder.configure({
                     placeholder: ({ node }: { node: any }) => {
                         if (node.type.name === 'heading' && node.attrs.level === 1) {
                             return `Untitled - maybe.. "${headingPlaceholder}"`
@@ -139,9 +139,6 @@ export function Editor(): JSX.Element {
             onUpdate={onEditorUpdate}
             onSelectionUpdate={onEditorSelectionUpdate}
             onCreate={(editor) => {
-                // NOTE: This could be the wrong way of passing state to extensions but this is what we are using for now!
-                editor.extensionStorage._notebookLogic = mountedNotebookLogic
-
                 const notebookEditor: NotebookEditor = {
                     ...createEditor(editor),
                     findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
@@ -162,7 +159,7 @@ export function Editor(): JSX.Element {
                                 onClick={() => {
                                     const markId = uuid()
                                     editor.setMark(markId)
-                                    mountedNotebookLogic.actions.insertComment({ type: 'mark', id: markId })
+                                    insertComment({ type: 'mark', id: markId })
                                 }}
                                 icon={<IconComment className="w-4 h-4" />}
                                 size="small"
