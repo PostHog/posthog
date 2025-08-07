@@ -4,6 +4,7 @@ import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -109,31 +110,84 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             parsedBatch.behaviouralFilterMatchedEvents
         )
 
-        logger.info('Processing batch', {
-            originalPersonPerformedEventsCount: parsedBatch.personPerformedEvents.length,
-            deduplicatedPersonPerformedEventsCount: deduplicatedPersonEvents.length,
-            originalBehaviouralFilterMatchedEventsCount: parsedBatch.behaviouralFilterMatchedEvents.length,
-            aggregatedBehaviouralFilterMatchedEventsCount: aggregatedBehaviouralEvents.length,
-        })
-
-        // TODO: Implement batch write to postgres using efficient upsert queries
         // This will write both arrays in one transaction
         await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
     }
 
-    // Write both event types to postgres in a single transaction
+    // Write both event types to postgres in a single query within a transaction
     private async writeToPostgres(
         personEvents: PersonEventPayload[],
         behaviouralEvents: AggregatedBehaviouralEvent[]
     ): Promise<void> {
-        // TODO: Implement postgres transaction with batch inserts for both tables
-        logger.info('Writing to postgres', {
-            personEventsCount: personEvents.length,
-            behaviouralEventsCount: behaviouralEvents.length,
-        })
+        if (personEvents.length === 0 && behaviouralEvents.length === 0) {
+            return
+        }
 
-        // Placeholder for actual postgres implementation
-        return Promise.resolve()
+        try {
+            await this.hub.postgres.transaction(PostgresUse.COUNTERS_RW, 'aggregation-writer', async (client) => {
+                // Build the combined query using CTEs
+                let query = 'WITH '
+                const queryParts: string[] = []
+
+                if (personEvents.length > 0) {
+                    const personEventsValues = personEvents
+                        .map(
+                            (event) =>
+                                `(${event.teamId}, '${event.personId}', '${event.eventName.replace(/'/g, "''")}')`
+                        )
+                        .join(',')
+
+                    queryParts.push(`
+                        person_inserts AS (
+                            INSERT INTO person_performed_events (team_id, person_id, event_name)
+                            VALUES ${personEventsValues}
+                            ON CONFLICT (team_id, person_id, event_name) DO NOTHING
+                            RETURNING 1
+                        )
+                    `)
+                }
+
+                if (behaviouralEvents.length > 0) {
+                    const behaviouralEventsValues = behaviouralEvents
+                        .map(
+                            (event) =>
+                                `(${event.teamId}, '${event.personId}', '${event.filterHash}', '${event.date}', ${event.counter})`
+                        )
+                        .join(',')
+
+                    queryParts.push(`
+                        behavioural_inserts AS (
+                            INSERT INTO behavioural_filter_matched_events (team_id, person_id, filter_hash, date, counter)
+                            VALUES ${behaviouralEventsValues}
+                            ON CONFLICT (team_id, person_id, filter_hash, date) 
+                            DO UPDATE SET counter = behavioural_filter_matched_events.counter + EXCLUDED.counter
+                            RETURNING 1
+                        )
+                    `)
+                }
+
+                // Build the final query
+                if (queryParts.length === 0) {
+                    return
+                } else if (queryParts.length === 1) {
+                    query = queryParts[0].trim()
+                    query = query.replace(/\)\s*$/, ') SELECT 1')
+                    if (!query.startsWith('WITH')) {
+                        query = 'WITH ' + query
+                    }
+                } else {
+                    query += queryParts.join(',')
+                    query +=
+                        ' SELECT (SELECT COUNT(*) FROM person_inserts) as person_count, (SELECT COUNT(*) FROM behavioural_inserts) as behavioural_count'
+                }
+
+                // Execute the single combined query within the transaction
+                await this.hub.postgres.query(client, query, undefined, 'counters-batch-upsert')
+            })
+        } catch (error) {
+            logger.error('Failed to write to COUNTERS postgres', { error })
+            throw error
+        }
     }
 
     public async start(): Promise<void> {

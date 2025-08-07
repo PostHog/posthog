@@ -279,7 +279,7 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog' # todo
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
