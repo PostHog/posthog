@@ -46,10 +46,10 @@ export class PostgresPersonRepository
 {
     private options: PostgresPersonRepositoryOptions
 
-    constructor(
-        private postgres: PostgresRouter,
-        options?: Partial<PostgresPersonRepositoryOptions>
-    ) {
+    constructor(private postgres: PostgresRouter, options?: Partial<PostgresPersonRepositoryOptions>) {
+        this.options = { ...DEFAULT_OPTIONS, ...options }
+    }
+
     private readonly protectedPropertyKeys: string[] = [
         // Core person properties
         'email',
@@ -122,8 +122,6 @@ export class PostgresPersonRepository
         '$initial_utm_term',
     ]
 
-        this.options = { ...DEFAULT_OPTIONS, ...options }
-    }
     private async handleOversizedPersonProperties(
         person: InternalPerson,
         update: Partial<InternalPerson>

@@ -1141,7 +1141,7 @@ describe('PostgresPersonRepository', () => {
         beforeEach(() => {
             oversizedRepository = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
-                personPropertiesSizeLimit: 50, // Very small limit to ensure violations
+                personPropertiesSizeLimit: 50,
             })
         })
 
@@ -1277,7 +1277,6 @@ describe('PostgresPersonRepository', () => {
                     description: 'x'.repeat(200),
                 }
 
-                // Mock the postgres query to simulate a constraint violation
                 const originalQuery = postgres.query.bind(postgres)
                 const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
                     if (typeof query === 'string' && query.includes('INSERT INTO posthog_person')) {
@@ -1330,10 +1329,9 @@ describe('PostgresPersonRepository', () => {
                     description: 'x'.repeat(120),
                 })
 
-                // Mock the person size to simulate an existing oversized record
                 const mockPersonPropertiesSize = jest
                     .spyOn(oversizedRepository, 'personPropertiesSize')
-                    .mockResolvedValue(60) // Above the 50 byte limit
+                    .mockResolvedValue(60)
 
                 const oversizedUpdate = {
                     properties: {
@@ -1343,14 +1341,12 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                // Should succeed by trimming properties
                 const [updatedPerson, messages] = await oversizedRepository.updatePerson(normalPerson, oversizedUpdate)
 
                 expect(updatedPerson).toBeDefined()
                 expect(updatedPerson.version).toBe(normalPerson.version + 1)
                 expect(messages).toHaveLength(1)
-                // Properties should be trimmed down from the original large set
-                expect(Object.keys(updatedPerson.properties).length).toBeLessThanOrEqual(3) // Should have been trimmed significantly
+                expect(Object.keys(updatedPerson.properties).length).toBeLessThanOrEqual(3)
 
                 mockPersonPropertiesSize.mockRestore()
             })
@@ -1361,9 +1357,8 @@ describe('PostgresPersonRepository', () => {
 
                 const mockPersonPropertiesSize = jest
                     .spyOn(oversizedRepository, 'personPropertiesSize')
-                    .mockResolvedValue(30) // Under the 50 byte limit
+                    .mockResolvedValue(30)
 
-                // Mock the postgres query to simulate a constraint violation
                 const originalQuery = postgres.query.bind(postgres)
                 const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
                     if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
@@ -1399,25 +1394,21 @@ describe('PostgresPersonRepository', () => {
                     description: 'x'.repeat(120),
                 })
 
-                // Mock the person size to simulate an existing oversized record
                 const mockPersonPropertiesSize = jest
                     .spyOn(oversizedRepository, 'personPropertiesSize')
                     .mockResolvedValue(60)
 
-                // Mock both the initial constraint violation and the remediation failure
                 const originalQuery = postgres.query.bind(postgres)
                 let updateCallCount = 0
                 const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
                     if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
                         updateCallCount++
                         if (updateCallCount === 1) {
-                            // First call - trigger constraint violation to start remediation flow
                             const error = new Error('Check constraint violation')
                             ;(error as any).code = '23514'
                             ;(error as any).constraint = 'check_properties_size'
                             throw error
                         } else if (updateCallCount === 2) {
-                            // Second call (remediation with trimmed properties) - also fail
                             throw new Error('Trimming update failed')
                         }
                     }
@@ -1432,12 +1423,10 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                // The first call should trigger the constraint violation, then the remediation should fail
                 await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
                     PersonPropertiesSizeViolationError
                 )
 
-                // Reset call count for second test
                 updateCallCount = 0
                 await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
                     'Person properties update failed after trying to trim oversized properties'
@@ -1453,7 +1442,6 @@ describe('PostgresPersonRepository', () => {
                 const team = await getFirstTeam(hub)
                 const person = await createTestPerson(team.id, 'test-assert-oversized', { name: 'John' })
 
-                // Mock the postgres query to simulate a constraint violation
                 const originalQuery = postgres.query.bind(postgres)
                 const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
                     if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
@@ -1504,7 +1492,6 @@ describe('PostgresPersonRepository', () => {
                     description: 'x'.repeat(200),
                 }
 
-                // Mock the postgres query to simulate a constraint violation
                 const originalQuery = postgres.query.bind(postgres)
                 const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
                     if (typeof query === 'string' && query.includes('INSERT INTO posthog_person')) {
@@ -1516,7 +1503,6 @@ describe('PostgresPersonRepository', () => {
                     return originalQuery(use, query, values, tag)
                 })
 
-                // Mock the metrics module
                 const metrics = require('../metrics')
                 const mockInc = jest.fn()
                 const originalInc = metrics.personPropertiesSizeViolationCounter.inc
@@ -1534,15 +1520,12 @@ describe('PostgresPersonRepository', () => {
                         uuid,
                         [{ distinctId: 'test-metrics' }]
                     )
-                } catch (error) {
-                    // Expected to throw
-                }
+                } catch (error) {}
 
                 expect(mockInc).toHaveBeenCalledWith({
                     violation_type: 'create_person_size_violation',
                 })
 
-                // Restore mocks
                 metrics.personPropertiesSizeViolationCounter.inc = originalInc
                 mockQuery.mockRestore()
             })
@@ -1554,12 +1537,10 @@ describe('PostgresPersonRepository', () => {
                     description: 'x'.repeat(120),
                 })
 
-                // Mock person size to trigger trimming
                 const mockPersonPropertiesSize = jest
                     .spyOn(oversizedRepository, 'personPropertiesSize')
                     .mockResolvedValue(60)
 
-                // Mock the metrics module
                 const metrics = require('../metrics')
                 const mockInc = jest.fn()
                 const originalInc = metrics.oversizedPersonPropertiesTrimmedCounter.inc
@@ -1576,9 +1557,7 @@ describe('PostgresPersonRepository', () => {
                 try {
                     await oversizedRepository.updatePerson(person, oversizedUpdate)
                     expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
-                } catch (error) {
-                    // This might still throw if the test environment doesn't support the full flow
-                }
+                } catch (error) {}
 
                 mockPersonPropertiesSize.mockRestore()
                 metrics.oversizedPersonPropertiesTrimmedCounter.inc = originalInc
@@ -1605,13 +1584,11 @@ describe('PostgresPersonRepository', () => {
                     protectedKeys
                 )
 
-                // Protected properties should be preserved
                 expect(result).toHaveProperty('email', 'user@example.com')
                 expect(result).toHaveProperty('name', 'John Doe')
                 expect(result).toHaveProperty('$browser', 'Chrome')
                 expect(result).toHaveProperty('utm_source', 'google')
 
-                // Non-protected properties should be removed to fit size
                 expect(Object.keys(result).length).toBeLessThan(Object.keys(properties).length)
                 expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize + 50) // Some tolerance for protected properties
             })
@@ -1654,12 +1631,10 @@ describe('PostgresPersonRepository', () => {
                     actualProtectedKeys
                 )
 
-                // Protected properties should be preserved
                 expect(result).toHaveProperty('email', 'john@example.com')
                 expect(result).toHaveProperty('name', 'John Doe')
                 expect(result).toHaveProperty('utm_source', 'google')
 
-                // Non-protected properties may be removed
                 expect(Object.keys(result).length).toBeLessThan(Object.keys(properties).length)
                 expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize + 50) // Some tolerance
             })
@@ -1761,8 +1736,9 @@ describe('PostgresPersonRepository', () => {
             const personUpdate2 = createPersonUpdate(person2, 'test-assert-2')
 
             const [actualVersion1, messages1] = await repositoryWithCalculation.updatePersonAssertVersion(personUpdate1)
-            const [actualVersion2, messages2] =
-                await repositoryWithoutCalculation.updatePersonAssertVersion(personUpdate2)
+            const [actualVersion2, messages2] = await repositoryWithoutCalculation.updatePersonAssertVersion(
+                personUpdate2
+            )
 
             expect(actualVersion1).toBeDefined()
             expect(actualVersion2).toBeDefined()
