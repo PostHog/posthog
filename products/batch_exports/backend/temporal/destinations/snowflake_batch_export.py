@@ -85,7 +85,7 @@ EXTERNAL_LOGGER = get_external_logger()
 class NamedBytesIO(io.BytesIO):
     """BytesIO with a name attribute for Snowflake compatibility."""
 
-    def __init__(self, data: bytes, name: str = "/dev/null.jsonl"):
+    def __init__(self, data: bytes, name: str):
         super().__init__(data)
         self.name = name
 
@@ -885,8 +885,10 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
             self.snowflake_table,
         )
 
-        # Use in-memory buffer instead of temporary file to avoid disk I/O
-        buffer = NamedBytesIO(self.current_buffer, name="/dev/null.jsonl")
+        # Use in-memory buffer instead of temporary file to avoid disk I/O (not sure the actual name is used)
+        buffer = NamedBytesIO(
+            self.current_buffer, name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.jsonl"
+        )
 
         # Upload to Snowflake
         await self.snowflake_client.put_file_to_snowflake_table(
