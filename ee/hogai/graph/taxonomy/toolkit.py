@@ -258,7 +258,10 @@ class TaxonomyAgentToolkit:
 
     def get_tools(self) -> list:
         """Get all tools (default + custom). Override in subclasses to add custom tools."""
-        return [*self._get_default_tools(), *self._get_custom_tools()]
+        try:
+            return [*self._get_default_tools(), *self._get_custom_tools()]
+        except NotImplementedError:
+            return self._get_default_tools()
 
     def _get_default_tools(self) -> list:
         """Get default taxonomy tools."""
@@ -272,7 +275,7 @@ class TaxonomyAgentToolkit:
 
     def _get_custom_tools(self) -> list:
         """Get custom tools. Override in subclasses to add custom tools."""
-        return []
+        raise NotImplementedError("_get_custom_tools must be implemented in subclasses")
 
     def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
@@ -450,7 +453,11 @@ class TaxonomyAgentToolkit:
         return tool_name, result
 
     def get_tool_input_model(self, action: AgentAction) -> TaxonomyTool:
-        custom_tools = self._get_custom_tools()
+        try:
+            custom_tools = self._get_custom_tools()
+        except NotImplementedError:
+            custom_tools = []
+
         custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel
 
         class DynamicToolInput(TaxonomyTool[custom_tools_union]):

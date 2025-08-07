@@ -209,7 +209,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         mock_input = Mock()
         mock_input.name = "final_answer"
         mock_input.arguments = Mock()
-        mock_input.arguments.data = expected_data
+        mock_input.arguments.answer = expected_data
 
         action = AgentAction(tool="final_answer", tool_input={"data": expected_data.model_dump()}, log="test_log")
         mock_get_tool_input.return_value = mock_input

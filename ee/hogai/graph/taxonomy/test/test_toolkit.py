@@ -338,3 +338,77 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         self.assertEqual(result.name, "custom_tool")
         self.assertEqual(result.arguments.custom_field, "test_value")
         self.assertIsInstance(result.arguments, BaseModel)
+
+    def test_get_tools_handles_not_implemented_error(self):
+        """Test that get_tools properly handles NotImplementedError from _get_custom_tools."""
+
+        # Create a toolkit that doesn't override _get_custom_tools
+        class BasicToolkit(TaxonomyAgentToolkit):
+            def _get_custom_tools(self):
+                raise NotImplementedError("This is a test error")
+
+        basic_toolkit = BasicToolkit(self.team)
+
+        # Should not raise NotImplementedError, should fall back to default tools
+        tools = basic_toolkit.get_tools()
+
+        # Verify we get the default tools (should contain the standard taxonomy tools)
+        self.assertIsInstance(tools, list)
+        self.assertGreater(len(tools), 0)
+
+        tool_names = [tool.__name__ for tool in tools]
+        expected_tools = [
+            "retrieve_event_properties",
+            "retrieve_entity_properties",
+            "retrieve_entity_property_values",
+            "retrieve_event_property_values",
+            "ask_user_for_help",
+        ]
+
+        for expected_tool in expected_tools:
+            self.assertIn(expected_tool, tool_names)
+
+    def test_get_tools_with_custom_tools(self):
+        """Test that get_tools properly combines default and custom tools."""
+
+        class CustomToolkit(TaxonomyAgentToolkit):
+            def _get_custom_tools(self):
+                # Return some mock custom tools
+                def custom_tool_1():
+                    pass
+
+                def custom_tool_2():
+                    pass
+
+                return [custom_tool_1, custom_tool_2]
+
+        custom_toolkit = CustomToolkit(self.team)
+
+        # Should return both default and custom tools
+        tools = custom_toolkit.get_tools()
+
+        # Verify we get both default and custom tools
+        self.assertIsInstance(tools, list)
+        self.assertGreater(len(tools), 0)
+
+        # Get tool names
+        tool_names = [tool.__name__ for tool in tools]
+
+        expected_default_tools = [
+            "retrieve_event_properties",
+            "retrieve_entity_properties",
+            "retrieve_entity_property_values",
+            "retrieve_event_property_values",
+            "ask_user_for_help",
+        ]
+
+        for expected_tool in expected_default_tools:
+            self.assertIn(expected_tool, tool_names)
+
+        # Verify custom tools are present
+        expected_custom_tools = ["custom_tool_1", "custom_tool_2"]
+
+        for expected_tool in expected_custom_tools:
+            self.assertIn(expected_tool, tool_names)
+
+        self.assertEqual(len(tools), len(expected_default_tools) + len(expected_custom_tools))

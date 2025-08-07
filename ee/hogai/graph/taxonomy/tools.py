@@ -119,21 +119,14 @@ def get_dynamic_entity_tools(team_group_types: list[str]):
     return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
 
-def create_final_answer_model(response_model: type[OutputType]) -> type[BaseModel]:
+class base_final_answer(BaseModel, Generic[OutputType]):
     """
-    Create a dynamic final_answer model based on the response model from the prompt.
+    Use this tool to finalize the answer.
+    You MUST use this tool ONLY when you have all the information you need to build the answer.
+    If you don't have all the information you need, use the `ask_user_for_help` tool to ask the user for clarification.
     """
 
-    class final_answer(BaseModel):
-        """
-        Use this tool to finalize the answer.
-        You MUST use this tool ONLY when you have all the information you need to build the answer.
-        If you don't have all the information you need, use the `ask_user_for_help` tool to ask the user for clarification.
-        """
-
-        data: response_model = Field(description="Complete response object as defined in the prompts")  # type: ignore[valid-type]
-
-    return final_answer
+    answer: OutputType = Field(description="Complete response object as defined in the prompts")
 
 
 DefaultTaxonomyToolArgumentsType = Union[

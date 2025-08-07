@@ -1,8 +1,6 @@
-from pydantic import BaseModel, Field
-
 from ee.hogai.graph.taxonomy.tools import (
     get_dynamic_entity_tools,
-    create_final_answer_model,
+    base_final_answer,
 )
 from posthog.test.base import BaseTest
 
@@ -70,65 +68,19 @@ class TestDynamicEntityTools(BaseTest):
         self.assertIn("property_name", values_fields)
 
 
-class TestCreateFinalAnswerModel(BaseTest):
-    def test_create_final_answer_model_basic(self):
-        class TestResponseModel(BaseModel):
-            result: str
-            count: int = 0
+class TestFinalAnswerModel(BaseTest):
+    class final_answer(base_final_answer[str]):
+        __doc__ = base_final_answer.__doc__
 
-        final_answer_model = create_final_answer_model(TestResponseModel)
+    def test_final_answer_model_basic(self):
+        self.assertEqual(self.final_answer(answer="test").answer, "test")
 
-        # Test that we can create an instance
-        test_data = TestResponseModel(result="test", count=5)
-        final_answer = final_answer_model(data=test_data)
+    def test_final_answer_model_docstring(self):
+        self.assertIn("Use this tool to finalize the answer.", self.final_answer.__doc__)
+        self.assertIn("ask_user_for_help", self.final_answer.__doc__)
 
-        self.assertEqual(final_answer.data.result, "test")
-        self.assertEqual(final_answer.data.count, 5)
-
-    def test_create_final_answer_model_docstring(self):
-        class TestResponseModel(BaseModel):
-            result: str
-
-        final_answer_model = create_final_answer_model(TestResponseModel)
-
-        self.assertIn("Use this tool to finalize the answer.", final_answer_model.__doc__)
-        self.assertIn("ask_user_for_help", final_answer_model.__doc__)
-
-    def test_create_final_answer_model_field_description(self):
-        class TestResponseModel(BaseModel):
-            result: str
-
-        final_answer_model = create_final_answer_model(TestResponseModel)
-
-        # Create an instance to verify the field works properly
-        test_data = TestResponseModel(result="test")
-        final_answer = final_answer_model(data=test_data)
-
-        self.assertIsInstance(final_answer.data, TestResponseModel)
-
-    def test_create_final_answer_model_complex_response(self):
-        class ComplexResponseModel(BaseModel):
-            filters: list[dict] = Field(default_factory=list)
-            metadata: dict = Field(default_factory=dict)
-            success: bool = True
-
-        final_answer_model = create_final_answer_model(ComplexResponseModel)
-
-        test_data = ComplexResponseModel(
-            filters=[{"property": "email", "value": "test@example.com"}], metadata={"source": "taxonomy"}, success=True
-        )
-        final_answer = final_answer_model(data=test_data)
-
-        self.assertEqual(len(final_answer.data.filters), 1)
-        self.assertEqual(final_answer.data.filters[0]["property"], "email")
-        self.assertEqual(final_answer.data.metadata["source"], "taxonomy")
-        self.assertTrue(final_answer.data.success)
+    def test_final_answer_model_field_description(self):
+        self.assertIsInstance(self.final_answer(answer="test").answer, str)
 
     def test_final_answer_model_name(self):
-        class TestResponseModel(BaseModel):
-            result: str
-
-        final_answer_model = create_final_answer_model(TestResponseModel)
-
-        # The class should be named 'final_answer'
-        self.assertEqual(final_answer_model.__name__, "final_answer")
+        self.assertEqual(self.final_answer.__name__, "final_answer")

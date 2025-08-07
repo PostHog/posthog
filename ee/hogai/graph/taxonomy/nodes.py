@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     merge_message_runs,
@@ -33,7 +34,7 @@ TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAge
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
-class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin):
+class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin, ABC):
     """Base node for taxonomy agents."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
@@ -68,8 +69,9 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         """Get the system prompt for this node. Override in subclasses."""
         return [PROPERTY_TYPES_PROMPT, TAXONOMY_TOOL_USAGE_PROMPT, HUMAN_IN_THE_LOOP_PROMPT]
 
+    @abstractmethod
     def _get_system_prompt(self) -> ChatPromptTemplate:
-        raise NotImplementedError("_get_system_prompt must be implemented in subclasses")
+        """Get the system prompt for this node. Must be implemented in subclasses."""
 
     def _construct_messages(self, state: TaxonomyStateType) -> ChatPromptTemplate:
         """
@@ -150,7 +152,7 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
         else:
             if tool_input.name == "final_answer":
                 return self._partial_state_class(
-                    output=tool_input.arguments.data,
+                    output=tool_input.arguments.answer,
                     intermediate_steps=None,
                 )
 

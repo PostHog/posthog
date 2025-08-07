@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.tools import create_final_answer_model
+from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.exceptions import HelpRequested
@@ -29,7 +29,10 @@ class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
 
     def _get_custom_tools(self) -> list:
         """Get custom tools for filter options."""
-        final_answer = create_final_answer_model(MaxRecordingUniversalFilters)
+
+        class final_answer(base_final_answer[MaxRecordingUniversalFilters]):
+            __doc__ = base_final_answer.__doc__
+
         return [final_answer]
 
     def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
