@@ -1414,7 +1414,9 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 const hasLinkedFlag =
-                    !!survey.linked_flag_id || (survey.linked_flag && Object.keys(survey.linked_flag).length > 0)
+                    !!survey.linked_flag_id ||
+                    (survey.linked_flag && Object.keys(survey.linked_flag).length > 0) ||
+                    !!survey.conditions?.linkedFlagVariant
                 const hasTargetingFlag =
                     (survey.targeting_flag && Object.keys(survey.targeting_flag).length > 0) ||
                     (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0)

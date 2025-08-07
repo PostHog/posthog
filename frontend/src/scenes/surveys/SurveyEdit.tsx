@@ -32,7 +32,6 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
-import { useEffect, useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
@@ -64,6 +63,7 @@ import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQ
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { ANY_VARIANT, variantOptions } from 'scenes/settings/environment/ReplayTriggers'
+import { useState } from 'react'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -252,21 +252,6 @@ export default function SurveyEdit(): JSX.Element {
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
-
-    // Load feature flag details if linked_flag_id exists but linked_flag doesn't
-    useEffect(() => {
-        if (survey.linked_flag_id && !survey.linked_flag) {
-            api.featureFlags
-                .get(survey.linked_flag_id)
-                .then((flag) => {
-                    setSurveyValue('linked_flag', flag)
-                })
-                .catch(() => {
-                    // If flag doesn't exist anymore, clear the linked_flag_id
-                    setSurveyValue('linked_flag_id', null)
-                })
-        }
-    }, [survey.linked_flag_id, survey.linked_flag, setSurveyValue])
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -779,12 +764,38 @@ export default function SurveyEdit(): JSX.Element {
                                                                       value={value}
                                                                       onChange={(id, _key, flag) => {
                                                                           onChange(id)
-                                                                          setSurveyValue('linked_flag', flag)
-                                                                          // Reset variant selection when flag changes
-                                                                          setSurveyValue('conditions', {
-                                                                              ...survey.conditions,
-                                                                              linkedFlagVariant: null,
-                                                                          })
+                                                                          if (
+                                                                              survey.linked_flag_id &&
+                                                                              !survey.linked_flag
+                                                                          ) {
+                                                                              api.featureFlags
+                                                                                  .get(survey.linked_flag_id)
+                                                                                  .then((flag) => {
+                                                                                      setSurveyValue(
+                                                                                          'linked_flag',
+                                                                                          flag
+                                                                                      )
+                                                                                  })
+                                                                                  .catch(() => {
+                                                                                      // If flag doesn't exist anymore, clear the linked_flag_id
+                                                                                      setSurveyValue(
+                                                                                          'linked_flag_id',
+                                                                                          null
+                                                                                      )
+                                                                                      // Reset variant selection when flag changes
+                                                                                      setSurveyValue('conditions', {
+                                                                                          ...survey.conditions,
+                                                                                          linkedFlagVariant: null,
+                                                                                      })
+                                                                                  })
+                                                                          } else {
+                                                                              setSurveyValue('linked_flag', flag)
+                                                                              // Reset variant selection when flag changes
+                                                                              setSurveyValue('conditions', {
+                                                                                  ...survey.conditions,
+                                                                                  linkedFlagVariant: null,
+                                                                              })
+                                                                          }
                                                                       }}
                                                                   />
                                                                   {value && (
