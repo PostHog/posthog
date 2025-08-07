@@ -13,7 +13,6 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-from posthog.exceptions_capture import capture_exception
 from pydantic import BaseModel
 
 from ee.hogai.graph import (
@@ -58,6 +57,7 @@ from ee.hogai.utils.types import (
 )
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Action, Team, User
 from posthog.schema import (
     AssistantEventType,

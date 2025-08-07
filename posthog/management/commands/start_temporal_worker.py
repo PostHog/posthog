@@ -11,7 +11,6 @@ from temporalio.worker import Worker
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
-    from django.utils import autoreload
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
@@ -160,19 +159,8 @@ class Command(BaseCommand):
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
         )
-        parser.add_argument(
-            "--autoreload",
-            action="store_true",
-            help="Enable auto-reload on code changes (for development)",
-        )
 
     def handle(self, *args, **options):
-        if options.get("autoreload"):
-            autoreload.run_with_reloader(lambda: self._run_temporal_worker(options))
-        else:
-            self._run_temporal_worker(options)
-
-    def _run_temporal_worker(self, options):
         temporal_host = options["temporal_host"]
         temporal_port = options["temporal_port"]
         namespace = options["namespace"]
