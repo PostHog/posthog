@@ -497,9 +497,11 @@ jobs:
 
             - name: Run Playwright tests
               if: needs.changes.outputs.shouldRun == 'true'
+              continue-on-error: true
+              id: playwright-tests
               env:
                   START_PLAYWRIGHT: '1'
-              run: pnpm --filter=@posthog/playwright exec playwright test --update-snapshots
+              run: pnpm --filter=@posthog/playwright exec playwright test
 
             - name: Configure global git diff log
               if: needs.changes.outputs.shouldRun == 'true'
@@ -605,6 +607,13 @@ jobs:
                   name: playwright-screenshots
                   path: playwright/test-results
                   retention-days: 30
+
+            - name: Fail workflow if tests failed
+              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
+              run: |
+                  echo "❌ Playwright tests failed, but screenshots were processed and committed."
+                  echo "Check the test logs above for details on which tests failed."
+                  exit 1
 
     capture-run-time:
         name: Capture run time
