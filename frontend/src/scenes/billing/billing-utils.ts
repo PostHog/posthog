@@ -7,7 +7,7 @@ import { dateStringToDayJs } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
-import { BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
+import { BillingPeriod, BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingUsageInteractionProps } from './types'
@@ -399,7 +399,7 @@ export const isAddonVisible = (
  * @returns Array of billing period markers
  */
 export function calculateBillingPeriodMarkers(
-    billingPeriodUTC: { start: dayjs.Dayjs | null; interval: 'month' | 'year' | null },
+    billingPeriodUTC: BillingPeriod,
     dateFrom: string,
     dateTo: string
 ): Array<{ date: dayjs.Dayjs }> {

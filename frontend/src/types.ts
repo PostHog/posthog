@@ -1960,6 +1960,12 @@ export interface BillingType {
     }
 }
 
+export interface BillingPeriod {
+    start: Dayjs | null
+    end: Dayjs | null
+    interval: 'month' | 'year' | null
+}
+
 export interface BillingPlanType {
     free_allocation?: number | null
     features: BillingFeatureType[]
