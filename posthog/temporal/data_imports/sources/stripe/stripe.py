@@ -63,6 +63,7 @@ def stripe_source(
                 )
             ],
             PAYOUT_RESOURCE_NAME: [StripeResource(method=client.payouts.list)],
+            # inactive and active resources must be queried separately
             PRICE_RESOURCE_NAME: [
                 StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
                 StripeResource(method=client.prices.list, params={"expand[]": "data.tiers", "active": False}),
