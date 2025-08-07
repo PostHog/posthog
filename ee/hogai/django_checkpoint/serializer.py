@@ -272,7 +272,7 @@ class CheckpointSerializer(SerializerProtocol):
         # Last resort - try legacy deserializer
         try:
             return self.legacy.loads_typed((type_str or "msgpack", blob))
-        except:
+        except Exception:
             logger.warning(f"Unknown serialization format: {type_str}")
             return {}
 

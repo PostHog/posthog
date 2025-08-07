@@ -353,7 +353,7 @@ class TestMigrationRegistry:
 
         for migration_class in migrations:
             migration = migration_class()
-            data, type_hint = migration.migrate_data(data, type_hint)
+            data, type_hint = migration.migrate_data(data, type_hint, context=None)
 
         # Both migrations should have been applied
         assert data["field1"] == "value1"
@@ -426,6 +426,6 @@ class TestMigrationRegistry:
         migrations = registry.get_migrations_needed(from_version=0)
         for migration_class in migrations:
             migration = migration_class()
-            data, type_hint = migration.migrate_data(data, type_hint)
+            data, type_hint = migration.migrate_data(data, type_hint, context=None)
 
         assert type_hint == "NewType"
