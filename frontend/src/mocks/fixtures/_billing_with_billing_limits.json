@@ -3740,8 +3740,16 @@
                             "description": "Control who can access and modify data and features within your organization.",
                             "unit": null,
                             "limit": null,
-                            "note": "Project-based only",
+                            "note": null,
                             "is_plan_default": true
+                        },
+                        {
+                            "key": "access_control",
+                            "name": "Access control",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
                         },
                         {
                             "key": "audit_logs",
@@ -4051,6 +4059,14 @@
                             "is_plan_default": true
                         },
                         {
+                            "key": "access_control",
+                            "name": "Access control",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
                             "key": "hipaa_baa",
                             "name": "HIPAA BAA",
                             "description": "Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.",
@@ -4228,8 +4244,16 @@
                                     "description": "Control who can access and modify data and features within your organization.",
                                     "unit": null,
                                     "limit": null,
-                                    "note": "Project-based only",
+                                    "note": null,
                                     "is_plan_default": true
+                                },
+                                {
+                                    "key": "access_control",
+                                    "name": "Access control",
+                                    "description": "Control who can access and modify data and features within your organization.",
+                                    "unit": null,
+                                    "limit": null,
+                                    "note": null
                                 },
                                 {
                                     "key": "audit_logs",
@@ -4374,6 +4398,14 @@
                         {
                             "key": "advanced_permissions",
                             "name": "Advanced permissions",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "images": null,
+                            "icon_key": null,
+                            "type": null
+                        },
+                        {
+                            "key": "access_control",
+                            "name": "Access control",
                             "description": "Control who can access and modify data and features within your organization.",
                             "images": null,
                             "icon_key": null,
@@ -4662,6 +4694,14 @@
                 {
                     "key": "advanced_permissions",
                     "name": "Advanced permissions",
+                    "description": "Control who can access and modify data and features within your organization.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "access_control",
+                    "name": "Access control",
                     "description": "Control who can access and modify data and features within your organization.",
                     "images": null,
                     "icon_key": null,
