@@ -125,9 +125,16 @@ class ExperimentQueryRunner(QueryRunner):
 
         # For ratio metrics, add denominator aggregation
         if self.is_ratio_metric and denominator_events_query:
+            from posthog.hogql_queries.experiments.base_query_utils import get_source_aggregation_expr
+
+            denominator_source = self.metric.denominator
+            # Replace metric_events with denominator_events in the aggregation expression
+            denominator_agg_expr = get_source_aggregation_expr(denominator_source)
+            # Convert the expression to use denominator_events alias
+            denominator_agg_str = str(denominator_agg_expr).replace("metric_events", "denominator_events")
             select_fields.append(
                 ast.Alias(
-                    expr=parse_expr("sum(coalesce(toFloat(denominator_events.value), 0))"),
+                    expr=parse_expr(denominator_agg_str),
                     alias="denominator_value",
                 ),
             )

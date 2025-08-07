@@ -69,42 +69,47 @@ def is_continuous(
     return False
 
 
-def get_metric_value(
-    metric: ExperimentMeanMetric, source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode] = None
-) -> ast.Expr:
+def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
     """
-    Returns the expression for the value of the metric. For count metrics, we just emit 1.
-    For sum or other math types, we return the metric property (revenue f.ex).
-    The source parameter can be used to override the default metric source (used for ratio metric components).
+    Returns the expression for extracting values from a given source (EventsNode, ActionsNode, or DataWarehouseNode).
+    For count metrics, returns 1. For property-based metrics, extracts the property value.
     """
-    # Use provided source if given, otherwise use metric's source
-    metric_source = source if source is not None else metric.source
 
-    if isinstance(metric_source, EventsNode) or isinstance(metric_source, ActionsNode):
+    if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         # Check if the source has a math type that indicates continuous values
-        if hasattr(metric_source, "math") and is_continuous(metric_source.math):
+        if hasattr(source, "math") and is_continuous(source.math):
             # If the metric is a property math type, we need to extract the value from the event property
-            metric_property = getattr(metric_source, "math_property", None)
+            metric_property = getattr(source, "math_property", None)
             if metric_property:
                 # Use the same property access pattern as trends to get property groups optimization
                 return ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric_property])])
-        elif hasattr(metric_source, "math") and metric_source.math == ExperimentMetricMathType.UNIQUE_SESSION:
+        elif hasattr(source, "math") and source.math == ExperimentMetricMathType.UNIQUE_SESSION:
             return ast.Field(chain=["$session_id"])
         elif (
-            hasattr(metric_source, "math")
-            and metric_source.math == ExperimentMetricMathType.HOGQL
-            and getattr(metric_source, "math_hogql", None) is not None
+            hasattr(source, "math")
+            and source.math == ExperimentMetricMathType.HOGQL
+            and getattr(source, "math_hogql", None) is not None
         ):
             # Extract the inner expression from the HogQL expression
-            _, inner_expr = extract_aggregation_and_inner_expr(metric_source.math_hogql)
+            _, inner_expr = extract_aggregation_and_inner_expr(source.math_hogql)
             return inner_expr
-    elif isinstance(metric_source, ExperimentDataWarehouseNode):
-        metric_property = getattr(metric_source, "math_property", None)
+    elif isinstance(source, ExperimentDataWarehouseNode):
+        metric_property = getattr(source, "math_property", None)
         if metric_property:
             return parse_expr(metric_property)
 
     # Default to count - emit 1 so we can easily sum it up
     return ast.Constant(value=1)
+
+
+def get_metric_value(
+    metric: ExperimentMeanMetric, source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode] = None
+) -> ast.Expr:
+    """
+    Backward compatibility wrapper for get_source_value_expr.
+    """
+    actual_source = source if source is not None else metric.source
+    return get_source_value_expr(actual_source)
 
 
 def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, ActionsNode]) -> ast.Expr:
@@ -319,6 +324,31 @@ def get_experiment_exposure_query(
     )
 
 
+def get_source_events_query(
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
+    exposure_query: ast.SelectQuery,
+    team: Team,
+    entity_key: str,
+    experiment: Experiment,
+    date_range_query: QueryDateRange,
+    conversion_window: int | None = None,
+    conversion_window_unit=None,
+) -> ast.SelectQuery:
+    """
+    Returns the query to get events for a specific source. One row per event, so multiple rows per entity.
+    Columns: timestamp, entity_identifier, variant, value
+    """
+    # Create a temporary mean metric for processing - this allows us to reuse existing logic
+    temp_metric = ExperimentMeanMetric(
+        source=source,
+        conversion_window=conversion_window,
+        conversion_window_unit=conversion_window_unit,
+    )
+    return _get_metric_events_for_source(
+        temp_metric, exposure_query, team, entity_key, experiment, date_range_query, source
+    )
+
+
 def get_metric_events_query(
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
     exposure_query: ast.SelectQuery,
@@ -333,20 +363,33 @@ def get_metric_events_query(
     Columns: timestamp, entity_identifier, variant, value
     For ratio metrics, source_type can be "main" (numerator) or "denominator".
     """
-    # For ratio metrics, determine which source to use
+    # For ratio metrics, determine which source to use and delegate to source-based function
     if isinstance(metric, ExperimentRatioMetric):
-        metric_source = metric.numerator if source_type == "main" else metric.denominator
-        # Create a temporary mean metric for processing
-        temp_metric = ExperimentMeanMetric(
-            source=metric_source,
-            conversion_window=metric.conversion_window,
-            conversion_window_unit=metric.conversion_window_unit,
+        source = metric.numerator if source_type == "main" else metric.denominator
+        return get_source_events_query(
+            source,
+            exposure_query,
+            team,
+            entity_key,
+            experiment,
+            date_range_query,
+            metric.conversion_window,
+            metric.conversion_window_unit,
         )
-        return _get_metric_events_for_source(
-            temp_metric, exposure_query, team, entity_key, experiment, date_range_query, metric_source
+    # For mean metrics, delegate to source-based function
+    elif isinstance(metric, ExperimentMeanMetric):
+        return get_source_events_query(
+            metric.source,
+            exposure_query,
+            team,
+            entity_key,
+            experiment,
+            date_range_query,
+            metric.conversion_window,
+            metric.conversion_window_unit,
         )
+    # For funnel metrics, use the existing logic
     else:
-        # For non-ratio metrics, pass None for source - the function will handle it appropriately
         return _get_metric_events_for_source(
             metric, exposure_query, team, entity_key, experiment, date_range_query, None
         )
@@ -515,6 +558,33 @@ def _get_metric_events_for_source(
             raise ValueError(f"Unsupported metric: {metric}")
 
 
+def get_source_aggregation_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
+    """
+    Returns the aggregation expression for a specific source based on its math type.
+    """
+    if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
+        math_type = getattr(source, "math", None)
+        if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
+            return parse_expr("toFloat(count(distinct metric_events.value))")
+        elif math_type == ExperimentMetricMathType.MIN:
+            return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
+        elif math_type == ExperimentMetricMathType.MAX:
+            return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
+        elif math_type == ExperimentMetricMathType.AVG:
+            return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
+        elif math_type == ExperimentMetricMathType.HOGQL:
+            math_hogql = getattr(source, "math_hogql", None)
+            if math_hogql is not None:
+                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                if aggregation_function:
+                    return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
+            # Default to sum if no aggregation function is found
+            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+
+    # Default aggregation for all other cases (including data warehouse)
+    return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+
+
 def get_metric_aggregation_expr(
     experiment: Experiment,
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
@@ -526,35 +596,22 @@ def get_metric_aggregation_expr(
     For ratio metrics, source_type can be "main" (numerator) or "denominator".
     """
     try:
-        # For ratio metrics, determine which source to use for aggregation
+        # For ratio metrics, get the appropriate source and delegate to source-based function
         if isinstance(metric, ExperimentRatioMetric):
-            # Always use sum for ratio metric components
-            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+            source = metric.numerator if source_type == "main" else metric.denominator
+            return get_source_aggregation_expr(source)
 
-        match metric:
-            case ExperimentMeanMetric() as metric:
-                match metric.source.math:
-                    case ExperimentMetricMathType.UNIQUE_SESSION:
-                        return parse_expr("toFloat(count(distinct metric_events.value))")
-                    case ExperimentMetricMathType.MIN:
-                        return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
-                    case ExperimentMetricMathType.MAX:
-                        return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
-                    case ExperimentMetricMathType.AVG:
-                        return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
-                    case ExperimentMetricMathType.HOGQL:
-                        # For HogQL expressions, extract the aggregation function if present
-                        if metric.source.math_hogql is not None:
-                            aggregation_function, _ = extract_aggregation_and_inner_expr(metric.source.math_hogql)
-                            if aggregation_function:
-                                # Use the extracted aggregation function
-                                return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
-                        # Default to sum if no aggregation function is found
-                        return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
-                    case _:
-                        return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
-            case ExperimentFunnelMetric():
-                return funnel_evaluation_expr(team, metric, events_alias="metric_events")
+        # For mean metrics, delegate to source-based function
+        elif isinstance(metric, ExperimentMeanMetric):
+            return get_source_aggregation_expr(metric.source)
+
+        # For funnel metrics, use the existing funnel evaluation logic
+        elif isinstance(metric, ExperimentFunnelMetric):
+            return funnel_evaluation_expr(team, metric, events_alias="metric_events")
+
+        else:
+            raise ValueError(f"Unsupported metric type: {type(metric)}")
+
     except InternalHogQLError as e:
         logger.error(
             "Internal HogQL error in metric aggregation expression",
