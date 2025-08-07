@@ -205,8 +205,8 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
                             <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
-                                <div className="flex flex-row gap-2 items-center">
-                                    <LemonField name="icon_url">
+                                <div className="flex flex-row gap-2 items-start">
+                                    <LemonField name="icon_url" className="h-10">
                                         {({ value, onChange }) => (
                                             <HogFunctionIconEditable
                                                 logicKey={id ?? templateId ?? 'new'}
@@ -216,26 +216,25 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                                         )}
                                     </LemonField>
 
-                                    <div className="flex flex-col flex-1 justify-start items-start py-1">
+                                    <div className="flex flex-col flex-1 justify-center items-start min-h-10">
                                         <LemonField name="name">
                                             <InlineEditableField className="font-semibold" />
                                         </LemonField>
-
-                                        {template && <HogFunctionStatusTag status={template.status} />}
                                     </div>
 
-                                    <HogFunctionStatusIndicator hogFunction={hogFunction} />
-                                    <LemonField name="enabled">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                label="Enabled"
-                                                onChange={() => onChange(!value)}
-                                                checked={value}
-                                                disabled={loading}
-                                                bordered
-                                            />
-                                        )}
-                                    </LemonField>
+                                    <div className="flex flex-row gap-2 items-center h-10">
+                                        {template && <HogFunctionStatusTag status={template.status} />}
+                                        <HogFunctionStatusIndicator hogFunction={hogFunction} />
+                                        <LemonField name="enabled">
+                                            {({ value, onChange }) => (
+                                                <LemonSwitch
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    disabled={loading}
+                                                />
+                                            )}
+                                        </LemonField>
+                                    </div>
                                 </div>
 
                                 <LemonField name="description">
