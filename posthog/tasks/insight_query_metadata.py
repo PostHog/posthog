@@ -25,7 +25,7 @@ def extract_insight_query_metadata(insight_id: str) -> None:
         )
         with transaction.atomic():
             insight = (
-                Insight.objects.select_for_update(of=("self",))
+                Insight.objects_including_soft_deleted.select_for_update(of=("self",))
                 .select_related("team")
                 .only("query", "query_metadata", "team")
                 .get(pk=insight_id)
