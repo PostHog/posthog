@@ -53,11 +53,13 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
     await playwrightSetup.loginAndNavigateToTeam(page, workspace)
     await page.goto(`/project/${workspace.team_id}/insights/${insightData.short_id}`)
 
-    // Wait for the insight to load
-    await expect(page.locator('[data-attr="insight-name"]')).toHaveText('Pageview Trends Analysis')
+    // Wait for the line graph with canvas to be visible and loaded
+    await expect(page.locator('[data-attr="trend-line-graph"] canvas')).toBeVisible()
 
-    // Wait for the chart to be visible and loaded
-    await expect(page.locator('[data-attr="insights-graph"]')).toBeVisible()
+    // Now verify the insight title is correct (use more specific selector)
+    await expect(page.locator('[data-attr="top-bar-name"] .EditableField__display')).toHaveText(
+        'Pageview Trends Analysis'
+    )
 
     // Take a screenshot of the insight
     await expect(page.locator('[data-attr="insights-graph"]')).toHaveScreenshot('pageview-trends-insight.png')
