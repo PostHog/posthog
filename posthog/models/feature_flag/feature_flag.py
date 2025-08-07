@@ -1,32 +1,32 @@
 import json
-from django.http import HttpRequest
-import structlog
 from typing import TYPE_CHECKING, Optional, cast
-from django.contrib.auth.base_user import AbstractBaseUser
-from django.db.models import QuerySet
 
+import structlog
+from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.cache import cache
 from django.db import models
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
+from django.http import HttpRequest
 from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.signals import mutable_receiver
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import RootTeamMixin
 
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
     PropertyOperatorType,
 )
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
-
-FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
+from posthog.models.signals import mutable_receiver
+from posthog.models.utils import RootTeamMixin
 
 logger = structlog.get_logger(__name__)
+
+FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -253,6 +253,14 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                 parsed_conditions.append(condition)
 
         if not cohort or len(cohort.properties.flat) == 0:
+            return self.conditions
+
+        # Check if cohort can be used in feature flags
+        if not cohort.can_be_used_in_feature_flag():
+            logger.warning(
+                f"Cohort {cohort.id} of type {getattr(cohort, 'cohort_type', 'unknown')} "
+                "cannot be used in feature flag evaluation"
+            )
             return self.conditions
 
         if not all(property.type == "person" for property in cohort.properties.flat):

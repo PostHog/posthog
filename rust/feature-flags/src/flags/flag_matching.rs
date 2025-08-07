@@ -409,6 +409,22 @@ impl FeatureFlagMatcher {
                 .ok_or(FlagError::CohortFiltersParsingError)?;
 
             if let Entry::Vacant(e) = cohort_matches.entry(cohort_id) {
+                // Find the cohort and check if it can be used
+                if let Some(cohort) = cohorts.iter().find(|c| c.id == cohort_id) {
+                    // Check if cohort type is supported for feature flags
+                    if !cohort.can_be_used_in_feature_flag() {
+                        tracing::warn!(
+                            "Cohort {} of type {:?} used in feature flag evaluation. \
+                            This may not work as expected.",
+                            cohort_id,
+                            cohort.get_cohort_type()
+                        );
+                        // Return false for these cohorts (current behavior)
+                        e.insert(false);
+                        continue;
+                    }
+                }
+                
                 let match_result =
                     evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
                 e.insert(match_result);

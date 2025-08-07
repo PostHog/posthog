@@ -384,6 +384,7 @@ pub async fn insert_cohort_for_team_in_pg(
         errors_calculating: 0,
         groups: serde_json::json!([]),
         created_by_id: None,
+        cohort_type: None,
     };
 
     let mut conn = client.get_connection().await?;

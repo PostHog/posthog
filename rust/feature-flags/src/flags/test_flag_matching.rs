@@ -5185,4 +5185,200 @@ mod tests {
         // - Condition 2: billing_email matches exactly
         assert!(flag_result5.enabled);
     }
+
+    #[tokio::test]
+    async fn test_cohort_type_compatibility_static_allowed() {
+        use crate::cohorts::cohort_models::{Cohort, CohortType};
+        
+        let cohort = Cohort {
+            id: 1,
+            name: Some("Static Cohort".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: None,
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: true,
+            errors_calculating: 0,
+            groups: serde_json::Value::Null,
+            created_by_id: None,
+            cohort_type: Some("static".to_string()),
+        };
+        
+        assert_eq!(cohort.get_cohort_type(), CohortType::Static);
+        assert!(cohort.can_be_used_in_feature_flag());
+    }
+
+    #[tokio::test]
+    async fn test_cohort_type_compatibility_person_property_allowed() {
+        use crate::cohorts::cohort_models::{Cohort, CohortType};
+        
+        let cohort = Cohort {
+            id: 2,
+            name: Some("Person Property Cohort".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "AND",
+                        "values": [{
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com"
+                        }]
+                    }]
+                }
+            })),
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups: serde_json::Value::Null,
+            created_by_id: None,
+            cohort_type: Some("person_property".to_string()),
+        };
+        
+        assert_eq!(cohort.get_cohort_type(), CohortType::PersonProperty);
+        assert!(cohort.can_be_used_in_feature_flag());
+    }
+
+    #[tokio::test]
+    async fn test_cohort_type_compatibility_behavioral_rejected() {
+        use crate::cohorts::cohort_models::{Cohort, CohortType};
+        
+        let cohort = Cohort {
+            id: 3,
+            name: Some("Behavioral Cohort".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "AND",
+                        "values": [{
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event"
+                        }]
+                    }]
+                }
+            })),
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups: serde_json::Value::Null,
+            created_by_id: None,
+            cohort_type: Some("behavioral".to_string()),
+        };
+        
+        assert_eq!(cohort.get_cohort_type(), CohortType::Behavioral);
+        assert!(!cohort.can_be_used_in_feature_flag());
+    }
+
+    #[tokio::test]
+    async fn test_cohort_type_compatibility_analytical_rejected() {
+        use crate::cohorts::cohort_models::{Cohort, CohortType};
+        
+        let cohort = Cohort {
+            id: 4,
+            name: Some("Analytical Cohort".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "AND",
+                        "values": [{
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event_first_time"
+                        }]
+                    }]
+                }
+            })),
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups: serde_json::Value::Null,
+            created_by_id: None,
+            cohort_type: Some("analytical".to_string()),
+        };
+        
+        assert_eq!(cohort.get_cohort_type(), CohortType::Analytical);
+        assert!(!cohort.can_be_used_in_feature_flag());
+    }
+
+    #[tokio::test]
+    async fn test_cohort_type_legacy_compatibility() {
+        use crate::cohorts::cohort_models::{Cohort, CohortType};
+        
+        // Test legacy static cohort without explicit type
+        let legacy_static = Cohort {
+            id: 5,
+            name: Some("Legacy Static".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: None,
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: true,
+            errors_calculating: 0,
+            groups: serde_json::Value::Null,
+            created_by_id: None,
+            cohort_type: None, // No explicit type
+        };
+        
+        assert_eq!(legacy_static.get_cohort_type(), CohortType::Static);
+        assert!(legacy_static.can_be_used_in_feature_flag());
+
+        // Test legacy dynamic cohort without explicit type
+        let legacy_dynamic = Cohort {
+            id: 6,
+            name: Some("Legacy Dynamic".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(json!({})),
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups: serde_json::Value::Null,
+            created_by_id: None,
+            cohort_type: None, // No explicit type
+        };
+        
+        // Legacy dynamic cohorts default to PersonProperty for backward compatibility
+        assert_eq!(legacy_dynamic.get_cohort_type(), CohortType::PersonProperty);
+        assert!(legacy_dynamic.can_be_used_in_feature_flag());
+    }
 }

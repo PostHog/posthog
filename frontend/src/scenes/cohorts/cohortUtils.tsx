@@ -19,6 +19,7 @@ import {
     AnyPropertyFilter,
     BehavioralCohortType,
     BehavioralEventType,
+    ExplicitCohortTypeEnum,
     BehavioralLifecycleType,
     CohortCriteriaGroupFilter,
     CohortCriteriaType,
@@ -114,7 +115,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
                                               ...('value_property' in c ? { value: c.value_property } : {}),
                                               value_property: undefined,
                                               sort_key: undefined,
-                                          }) as AnyCohortCriteriaType
+                                          } as AnyCohortCriteriaType)
                                   )
                               ),
                               (groupList) =>
@@ -447,7 +448,7 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
         }
     })
     fields.forEach(({ fieldKey, defaultValue }) => {
-        const nextValue = fieldKey ? (getCriteriaValue(criteria, fieldKey) ?? defaultValue) : null
+        const nextValue = fieldKey ? getCriteriaValue(criteria, fieldKey) ?? defaultValue : null
         if (fieldKey && shouldPurge) {
             populatedCriteria[fieldKey] = defaultValue
         } else if (fieldKey && nextValue !== undefined && nextValue !== null) {
@@ -504,4 +505,73 @@ export const COHORT_MATCHING_DAYS = {
     '7': 'week',
     '14': '2 weeks',
     '30': 'month',
+}
+
+export function getAvailableFilters(cohortType: ExplicitCohortTypeEnum): {
+    person: boolean
+    cohort: boolean
+    behavioral: BehavioralFilterType[]
+} {
+    switch (cohortType) {
+        case ExplicitCohortTypeEnum.Static:
+            return { person: false, cohort: false, behavioral: [] }
+        case ExplicitCohortTypeEnum.PersonProperty:
+            return { person: true, cohort: true, behavioral: [] }
+        case ExplicitCohortTypeEnum.Behavioral:
+            return {
+                person: true,
+                cohort: true,
+                behavioral: [
+                    BehavioralEventType.PerformEvent,
+                    BehavioralEventType.PerformEventMultiple,
+                    // Add other simple behavioral types as needed
+                ],
+            }
+        case ExplicitCohortTypeEnum.Analytical:
+            return {
+                person: true,
+                cohort: true,
+                behavioral: Object.values(BehavioralEventType) as BehavioralFilterType[], // All types
+            }
+        default:
+            return {
+                person: true,
+                cohort: true,
+                behavioral: Object.values(BehavioralEventType) as BehavioralFilterType[],
+            }
+    }
+}
+
+export function isFilterAllowedForCohortType(
+    filterType: 'person' | 'cohort' | 'behavioral',
+    behavioralType: BehavioralFilterType | null,
+    cohortType: ExplicitCohortTypeEnum
+): boolean {
+    const availableFilters = getAvailableFilters(cohortType)
+
+    switch (filterType) {
+        case 'person':
+            return availableFilters.person
+        case 'cohort':
+            return availableFilters.cohort
+        case 'behavioral':
+            return behavioralType ? availableFilters.behavioral.includes(behavioralType) : false
+        default:
+            return false
+    }
+}
+
+export function getCohortDisplayName(cohortType: ExplicitCohortTypeEnum): string {
+    switch (cohortType) {
+        case ExplicitCohortTypeEnum.Static:
+            return 'Static'
+        case ExplicitCohortTypeEnum.PersonProperty:
+            return 'Person Property'
+        case ExplicitCohortTypeEnum.Behavioral:
+            return 'Behavioral'
+        case ExplicitCohortTypeEnum.Analytical:
+            return 'Analytical'
+        default:
+            return 'Unknown'
+    }
 }

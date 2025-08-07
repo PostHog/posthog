@@ -206,6 +206,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "cohort_type",
             "experiment_set",
             "_create_in_folder",
         ]
@@ -276,6 +277,32 @@ class CohortSerializer(serializers.ModelSerializer):
         else:
             raise ValidationError(f"Query must be an ActorsQuery or HogQLQuery. Got: {query.get('kind')}")
         return query
+
+    def validate_cohort_type(self, value: Optional[str]) -> Optional[str]:
+        """Validate cohort_type field"""
+        if value and value not in ["static", "person_property", "behavioral", "analytical"]:
+            raise ValidationError(f"Invalid cohort_type: {value}")
+        return value
+
+    def validate(self, attrs):
+        """Validate cohort type matches the filters"""
+        cohort_type = attrs.get("cohort_type")
+        filters = attrs.get("filters")
+        is_static = attrs.get("is_static", False)
+
+        # If we have filters, validate consistency with cohort_type (if provided)
+        if filters:
+            # Create a temporary cohort to check type compatibility
+            temp_cohort = Cohort(filters=filters, is_static=is_static)
+            determined_type = temp_cohort.determine_cohort_type()
+
+            if cohort_type and cohort_type != determined_type:
+                raise ValidationError(
+                    f"Cohort type '{cohort_type}' does not match the provided filters. "
+                    f"Based on the filters, this cohort should be of type '{determined_type}'."
+                )
+
+        return attrs
 
     def validate_filters(self, raw: dict):
         """

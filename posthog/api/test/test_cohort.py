@@ -2258,6 +2258,140 @@ class TestCalculateCohortCommand(APIBaseTest):
             self.assertIn("Full traceback:", output)
             self.assertIn("Exception: Test error 2", output)
 
+    def test_cohort_type_validation_valid_static(self):
+        """Test that cohort_type validation works for valid static cohorts"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            {
+                "name": "Test Static Cohort",
+                "is_static": True,
+                "cohort_type": "static",
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        cohort = response.json()
+        self.assertEqual(cohort["cohort_type"], "static")
+
+    def test_cohort_type_validation_valid_person_property(self):
+        """Test that cohort_type validation works for valid person property cohorts"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            {
+                "name": "Test Person Property Cohort",
+                "cohort_type": "person_property",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        cohort = response.json()
+        self.assertEqual(cohort["cohort_type"], "person_property")
+
+    def test_cohort_type_validation_mismatch_error(self):
+        """Test that cohort_type validation fails when type doesn't match filters"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            {
+                "name": "Test Mismatched Cohort",
+                "cohort_type": "static",  # Claiming static
+                "is_static": False,  # But not actually static
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        error = response.json()
+        self.assertIn("does not match the provided filters", str(error))
+
+    def test_cohort_type_validation_invalid_type(self):
+        """Test that invalid cohort_type values are rejected"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            {
+                "name": "Test Invalid Type",
+                "cohort_type": "invalid_type",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        error = response.json()
+        self.assertIn("not a valid choice", str(error))
+
+    def test_cohort_type_auto_determination(self):
+        """Test that cohort_type is auto-determined when not provided"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            {
+                "name": "Test Auto Type",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event_first_time",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        # Should auto-validate without explicit cohort_type
+        # but the response will include the determined type
+        cohort = Cohort.objects.get(id=response.json()["id"])
+        self.assertEqual(cohort.determine_cohort_type(), "analytical")
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})

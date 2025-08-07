@@ -19,6 +19,48 @@ pub struct Cohort {
     pub errors_calculating: i32,
     pub groups: serde_json::Value,
     pub created_by_id: Option<i32>,
+    pub cohort_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CohortType {
+    Static,
+    PersonProperty,
+    Behavioral,
+    Analytical,
+}
+
+impl Cohort {
+    pub fn get_cohort_type(&self) -> CohortType {
+        if let Some(ref cohort_type) = self.cohort_type {
+            match cohort_type.as_str() {
+                "static" => CohortType::Static,
+                "person_property" => CohortType::PersonProperty,
+                "behavioral" => CohortType::Behavioral,
+                "analytical" => CohortType::Analytical,
+                _ => self.determine_legacy_type()
+            }
+        } else {
+            self.determine_legacy_type()
+        }
+    }
+    
+    fn determine_legacy_type(&self) -> CohortType {
+        if self.is_static {
+            CohortType::Static
+        } else {
+            // For backward compatibility, treat all dynamic cohorts as PersonProperty
+            // This matches current behavior where only simple cohorts work in flags
+            CohortType::PersonProperty
+        }
+    }
+    
+    pub fn can_be_used_in_feature_flag(&self) -> bool {
+        match self.get_cohort_type() {
+            CohortType::Static | CohortType::PersonProperty => true,
+            CohortType::Behavioral | CohortType::Analytical => false,
+        }
+    }
 }
 
 pub type CohortId = i32;

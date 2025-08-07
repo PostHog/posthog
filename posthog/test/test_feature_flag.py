@@ -672,6 +672,162 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             ],
         )
 
+    def test_cohort_expansion_rejects_behavioral_cohort_type(self):
+        """Test that cohorts with explicit behavioral type cannot be expanded"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type="behavioral",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+            key="active-flag",
+        )
+
+        # Should not expand due to cohort type restriction
+        self.assertEqual(flag.transform_cohort_filters_for_easy_evaluation(), flag.conditions)
+
+    def test_cohort_expansion_rejects_analytical_cohort_type(self):
+        """Test that cohorts with explicit analytical type cannot be expanded"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type="analytical",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event_first_time",
+                                    "event_type": "events",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+            key="active-flag",
+        )
+
+        # Should not expand due to cohort type restriction
+        self.assertEqual(flag.transform_cohort_filters_for_easy_evaluation(), flag.conditions)
+
+    def test_cohort_expansion_allows_person_property_cohort_type(self):
+        """Test that cohorts with explicit person_property type can be expanded"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type="person_property",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+            key="active-flag",
+        )
+
+        # Should expand successfully
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "operator": "icontains",
+                            "type": "person",
+                            "value": "@posthog.com",
+                        }
+                    ],
+                    "rollout_percentage": None,
+                }
+            ],
+        )
+
+    def test_cohort_expansion_allows_static_cohort_type(self):
+        """Test that cohorts with explicit static type can be expanded"""
+        cohort = Cohort.objects.create(team=self.team, is_static=True, cohort_type="static")
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+            key="active-flag",
+        )
+
+        # Static cohorts should not be expanded (no properties to expand)
+        self.assertEqual(flag.transform_cohort_filters_for_easy_evaluation(), flag.conditions)
+
+    def test_cohort_expansion_backward_compatibility_behavioral_filters(self):
+        """Test backward compatibility: behavioral filters without explicit type are rejected"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            # No explicit cohort_type, but has behavioral filters
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+            key="active-flag",
+        )
+
+        # Should not expand due to backward compatibility check
+        self.assertEqual(flag.transform_cohort_filters_for_easy_evaluation(), flag.conditions)
+
 
 class TestModelCache(BaseTest):
     def setUp(self):
