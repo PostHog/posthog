@@ -111,7 +111,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         "personRepository": {
           "options": {
             "calculatePropertiesSize": 0,
-            "personPropertiesSizeLimit": 1048576,
+            "personPropertiesSizeLimit": 524288,
           },
           "protectedPropertyKeys": [
             "email",
