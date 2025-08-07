@@ -10,6 +10,7 @@ import { InsightShortId } from '~/types'
 
 import {
     chatResponseChunk,
+    chatResponseWithEventContext,
     CONVERSATION_ID,
     failureChunk,
     formChunk,
@@ -692,6 +693,76 @@ export const ExpandedFloatingInputThread: StoryFn = () => {
     return <MaxFloatingInput />
 }
 ExpandedFloatingInputThread.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ChatWithUIContext: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseWithEventContext)),
+        },
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+            [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                200,
+                {
+                    id: CONVERSATION_ID,
+                    status: 'idle',
+                    title: 'Event Context Test',
+                    created_at: '2025-04-29T17:44:21.654307Z',
+                    updated_at: '2025-04-29T17:44:29.184791Z',
+                    messages: [],
+                },
+            ],
+        },
+    })
+
+    const { contextEvents } = useValues(maxContextLogic)
+    const { addOrUpdateContextEvent } = useActions(maxContextLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        // Add an event to the context
+        if (dataProcessingAccepted) {
+            addOrUpdateContextEvent({
+                id: 'test-event-1',
+                name: '$pageview',
+                description: 'Page view event',
+                tags: [],
+            })
+        }
+    }, [addOrUpdateContextEvent, dataProcessingAccepted])
+
+    useEffect(() => {
+        // After event is added, start a new conversation
+        if (dataProcessingAccepted && contextEvents.length > 0) {
+            setTimeout(() => {
+                // This simulates starting a new chat which changes the URL
+                setConversationId(CONVERSATION_ID)
+                askMax('Tell me about the $pageview event')
+            }, 100)
+        }
+    }, [contextEvents.length, setConversationId, askMax, dataProcessingAccepted])
+
+    useEffect(() => {
+        // Verify context is still present after conversation starts
+        if (contextEvents.length > 0) {
+            console.info('Event context preserved:', contextEvents)
+        }
+    }, [contextEvents])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ChatWithUIContext.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },

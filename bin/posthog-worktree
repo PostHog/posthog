@@ -183,6 +183,19 @@ setup_worktree_environment() {
     cp "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
     cp "${main_repo}/.envrc" "${worktree_path}/"
     
+    # Copy .vscode/settings.json if it exists
+    if [[ -f "${main_repo}/.vscode/settings.json" ]]; then
+        print_color blue "Copying .vscode/settings.json…"
+        mkdir -p "${worktree_path}/.vscode"
+        cp "${main_repo}/.vscode/settings.json" "${worktree_path}/.vscode/"
+    fi
+    
+    # Copy .env and .env.* files if they exist
+    if find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f | grep -q .; then
+        print_color blue "Copying .env files…"
+        find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f -exec cp {} "${worktree_path}/" \;
+    fi
+    
     # Initialize Flox in the new worktree
     cd "${worktree_path}"
     print_color blue "Initializing Flox environment (this will share packages from cache)…"

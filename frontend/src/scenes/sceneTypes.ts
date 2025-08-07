@@ -15,6 +15,7 @@ export enum Scene {
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
+    ErrorTrackingImpact = 'ErrorTrackingImpact',
     NewTab = 'NewTab',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',

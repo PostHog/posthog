@@ -39,7 +39,7 @@ export function MetricsChartLayout({
     const metricTitlePanelHeight = Math.max(chartSvgHeight, 80)
 
     return (
-        <div className="rounded bg-[var(--bg-table)]">
+        <div className="rounded bg-[var(--color-bg-table)]">
             <div className="flex">
                 {/* Metric title panel - 20% width with right border */}
                 <div className="w-1/5 border-r border-primary">
