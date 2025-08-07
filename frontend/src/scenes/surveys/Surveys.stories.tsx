@@ -18,7 +18,7 @@ import {
 } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -260,11 +260,9 @@ export const NewSurvey: Story = {
 }
 
 export const NewSurveyCustomisationSection: StoryFn = () => {
-    useOnMountEffect(() => {
-        window.setTimeout(() => {
-            surveyLogic({ id: 'new' }).mount()
-            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
-        }, 700)
+    useDelayedOnMountEffect(() => {
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
     })
 
     return <App />
@@ -272,23 +270,21 @@ export const NewSurveyCustomisationSection: StoryFn = () => {
 NewSurveyCustomisationSection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewMultiQuestionSurveySection: StoryFn = () => {
-    useOnMountEffect(() => {
-        window.setTimeout(() => {
-            surveyLogic({ id: 'new' }).mount()
-            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-                {
-                    type: SurveyQuestionType.MultipleChoice,
-                    question: "We're sorry to see you go. What's your reason for unsubscribing?",
-                    choices: [
-                        'I no longer need the product',
-                        'I found a better product',
-                        'I found the product too difficult to use',
-                        'Other',
-                    ],
-                } as MultipleSurveyQuestion,
-            ])
-        }, 700)
+    useDelayedOnMountEffect(() => {
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.MultipleChoice,
+                question: "We're sorry to see you go. What's your reason for unsubscribing?",
+                choices: [
+                    'I no longer need the product',
+                    'I found a better product',
+                    'I found the product too difficult to use',
+                    'Other',
+                ],
+            } as MultipleSurveyQuestion,
+        ])
     })
 
     return <App />
@@ -296,7 +292,7 @@ export const NewMultiQuestionSurveySection: StoryFn = () => {
 NewMultiQuestionSurveySection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewSurveyPresentationSection: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
     })
@@ -306,20 +302,18 @@ export const NewSurveyPresentationSection: StoryFn = () => {
 NewSurveyPresentationSection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewSurveyTargetingSection: StoryFn = () => {
-    useOnMountEffect(() => {
-        window.setTimeout(() => {
-            surveyLogic({ id: 'new' }).mount()
-            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
-            surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
-            surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
-                groups: [
-                    {
-                        properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
-                        rollout_percentage: 20,
-                    },
-                ],
-            })
-        }, 700)
+    useDelayedOnMountEffect(() => {
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
+            groups: [
+                {
+                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
+                    rollout_percentage: 20,
+                },
+            ],
+        })
     })
 
     return <App />
@@ -332,7 +326,7 @@ NewSurveyTargetingSection.parameters = {
 }
 
 export const NewSurveyAppearanceSection: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
     })
@@ -364,7 +358,7 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         window.setTimeout(() => {
             surveyLogic({ id: 'new' }).mount()
             surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
@@ -389,7 +383,7 @@ NewSurveyWithHTMLQuestionDescription.parameters = {
 }
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         window.setTimeout(() => {
             surveyLogic({ id: 'new' }).mount()
             surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)

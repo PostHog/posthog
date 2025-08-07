@@ -9,7 +9,7 @@ import { TeamPublicType } from '~/types'
 
 import { ToolbarLaunch } from './ToolbarLaunch'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/ToolbarLaunch',
@@ -42,7 +42,7 @@ const meta: Meta = {
 export default meta
 
 const Template: StoryFn = () => {
-    useOnMountEffect(() => router.actions.push(urls.dashboards()))
+    useDelayedOnMountEffect(() => router.actions.push(urls.dashboards()))
 
     return <ToolbarLaunch />
 }
@@ -53,7 +53,7 @@ export const NoUrlsTemplate: StoryFn = () => {
     const { currentTeam } = useValues(teamLogic)
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         const team = { ...currentTeam, app_urls: [] }
         loadCurrentTeamSuccess(team as TeamPublicType)
     })
@@ -73,7 +73,7 @@ export const EmptyStateTemplate: StoryFn = () => {
     const { currentTeam } = useValues(teamLogic)
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         const team = { ...currentTeam, app_urls: [] }
         loadCurrentTeamSuccess(team as TeamPublicType)
     })

@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 import { TZLabel } from 'lib/components/TZLabel/index'
 import { now } from 'lib/dayjs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useState } from 'react'
 
@@ -39,7 +39,7 @@ export function WithMoreThanOne(): JSX.Element {
     const [portalCount, setPortalCount] = useState(0)
 
     // Run this effect only once the component has mounted
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         const count = document.querySelectorAll('[data-floating-ui-portal]').length
         setPortalCount(count)
     })
