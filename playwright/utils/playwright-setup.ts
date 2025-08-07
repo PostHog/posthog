@@ -17,7 +17,7 @@ import type {
     PlaywrightWorkspaceSetupData,
     PlaywrightWorkspaceSetupResult,
 } from '~/queries/schema/schema-general'
-import { LOGIN_USERNAME, LOGIN_PASSWORD } from './playwright-test-base'
+import { LOGIN_PASSWORD } from './playwright-test-base'
 
 export interface PlaywrightSetupOptions {
     /** Custom data to pass to the setup function */
@@ -120,20 +120,20 @@ export class PlaywrightSetup {
     }
 
     /**
-     * Login as test@posthog.com and navigate to the team's project page
+     * Login using workspace credentials and navigate to the team's project page
      *
      * Call this after creating a workspace to automatically login and navigate.
      * The user will end up on /project/{teamId} ready to test.
      */
-    async loginAndNavigateToTeam(page: Page, teamId: string): Promise<void> {
+    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
         await this.request.post(`${this.baseURL}/api/login/`, {
             data: {
-                email: LOGIN_USERNAME,
+                email: workspace.user_email,
                 password: LOGIN_PASSWORD,
             },
         })
 
-        await page.goto(`${this.baseURL}/project/${teamId}`)
+        await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }
 }
 

@@ -15,11 +15,10 @@ test('create custom workspace', async ({ page, playwrightSetup }) => {
 
     // Verify workspace was created
     expect(workspace.organization_name).toBe('Acme Corp')
-    expect(workspace.user_email).toBe('test@posthog.com')
     expect(workspace.personal_api_key).toBeTruthy()
 
     // Login and navigate to the team page
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace)
 
     // Now you're logged in and on the project page - test your feature!
 })
@@ -29,7 +28,7 @@ testWithWorkspace('test with pre-created workspace', async ({ page, workspace, p
     // Workspace already exists with default names
 
     // Login and navigate automatically
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace)
 
     // Test your feature here
     await expect(page).toHaveTitle(/PostHog/)
@@ -43,7 +42,7 @@ test('test API key functionality', async ({ page, playwrightSetup }) => {
 
     expect(workspace.personal_api_key).toMatch(/^phx_/)
 
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace)
 
     // Test features that might need API access
 })
@@ -57,11 +56,11 @@ test('compare multiple workspaces', async ({ page, playwrightSetup }) => {
     const companyB = await playwrightSetup.createWorkspace('Company B')
 
     // Test Company A
-    await playwrightSetup.loginAndNavigateToTeam(page, companyA.team_id)
+    await playwrightSetup.loginAndNavigateToTeam(page, companyA)
     await expect(page.locator('[data-attr="project-name"]')).toContainText('Company A')
 
     // Switch to Company B
-    await playwrightSetup.loginAndNavigateToTeam(page, companyB.team_id)
+    await playwrightSetup.loginAndNavigateToTeam(page, companyB)
     await expect(page.locator('[data-attr="project-name"]')).toContainText('Company B')
 })
 
@@ -81,7 +80,7 @@ test('test with API calls', async ({ page, playwrightSetup }) => {
 
     expect(response.ok()).toBe(true)
 
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace)
     // Continue with UI testing
 })
 
@@ -112,5 +111,5 @@ test('quick workspace creation', async ({ page, request }) => {
 
     // Or use the main class
     const playwrightSetup = createPlaywrightSetup(request)
-    await playwrightSetup.loginAndNavigateToTeam(page, result.result.team_id)
+    await playwrightSetup.loginAndNavigateToTeam(page, result.result)
 })

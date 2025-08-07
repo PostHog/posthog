@@ -50,7 +50,7 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
     expect(insightData.query.source.series[0].event).toBe('$pageview')
 
     // Login and navigate to the insight page using the short URL
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace.team_id)
+    await playwrightSetup.loginAndNavigateToTeam(page, workspace)
     await page.goto(`/project/${workspace.team_id}/insights/${insightData.short_id}`)
 
     // Wait for the insight to load
