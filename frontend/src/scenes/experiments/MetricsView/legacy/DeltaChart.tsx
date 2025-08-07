@@ -329,7 +329,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         height="16"
                         rx="3"
                         ry="3"
-                        fill="var(--bg-light)"
+                        fill="var(--color-bg-light)"
                     />
                     {/* Add grey background rectangle for the text */}
                     <rect
@@ -404,7 +404,7 @@ function ChartControls(): JSX.Element {
             </div>
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
-                    className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
+                    className="absolute bottom-2 left-2 flex justify-center bg-[var(--color-bg-table)] z-[101]"
                     // Chart is z-index 100, so we need to be above it
                 >
                     <LemonButton
