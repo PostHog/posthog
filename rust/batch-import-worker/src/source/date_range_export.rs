@@ -1135,4 +1135,3 @@ mod tests {
         source.cleanup_after_job().await.unwrap();
     }
 }
-
