@@ -1,4 +1,4 @@
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -7,11 +7,12 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { GroupType } from '~/types'
 
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
+import { IconTrash } from '@posthog/icons'
 
 export function GroupAnalyticsConfig(): JSX.Element | null {
     const { groupTypes, groupTypesLoading, singularChanges, pluralChanges, hasChanges } =
         useValues(groupAnalyticsConfigLogic)
-    const { setSingular, setPlural, reset, save } = useActions(groupAnalyticsConfigLogic)
+    const { setSingular, setPlural, reset, save, deleteGroupType } = useActions(groupAnalyticsConfigLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -58,6 +59,59 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                             `${groupType.group_type}(s)`
                         }
                         onChange={(e) => setPlural(groupType.group_type_index, e)}
+                    />
+                )
+            },
+        },
+        {
+            title: '',
+            key: 'delete',
+            width: 24,
+            render: function Render(_, groupType) {
+                return (
+                    <LemonButton
+                        status="danger"
+                        size="small"
+                        icon={<IconTrash />}
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: 'Delete group type',
+                                description: (
+                                    <div className="mt-2">
+                                        Deleting a group type will not free up a slot out of the 5 group types per
+                                        project.
+                                        <br />
+                                        <br />
+                                        If a new event with the deleted group type is sent, the group type will be
+                                        recreated.
+                                        <br />
+                                        Make sure to clean up your event triggers before deleting the group type.
+                                        <br />
+                                        <br />
+                                        Group data will not be deleted from existing events.
+                                        <br />
+                                        <br />
+                                        For more information about groups, see{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/product-analytics/group-analytics"
+                                            target="_blank"
+                                        >
+                                            the docs
+                                        </Link>
+                                    </div>
+                                ),
+                                secondaryButton: {
+                                    type: 'secondary',
+                                    children: 'Cancel',
+                                },
+                                primaryButton: {
+                                    type: 'primary',
+                                    status: 'danger',
+                                    onClick: () => deleteGroupType(groupType.group_type_index),
+                                    children: 'Delete',
+                                },
+                            })
+                        }
                     />
                 )
             },
