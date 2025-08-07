@@ -539,6 +539,7 @@ class SnowflakeClient:
             TypeError: If we don't get a tuple back from Snowflake (should never happen).
             SnowflakeFileNotUploadedError: If the upload status is not 'UPLOADED'.
         """
+        file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
             # We comply with the file-like interface of io.IOBase.

@@ -138,7 +138,7 @@ def contains_queries_in_order(queries: list[str], *queries_to_find: str):
 
 
 def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = False):
-    # Create a crube mock of the Snowflake API that just stores the queries
+    # Create a crude mock of the Snowflake API that just stores the queries
     # in a list for us to inspect.
     #
     # We also mock the login request, as well as the PUT file transfer
@@ -315,7 +315,7 @@ async def assert_clickhouse_records_in_snowflake(
         data_interval_end: End of the batch period for exported records.
         exclude_events: Event names to be excluded from the export.
         include_events: Event names to be included in the export.
-        batch_export_schema: Custom schema used in the batch export.
+        batch_export_model: The model, or custom schema, used in the batch export.
         expected_fields: List of fields expected to be in the destination table.
         expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
     """
