@@ -11,23 +11,22 @@ export const template: HogFunctionTemplate = {
     category: ['Productivity'],
     code_language: 'hog',
     code: `
-let payload := {
+let res := fetch(f'https://api.clickup.com/api/v2/list/{inputs.listId}/task', {
   'headers': {
-    'Authorization': 'Bearer ' + inputs.oauth.access_token,
+    'Authorization': f'Bearer {inputs.oauth.access_token}',
     'Content-Type': 'application/json',
   },
   'body': {
     'name': inputs.taskName,
-    'description': inputs.taskDescription,
-    'assignees': inputs.assignees,
+    'description': inputs.description,
+    'assignees': inputs.assigneeId,
     'tags': inputs.tags,
     'due_date': inputs.dueDate,
-    'status': inputs.status,
+    'status': inputs.statusId,
+    'priority': inputs.priorityId,
   },
   'method': 'POST'
-}
-
-let res := fetch('https://api.clickup.com/api/v2/list/{list_id}/task', payload);
+});
 
 if (res.status >= 400) {
     throw Error(f'Error from api.clickup.com (status {res.status}): {res.body}')
@@ -88,6 +87,7 @@ if (res.status >= 400) {
             type: 'string',
             label: 'Status ID',
             description: 'ID of the ClickUp status to create the task in.',
+            default: 'to do',
             secret: false,
             required: false,
         },
@@ -96,6 +96,7 @@ if (res.status >= 400) {
             type: 'string',
             label: 'Priority ID',
             description: 'ID of the ClickUp priority to create the task in.',
+            default: '3',
             secret: false,
             required: false,
         },
