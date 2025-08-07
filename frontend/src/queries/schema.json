@@ -9594,14 +9594,11 @@
                         }
                     ]
                 },
-                "correlation_event": {
-                    "type": "string"
-                },
-                "correlation_score": {
-                    "type": "number"
-                },
                 "description": {
                     "type": ["string", "null"]
+                },
+                "event": {
+                    "type": "string"
                 },
                 "external_issues": {
                     "items": {
@@ -9619,6 +9616,28 @@
                 "name": {
                     "type": ["string", "null"]
                 },
+                "odds_ratio": {
+                    "type": "number"
+                },
+                "population": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "both": {
+                            "type": "number"
+                        },
+                        "exception_only": {
+                            "type": "number"
+                        },
+                        "neither": {
+                            "type": "number"
+                        },
+                        "success_only": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["both", "success_only", "exception_only", "neither"],
+                    "type": "object"
+                },
                 "status": {
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
                     "type": "string"
@@ -9626,12 +9645,13 @@
             },
             "required": [
                 "assignee",
-                "correlation_event",
-                "correlation_score",
                 "description",
+                "event",
                 "first_seen",
                 "id",
                 "name",
+                "odds_ratio",
+                "population",
                 "status"
             ],
             "type": "object"
@@ -21122,6 +21142,10 @@
                     "description": "TODO: In the future, this should probably be renamed to `currencyProperty` to follow the pattern above"
                 },
                 "revenueProperty": {
+                    "type": "string"
+                },
+                "subscriptionProperty": {
+                    "description": "Property used to identify what subscription the revenue event refers to Useful when trying to detect churn/LTV/ARPU/etc.",
                     "type": "string"
                 }
             },

@@ -1,3 +1,5 @@
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -19,7 +21,7 @@ export interface SessionBatchManagerConfig {
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
     /** Optional switchover date for v2 metadata logic */
-    metadataSwitchoverDate: Date | null
+    metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
 }
 
 /**
@@ -65,7 +67,7 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
-    private readonly metadataSwitchoverDate: Date | null
+    private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes

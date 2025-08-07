@@ -68,7 +68,7 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
 
     def results(self, rows: list[tuple[str, list[UUID], list[int], list[int], list[int], list[int]]]) -> list[dict]:
         issue_ids: set[str] = set()
-        correlations: dict[str, dict[str, float]] = {}
+        correlations: dict[str, dict[str, dict]] = {}
 
         for row in rows:
             event, issue_uuids, issue_both, issue_success_only, issue_exception_only, issue_neither = row
@@ -84,17 +84,25 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
                 odds_ratio = (both * neither) / (success_only * exception_only)
 
                 issue_correlation = correlations.setdefault(str(uuid), {})
-                issue_correlation[event] = odds_ratio
+                issue_correlation[event] = {
+                    "odds_ratio": odds_ratio,
+                    "population": {
+                        "both": both,
+                        "success_only": success_only,
+                        "exception_only": exception_only,
+                        "neither": neither,
+                    },
+                }
 
         issues = self.fetch_issues(list(issue_ids))
 
         results = []
         for issue in issues:
             issue_correlations = correlations.get(issue["id"], {})  # type: ignore
-            for event, odds_ratio in issue_correlations.items():
-                results.append({**issue, "correlation_score": odds_ratio, "correlation_event": event})  # type: ignore
+            for event, correlation in issue_correlations.items():
+                results.append({**issue, **correlation, "event": event})  # type: ignore
 
-        return sorted(results, key=lambda r: r["correlation_score"], reverse=True)
+        return sorted(results, key=lambda r: r["odds_ratio"], reverse=True)
 
     def fetch_issues(self, ids: list[str]):
         queryset: QuerySet[ErrorTrackingIssue] = (
@@ -112,7 +120,7 @@ SELECT groupUniqArray(issue_id) as value
     WHERE timestamp > now() - INTERVAL 12 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
 )
 SELECT
-    '{self.query.events[0]}' as event,
+    {event} as event,
     (SELECT * FROM issue_list) as issue_ids,
     sumForEach(both) as both,
     sumForEach(success_only) as success_only,
@@ -121,7 +129,7 @@ SELECT
 FROM(
     SELECT
         $session_id,
-        minIf(toNullable(timestamp), event='{self.query.events[0]}') as earliest_success_event,
+        minIf(toNullable(timestamp), event={event}) as earliest_success_event,
         minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT * FROM issue_list))) as earliest_exceptions,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,
@@ -132,7 +140,10 @@ FROM(
         timestamp > now() - INTERVAL 12 HOUR AND
         notEmpty(events.$session_id)
     GROUP BY $session_id
-)"""
+)""",
+            placeholders={
+                "event": ast.Constant(value=self.query.events[0]),
+            },
         )
 
         # return parse_select(
