@@ -46,6 +46,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorC
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -126,6 +127,34 @@ LOADING_V2_LTS_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _get_session_ids_from_comment_search(team: Team, comment_text: str) -> list[str] | None:
+    """
+    Search for comments containing the given text and return the session IDs they're associated with.
+    an empty list means "no session can possibly match"
+    whereas None means "comment text does not restrict this search"
+    """
+    if not comment_text:
+        return None
+
+    # Search for comments with matching text in the content field
+    # Filter by team and scope (both 'Replay' and 'recording' for compatibility)
+    matching_comments = (
+        Comment.objects.filter(
+            team=team,
+            # TODO: discussions created `Replay` and comments create `recording`
+            # TODO: that's an unnecessary distinction but we'll ignore it for now
+            scope__in=["recording"],
+            content__search=comment_text,  # Case-insensitive contains search
+        )
+        .exclude(deleted=True)
+        .values_list("item_id", flat=True)
+        .distinct()
+    )
+
+    # item_id contains the session_id for recording comments
+    return list(matching_comments)
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:
@@ -536,6 +565,15 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(request.GET.dict())
+
+                if query.comment_text:
+                    with tracer.start_as_current_span("search_comments"):
+                        comment_session_ids = _get_session_ids_from_comment_search(self.team, query.comment_text)
+                        existing_ids = set(query.session_ids or [])
+                        comment_ids = set(comment_session_ids or [])
+                        query.session_ids = (
+                            list(existing_ids & comment_ids) if query.session_ids or comment_ids is not None else None
+                        )
 
                 self._maybe_report_recording_list_filters_changed(request, team=self.team)
                 with tracer.start_as_current_span("query_for_recordings"):
