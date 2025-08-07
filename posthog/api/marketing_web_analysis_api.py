@@ -35,7 +35,12 @@ class MarketingWebAnalysisViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"])
     def website_analysis(self, request: Request) -> StreamingHttpResponse:
-        """Analyze website with streaming response."""
+        """
+        Progressive competitor analysis:
+        1. Immediately streams competitors list
+        2. Enriches competitors in background and streams updates
+        3. Finally streams marketing recommendations
+        """
         data = request.query_params
 
         response = self._stream_response(data)

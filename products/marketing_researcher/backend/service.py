@@ -94,17 +94,24 @@ class MarketingResearcherService:
 
         return competitor_query
 
-    def analyze_competitor_landscape(self, website_url: str, summary_text: str) -> dict[str, Any]:
+    def find_competitors_only(self, website_url: str, summary_text: str) -> dict[str, Any]:
         all_competitors = self.find_competitors(website_url, summary_text)
-
         competitor_query = self._build_competitor_query(website_url, summary_text)
 
-        # Sort by score (highest first) and take top 5 for enrichment
         sorted_competitors = sorted(all_competitors, key=lambda x: x.get("score") or 0, reverse=True)
-        top_competitors = sorted_competitors[:5]
-        remaining_competitors = sorted_competitors[5:]
 
-        logger.info(f"Enriching top {len(top_competitors)} competitors out of {len(all_competitors)} total")
+        return {
+            "competitors": sorted_competitors,
+            "query_processed": competitor_query,
+            "target_company": {"url": website_url, "description": summary_text},
+            "total_competitors": len(sorted_competitors),
+        }
+
+    def enrich_competitors(self, competitors: list[dict[str, Any]], max_enrich: int = 5) -> list[dict[str, Any]]:
+        top_competitors = competitors[:max_enrich]
+        remaining_competitors = competitors[max_enrich:]
+
+        logger.info(f"Enriching top {len(top_competitors)} competitors out of {len(competitors)} total")
 
         enriched_competitors = []
         for competitor in top_competitors:
@@ -114,20 +121,23 @@ class MarketingResearcherService:
                 continue
 
             seo_data = self._extractor.extract_marketing_data(competitor_url)
-
             enriched_competitor = {**competitor, "seo_data": seo_data}
             enriched_competitors.append(enriched_competitor)
 
-        all_competitors_final = enriched_competitors + remaining_competitors
+        return enriched_competitors + remaining_competitors
+
+    def analyze_competitor_landscape(self, website_url: str, summary_text: str) -> dict[str, Any]:
+        competitor_data = self.find_competitors_only(website_url, summary_text)
+        enriched_competitors = self.enrich_competitors(competitor_data["competitors"])
 
         landscape_analysis = {
             "summary": {
-                "total_competitors": len(all_competitors_final),
-                "enriched_competitors": len(enriched_competitors),
-                "query_processed": competitor_query,
-                "target_company": {"url": website_url, "description": summary_text},
+                "total_competitors": len(enriched_competitors),
+                "enriched_competitors": min(5, len(competitor_data["competitors"])),
+                "query_processed": competitor_data["query_processed"],
+                "target_company": competitor_data["target_company"],
             },
-            "competitors": all_competitors_final,
+            "competitors": enriched_competitors,
         }
 
         return landscape_analysis

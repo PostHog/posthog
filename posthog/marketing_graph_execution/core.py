@@ -5,6 +5,7 @@ Simple graph execution for marketing analysis.
 import uuid
 from typing import Any
 from typing_extensions import TypedDict
+from .graph import create_marketing_analysis_graph
 
 
 class StepContext(TypedDict, total=False):
@@ -24,9 +25,7 @@ class MarketingGraphExecutor:
 
     def execute_with_streaming(self, initial_data: dict[str, Any]):
         """Execute with streaming events using the proper graph system."""
-        from .graph import create_marketing_analysis_graph
 
         graph = create_marketing_analysis_graph()
 
-        # Delegate to the proper graph execution engine
         yield from graph.execute_with_streaming(initial_data)
