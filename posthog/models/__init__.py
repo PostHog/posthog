@@ -228,6 +228,3 @@ __all__ = [
     "PromptSequence",
     "UserPromptState",
 ]
-
-# Import feature cleanup handlers to register signal receivers
-from . import feature_cleanup_handlers  # noqa: F401
