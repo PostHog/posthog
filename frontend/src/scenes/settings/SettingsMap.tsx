@@ -688,7 +688,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Security settings',
         settings: [
             {
-                id: 'organization-proxy',
+                id: 'organization-security',
                 title: 'Security settings',
                 component: <OrganizationSecuritySettings />,
             },
