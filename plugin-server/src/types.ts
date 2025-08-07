@@ -205,7 +205,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CASSANDRA_USER: string | null
     CASSANDRA_PASSWORD: string | null
     WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
-    EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
@@ -1321,3 +1320,8 @@ export interface HookPayload {
         }
     }
 }
+
+/**
+ * Metadata switchover can be absent, enforced (boolean true), or after a provided date
+ */
+export type SessionRecordingV2MetadataSwitchoverDate = Date | null | true

@@ -80,7 +80,7 @@ export function initKea({
             urlPatternOptions: {
                 // :TRICKY: What chars to allow in named segment values i.e. ":key"
                 // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|",
+                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
             },
             pathFromRoutesToWindow: (path) => {
                 return addProjectIdIfMissing(path)
