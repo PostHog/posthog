@@ -1595,6 +1595,7 @@ class IntegrationKind(StrEnum):
     LINEAR = "linear"
     GITHUB = "github"
     META_ADS = "meta-ads"
+    CLICKUP = "clickup"
 
 
 class IntervalType(StrEnum):
