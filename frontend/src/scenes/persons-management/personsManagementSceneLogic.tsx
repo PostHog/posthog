@@ -1,6 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { connect, kea, path, selectors } from 'kea'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -32,17 +30,6 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
             ['featureFlags'],
         ],
     })),
-    actions({
-        setTabKey: (tabKey: string) => ({ tabKey }),
-    }),
-    reducers({
-        tabKey: [
-            'persons' as string,
-            {
-                setTabKey: (_, { tabKey }) => tabKey,
-            },
-        ],
-    }),
     selectors({
         tabs: [
             (s) => [s.groupTabs],
@@ -51,8 +38,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     {
                         key: 'persons',
                         url: urls.persons(),
-                        label: 'People',
-                        // content: <Persons />,
+                        label: 'Persons',
                         tooltipDocLink: 'https://posthog.com/docs/data/persons',
                     },
                     {
@@ -67,8 +53,8 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
         ],
         crmFeatureFlag: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]],
         groupTabs: [
-            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel, s.crmFeatureFlag],
-            (groupTypes, groupsAccessStatus, aggregationLabel, crmFeatureFlag): PersonsManagementTab[] => {
+            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
+            (groupTypes, groupsAccessStatus, aggregationLabel): PersonsManagementTab[] => {
                 const showGroupsIntroductionPage = [
                     GroupsAccessStatus.HasAccess,
                     GroupsAccessStatus.HasGroupTypes,
@@ -81,23 +67,12 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                               key: 'groups-0',
                               label: 'Groups',
                               url: urls.groups(0),
-                              // content: <Groups groupTypeIndex={0} />,
                           },
                       ]
                     : Array.from(groupTypes.values()).map(({ group_type_index }) => ({
                           key: `groups-${group_type_index}`,
                           label: capitalizeFirstLetter(aggregationLabel(group_type_index).plural),
                           url: urls.groups(group_type_index),
-                          // content: <Groups groupTypeIndex={group_type_index} />,
-                          buttons: crmFeatureFlag ? (
-                              <LemonButton
-                                  type="primary"
-                                  data-attr={`new-group-${group_type_index}`}
-                                  onClick={() => router.actions.push(urls.group(group_type_index, 'new', false))}
-                              >
-                                  New {aggregationLabel(group_type_index).singular}
-                              </LemonButton>
-                          ) : null,
                       }))
 
                 return groupTabs
@@ -110,33 +85,9 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                 tabs.map((tab) => ({
                     key: tab.key,
                     label: <span data-attr={`persons-management-${tab.key}-tab`}>{tab.label}</span>,
-                    // content: tab.content,
                     tooltipDocLink: tab.tooltipDocLink,
                     link: tab.url,
                 })),
         ],
     }),
-    // actionToUrl(({ values }) => ({
-    //     setTabKey: ({ tabKey }) => {
-    //         let tabUrl = values.tabs.find((x) => x.key === tabKey)?.url
-    //         if (!tabUrl && values.groupTypesLoading) {
-    //             const groupMatch = tabKey.match(/^groups-(\d+)$/)
-    //             if (groupMatch) {
-    //                 tabUrl = urls.groups(parseInt(groupMatch[1]))
-    //             }
-    //         }
-    //         if (!tabUrl) {
-    //             return values.tabs[0].url
-    //         }
-    //         // Preserve existing search params when changing tabs
-    //         return [tabUrl, router.values.searchParams, router.values.hashParams]
-    //     },
-    // })),
-    // urlToAction(({ actions }) => {
-    //     urlToAction[urls.groups(':key')] = ({ key }: { key: string }) => {
-    //         actions.setTabKey(`groups-${key}`)
-    //         actions.setGroupTypeIndex(parseInt(key))
-    //     }
-    //     return urlToAction
-    // }),
 ])

@@ -8,6 +8,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { Breadcrumb } from '~/types'
 
 import type { groupsSceneLogicType } from './groupsSceneLogicType'
+import { urlToAction } from 'kea-router'
 
 export type GroupsTab = {
     key: string
@@ -24,7 +25,6 @@ export const groupsSceneLogic = kea<groupsSceneLogicType>([
     })),
     actions({
         setGroupTypeIndex: (groupTypeIndex: number) => ({ groupTypeIndex }),
-        setTabKey: (tabKey: string) => ({ tabKey }),
     }),
     reducers({
         groupTypeIndex: [
@@ -33,24 +33,12 @@ export const groupsSceneLogic = kea<groupsSceneLogicType>([
                 setGroupTypeIndex: (_, { groupTypeIndex }) => groupTypeIndex,
             },
         ],
-        tabKey: [
-            'persons' as string,
-            {
-                setTabKey: (_, { tabKey }) => tabKey,
-            },
-        ],
     }),
     selectors({
         tabs: [
             () => [],
             (): GroupsTab[] => {
                 return []
-            },
-        ],
-        activeTab: [
-            (s) => [s.tabs, s.tabKey],
-            (tabs, tabKey): GroupsTab | null => {
-                return tabs.find((x) => x.key === tabKey) ?? null
             },
         ],
         groupTypeName: [
@@ -88,4 +76,11 @@ export const groupsSceneLogic = kea<groupsSceneLogicType>([
             },
         ],
     }),
+    urlToAction(({ actions }) => ({
+        [urls.groups(':key')]: ({ key }) => {
+            if (key) {
+                actions.setGroupTypeIndex(parseInt(key))
+            }
+        },
+    })),
 ])
