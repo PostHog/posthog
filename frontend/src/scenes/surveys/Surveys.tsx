@@ -115,6 +115,10 @@ function Surveys(): JSX.Element {
     const { user } = useValues(userLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
 
+    if (shouldShowEmptyState) {
+        posthog.capture('surveys_empty_state_viewed')
+    }
+
     return (
         <div>
             <PageHeader
