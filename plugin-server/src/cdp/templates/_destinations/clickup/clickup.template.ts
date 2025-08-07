@@ -20,8 +20,6 @@ let res := fetch(f'https://api.clickup.com/api/v2/list/{inputs.listId}/task', {
     'name': inputs.taskName,
     'description': inputs.description,
     'assignees': inputs.assigneeId,
-    'tags': inputs.tags,
-    'due_date': inputs.dueDate,
     'status': inputs.statusId,
     'priority': inputs.priorityId,
   },
