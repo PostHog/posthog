@@ -11,7 +11,7 @@ import { test, testWithWorkspace } from '../utils/enhanced-test-base'
 // Example 1: Manual workspace creation with custom names
 test('create custom workspace', async ({ page, playwrightSetup }) => {
     // Create a workspace with custom names
-    const workspace = await playwrightSetup.createWorkspace('Acme Corp', 'Web Analytics')
+    const workspace = await playwrightSetup.createWorkspace('Acme Corp')
 
     // Verify workspace was created
     expect(workspace.organization_name).toBe('Acme Corp')
@@ -51,18 +51,18 @@ test('test API key functionality', async ({ page, playwrightSetup }) => {
 // Example 4: Multiple workspaces in one test
 test('compare multiple workspaces', async ({ page, playwrightSetup }) => {
     // Create workspace for Company A
-    const companyA = await playwrightSetup.createWorkspace('Company A', 'Mobile App')
+    const companyA = await playwrightSetup.createWorkspace('Company A')
 
     // Create workspace for Company B
-    const companyB = await playwrightSetup.createWorkspace('Company B', 'Web App')
+    const companyB = await playwrightSetup.createWorkspace('Company B')
 
     // Test Company A
     await playwrightSetup.loginAndNavigateToTeam(page, companyA.team_id)
-    await expect(page.locator('[data-attr="project-name"]')).toContainText('Mobile App')
+    await expect(page.locator('[data-attr="project-name"]')).toContainText('Company A')
 
     // Switch to Company B
     await playwrightSetup.loginAndNavigateToTeam(page, companyB.team_id)
-    await expect(page.locator('[data-attr="project-name"]')).toContainText('Web App')
+    await expect(page.locator('[data-attr="project-name"]')).toContainText('Company B')
 })
 
 // Example 5: Using API key for API testing
