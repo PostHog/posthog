@@ -12,9 +12,12 @@ from dags.max_ai.snapshot_project_data import (
 from ee.hogai.eval.schema import Snapshot
 
 
-def get_object_storage_endpoint() -> dagster.EnvVar | str:
+def get_object_storage_endpoint() -> str:
     if settings.DEBUG:
-        return dagster.EnvVar("EVALS_DIND_OBJECT_STORAGE_ENDPOINT")
+        val = dagster.EnvVar("EVALS_DIND_OBJECT_STORAGE_ENDPOINT").get_value()
+        if not val:
+            raise ValueError("EVALS_DIND_OBJECT_STORAGE_ENDPOINT is not set")
+        return val
     return settings.OBJECT_STORAGE_ENDPOINT
 
 

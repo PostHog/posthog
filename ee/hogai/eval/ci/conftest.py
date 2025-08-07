@@ -41,7 +41,7 @@ class SnapshotLoader:
             self.context.log.info(f"Loading Postgres snapshot for team {snapshot.project}...")
 
             project = await Project.objects.acreate(
-                id=Team.objects.increment_id_sequence(), organization=self.organization
+                id=await sync_to_async(Team.objects.increment_id_sequence)(), organization=self.organization
             )
 
             (
@@ -79,7 +79,7 @@ class SnapshotLoader:
         return BytesIO(content)
 
     def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T, None, None]:
-        avro_schema = parse_schema(schema.avro_schema)
+        avro_schema = parse_schema(schema.avro_schema())
         for record in reader(buffer, avro_schema):
             yield schema.model_validate(record)
 
@@ -106,7 +106,7 @@ def dagster_context() -> Generator[PipesContext, None, None]:
 
 @pytest.fixture(scope="package", autouse=True)
 def restore_postgres_snapshot(
-    dagster_context, django_db_setup, django_db_blocker
+    dagster_context: PipesContext, django_db_setup, django_db_blocker
 ) -> Generator[tuple[Organization, User], None]:
     """
     Script that restores dumped Django models.
@@ -118,3 +118,11 @@ def restore_postgres_snapshot(
         loader = SnapshotLoader(dagster_context)
         org, user = async_to_sync(loader.load_snapshots)()
         yield org, user
+
+        with open("eval_results.jsonl") as f:
+            lines = f.readlines()
+            dagster_context.report_asset_materialization(
+                {
+                    "output": "\n".join(lines),
+                }
+            )
