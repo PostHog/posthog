@@ -18,6 +18,7 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentRatioMetric,
     ExperimentMetricMathType,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
@@ -40,7 +41,7 @@ logger = structlog.get_logger(__name__)
 
 
 def get_data_warehouse_metric_source(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric],
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
 ) -> ExperimentDataWarehouseNode | None:
     if isinstance(metric, ExperimentMeanMetric) and isinstance(metric.source, ExperimentDataWarehouseNode):
         return metric.source
@@ -68,34 +69,40 @@ def is_continuous(
     return False
 
 
-def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
+def get_metric_value(metric: Union[ExperimentMeanMetric, ExperimentRatioMetric], source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode] = None) -> ast.Expr:
     """
     Returns the expression for the value of the metric. For count metrics, we just emit 1.
     For sum or other math types, we return the metric property (revenue f.ex).
+    For ratio metrics, the source parameter specifies which part (numerator/denominator) to get the value for.
     """
+    # For ratio metrics, use the provided source
+    if isinstance(metric, ExperimentRatioMetric):
+        if source is None:
+            raise ValueError("Source must be provided for ratio metrics")
+        metric_source = source
+    else:
+        metric_source = metric.source
 
-    if is_continuous(metric.source.math):
-        # If the metric is a property math type, we need to extract the value from the event property
-        metric_property = metric.source.math_property
-        if metric_property:
-            if isinstance(metric.source, ExperimentDataWarehouseNode):
-                return parse_expr(metric_property)
-            else:
+    if isinstance(metric_source, EventsNode) or isinstance(metric_source, ActionsNode):
+        # Check if the source has a math type that indicates continuous values
+        if hasattr(metric_source, 'math') and is_continuous(metric_source.math):
+            # If the metric is a property math type, we need to extract the value from the event property
+            metric_property = getattr(metric_source, 'math_property', None)
+            if metric_property:
                 # Use the same property access pattern as trends to get property groups optimization
                 return ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric_property])])
+        elif hasattr(metric_source, 'math') and metric_source.math == ExperimentMetricMathType.UNIQUE_SESSION:
+            return ast.Field(chain=["$session_id"])
+        elif hasattr(metric_source, 'math') and metric_source.math == ExperimentMetricMathType.HOGQL and getattr(metric_source, 'math_hogql', None) is not None:
+            # Extract the inner expression from the HogQL expression
+            _, inner_expr = extract_aggregation_and_inner_expr(metric_source.math_hogql)
+            return inner_expr
+    elif isinstance(metric_source, ExperimentDataWarehouseNode):
+        metric_property = getattr(metric_source, 'math_property', None)
+        if metric_property:
+            return parse_expr(metric_property)
 
-    elif metric.source.math == ExperimentMetricMathType.UNIQUE_SESSION:
-        return ast.Field(chain=["$session_id"])
-
-    elif metric.source.math == ExperimentMetricMathType.HOGQL and metric.source.math_hogql is not None:
-        # Extract the inner expression from the HogQL expression
-        # This handles cases like "sum(properties.revenue - properties.expense)"
-        # where we need to return just the inner part for aggregation
-        _, inner_expr = extract_aggregation_and_inner_expr(metric.source.math_hogql)
-        return inner_expr
-
-    # Else, we default to count
-    # We then just emit 1 so we can easily sum it up
+    # Default to count - emit 1 so we can easily sum it up
     return ast.Constant(value=1)
 
 
@@ -188,7 +195,7 @@ def get_experiment_date_range(experiment: Experiment, team: Team) -> DateRange:
 
 
 def get_metric_time_window(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric], date_range_query: QueryDateRange, left: ast.Expr
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric], date_range_query: QueryDateRange, left: ast.Expr
 ) -> list[ast.CompareOperation]:
     """
     Returns the time window conditions for the metric based on conversion window and date range.
@@ -247,7 +254,7 @@ def get_experiment_exposure_query(
     date_range_query: QueryDateRange,
     team: Team,
     entity_key: str,
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric],
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
     multiple_variant_handling: MultipleVariantHandling,
 ) -> ast.SelectQuery:
     """
@@ -310,41 +317,69 @@ def get_experiment_exposure_query(
 
 
 def get_metric_events_query(
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+    exposure_query: ast.SelectQuery,
+    team: Team,
+    entity_key: str,
+    experiment: Experiment,
+    date_range_query: QueryDateRange,
+    source_type: str = "main",
+) -> ast.SelectQuery:
+    """
+    Returns the query to get the relevant metric events. One row per event, so multiple rows per entity.
+    Columns: timestamp, entity_identifier, variant, value
+    For ratio metrics, source_type can be "main" (numerator) or "denominator".
+    """
+    # For ratio metrics, determine which source to use
+    if isinstance(metric, ExperimentRatioMetric):
+        metric_source = metric.numerator if source_type == "main" else metric.denominator
+        # Create a temporary mean metric for processing
+        temp_metric = ExperimentMeanMetric(
+            source=metric_source,
+            conversion_window=metric.conversion_window,
+            conversion_window_unit=metric.conversion_window_unit,
+        )
+        return _get_metric_events_for_source(temp_metric, exposure_query, team, entity_key, experiment, date_range_query, metric_source)
+    else:
+        return _get_metric_events_for_source(metric, exposure_query, team, entity_key, experiment, date_range_query, metric.source)
+
+
+def _get_metric_events_for_source(
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric],
     exposure_query: ast.SelectQuery,
     team: Team,
     entity_key: str,
     experiment: Experiment,
     date_range_query: QueryDateRange,
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
 ) -> ast.SelectQuery:
     """
-    Returns the query to get the relevant metric events. One row per event, so multiple rows per entity.
-    Columns: timestamp, entity_identifier, variant, value
+    Internal helper to get metric events for a specific source.
     """
     match metric:
         case ExperimentMeanMetric() as metric:
-            match metric.source:
+            match source:
                 case ExperimentDataWarehouseNode():
                     return ast.SelectQuery(
                         select=[
                             ast.Alias(
                                 alias="timestamp",
-                                expr=ast.Field(chain=[metric.source.table_name, metric.source.timestamp_field]),
+                                expr=ast.Field(chain=[source.table_name, source.timestamp_field]),
                             ),
                             ast.Alias(
                                 alias="entity_identifier",
                                 expr=ast.Field(
                                     chain=[
-                                        metric.source.table_name,
-                                        *metric.source.data_warehouse_join_key.split("."),
+                                        source.table_name,
+                                        *source.data_warehouse_join_key.split("."),
                                     ]
                                 ),
                             ),
                             ast.Field(chain=["exposure_data", "variant"]),
-                            ast.Alias(alias="value", expr=get_metric_value(metric)),
+                            ast.Alias(alias="value", expr=get_metric_value(metric, source)),
                         ],
                         select_from=ast.JoinExpr(
-                            table=ast.Field(chain=[metric.source.table_name]),
+                            table=ast.Field(chain=[source.table_name]),
                             next_join=ast.JoinExpr(
                                 table=exposure_query,
                                 join_type="INNER JOIN",
@@ -353,8 +388,8 @@ def get_metric_events_query(
                                     expr=ast.CompareOperation(
                                         left=ast.Field(
                                             chain=[
-                                                metric.source.table_name,
-                                                *metric.source.data_warehouse_join_key.split("."),
+                                                source.table_name,
+                                                *source.data_warehouse_join_key.split("."),
                                             ]
                                         ),
                                         right=ast.Call(
@@ -372,21 +407,21 @@ def get_metric_events_query(
                                 *get_metric_time_window(
                                     metric,
                                     date_range_query,
-                                    left=ast.Field(chain=[metric.source.table_name, metric.source.timestamp_field]),
+                                    left=ast.Field(chain=[source.table_name, source.timestamp_field]),
                                 ),
-                                data_warehouse_node_to_filter(team, metric.source),
+                                data_warehouse_node_to_filter(team, source),
                             ],
                         ),
                     )
 
-                case EventsNode() | ActionsNode() as metric_source:
+                case EventsNode() | ActionsNode():
                     return ast.SelectQuery(
                         select=[
                             ast.Field(chain=["events", "timestamp"]),
                             ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", entity_key])),
                             ast.Field(chain=["exposure_data", "variant"]),
                             ast.Field(chain=["events", "event"]),
-                            ast.Alias(alias="value", expr=get_metric_value(metric)),
+                            ast.Alias(alias="value", expr=get_metric_value(metric, source)),
                         ],
                         select_from=ast.JoinExpr(
                             table=ast.Field(chain=["events"]),
@@ -409,7 +444,7 @@ def get_metric_events_query(
                                 *get_metric_time_window(
                                     metric, date_range_query, left=ast.Field(chain=["events", "timestamp"])
                                 ),
-                                event_or_action_to_filter(team, metric_source),
+                                event_or_action_to_filter(team, source),
                                 *get_test_accounts_filter(team, experiment.exposure_criteria),
                             ],
                         ),
