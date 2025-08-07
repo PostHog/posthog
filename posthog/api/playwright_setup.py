@@ -10,6 +10,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from pydantic import BaseModel
+
 from posthog.test.playwright_setup_functions import PLAYWRIGHT_SETUP_FUNCTIONS
 
 
@@ -51,10 +53,37 @@ def setup_test(request: Request, test_name: str) -> Response:
         # Get the setup function
         setup_function = PLAYWRIGHT_SETUP_FUNCTIONS[test_name]
 
-        # Run the setup function with request data
-        result = setup_function(request.data if hasattr(request, "data") else {})
+        # Get the function's parameter type annotation to create the right data model
+        import inspect
+        from typing import get_type_hints
 
-        return Response({"success": True, "test_name": test_name, "result": result})
+        request_data = request.data if hasattr(request, "data") else {}
+
+        # Get function signature and parameter types
+        sig = inspect.signature(setup_function)
+        type_hints = get_type_hints(setup_function)
+
+        # Get the first parameter's type (should be the data model)
+        param_names = list(sig.parameters.keys())
+        if param_names:
+            first_param = param_names[0]
+            if first_param in type_hints:
+                data_model_class = type_hints[first_param]
+                # Create instance of the expected data model
+                setup_data = data_model_class(**request_data)
+            else:
+                # Fallback to raw data if no type annotation
+                setup_data = request_data
+        else:
+            setup_data = request_data
+
+        # Run the setup function with proper data type - returns a BaseModel
+        result: BaseModel = setup_function(setup_data)
+
+        # Convert Pydantic BaseModel to dict for JSON serialization
+        result_dict = result.model_dump()
+
+        return Response({"success": True, "test_name": test_name, "result": result_dict})
 
     except Exception as e:
         return Response(

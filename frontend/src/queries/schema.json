@@ -2301,12 +2301,6 @@
                 "personal_api_key": {
                     "type": "string"
                 },
-                "project_id": {
-                    "type": "string"
-                },
-                "project_name": {
-                    "type": "string"
-                },
                 "team_id": {
                     "type": "string"
                 },
@@ -2322,10 +2316,8 @@
             },
             "required": [
                 "organization_id",
-                "project_id",
                 "team_id",
                 "organization_name",
-                "project_name",
                 "team_name",
                 "user_id",
                 "user_email",

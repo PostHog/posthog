@@ -3665,10 +3665,8 @@ export interface BasicOrganizationSetupData {
 
 export interface BasicOrganizationSetupResult {
     organization_id: string
-    project_id: string
     team_id: string
     organization_name: string
-    project_name: string
     team_name: string
     user_id: string
     user_email: string

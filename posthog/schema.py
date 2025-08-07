@@ -453,8 +453,6 @@ class BasicOrganizationSetupResult(BaseModel):
     organization_id: str
     organization_name: str
     personal_api_key: str
-    project_id: str
-    project_name: str
     team_id: str
     team_name: str
     user_email: str
