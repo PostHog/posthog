@@ -97,7 +97,11 @@ export function initKea({
                 // This state is persisted into window.history
                 const logic = sceneLogic.findMounted()
                 if (logic) {
-                    return { tabs: structuredClone(logic.values.tabs) }
+                    if (structuredClone) {
+                        return { tabs: structuredClone(logic.values.tabs) }
+                    }
+                    // structuredClone fails in jest for some reason, despite us being on the right versions
+                    return { tabs: JSON.parse(JSON.stringify(logic.values.tabs)) || [] }
                 }
                 return undefined
             },
