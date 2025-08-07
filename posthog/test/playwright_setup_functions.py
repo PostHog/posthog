@@ -62,10 +62,8 @@ def create_organization_with_team(data: BasicOrganizationSetupData) -> BasicOrga
 
         return BasicOrganizationSetupResult(
             organization_id=str(organization.id),
-            project_id="",  # Not used, but required by schema
             team_id=str(team.id),
             organization_name=organization.name,
-            project_name="",  # Not used, but required by schema
             team_name=team.name,
             user_id=str(user.id),
             user_email=user.email,

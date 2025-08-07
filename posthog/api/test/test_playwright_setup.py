@@ -37,11 +37,9 @@ class TestPlaywrightSetup(APIBaseTest):
         # Check all required fields are present
         required_fields = [
             "organization_id",
-            "project_id",
             "team_id",
             "user_id",
             "organization_name",
-            "project_name",
             "team_name",
             "user_email",
             "personal_api_key",
