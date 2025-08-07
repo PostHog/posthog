@@ -29,7 +29,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -569,7 +569,7 @@ ThreadScrollsToBottomOnNewMessages.parameters = {
 export const FloatingInput: StoryFn = () => {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         closeSidePanel()
         setIsFloatingMaxExpanded(false)
     })
@@ -579,7 +579,7 @@ export const FloatingInput: StoryFn = () => {
 
 export const ExpandedFloatingInput: StoryFn = () => {
     const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         setIsFloatingMaxExpanded(true)
     })
 
