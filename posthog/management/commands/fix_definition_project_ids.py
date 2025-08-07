@@ -320,17 +320,11 @@ class Command(BaseCommand):
 
                 # Print failed record IDs
                 if self.failed_records["EventDefinition"]:
-                    self.stdout.write(
-                        f"\nFailed EventDefinition IDs: {[r['id'] for r in self.failed_records['EventDefinition']]}"
-                    )
+                    self.stdout.write(f"\nFailed EventDefinition IDs: {self.failed_records['EventDefinition']}")
                 if self.failed_records["PropertyDefinition"]:
-                    self.stdout.write(
-                        f"Failed PropertyDefinition IDs: {[r['id'] for r in self.failed_records['PropertyDefinition']]}"
-                    )
+                    self.stdout.write(f"Failed PropertyDefinition IDs: {self.failed_records['PropertyDefinition']}")
                 if self.failed_records["GroupTypeMapping"]:
-                    self.stdout.write(
-                        f"Failed GroupTypeMapping IDs: {[r['id'] for r in self.failed_records['GroupTypeMapping']]}"
-                    )
+                    self.stdout.write(f"Failed GroupTypeMapping IDs: {self.failed_records['GroupTypeMapping']}")
 
             if total_updated > 0:
                 self.stdout.write(self.style.SUCCESS(f"\n✓ Successfully aligned {total_updated} definition records"))
