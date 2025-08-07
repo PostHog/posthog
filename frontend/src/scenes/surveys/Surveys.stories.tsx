@@ -359,18 +359,16 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
     })
 
     useDelayedOnMountEffect(() => {
-        window.setTimeout(() => {
-            surveyLogic({ id: 'new' }).mount()
-            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-                {
-                    type: SurveyQuestionType.Open,
-                    question: 'What is your favorite color?',
-                    description: '<strong>This description has HTML in it</strong>',
-                    descriptionContentType: 'html',
-                },
-            ])
-        }, 700)
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is your favorite color?',
+                description: '<strong>This description has HTML in it</strong>',
+                descriptionContentType: 'html',
+            },
+        ])
     })
 
     return <App />
@@ -384,18 +382,16 @@ NewSurveyWithHTMLQuestionDescription.parameters = {
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
     useDelayedOnMountEffect(() => {
-        window.setTimeout(() => {
-            surveyLogic({ id: 'new' }).mount()
-            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-                {
-                    type: SurveyQuestionType.Open,
-                    question: 'What is your favorite color?',
-                    description: '<strong>This description has HTML in it</strong>',
-                    descriptionContentType: 'text',
-                },
-            ])
-        }, 700)
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is your favorite color?',
+                description: '<strong>This description has HTML in it</strong>',
+                descriptionContentType: 'text',
+            },
+        ])
     })
 
     return <App />
