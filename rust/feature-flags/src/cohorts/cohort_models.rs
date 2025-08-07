@@ -38,13 +38,13 @@ impl Cohort {
                 "person_property" => CohortType::PersonProperty,
                 "behavioral" => CohortType::Behavioral,
                 "analytical" => CohortType::Analytical,
-                _ => self.determine_legacy_type()
+                _ => self.determine_legacy_type(),
             }
         } else {
             self.determine_legacy_type()
         }
     }
-    
+
     fn determine_legacy_type(&self) -> CohortType {
         if self.is_static {
             CohortType::Static
@@ -54,7 +54,7 @@ impl Cohort {
             CohortType::PersonProperty
         }
     }
-    
+
     pub fn can_be_used_in_feature_flag(&self) -> bool {
         match self.get_cohort_type() {
             CohortType::Static | CohortType::PersonProperty => true,
