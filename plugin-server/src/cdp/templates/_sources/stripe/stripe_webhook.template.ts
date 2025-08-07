@@ -10,14 +10,21 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/stripe.svg',
     category: ['Revenue', 'Payment'],
     code_language: 'hog',
-    code: `let signatureHeader := request.headers['stripe-signature']
-  let body := request.stringBody
-  
-  print('headers', request.headers)
-  print('body', body)
-  
-  
-  // Extract t= (timestamp) and v1= (signature) from header
+    code: `
+let body := request.stringBody  
+
+if (not inputs.bypass_signature_check) {
+  let signatureHeader := request.headers['stripe-signature']
+
+  if (empty(signatureHeader)) {
+    return {
+      'httpResponse': {
+        'status': 400,
+        'body': 'Missing signature',
+      }
+    }
+  }
+
   let headerParts := splitByString(',', signatureHeader)
   let timestamp := null
   let v1Signature := null
@@ -39,29 +46,38 @@ export const template: HogFunctionTemplate = {
   }
   
   if (empty(timestamp) or empty(v1Signature)) {
-      return null
+      return {
+        'httpResponse': {
+          'status': 400,
+          'body': 'Could not parse signature',
+        }
+      }
   }
   
   let signedPayload := concat(timestamp, '.', body)
   let computedSignature := sha256HmacChainHex([inputs.signing_secret, signedPayload])
-  
-  print('sigs', computedSignature, v1Signature)
-  
+      
   if (computedSignature != v1Signature) {
-      throw Error('Bad signature')
+      return {
+        'httpResponse': {
+          'status': 400,
+          'body': 'Bad signature',
+        }
+      }
   }
+}
 
-  let properties := inputs.include_all_properties ? request.body.data.object : {}
+let properties := inputs.include_all_properties ? request.body.data.object : {}
 
-  for (let key, value in inputs.properties) {
-      properties[key] := value
-  }
+for (let key, value in inputs.properties) {
+    properties[key] := value
+}
 
-  postHogCapture({
-    'event': inputs.event,
-    'distinct_id': inputs.distinct_id,
-    'properties': properties
-  })
+postHogCapture({
+  'event': inputs.event,
+  'distinct_id': inputs.distinct_id,
+  'properties': properties
+})
   `,
 
     inputs_schema: [
@@ -95,7 +111,7 @@ export const template: HogFunctionTemplate = {
             label: 'Include all properties',
             description:
                 'If set, the entire `data.object` will be included as properties. You can override specific webhook attributes below.',
-            default: false,
+            default: true,
             secret: false,
             required: true,
         },
@@ -109,7 +125,15 @@ export const template: HogFunctionTemplate = {
             secret: false,
             required: false,
         },
-
+        {
+            type: 'boolean',
+            key: 'bypass_signature_check',
+            label: 'Bypass signature check',
+            description: 'If set, the signature check will be bypassed. This is not recommended.',
+            default: false,
+            required: false,
+            secret: false,
+        },
         {
             type: 'boolean',
             key: 'debug',

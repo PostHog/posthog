@@ -87,6 +87,62 @@ describe('stripe webhook template', () => {
             account_name: 'PostHog - modified',
         })
     })
+
+    it('should return 400 if the signature is missing', async () => {
+        const response = await tester.invoke(
+            {
+                signing_secret: 'whsec_testsecret',
+            },
+            {
+                request: {
+                    headers: {},
+                    body: {},
+                    stringBody: '',
+                },
+            }
+        )
+
+        expect(response.execResult).toMatchObject({
+            httpResponse: {
+                status: 400,
+                body: 'Missing signature',
+            },
+        })
+    })
+
+    it('should return 400 if the signature is invalid', async () => {
+        const response = await tester.invoke(
+            {
+                signing_secret: 'whsec_testsecret',
+            },
+            {
+                request: createStripeWebhook('whsec_testsecret-not!'),
+            }
+        )
+
+        expect(response.execResult).toMatchObject({
+            httpResponse: {
+                status: 400,
+                body: 'Bad signature',
+            },
+        })
+    })
+
+    it('should bypass the signature check if bypass_signature_check is true', async () => {
+        const response = await tester.invoke(
+            {
+                signing_secret: '',
+                bypass_signature_check: true,
+            },
+            {
+                request: createStripeWebhook('whsec_testsecret'),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(true)
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+    })
 })
 
 const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
