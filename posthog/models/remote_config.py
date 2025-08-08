@@ -23,7 +23,7 @@ from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
-from posthog.storage.hypercache import HyperCache
+from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
@@ -102,13 +102,19 @@ class RemoteConfig(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
 
-    @property
-    def hypercache(self):
+    @classmethod
+    def get_hypercache(cls):
+        def load_config(token):
+            try:
+                return cls.objects.select_related("team").get(team__api_token=token).build_config()
+            except cls.DoesNotExist:
+                return HyperCacheStoreMissing()
+
         return HyperCache(
             namespace="array",
             value="config.json",
             token_based=True,  # We store and load via the team token
-            load_fn=lambda _: self.build_config(),
+            load_fn=load_config,
         )
 
     def build_config(self):
@@ -314,41 +320,15 @@ class RemoteConfig(UUIDModel):
         return site_apps_js + site_functions_js
 
     @classmethod
-    def _get_config_via_cache(cls, token: str) -> dict:
-        key = cache_key_for_team_token(token)
-
-        data = cache.get(key)
-        if data == "404":
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
-            raise cls.DoesNotExist()
-
-        if data:
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
-            return data
-
-        REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
-        try:
-            remote_config = cls.objects.select_related("team").get(team__api_token=token)
-        except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise
-
-        data = remote_config.build_config()
-        cache.set(key, data, timeout=CACHE_TIMEOUT)
-
-        return data
-
-    @classmethod
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
-        config = cls._get_config_via_cache(token)
+        config = cls.get_hypercache().get_from_cache(token)
         config = sanitize_config_for_public_cdn(config, request=request)
 
         return config
 
     @classmethod
     def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        config = cls._get_config_via_cache(token)
+        config = cls.get_hypercache().get_from_cache(token)
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
@@ -384,11 +364,6 @@ class RemoteConfig(UUIDModel):
             config = self.build_config()
 
             # NOTE: Eventually this will replace a lot of other code - just wanted to get it populating first
-            hypercache = HyperCache(
-                namespace="array",
-                value="config.json",
-                load_fn=lambda team: config,
-            )
 
             if not force and config == self.config:
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
@@ -400,13 +375,11 @@ class RemoteConfig(UUIDModel):
             self.save()
 
             try:
-                hypercache.update_cache(self.team)
+                RemoteConfig.get_hypercache().update_cache(self.team)
             except Exception as e:
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
 
-            # Update the redis cache key for the config
-            cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
             # Invalidate Cloudflare CDN cache
             self._purge_cdn()
 
