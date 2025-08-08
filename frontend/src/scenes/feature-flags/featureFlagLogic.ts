@@ -1133,10 +1133,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
-                const releaseConditionsLogic = featureFlagReleaseConditionsLogic.findMounted({
-                    id: `schedule-release-conditions-${values.featureFlag.id}`,
-                })
-                releaseConditionsLogic?.actions.resetAffectedUsers()
+                if (values.featureFlag.id != null) {
+                    const releaseConditionsLogic = featureFlagReleaseConditionsLogic.findMounted({
+                        id: createScheduleReleaseConditionsLogicKey(values.featureFlag.id),
+                    })
+                    releaseConditionsLogic?.actions.resetAffectedUsers()
+                }
             }
         },
         setScheduledChangeOperation: () => {

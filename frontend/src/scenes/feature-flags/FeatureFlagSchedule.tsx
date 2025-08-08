@@ -193,14 +193,15 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 </div>
                             </>
                         )}
-                        {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
-                            <FeatureFlagReleaseConditions
-                                id={`schedule-release-conditions-${featureFlag.id}`}
-                                filters={scheduleFilters}
-                                onChange={(value, errors) => setSchedulePayload(value, null, errors)}
-                                hideMatchOptions
-                            />
-                        )}
+                        {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition &&
+                            featureFlag.id != null && (
+                                <FeatureFlagReleaseConditions
+                                    id={createScheduleReleaseConditionsLogicKey(featureFlag.id)}
+                                    filters={scheduleFilters}
+                                    onChange={(value, errors) => setSchedulePayload(value, null, errors)}
+                                    hideMatchOptions
+                                />
+                            )}
                         <div className="flex items-center justify-end">
                             <LemonButton
                                 type="primary"
