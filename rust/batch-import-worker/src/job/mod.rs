@@ -69,6 +69,11 @@ fn decide_on_error(
     }
 }
 
+// Tiny pure helper to test max-attempts behavior independently
+fn should_pause_due_to_max_attempts(next_attempt: u32, max_attempts: u32) -> bool {
+    max_attempts > 0 && next_attempt >= max_attempts
+}
+
 fn reset_backoff_after_success(state: &mut JobState, model: &mut JobModel) {
     state.backoff_attempt = 0;
     model.backoff_attempt = 0;
@@ -233,6 +238,32 @@ impl Job {
                         status_msg,
                         display_msg,
                     } => {
+                        // If max attempts is set and reached, pause instead of backoff
+                        if should_pause_due_to_max_attempts(
+                            next_attempt,
+                            self.context.config.backoff_max_attempts,
+                        ) {
+                            let mut model = self.model.lock().await;
+                            let msg = match current_date_range.as_deref() {
+                                Some(dr) => format!(
+                                    "Max backoff attempts reached for date range {} (attempt {}). Pausing.",
+                                    dr, next_attempt
+                                ),
+                                None => format!(
+                                    "Max backoff attempts reached (attempt {}). Pausing.",
+                                    next_attempt
+                                ),
+                            };
+                            model
+                                .pause(
+                                    self.context.clone(),
+                                    msg,
+                                    Some("Rate limit persisted. Job paused after maximum retries.".to_string()),
+                                )
+                                .await?;
+                            return Ok(None);
+                        }
+
                         error!("Rate limited (429): scheduling retry in {:?}", delay);
                         let mut model = self.model.lock().await;
                         model
@@ -723,5 +754,13 @@ mod tests {
             display_message,
             "Connection failed (Date range: 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC)"
         );
+    }
+
+    #[test]
+    fn test_should_pause_due_to_max_attempts() {
+        assert_eq!(should_pause_due_to_max_attempts(0, 0), false); // unlimited
+        assert_eq!(should_pause_due_to_max_attempts(2, 3), false);
+        assert_eq!(should_pause_due_to_max_attempts(3, 3), true);
+        assert_eq!(should_pause_due_to_max_attempts(4, 3), true);
     }
 }

@@ -52,6 +52,10 @@ pub struct Config {
 
     #[envconfig(from = "BACKOFF_MULTIPLIER", default = "2.0")]
     pub backoff_multiplier: f64,
+
+    // 0 means unlimited retries
+    #[envconfig(from = "BACKOFF_MAX_ATTEMPTS", default = "0")]
+    pub backoff_max_attempts: u32,
 }
 
 impl Config {
@@ -103,6 +107,7 @@ mod tests {
             backoff_initial_seconds: 60,
             backoff_max_seconds: 3600,
             backoff_multiplier: 2.0,
+            backoff_max_attempts: 0,
         }
     }
 
