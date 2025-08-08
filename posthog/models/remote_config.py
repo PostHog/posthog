@@ -23,6 +23,8 @@ from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
+from posthog.storage.hypercache import HyperCache
+
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -376,6 +378,13 @@ class RemoteConfig(UUIDModel):
         try:
             config = self.build_config()
 
+            # NOTE: Eventually this will replace a lot of other code - just wanted to get it populating first
+            hypercache = HyperCache(
+                namespace="array",
+                value="config.json",
+                load_fn=lambda team: config,
+            )
+
             if not force and config == self.config:
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
@@ -384,6 +393,12 @@ class RemoteConfig(UUIDModel):
             self.config = config
             self.synced_at = timezone.now()
             self.save()
+
+            try:
+                hypercache.update_cache(self.team)
+            except Exception as e:
+                logger.exception(f"Failed to update hypercache for team {self.team_id}")
+                capture_exception(e)
 
             # Update the redis cache key for the config
             cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)

@@ -2,7 +2,7 @@ name: Auto Assign Reviewers
 
 on:
     pull_request:
-        types: [opened, synchronize]
+        types: [opened, synchronize, ready_for_review]
 
 permissions:
     contents: read
@@ -11,6 +11,7 @@ permissions:
 jobs:
     assign-reviewers:
         runs-on: 'ubuntu-22.04'
+        if: github.event.pull_request.draft == false
 
         steps:
             - name: Checkout repository

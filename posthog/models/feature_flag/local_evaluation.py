@@ -1,11 +1,6 @@
-import json
-from typing import Optional
 from django.conf import settings
-from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from posthoganalytics import capture_exception
-from prometheus_client import Counter
 import structlog
 
 from django.db.models import Q
@@ -14,8 +9,7 @@ from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import Team
-from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
+from posthog.storage.hypercache import HyperCache
 
 logger = structlog.get_logger(__name__)
 
@@ -25,229 +19,137 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
-
-CACHE_MISS_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
-CACHE_TIMEOUT = 60 * 60 * 24 * 30  # 30 days
-
-
-CELERY_TASK_FLAGS_CACHE_SYNC = Counter(
-    "posthog_flags_cache_sync",
-    "Number of times the flags cache sync task has been run",
-    labelnames=["result"],
+flags_hypercache = HyperCache(
+    namespace="feature_flags",
+    value="flags_with_cohorts.json",
+    load_fn=lambda team: _get_flags_response_for_local_evaluation(team, include_cohorts=True),
 )
 
-FLAGS_CACHE_COUNTER = Counter(
-    "posthog_flags_cache_via_cache",
-    "Metric tracking whether a flags cache was fetched from cache or not",
-    labelnames=["result"],
+flags_without_cohorts_hypercache = HyperCache(
+    namespace="feature_flags",
+    value="flags_without_cohorts.json",
+    load_fn=lambda team: _get_flags_response_for_local_evaluation(team, include_cohorts=False),
 )
 
 
-def cache_key_flags_with_cohorts(team_id: int) -> str:
-    return f"cache/teams/{team_id}/feature_flags/flags.json"
+def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict:
+    return (
+        flags_hypercache.get_from_cache(team)
+        if include_cohorts
+        else flags_without_cohorts_hypercache.get_from_cache(team)
+    )
 
 
-def cache_key_flags_without_cohorts(team_id: int) -> str:
-    return f"cache/teams/{team_id}/feature_flags/flags_without_cohorts.json"
+def _get_flags_for_local_evaluation(team: Team):
+    feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
+        ~Q(is_remote_configuration=True),
+        team__project_id=team.project_id,
+        deleted=False,
+    )
+
+    return feature_flags
 
 
-class FeatureFlagLocalEvaluationCacheDoesNotExist(Exception):
-    pass
+def _get_flags_with_cohorts_for_local_evaluation(team: Team) -> tuple[list[FeatureFlag], dict]:
+    feature_flags = _get_flags_for_local_evaluation(team)
 
+    cohorts = {}
+    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
 
-class FeatureFlagLocalEvaluationCache:
-    """
-    This class is used for building and storing cached payloads of any feature flag elements that are used in high volume fault tolerant endpoints such as local evaluation.
-    The methods are there for building the payloads but retrieval should ideally go only via the cached redis->s3 values.
-    """
-
-    @classmethod
-    def get_flags_for_local_evaluation(cls, team: Team):
-        feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            ~Q(is_remote_configuration=True),
-            team__project_id=team.project_id,
-            deleted=False,
-        )
-
-        return feature_flags
-
-    @classmethod
-    def get_flags_with_cohorts_for_local_evaluation(cls, team: Team) -> tuple[list[FeatureFlag], dict]:
-        feature_flags = cls.get_flags_for_local_evaluation(team)
-
-        cohorts = {}
-        seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
-
-        try:
-            seen_cohorts_cache = {
-                cohort.pk: cohort
-                for cohort in Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                    team__project_id=team.project_id, deleted=False
-                )
-            }
-        except Exception:
-            logger.error("Error prefetching cohorts", exc_info=True)
-
-        for feature_flag in feature_flags:
-            try:
-                filters = feature_flag.get_filters()
-                # transform cohort filters to be evaluated locally
-                if (
-                    len(
-                        feature_flag.get_cohort_ids(
-                            using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                            seen_cohorts_cache=seen_cohorts_cache,
-                        )
-                    )
-                    == 1
-                ):
-                    feature_flag.filters = {
-                        **filters,
-                        "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(
-                            using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                            seen_cohorts_cache=seen_cohorts_cache,
-                        ),
-                    }
-                else:
-                    feature_flag.filters = filters
-
-                cohort_ids = feature_flag.get_cohort_ids(
-                    using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                    seen_cohorts_cache=seen_cohorts_cache,
-                )
-
-                for id in cohort_ids:
-                    # don't duplicate queries for already added cohorts
-                    if id not in cohorts:
-                        if id in seen_cohorts_cache:
-                            cohort = seen_cohorts_cache[id]
-                        else:
-                            cohort = (
-                                Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                                .filter(id=id, team__project_id=team.project_id, deleted=False)
-                                .first()
-                            )
-                            seen_cohorts_cache[id] = cohort or ""
-
-                        if cohort and not cohort.is_static:
-                            try:
-                                cohorts[str(cohort.pk)] = cohort.properties.to_dict()
-                            except Exception:
-                                logger.error(
-                                    "Error processing cohort properties",
-                                    extra={"cohort_id": id},
-                                    exc_info=True,
-                                )
-                                continue
-
-            except Exception:
-                logger.error("Error processing feature flag", extra={"flag_id": feature_flag.pk}, exc_info=True)
-                continue
-
-        return feature_flags, cohorts
-
-    @classmethod
-    def get_flags_response_for_local_evaluation(cls, team: Team, include_cohorts: bool) -> dict:
-        from posthog.api.feature_flag import MinimalFeatureFlagSerializer
-
-        cohorts: dict[str, dict] = {}
-        if include_cohorts:
-            flags, cohorts = cls.get_flags_with_cohorts_for_local_evaluation(team)
-        else:
-            flags = cls.get_flags_for_local_evaluation(team)
-
-        response_data = {
-            "flags": [MinimalFeatureFlagSerializer(feature_flag, context={}).data for feature_flag in flags],
-            "group_type_mapping": {
-                str(row.group_type_index): row.group_type
-                for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                    project_id=team.project_id
-                )
-            },
-            "cohorts": cohorts,
+    try:
+        seen_cohorts_cache = {
+            cohort.pk: cohort
+            for cohort in Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                team__project_id=team.project_id, deleted=False
+            )
         }
-        return response_data
+    except Exception:
+        logger.error("Error prefetching cohorts", exc_info=True)
 
-    @classmethod
-    def get_flags_response_for_local_evaluation_from_cache(cls, team: Team, include_cohorts: bool) -> tuple[dict, str]:
-        key = cache_key_flags_with_cohorts(team.id) if include_cohorts else cache_key_flags_without_cohorts(team.id)
-
-        data = cache.get(key)
-        if data == "404":
-            FLAGS_CACHE_COUNTER.labels(result="hit_but_missing").inc()
-            raise FeatureFlagLocalEvaluationCacheDoesNotExist()
-
-        if data:
-            FLAGS_CACHE_COUNTER.labels(result="hit_redis").inc()
-            return json.loads(data), "redis"
-
-        # Fallback to s3
+    for feature_flag in feature_flags:
         try:
-            data = object_storage.read(key)
-            if data:
-                FLAGS_CACHE_COUNTER.labels(result="hit_s3").inc()
-                cache.set(key, data, timeout=CACHE_TIMEOUT)
-                return json.loads(data), "s3"
-        except ObjectStorageError:
-            pass
+            filters = feature_flag.get_filters()
+            # transform cohort filters to be evaluated locally
+            if (
+                len(
+                    feature_flag.get_cohort_ids(
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                        seen_cohorts_cache=seen_cohorts_cache,
+                    )
+                )
+                == 1
+            ):
+                feature_flag.filters = {
+                    **filters,
+                    "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                        seen_cohorts_cache=seen_cohorts_cache,
+                    ),
+                }
+            else:
+                feature_flag.filters = filters
 
-        # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
-        try:
-            data = cls.get_flags_response_for_local_evaluation(team, include_cohorts)
-            cache.set(key, json.dumps(data), timeout=CACHE_TIMEOUT)
-            FLAGS_CACHE_COUNTER.labels(result="miss_but_success").inc()
-            return data, "postgres"
-        except FeatureFlagLocalEvaluationCacheDoesNotExist:
-            cache.set(key, "404", timeout=CACHE_MISS_TIMEOUT)
-            FLAGS_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise
-
-    @classmethod
-    def update_cache(cls, team: Team):
-        logger.info(f"Syncing flags cache for team {team.id}")
-
-        try:
-            CELERY_TASK_FLAGS_CACHE_SYNC.labels(result="success").inc()
-
-            res_without_cohorts = json.dumps(cls.get_flags_response_for_local_evaluation(team, include_cohorts=False))
-            res_with_cohorts = json.dumps(cls.get_flags_response_for_local_evaluation(team, include_cohorts=True))
-            # Write files to S3
-            object_storage.write(
-                cache_key_flags_without_cohorts(team.id),
-                res_without_cohorts,
+            cohort_ids = feature_flag.get_cohort_ids(
+                using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                seen_cohorts_cache=seen_cohorts_cache,
             )
 
-            cache.set(cache_key_flags_without_cohorts(team.id), res_without_cohorts, timeout=CACHE_TIMEOUT)
+            for id in cohort_ids:
+                # don't duplicate queries for already added cohorts
+                if id not in cohorts:
+                    if id in seen_cohorts_cache:
+                        cohort = seen_cohorts_cache[id]
+                    else:
+                        cohort = (
+                            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+                            .filter(id=id, team__project_id=team.project_id, deleted=False)
+                            .first()
+                        )
+                        seen_cohorts_cache[id] = cohort or ""
 
-            object_storage.write(
-                cache_key_flags_with_cohorts(team.id),
-                res_with_cohorts,
+                    if cohort and not cohort.is_static:
+                        try:
+                            cohorts[str(cohort.pk)] = cohort.properties.to_dict()
+                        except Exception:
+                            logger.error(
+                                "Error processing cohort properties",
+                                extra={"cohort_id": id},
+                                exc_info=True,
+                            )
+                            continue
+
+        except Exception:
+            logger.error("Error processing feature flag", extra={"flag_id": feature_flag.pk}, exc_info=True)
+            continue
+
+    return feature_flags, cohorts
+
+
+def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict:
+    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
+
+    cohorts: dict[str, dict] = {}
+    if include_cohorts:
+        flags, cohorts = _get_flags_with_cohorts_for_local_evaluation(team)
+    else:
+        flags = _get_flags_for_local_evaluation(team)
+
+    response_data = {
+        "flags": [MinimalFeatureFlagSerializer(feature_flag, context={}).data for feature_flag in flags],
+        "group_type_mapping": {
+            str(row.group_type_index): row.group_type
+            for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                project_id=team.project_id
             )
+        },
+        "cohorts": cohorts,
+    }
+    return response_data
 
-            cache.set(cache_key_flags_with_cohorts(team.id), res_with_cohorts, timeout=CACHE_TIMEOUT)
 
-            CELERY_TASK_FLAGS_CACHE_SYNC.labels(result="success").inc()
-        except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to sync flags cache for team {team.id}", exception=str(e))
-            CELERY_TASK_FLAGS_CACHE_SYNC.labels(result="failure").inc()
-            raise
-
-    @classmethod
-    def clear_cache(cls, team: Team, kinds: Optional[list[str]] = None):
-        """
-        Only meant for use in tests
-        """
-
-        kinds = kinds or ["redis", "s3"]
-        if "redis" in kinds:
-            cache.delete(cache_key_flags_without_cohorts(team.id))
-            cache.delete(cache_key_flags_with_cohorts(team.id))
-        if "s3" in kinds:
-            object_storage.delete(cache_key_flags_without_cohorts(team.id))
-            object_storage.delete(cache_key_flags_with_cohorts(team.id))
-
-        # FOLLOWUP: Also write to redis if we wan't django to be in charge of the hot cache.
+def update_flag_caches(team: Team):
+    flags_hypercache.update_cache(team)
+    flags_without_cohorts_hypercache.update_cache(team)
 
 
 # NOTE: All models that affect the cache should have a signal to update the cache

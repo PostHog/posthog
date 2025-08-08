@@ -24,7 +24,10 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.api.cohort import CohortSerializer
 from posthog.models.experiment import Experiment
-from posthog.models.feature_flag.local_evaluation import FeatureFlagLocalEvaluationCache
+from posthog.models.feature_flag.local_evaluation import (
+    DATABASE_FOR_LOCAL_EVALUATION,
+    get_flags_response_for_local_evaluation,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -77,8 +80,15 @@ from posthog.queries.base import (
 from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
+from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import model_activity_signal
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
+from posthog.api.services.flag_definitions_cache import (
+    FlagDefinitionsCache,
+    invalidate_cache_for_feature_flag_change,
+    invalidate_cache_for_cohort_change,
+    invalidate_cache_for_group_type_mapping_change,
+)
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
@@ -1216,9 +1226,7 @@ class FeatureFlagViewSet(
                     "has_send_cohorts": include_cohorts,
                 },
             )
-            response_data = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation(
-                self.team, include_cohorts
-            )
+            response_data = get_flags_response_for_local_evaluation(self.team, include_cohorts)
 
             flag_keys = [flag["id"] for flag in response_data["flags"]]
 
@@ -1493,6 +1501,23 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
             trigger=trigger,
         ),
     )
+
+    # Invalidate flag definitions cache when feature flags change
+    invalidate_cache_for_feature_flag_change(after_update, activity)
+
+
+@receiver(post_save, sender=Cohort)
+@receiver(post_delete, sender=Cohort)
+def handle_cohort_change(sender, instance, **kwargs):
+    """Invalidate flag definitions cache when cohorts change."""
+    invalidate_cache_for_cohort_change(instance)
+
+
+@receiver(post_save, sender=GroupTypeMapping)
+@receiver(post_delete, sender=GroupTypeMapping)
+def handle_group_type_mapping_change(sender, instance, **kwargs):
+    """Invalidate flag definitions cache when group type mappings change."""
+    invalidate_cache_for_group_type_mapping_change(instance)
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
