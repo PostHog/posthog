@@ -11,7 +11,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
-from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
+from posthog.models.remote_config import RemoteConfig
 from posthog.test.base import BaseTest
 from django.core.cache import cache
 from django.utils import timezone
@@ -340,7 +340,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         super().setUp()
         self.remote_config.refresh_from_db()
         # Clear the cache so we are properly testing each flow
-        assert cache.delete(cache_key_for_team_token(self.team.api_token))
+        self.remote_config.get_hypercache().clear_cache(self.team)
 
     def _assert_matches_config(self, data):
         assert data == snapshot(
@@ -422,7 +422,8 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
     def test_persists_data_to_redis_on_sync(self):
         self.remote_config.config["surveys"] = True
         self.remote_config.sync()
-        assert cache.get(cache_key_for_team_token(self.team.api_token))
+        _, source = self.remote_config.get_hypercache().get_from_cache_with_source(self.team)
+        assert source == "redis"
 
     def test_gets_via_redis_cache(self):
         with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
