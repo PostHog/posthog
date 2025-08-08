@@ -39,7 +39,7 @@ var (
 		Help: "How much of stats queue is used",
 	})
 	SubQueue = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "livestream_sub_queue_ratio",
+		Name: "livestream_sub_queue_use_ratio",
 		Help: "How much of sub queue is used (a connection create subscription)",
 	})
 	UnSubQueue = promauto.NewGauge(prometheus.GaugeOpts{
