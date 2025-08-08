@@ -90,7 +90,6 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
         sharingAllowed,
-        sharingAllowed,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
