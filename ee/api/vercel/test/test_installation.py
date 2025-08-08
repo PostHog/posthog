@@ -25,7 +25,7 @@ class TestVercelInstallationAPI(APIBaseTest):
         self.installation = VercelInstallation.objects.create(
             organization=self.organization,
             installation_id=self.installation_id,
-            billing_plan_id="plan_123",
+            billing_plan_id="free",
             upsert_data={"scopes": ["read", "write"], "access_token": "test_token", "token_type": "Bearer"},
         )
 
@@ -107,14 +107,14 @@ class TestVercelInstallationAPI(APIBaseTest):
         """Test retrieving installation data"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        headers = self._get_auth_headers("user")
+        headers = self._get_auth_headers("system")
 
         response = self.client.get(f"/api/vercel/v1/installations/{self.installation_id}/", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["installation_id"], self.installation_id)
-        self.assertEqual(data["billing_plan_id"], "plan_123")
+        self.assertIn("billingplan", data)
+        self.assertEqual(data["billingplan"]["id"], "free")
 
     def test_update_installation(self, mock_get_jwks):
         """Test updating installation with valid payload"""
@@ -182,5 +182,5 @@ class TestVercelInstallationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["installation_id"], self.installation_id)
-        self.assertEqual(data["billing_plan_id"], "plan_123")
+        self.assertIn("billingplan", data)
+        self.assertEqual(data["billingplan"]["id"], "free")

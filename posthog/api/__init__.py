@@ -519,7 +519,7 @@ if EE_AVAILABLE:
         EnterprisePersonViewSet,
         LegacyEnterprisePersonViewSet,
     )
-    from ee.api import vercel_installation, vercel_resource
+    from ee.api.vercel import vercel_installation, vercel_resource
 
     projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     projects_router.register(
