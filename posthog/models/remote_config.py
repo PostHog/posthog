@@ -105,8 +105,8 @@ class RemoteConfig(UUIDModel):
     def get_hypercache(cls):
         def load_config(token):
             try:
-                return cls.objects.select_related("team").get(team__api_token=token).build_config()
-            except cls.DoesNotExist:
+                return RemoteConfig.objects.select_related("team").get(team__api_token=token).build_config()
+            except RemoteConfig.DoesNotExist:
                 return HyperCacheStoreMissing()
 
         return HyperCache(
@@ -372,7 +372,7 @@ class RemoteConfig(UUIDModel):
             self.save()
 
             try:
-                RemoteConfig.get_hypercache().update_cache(self.team)
+                RemoteConfig.get_hypercache().update_cache(self.team.api_token)
             except Exception as e:
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)

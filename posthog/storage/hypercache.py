@@ -74,8 +74,12 @@ class HyperCache:
 
     def get_cache_key(self, key: KeyType) -> str:
         if self.token_based:
+            if isinstance(key, Team):
+                key = key.api_token
             return f"cache/team_tokens/{key}/{self.namespace}/{self.value}"
         else:
+            if isinstance(key, Team):
+                key = key.id
             return f"cache/teams/{key}/{self.namespace}/{self.value}"
 
     def get_from_cache(self, key: KeyType) -> dict | None:
@@ -85,6 +89,8 @@ class HyperCache:
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
         data = cache.get(cache_key)
+
+        print("get_from_cache", cache_key, data)
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
@@ -131,6 +137,7 @@ class HyperCache:
             return False
 
     def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
+        print("setting cache value", key, data)
         self._set_cache_value_redis(key, data)
         self._set_cache_value_s3(key, data)
 
