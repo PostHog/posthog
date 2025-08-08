@@ -32,3 +32,10 @@ class TestSQLMixins(NonAtomicBaseTest):
         mixin = self._node
         database = await mixin._get_database()
         self.assertEqual(mixin._database_instance, database)
+
+    async def test_parses_queries_with_placeholders(self):
+        mixin = self._node
+        query = "SELECT properties FROM events WHERE {filters} AND {custom_filter}"
+        database = await mixin._get_database()
+        result = await mixin._parse_generated_hogql(query, mixin._get_default_hogql_context(database))
+        self.assertEqual(result, query)

@@ -2140,8 +2140,14 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
 }
 
 export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
-    correlation_score: number
-    correlation_event: string
+    event: string
+    odds_ratio: number
+    population: {
+        both: number
+        success_only: number
+        exception_only: number
+        neither: number
+    }
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -3332,6 +3338,12 @@ export interface RevenueAnalyticsEventItem {
     couponProperty?: string
 
     /**
+     * Property used to identify what subscription the revenue event refers to
+     * Useful when trying to detect churn/LTV/ARPU/etc.
+     */
+    subscriptionProperty?: string
+
+    /**
      * TODO: In the future, this should probably be renamed to
      * `currencyProperty` to follow the pattern above
      *
@@ -3410,6 +3422,8 @@ export interface MarketingAnalyticsTableQuery
     filterTestAccounts?: boolean
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter | null
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {

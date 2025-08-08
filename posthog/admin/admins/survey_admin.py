@@ -17,6 +17,7 @@ class SurveyAdmin(admin.ModelAdmin):
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team", "created_by")
+    readonly_fields = ("linked_flag", "targeting_flag", "internal_targeting_flag", "internal_response_sampling_flag")
     ordering = ("-created_at",)
 
     def get_form(self, request, obj=None, change=False, **kwargs):

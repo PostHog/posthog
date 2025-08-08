@@ -181,6 +181,7 @@ describe('SourceWebhooksConsumer', () => {
                 const call = mockExecuteSpy.mock.calls[0][0]
                 expect(call.state.globals.request).toEqual({
                     body: {},
+                    stringBody: '',
                     headers: {
                         'accept-encoding': 'gzip, deflate',
                         connection: 'close',

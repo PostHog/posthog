@@ -7,7 +7,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { PasswordReset } from './PasswordReset'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 // some metadata and optional parameters
 const meta: Meta = {
@@ -68,7 +68,7 @@ export const Success = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
         passwordResetLogic.actions.submitRequestPasswordResetSuccess({ email: 'test@posthog.com' })
     })
@@ -91,7 +91,7 @@ export const Throttled = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
         passwordResetLogic.actions.setRequestPasswordResetManualErrors({ code: 'throttled' })
     })
@@ -115,7 +115,7 @@ export const WithEmailFromQuery = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => router.actions.push(urls.passwordReset(), { email: 'user@example.com' }))
+    useDelayedOnMountEffect(() => router.actions.push(urls.passwordReset(), { email: 'user@example.com' }))
 
     return <PasswordReset />
 }

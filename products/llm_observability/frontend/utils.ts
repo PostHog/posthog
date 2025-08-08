@@ -380,3 +380,30 @@ export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
 
     return event.traceName ?? 'Trace'
 }
+
+/**
+ * Lightweight XML-ish content detector for UI toggles.
+ * - NOTE: Scans only the first 2KB for signals (to avoid performance issues with regex)
+ */
+export function looksLikeXml(input: unknown): boolean {
+    if (typeof input !== 'string') {
+        return false
+    }
+
+    const sampleLimit = 2048
+    const sample = input.length > sampleLimit ? input.slice(0, sampleLimit) : input
+
+    if (sample.indexOf('<') === -1 || sample.indexOf('>') === -1) {
+        return false
+    }
+
+    if (sample.includes('</') || sample.includes('/>') || sample.includes('<?xml') || sample.includes('<!DOCTYPE')) {
+        return true
+    }
+
+    const lt = sample.indexOf('<')
+    const next = sample[lt + 1]
+    const isNameStart =
+        !!next && ((next >= 'A' && next <= 'Z') || (next >= 'a' && next <= 'z') || next === '_' || next === ':')
+    return isNameStart
+}

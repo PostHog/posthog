@@ -1709,9 +1709,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.side_effect = list_objects_func
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true"
         )
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
 
         assert response_data == {
