@@ -20,6 +20,46 @@ const nameOrLinkToAnnotation = (id?: string | null, name?: string | null): strin
     return id ? <Link to={urls.annotation(parseInt(id))}>{displayName}</Link> : displayName
 }
 
+const getContextDescription = (context: any): JSX.Element | null => {
+    if (!context) {
+        return null
+    }
+
+    if (context.scope === 'dashboard_item' && context.insight_short_id) {
+        return (
+            <>
+                {' '}
+                on insight{' '}
+                <Link to={urls.insightView(context.insight_short_id)}>
+                    {context.insight_name || context.insight_short_id}
+                </Link>
+            </>
+        )
+    }
+
+    if (context.scope === 'dashboard' && context.dashboard_id) {
+        return (
+            <>
+                {' '}
+                on dashboard{' '}
+                <Link to={urls.dashboard(context.dashboard_id)}>
+                    {context.dashboard_name || `Dashboard ${context.dashboard_id}`}
+                </Link>
+            </>
+        )
+    }
+
+    if (context.scope === 'project') {
+        return <> for the project</>
+    }
+
+    if (context.scope === 'organization') {
+        return <> for the organization</>
+    }
+
+    return null
+}
+
 export function annotationActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Annotation') {
         console.error('annotation describer received a non-annotation activity')
@@ -27,11 +67,12 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
     }
 
     if (logItem.activity == 'created') {
+        const contextDesc = getContextDescription(logItem?.detail?.context)
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the annotation:{' '}
-                    {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}
+                    <strong>{userNameForLogItem(logItem)}</strong> created the annotation "
+                    {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}"{contextDesc}
                 </>
             ),
         }
@@ -45,21 +86,25 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
             displayName = '(empty string)'
         }
 
+        const contextDesc = getContextDescription(logItem?.detail?.context)
         return {
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> deleted the annotation: {displayName}
+                    {contextDesc}
                 </>
             ),
         }
     }
 
     if (logItem.activity == 'updated') {
+        const contextDesc = getContextDescription(logItem?.detail?.context)
         return {
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> updated the annotation:{' '}
                     {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}
+                    {contextDesc}
                 </>
             ),
         }
