@@ -65,6 +65,45 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         )
     }
 
+    // Parse messages grouped by partition to maintain isolation
+    public async _parseKafkaBatchByPartition(messages: Message[]): Promise<Map<number, ParsedBatch>> {
+        return await this.runWithHeartbeat(() =>
+            runInstrumentedFunction({
+                statsKey: `cdpAggregationWriterConsumer.handleEachBatch.parseKafkaMessagesByPartition`,
+                func: () => {
+                    const batchesByPartition = new Map<number, ParsedBatch>()
+
+                    messages.forEach((message) => {
+                        try {
+                            const partition = message.partition
+                            if (!batchesByPartition.has(partition)) {
+                                batchesByPartition.set(partition, {
+                                    personPerformedEvents: [],
+                                    behaviouralFilterMatchedEvents: [],
+                                })
+                            }
+
+                            const batch = batchesByPartition.get(partition)!
+                            const event = parseJSON(message.value!.toString()) as ProducedEvent
+
+                            if (event.payload.type === 'person-performed-event') {
+                                batch.personPerformedEvents.push(event.payload as PersonEventPayload)
+                            } else if (event.payload.type === 'behavioural-filter-match-event') {
+                                batch.behaviouralFilterMatchedEvents.push(event.payload as CohortFilterPayload)
+                            } else {
+                                logger.warn('Unknown event type', { type: (event.payload as any).type })
+                            }
+                        } catch (e) {
+                            logger.error('Error parsing message', e)
+                        }
+                    })
+
+                    return Promise.resolve(batchesByPartition)
+                },
+            })
+        )
+    }
+
     // Deduplicate person performed events (unique by teamId, personId, eventName)
     private deduplicatePersonPerformedEvents(events: PersonEventPayload[]): PersonEventPayload[] {
         const uniqueEventsMap = new Map<string, PersonEventPayload>()
@@ -128,7 +167,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         )`
     }
 
-    // Helper to build behavioural events CTE
+    // Helper to build behavioural events CTE (expects pre-sorted events)
     private buildBehaviouralEventsCTE(behaviouralEvents: AggregatedBehaviouralEvent[]): string {
         const values = behaviouralEvents
             .map(
@@ -146,7 +185,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         )`
     }
 
-    // Write both event types to postgres in a single query
+    // Write both event types to postgres with retry logic for deadlocks
     private async writeToPostgres(
         personEvents: PersonEventPayload[],
         behaviouralEvents: AggregatedBehaviouralEvent[]
@@ -155,23 +194,60 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             return
         }
 
-        try {
-            const ctes: string[] = []
+        const MAX_RETRIES = 3
+        const INITIAL_BACKOFF_MS = 50
 
-            // Add CTEs for each event type
-            if (personEvents.length > 0) {
-                ctes.push(this.buildPersonEventsCTE(personEvents))
-            }
-            if (behaviouralEvents.length > 0) {
-                ctes.push(this.buildBehaviouralEventsCTE(behaviouralEvents))
-            }
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                const ctes: string[] = []
 
-            // Build and execute the single combined query
-            const query = `WITH ${ctes.join(', ')} SELECT 1`
-            await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, undefined, 'counters-batch-upsert')
-        } catch (error) {
-            logger.error('Failed to write to COUNTERS postgres', { error })
-            throw error
+                // Add CTEs for each event type
+                if (personEvents.length > 0) {
+                    ctes.push(this.buildPersonEventsCTE(personEvents))
+                }
+                if (behaviouralEvents.length > 0) {
+                    // Sort behavioural events to ensure consistent lock ordering
+                    const sortedBehaviouralEvents = [...behaviouralEvents].sort((a, b) => {
+                        const keyA = `${a.teamId}:${a.personId}:${a.filterHash}:${a.date}`
+                        const keyB = `${b.teamId}:${b.personId}:${b.filterHash}:${b.date}`
+                        return keyA.localeCompare(keyB)
+                    })
+                    ctes.push(this.buildBehaviouralEventsCTE(sortedBehaviouralEvents))
+                }
+
+                // Build and execute the single combined query
+                const query = `WITH ${ctes.join(', ')} SELECT 1`
+                await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, undefined, 'counters-batch-upsert')
+
+                // Success - exit retry loop
+                return
+            } catch (error: any) {
+                const isDeadlock = error?.code === '40P01'
+                const isLastAttempt = attempt === MAX_RETRIES - 1
+
+                if (isDeadlock && !isLastAttempt) {
+                    // Exponential backoff with jitter for deadlock retries
+                    const backoffMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt) + Math.random() * 50
+                    logger.warn('Deadlock detected, retrying with backoff', {
+                        attempt: attempt + 1,
+                        maxRetries: MAX_RETRIES,
+                        backoffMs,
+                        personEventsCount: personEvents.length,
+                        behaviouralEventsCount: behaviouralEvents.length,
+                    })
+                    await new Promise((resolve) => setTimeout(resolve, backoffMs))
+                } else {
+                    // Non-deadlock error or final attempt - throw
+                    logger.error('Failed to write to COUNTERS postgres', {
+                        error,
+                        attempt: attempt + 1,
+                        isDeadlock,
+                        personEventsCount: personEvents.length,
+                        behaviouralEventsCount: behaviouralEvents.length,
+                    })
+                    throw error
+                }
+            }
         }
     }
 
@@ -225,15 +301,35 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
 
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
+            // Group messages by partition
+            const partitions = new Set(messages.map((m) => m.partition))
+
             logger.info('🔁', `${this.name} - handling batch`, {
                 size: messages.length,
+                partitions: Array.from(partitions),
             })
 
             return await this.runInstrumented('handleEachBatch', async () => {
-                const parsedBatch = await this._parseKafkaBatch(messages)
+                const batchesByPartition = await this._parseKafkaBatchByPartition(messages)
 
-                // Process the batch (aggregate and write to postgres)
-                const backgroundTask = this.processBatch(parsedBatch).catch((error) => {
+                // Process each partition's batch sequentially to maintain isolation
+                // This ensures events from the same partition (same person) are never processed concurrently
+                const backgroundTask = (async () => {
+                    for (const [partition, parsedBatch] of batchesByPartition) {
+                        try {
+                            await this.processBatch(parsedBatch)
+                            logger.debug('Processed partition batch', {
+                                partition,
+                                personEvents: parsedBatch.personPerformedEvents.length,
+                                behaviouralEvents: parsedBatch.behaviouralFilterMatchedEvents.length,
+                            })
+                        } catch (error: any) {
+                            // Log error but continue with other partitions
+                            logger.error(`Failed to process partition ${partition}`, { error })
+                            throw error
+                        }
+                    }
+                })().catch((error) => {
                     throw new Error(`Failed to process aggregation batch: ${error.message}`)
                 })
 
