@@ -12,7 +12,6 @@ logger = structlog.get_logger(__name__)
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     max_retries=1,
-    acks_late=True,
     reject_on_worker_lost=True,
     track_started=True,
     default_retry_delay=10 * 60,  # 10 minutes
