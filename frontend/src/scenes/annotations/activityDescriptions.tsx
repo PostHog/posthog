@@ -25,13 +25,13 @@ const getContextDescription = (context: any): JSX.Element | null => {
         return null
     }
 
-    if (context.scope === 'dashboard_item' && context.insight_short_id) {
+    if (context.scope === 'dashboard_item' && context.dashboard_item_short_id) {
         return (
             <>
                 {' '}
                 on insight{' '}
-                <Link to={urls.insightView(context.insight_short_id)}>
-                    {context.insight_name || context.insight_short_id}
+                <Link to={urls.insightView(context.dashboard_item_short_id)}>
+                    {context.dashboard_item_name || context.dashboard_item_short_id}
                 </Link>
             </>
         )
@@ -49,12 +49,21 @@ const getContextDescription = (context: any): JSX.Element | null => {
         )
     }
 
+    if (context.scope === 'recording' && context.recording_id) {
+        return (
+            <>
+                {' '}
+                on <Link to={urls.replaySingle(context.recording_id)}>a session replay</Link>
+            </>
+        )
+    }
+
     if (context.scope === 'project') {
-        return <> for the project</>
+        return <> for the current project</>
     }
 
     if (context.scope === 'organization') {
-        return <> for the organization</>
+        return <> for the current organization</>
     }
 
     return null

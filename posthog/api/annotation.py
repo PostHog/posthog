@@ -19,13 +19,12 @@ from posthog.models.signals import model_activity_signal
 @dataclasses.dataclass(frozen=True)
 class AnnotationContext(ActivityContextBase):
     scope: str
-    scope_id: Optional[str] = None
-    scope_name: Optional[str] = None
     dashboard_id: Optional[int] = None
     dashboard_name: Optional[str] = None
-    insight_id: Optional[int] = None
-    insight_short_id: Optional[str] = None
-    insight_name: Optional[str] = None
+    dashboard_item_id: Optional[int] = None
+    dashboard_item_short_id: Optional[str] = None
+    dashboard_item_name: Optional[str] = None
+    recording_id: Optional[str] = None
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -174,9 +173,10 @@ def handle_annotation_change(
         scope=after_update.scope,
         dashboard_id=after_update.dashboard_id,
         dashboard_name=after_update.dashboard_name,
-        insight_id=after_update.dashboard_item_id,
-        insight_short_id=after_update.insight_short_id,
-        insight_name=after_update.insight_name,
+        dashboard_item_id=after_update.dashboard_item_id,
+        dashboard_item_short_id=after_update.insight_short_id,
+        dashboard_item_name=after_update.insight_name,
+        recording_id=after_update.recording_id,
     )
 
     log_activity(
