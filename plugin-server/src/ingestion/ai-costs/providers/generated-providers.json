@@ -776,8 +776,8 @@
     {
         "model": "glm-4.5",
         "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 2e-7
+            "prompt_token": 1.999188e-7,
+            "completion_token": 8.00064e-7
         }
     },
     {
@@ -2088,6 +2088,13 @@
         "cost": {
             "prompt_token": 1.999188e-7,
             "completion_token": 8.00064e-7
+        }
+    },
+    {
+        "model": "qwen3-coder:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {

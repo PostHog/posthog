@@ -1,4 +1,4 @@
-import { GroupStoreForBatch } from './group-store-for-batch'
+import { GroupStoreForBatch } from './group-store-for-batch.interface'
 
 export interface GroupStore {
     /**
