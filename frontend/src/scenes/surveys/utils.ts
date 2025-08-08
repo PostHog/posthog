@@ -98,15 +98,25 @@ export function sanitizeSurveyDisplayConditions(
     }
 
     const trimmedUrl = displayConditions.url?.trim()
+    const trimmedSlector = displayConditions.selector?.trim()
+    const trimmedLinkedFlagVariant = displayConditions.linkedFlagVariant?.trim()
 
     const sanitized: SurveyDisplayConditions = {
         ...displayConditions,
         ...(trimmedUrl && { url: trimmedUrl }),
+        ...(trimmedSlector && { selector: trimmedSlector }),
+        ...(trimmedLinkedFlagVariant && { linkedFlagVariant: trimmedLinkedFlagVariant }),
     }
 
-    // Remove the original url key if it was empty after trimming
+    // Remove the original keys if they were empty after trimming
     if (!trimmedUrl) {
         delete sanitized.url
+    }
+    if (!trimmedSlector) {
+        delete sanitized.selector
+    }
+    if (!trimmedLinkedFlagVariant) {
+        delete sanitized.linkedFlagVariant
     }
 
     return sanitized
