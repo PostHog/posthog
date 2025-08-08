@@ -1193,7 +1193,7 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
-    def _local_evaluation_via_cache(self, request: request.Request) -> dict:
+    def _local_evaluation_via_cache(self, request: request.Request) -> Response:
         """ "
         Once we have are secure in this approach this method replaces the normal one
         """
