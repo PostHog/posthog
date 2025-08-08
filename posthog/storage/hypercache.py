@@ -90,8 +90,6 @@ class HyperCache:
         cache_key = self.get_cache_key(key)
         data = cache.get(cache_key)
 
-        print("get_from_cache", cache_key, data)
-
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
 
@@ -137,7 +135,6 @@ class HyperCache:
             return False
 
     def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
-        print("setting cache value", key, data)
         self._set_cache_value_redis(key, data)
         self._set_cache_value_s3(key, data)
 
