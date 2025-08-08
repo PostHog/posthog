@@ -10362,6 +10362,7 @@ class SurveyCreationSchema(BaseModel):
     end_date: Optional[str] = None
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
+    linked_flag_id: Optional[int] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
