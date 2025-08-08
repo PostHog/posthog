@@ -67,9 +67,27 @@ class TestLoadRawSessionSummary:
         # 4/5 events are missing (would be marked as hallucinated)
         allowed_event_ids = ["abcd1234"]
         # Should not fail the summary as it's an intermediate validation, so not all events are processed yet
-        load_raw_session_summary_from_llm_content(
+        summary = load_raw_session_summary_from_llm_content(
             mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=False
         )
+        # However, it should still have all the hallucinated events removed
+        assert summary is not None
+        assert summary.data is not None
+        assert summary.data["key_actions"] == [
+            {
+                "events": [
+                    {
+                        "abandonment": False,
+                        "confusion": False,
+                        "description": "First significant action in this segment",
+                        "event_id": "abcd1234",
+                        "exception": None,
+                    }
+                ],
+                "segment_index": 0,
+            },
+            {"events": [], "segment_index": 1},
+        ]
 
     def test_load_raw_session_summary_hallucinated_events_below_threshold(
         self, mock_valid_llm_yaml_response: str, mock_session_id: str
