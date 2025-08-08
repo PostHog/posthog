@@ -11,23 +11,29 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
     if context.team_id is None:
         raise QueryError("action() can only be used in a query with a team_id", node=arg)
 
-    from posthog.models import Action
     from posthog.hogql.property import action_to_expr
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-        actions = Action.objects.filter(id=int(arg.value), team__project_id=context.project_id).all()
-        if len(actions) == 1:
+        if not context.data_bundle:
+            raise QueryError("Action lookup requires data bundle in context", node=arg)
+        
+        action = context.data_bundle.get_action_by_id(int(arg.value))
+        if action:
             context.add_notice(
                 start=arg.start,
                 end=arg.end,
-                message=f"Action #{actions[0].pk} can also be specified as {escape_clickhouse_string(actions[0].name)}",
-                fix=escape_clickhouse_string(actions[0].name),
+                message=f"Action #{action.pk} can also be specified as {escape_clickhouse_string(action.name)}",
+                fix=escape_clickhouse_string(action.name) if action.name else None,
             )
-            return action_to_expr(actions[0], events_alias=events_alias)
-        raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
+            return action_to_expr(action, events_alias=events_alias)
+        raise QueryError(f"Could not find action with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
-        actions = Action.objects.filter(name=arg.value, team__project_id=context.project_id).all()
+        if not context.data_bundle:
+            raise QueryError("Action lookup requires data bundle in context", node=arg)
+        
+        action = context.data_bundle.get_action_by_name(arg.value)
+        actions = [action] if action else []
         if len(actions) == 1:
             context.add_notice(
                 start=arg.start,

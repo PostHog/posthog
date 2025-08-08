@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.property import (
     has_aggregation,
     property_to_expr,
@@ -39,7 +40,8 @@ class TestProperty(BaseTest):
         team: Optional[Team] = None,
         scope: Optional[Literal["event", "person", "group"]] = None,
     ):
-        return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
+        context = HogQLContext(team_id=(team or self.team).id)
+        return clear_locations(property_to_expr(property, context=context, scope=scope or "event"))
 
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
@@ -700,12 +702,14 @@ class TestProperty(BaseTest):
         action_mock = MagicMock()
         with patch("posthog.models.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
-            result = entity_to_expr(entity, self.team)
+            context = HogQLContext(team_id=self.team.id)
+            result = entity_to_expr(entity, context)
             self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
-        result = entity_to_expr(entity, self.team)
+        context = HogQLContext(team_id=self.team.id)
+        result = entity_to_expr(entity, context)
         expected = ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -719,12 +723,14 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_events_type_without_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": None})
-        result = entity_to_expr(entity, self.team)
+        context = HogQLContext(team_id=self.team.id)
+        result = entity_to_expr(entity, context)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_entity_to_expr_default_case(self):
         entity = RetentionEntity()
-        result = entity_to_expr(entity, self.team)
+        context = HogQLContext(team_id=self.team.id)
+        result = entity_to_expr(entity, context)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_session_duration(self):

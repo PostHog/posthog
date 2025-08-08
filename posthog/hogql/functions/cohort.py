@@ -28,36 +28,34 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
     if not isinstance(arg, ast.Constant):
         raise QueryError("cohort() takes only constant arguments", node=arg)
 
-    from posthog.models import Cohort
-
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-        cohorts1 = Cohort.objects.filter(id=int(arg.value), team__project_id=context.project_id).values_list(
-            "id", "is_static", "version", "name"
-        )
-        if len(cohorts1) == 1:
+        if not context.data_bundle:
+            raise QueryError("Cohort lookup requires data bundle in context", node=arg)
+        
+        cohort = context.data_bundle.get_cohort_by_id(int(arg.value))
+        if cohort:
             context.add_notice(
                 start=arg.start,
                 end=arg.end,
-                message=f"Cohort #{cohorts1[0][0]} can also be specified as {escape_clickhouse_string(cohorts1[0][3])}",
-                fix=escape_clickhouse_string(cohorts1[0][3]),
+                message=f"Cohort #{cohort.id} can also be specified as {escape_clickhouse_string(cohort.name)}",
+                fix=escape_clickhouse_string(cohort.name) if cohort.name else None,
             )
-            return cohort_subquery(cohorts1[0][0], cohorts1[0][1], cohorts1[0][2])
+            return cohort_subquery(cohort.id, cohort.is_static, None)  # version not available in dataclass
         raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
-        cohorts2 = Cohort.objects.filter(name=arg.value, team__project_id=context.project_id).values_list(
-            "id", "is_static", "version"
-        )
-        if len(cohorts2) == 1:
+        if not context.data_bundle:
+            raise QueryError("Cohort lookup requires data bundle in context", node=arg)
+        
+        cohort = context.data_bundle.get_cohort_by_name(arg.value)
+        if cohort:
             context.add_notice(
                 start=arg.start,
                 end=arg.end,
-                message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0][0]} to protect against renaming.",
-                fix=str(cohorts2[0][0]),
+                message=f"Searching for cohort by name. Replace with numeric ID {cohort.id} to protect against renaming.",
+                fix=str(cohort.id),
             )
-            return cohort_subquery(cohorts2[0][0], cohorts2[0][1], cohorts2[0][2])
-        elif len(cohorts2) > 1:
-            raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
+            return cohort_subquery(cohort.id, cohort.is_static, None)  # version not available in dataclass
         raise QueryError(f"Could not find a cohort with the name '{arg.value}'", node=arg)
 
     raise QueryError("cohort() takes exactly one string or integer argument", node=arg)

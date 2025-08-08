@@ -103,6 +103,15 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, conte
     if value != "true" and value != "false":
         return value
     
+    if property.type == "data_warehouse_person_property":
+        # This would need data warehouse service integration
+        # For now, simplified handling
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        return value
+    
     if not context.data_bundle:
         # Fallback: assume boolean properties should be converted
         property_type = PropertyType.Boolean if property.key.endswith("_bool") else None
@@ -115,14 +124,6 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, conte
         )
         
         property_type = matching_defs[0].property_type if matching_defs else None
-    elif property.type == "data_warehouse_person_property":
-        # This would need data warehouse service integration
-        # For now, simplified handling
-        if value == "true":
-            return True
-        if value == "false":
-            return False
-        return value
 
 
     if property_type == PropertyType.Boolean:
