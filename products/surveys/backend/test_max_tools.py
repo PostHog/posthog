@@ -9,7 +9,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import Survey
+from posthog.models import Survey, FeatureFlag
 from posthog.schema import (
     SurveyCreationSchema,
     SurveyQuestionSchema,
@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 from posthog.test.base import BaseTest
 
-from .max_tools import CreateSurveyTool
+from .max_tools import CreateSurveyTool, FeatureFlagLookupTool
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -195,3 +195,279 @@ class TestSurveyCreatorTool(BaseTest):
         # Verify survey was created and launched
         survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
         assert survey.start_date is not None  # Should have a start date when launched
+
+    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_with_feature_flag(self, mock_create_survey):
+        """Test creating a survey with a linked feature flag"""
+        tool = self._setup_tool()
+
+        # Create a test feature flag
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="test-feature",
+            name="Test Feature",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Mock the LLM response with linked flag
+        mock_output = SurveyCreationSchema(
+            name="Feature Flag Survey",
+            description="Survey for users with test feature",
+            type=SurveyType.POPOVER,
+            questions=[
+                SurveyQuestionSchema(
+                    type=SurveyQuestionType.RATING,
+                    question="How satisfied are you with the new feature?",
+                    scale=5,
+                    optional=False,
+                )
+            ],
+            linked_flag_id=flag.id,
+            should_launch=False,
+            enable_partial_responses=True,
+        )
+
+        mock_create_survey.return_value = mock_output
+
+        # Run the method
+        content, artifact = await tool._arun_impl("Create a survey for users with test-feature flag")
+
+        # Verify success response
+        assert "✅ Survey" in content
+        assert "successfully" in content
+
+        # Verify survey was created with feature flag
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.name == "Feature Flag Survey"
+        assert survey.linked_flag_id == flag.id
+        assert survey.linked_flag.key == "test-feature"
+
+    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_with_feature_flag_variant(self, mock_create_survey):
+        """Test creating a survey with a feature flag variant"""
+        tool = self._setup_tool()
+
+        # Create a multivariate feature flag
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="ab-test-feature",
+            name="A/B Test Feature",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        # Mock the LLM response with linked flag and variant
+        mock_output = SurveyCreationSchema(
+            name="A/B Test Control Survey",
+            description="Survey for users in control variant",
+            type=SurveyType.POPOVER,
+            questions=[
+                SurveyQuestionSchema(
+                    type=SurveyQuestionType.SINGLE_CHOICE,
+                    question="Which version do you prefer?",
+                    choices=["Version A", "Version B", "No preference"],
+                    optional=False,
+                )
+            ],
+            linked_flag_id=flag.id,
+            conditions={"linkedFlagVariant": "control"},
+            should_launch=False,
+            enable_partial_responses=True,
+        )
+
+        mock_create_survey.return_value = mock_output
+
+        # Run the method
+        content, artifact = await tool._arun_impl("Create a survey for users in control variant of ab-test-feature")
+
+        # Verify success response
+        assert "✅ Survey" in content
+        assert "successfully" in content
+
+        # Verify survey was created with feature flag and variant
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.name == "A/B Test Control Survey"
+        assert survey.linked_flag_id == flag.id
+        assert survey.linked_flag.key == "ab-test-feature"
+        assert survey.conditions["linkedFlagVariant"] == "control"
+
+    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_with_feature_flag_variant_any(self, mock_create_survey):
+        """Test creating a survey with linkedFlagVariant set to 'any'"""
+        tool = self._setup_tool()
+
+        # Create a multivariate feature flag
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="multivariate-feature",
+            name="Multivariate Feature",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "variant-a", "rollout_percentage": 33},
+                        {"key": "variant-b", "rollout_percentage": 33},
+                        {"key": "variant-c", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        )
+
+        # Mock the LLM response with linked flag and 'any' variant
+        mock_output = SurveyCreationSchema(
+            name="All Variants Survey",
+            description="Survey for all users with the feature enabled",
+            type=SurveyType.POPOVER,
+            questions=[
+                SurveyQuestionSchema(
+                    type=SurveyQuestionType.OPEN,
+                    question="How is the new feature working for you?",
+                    optional=False,
+                )
+            ],
+            linked_flag_id=flag.id,
+            conditions={"linkedFlagVariant": "any"},
+            should_launch=False,
+            enable_partial_responses=True,
+        )
+
+        mock_create_survey.return_value = mock_output
+
+        # Run the method
+        content, artifact = await tool._arun_impl("Create a survey for all users with multivariate-feature enabled")
+
+        # Verify success response
+        assert "✅ Survey" in content
+        assert "successfully" in content
+
+        # Verify survey was created with feature flag and 'any' variant
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.name == "All Variants Survey"
+        assert survey.linked_flag_id == flag.id
+        assert survey.linked_flag.key == "multivariate-feature"
+        assert survey.conditions["linkedFlagVariant"] == "any"
+
+
+class TestFeatureFlagLookupTool(BaseTest):
+    def setUp(self):
+        super().setUp()
+        # Set mock OpenAI API key for tests
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        self._config: RunnableConfig = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+            },
+        }
+
+    def tearDown(self):
+        super().tearDown()
+        # Clean up the mock API key
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    def _setup_tool(self):
+        """Helper to create a FeatureFlagLookupTool instance"""
+        tool = FeatureFlagLookupTool(team=self.team, user=self.user)
+        tool._init_run(self._config)
+        return tool
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_lookup_feature_flag_success(self):
+        """Test successful feature flag lookup"""
+        tool = self._setup_tool()
+
+        # Create a test feature flag
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="test-flag",
+            name="Test Flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Test the lookup
+        content, artifact = await tool._arun_impl("test-flag")
+
+        # Verify success response
+        assert "✅ Found feature flag 'test-flag'" in content
+        assert f"(ID: {flag.id})" in content
+        assert "(no variants)" in content
+
+        # Verify artifact data
+        assert artifact["flag_id"] == flag.id
+        assert artifact["flag_key"] == "test-flag"
+        assert artifact["variants"] == []
+        assert artifact["exists"] is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_lookup_feature_flag_with_variants(self):
+        """Test feature flag lookup with multivariate flag"""
+        tool = self._setup_tool()
+
+        # Create a multivariate feature flag
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="multivariate-flag",
+            name="Multivariate Flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        # Test the lookup
+        content, artifact = await tool._arun_impl("multivariate-flag")
+
+        # Verify success response with variants
+        assert "✅ Found feature flag 'multivariate-flag'" in content
+        assert f"(ID: {flag.id})" in content
+        assert "with variants: control, treatment" in content
+
+        # Verify artifact data
+        assert artifact["flag_id"] == flag.id
+        assert artifact["flag_key"] == "multivariate-flag"
+        assert set(artifact["variants"]) == {"control", "treatment"}
+        assert artifact["exists"] is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_lookup_feature_flag_not_found(self):
+        """Test feature flag lookup for non-existent flag"""
+        tool = self._setup_tool()
+
+        # Test lookup of non-existent flag
+        content, artifact = await tool._arun_impl("non-existent-flag")
+
+        # Verify error response
+        assert "❌ Feature flag 'non-existent-flag' not found" in content
+
+        # Verify artifact data
+        assert artifact["flag_id"] is None
+        assert artifact["flag_key"] == "non-existent-flag"
+        assert artifact["variants"] == []
+        assert artifact["exists"] is False
