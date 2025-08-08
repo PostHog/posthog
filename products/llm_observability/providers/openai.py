@@ -34,6 +34,10 @@ class OpenAIConfig:
         "o4-mini",
         "gpt-4o",
         "gpt-4o-mini",
+        # GPT-5 series identifiers
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-5-nano",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
@@ -41,6 +45,9 @@ class OpenAIConfig:
         "o3-pro",
         "o4-mini",
         "o3-mini",
+        # GPT-5 and GPT-5-mini support reasoning effort levels
+        "gpt-5",
+        "gpt-5-mini",
     ]
 
 
@@ -90,16 +97,15 @@ class OpenAIProvider:
         trace_id: str | None = None,
         properties: dict | None = None,
         groups: dict | None = None,
+        reasoning_level: str | None = None,
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data
         """
         self.validate_model(self.model_id)
 
-        if self.model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING and thinking:
-            reasoning_on = True
-        else:
-            reasoning_on = False
+        supports_reasoning = self.model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
+        reasoning_on = supports_reasoning and (thinking or bool(reasoning_level))
 
         try:
             effective_temperature = temperature if temperature is not None else OpenAIConfig.TEMPERATURE
@@ -122,7 +128,13 @@ class OpenAIProvider:
                     common["tools"] = tools
                 return common
 
-            if self.model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING:
+            if supports_reasoning:
+                # Determine reasoning effort: explicit level wins; fallback to default when thinking is on
+                selected_effort: ReasoningEffort | None = None
+                if reasoning_level in ("minimal", "low", "medium", "high"):
+                    selected_effort = reasoning_level  # type: ignore[assignment]
+                elif reasoning_on:
+                    selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = self.client.chat.completions.create(
                     model=self.model_id,
                     messages=[
@@ -134,7 +146,7 @@ class OpenAIProvider:
                         ),
                         *convert_to_openai_messages(messages),
                     ],
-                    reasoning_effort=OpenAIConfig.REASONING_EFFORT if reasoning_on else None,
+                    reasoning_effort=selected_effort,
                     **build_common_kwargs(),
                 )
             else:

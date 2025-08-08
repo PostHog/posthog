@@ -432,8 +432,10 @@ function OutputSection(): JSX.Element {
 }
 
 function ConfigurationPanel(): JSX.Element {
-    const { maxTokens, thinking, model, modelOptions, modelOptionsLoading } = useValues(llmObservabilityPlaygroundLogic)
-    const { setMaxTokens, setThinking, setModel } = useActions(llmObservabilityPlaygroundLogic)
+    const { maxTokens, thinking, reasoningLevel, model, modelOptions, modelOptionsLoading } = useValues(
+        llmObservabilityPlaygroundLogic
+    )
+    const { setMaxTokens, setThinking, setReasoningLevel, setModel } = useActions(llmObservabilityPlaygroundLogic)
 
     const handleThinkingToggle = (e: React.ChangeEvent<HTMLInputElement>): void => {
         setThinking(e.target.checked)
@@ -471,8 +473,8 @@ function ConfigurationPanel(): JSX.Element {
                 <label className="font-semibold mb-1 block text-sm">Max tokens (optional)</label>
                 <LemonInput
                     type="number"
-                    value={maxTokens || ''}
-                    onChange={(val) => setMaxTokens(val ? Number(val) : null)}
+                    value={maxTokens ?? undefined}
+                    onChange={(val) => setMaxTokens(val ?? null)}
                     min={1}
                     max={16384}
                     step={64}
@@ -492,6 +494,27 @@ function ConfigurationPanel(): JSX.Element {
                 <label htmlFor="thinkingToggle" className="text-sm font-medium">
                     Enable thinking/reasoning stream (if supported)
                 </label>
+            </div>
+
+            <div>
+                <label className="font-semibold mb-1 block text-sm">Reasoning level (optional)</label>
+                <LemonSelect<'minimal' | 'low' | 'medium' | 'high' | null>
+                    className="w-full"
+                    placeholder="None"
+                    value={reasoningLevel}
+                    onChange={(value) => setReasoningLevel(value ?? null)}
+                    options={[
+                        { label: 'None', value: null },
+                        { label: 'Minimal', value: 'minimal' },
+                        { label: 'Low', value: 'low' },
+                        { label: 'Medium', value: 'medium' },
+                        { label: 'High', value: 'high' },
+                    ]}
+                    dropdownMatchSelectWidth={false}
+                />
+                <div className="text-xs text-muted mt-1">
+                    If set and supported by the model, enables enhanced reasoning.
+                </div>
             </div>
         </div>
     )
@@ -563,7 +586,7 @@ function ComparisonTablePanel(): JSX.Element {
 }
 
 function StickyActionBar(): JSX.Element {
-    const { messages, submitting, model, maxTokens } = useValues(llmObservabilityPlaygroundLogic)
+    const { messages, submitting, model, maxTokens, reasoningLevel } = useValues(llmObservabilityPlaygroundLogic)
     const { addMessage, clearConversation, submitPrompt } = useActions(llmObservabilityPlaygroundLogic)
     const [showConfigModal, setShowConfigModal] = useState(false)
 
@@ -637,6 +660,12 @@ function StickyActionBar(): JSX.Element {
                                 <>
                                     <span>•</span>
                                     <span>Max:{maxTokens}</span>
+                                </>
+                            )}
+                            {reasoningLevel && (
+                                <>
+                                    <span>•</span>
+                                    <span>Reasoning:{reasoningLevel}</span>
                                 </>
                             )}
                         </div>

@@ -54,8 +54,9 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
     actions({
         setModel: (model: string) => ({ model }),
         setSystemPrompt: (systemPrompt: string) => ({ systemPrompt }),
-        setMaxTokens: (maxTokens: number) => ({ maxTokens }),
+        setMaxTokens: (maxTokens: number | null) => ({ maxTokens }),
         setThinking: (thinking: boolean) => ({ thinking }),
+        setReasoningLevel: (reasoningLevel: 'minimal' | 'low' | 'medium' | 'high' | null) => ({ reasoningLevel }),
         setTools: (tools: any) => ({ tools }),
         clearConversation: true,
         submitPrompt: true,
@@ -86,6 +87,10 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
         systemPrompt: ['You are a helpful AI assistant.', { setSystemPrompt: (_, { systemPrompt }) => systemPrompt }],
         maxTokens: [null as number | null, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
         thinking: [false, { setThinking: (_, { thinking }) => thinking }],
+        reasoningLevel: [
+            null as 'minimal' | 'low' | 'medium' | 'high' | null,
+            { setReasoningLevel: (_, { reasoningLevel }) => reasoningLevel },
+        ],
         tools: [null as any, { setTools: (_, { tools }) => tools }],
         messages: [
             [] as Message[],
@@ -279,6 +284,11 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 // Only include max_tokens if it has a value
                 if (values.maxTokens !== null && values.maxTokens > 0) {
                     requestData.max_tokens = values.maxTokens
+                }
+
+                // Include optional reasoning level if provided
+                if (values.reasoningLevel) {
+                    requestData.reasoning_level = values.reasoningLevel
                 }
 
                 await api.stream('/api/llm_proxy/completion', {
