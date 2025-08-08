@@ -38,7 +38,6 @@ import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 import { arrayMove } from '@dnd-kit/sortable'
 import { subscriptions } from 'kea-subscriptions'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface SceneTab {
     id: string
@@ -109,14 +108,7 @@ export const sceneLogic = kea<sceneLogicType>([
             inviteLogic,
             ['hideInviteModal'],
         ],
-        values: [
-            billingLogic,
-            ['billing'],
-            organizationLogic,
-            ['organizationBeingDeleted'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
