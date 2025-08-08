@@ -382,6 +382,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         path_map = {
             "end": end_node,
             "root": AssistantNodeName.ROOT,
+            "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
         }
 
         insights_search_node = InsightSearchNode(self._team, self._user)
