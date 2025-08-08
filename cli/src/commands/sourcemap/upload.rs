@@ -47,6 +47,7 @@ struct BulkUploadFinishRequest {
 pub fn upload(
     host: Option<String>,
     directory: &PathBuf,
+    ignore_globs: &Vec<String>,
     project: Option<String>,
     version: Option<String>,
     delete_after: bool,
@@ -61,7 +62,7 @@ pub fn upload(
         host, token.env_id
     );
 
-    let pairs = read_pairs(directory)?;
+    let pairs = read_pairs(directory, ignore_globs)?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.path.clone())
@@ -195,10 +196,7 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
         let part = Part::bytes(data.clone());
         form = form.part("file", part);
 
-        let res = client
-            .post(&presigned_url.url)
-            .multipart(form)
-            .send();
+        let res = client.post(&presigned_url.url).multipart(form).send();
 
         match res {
             Result::Ok(resp) if resp.status().is_success() => {
@@ -212,7 +210,10 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
             }
         }
         if attempt < 3 {
-            warn!("Upload attempt {} failed, retrying in {:?}...", attempt, delay);
+            warn!(
+                "Upload attempt {} failed, retrying in {:?}...",
+                attempt, delay
+            );
             std::thread::sleep(delay);
             delay *= 2;
         }
