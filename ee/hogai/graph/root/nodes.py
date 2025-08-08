@@ -23,7 +23,7 @@ from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 
 # Import moved inside functions to avoid circular imports
-from ee.hogai.utils.types import AssistantNodeName, RootState
+from ee.hogai.utils.types import AssistantNodeName, AssistantToolState, RootState
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
@@ -609,7 +609,7 @@ class RootNodeTools(AssistantNode):
         tool_calls_to_call: dict[str, ToolCall] = {}
         for message in state.messages:
             if isinstance(message, AssistantMessage) and message.tool_calls:
-                tool_calls_to_call.update({tool_call.id: tool_call for tool_call in message.tool_calls})
+                tool_calls_to_call.update({tool_call["id"]: tool_call for tool_call in message.tool_calls})
         for message in state.messages:
             if isinstance(message, AssistantToolCallMessage):
                 tool_calls_to_call.pop(message.tool_call_id)
@@ -622,7 +622,15 @@ class RootNodeTools(AssistantNode):
                 "retrieve_billing_information": AssistantNodeName.BILLING,
             }
 
-            return [Send(tool_call_to_node[tool_call.name]) for tool_call in tool_calls_to_call.values()]
+            return [
+                Send(
+                    tool_call_to_node[tool_call["name"]],
+                    AssistantToolState.model_validate(
+                        {**state.model_dump(exclude_unset=True), "tool_call_id": tool_call["id"]}
+                    ),
+                )
+                for tool_call in tool_calls_to_call.values()
+            ]
 
         if isinstance(last_message, AssistantToolCallMessage):
             return AssistantNodeName.ROOT

@@ -227,22 +227,13 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
     ):
         builder = self._graph
-        path_map = path_map or {
-            "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
-            "search_documentation": AssistantNodeName.INKEEP_DOCS,
-            "root": AssistantNodeName.ROOT,
-            "billing": AssistantNodeName.BILLING,
-            "end": AssistantNodeName.END,
-            "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
-        }
+
         root_node = RootNode(self._team, self._user)
         builder.add_node(AssistantNodeName.ROOT, root_node)
         root_node_tools = RootNodeTools(self._team, self._user)
         builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
         builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
-        builder.add_conditional_edges(
-            AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
-        )
+        builder.add_conditional_edges(AssistantNodeName.ROOT_TOOLS, root_node_tools.router)
         return self
 
     def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):

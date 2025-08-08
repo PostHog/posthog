@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantNodeName, InsightsState, PartialAssistantState
 from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -33,7 +33,7 @@ from .query_executor import AssistantQueryExecutor
 class QueryExecutorNode(AssistantNode):
     name = AssistantNodeName.QUERY_EXECUTOR
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: InsightsState, config: RunnableConfig) -> InsightsState | None:
         viz_message = state.messages[-1]
         if isinstance(viz_message, FailureMessage):
             return PartialAssistantState()  # Exit early - something failed earlier
@@ -42,7 +42,7 @@ class QueryExecutorNode(AssistantNode):
         if viz_message.answer is None:
             raise ValueError("Did not find query in the visualization message")
 
-        tool_call_id = state.root_tool_call_id
+        tool_call_id = state.tool_call_id
         if not tool_call_id:
             return None
 
@@ -72,9 +72,7 @@ class QueryExecutorNode(AssistantNode):
             messages=[
                 AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
             ],
-            root_tool_call_id=None,
-            root_tool_insight_plan=None,
-            root_tool_insight_type=None,
+            tool_call_id=None,
             rag_context=None,
         )
 

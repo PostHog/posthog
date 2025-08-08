@@ -15,14 +15,14 @@ from pydantic import BaseModel
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import find_start_message
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import InsightsState, PartialAssistantState
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     FailureMessage,
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
+from ..base import AssistantNode, BaseAssistantNode
 from .parsers import (
     PydanticOutputParserException,
     parse_pydantic_structured_output,
@@ -40,7 +40,7 @@ from .utils import SchemaGeneratorOutput
 Q = TypeVar("Q", bound=BaseModel)
 
 
-class SchemaGeneratorNode(AssistantNode, Generic[Q]):
+class SchemaGeneratorNode(BaseAssistantNode[InsightsState, InsightsState], Generic[Q]):
     INSIGHT_NAME: str
     """
     Name of the insight type used in the exception messages.
@@ -65,10 +65,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     async def _run_with_prompt(
         self,
-        state: AssistantState,
+        state: InsightsState,
         prompt: ChatPromptTemplate,
         config: Optional[RunnableConfig] = None,
-    ) -> PartialAssistantState:
+    ) -> InsightsState:
         start_id = state.start_id
         generated_plan = state.plan or ""
         intermediate_steps = state.intermediate_steps or []
@@ -142,7 +142,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             query_generation_retry_count=len(intermediate_steps),
         )
 
-    def router(self, state: AssistantState):
+    def router(self, state: InsightsState):
         if state.intermediate_steps:
             return "tools"
         return "next"
@@ -158,7 +158,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         return ET.tostring(root, encoding="unicode")
 
     async def _construct_messages(
-        self, state: AssistantState, validation_error_message: Optional[str] = None
+        self, state: InsightsState, validation_error_message: Optional[str] = None
     ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
@@ -216,7 +216,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         return conversation
 
-    def _get_insight_plan(self, state: AssistantState) -> str:
+    def _get_insight_plan(self, state: InsightsState) -> str:
         if state.root_tool_insight_plan:
             return state.root_tool_insight_plan
         start_message = find_start_message(state.messages, state.start_id)
@@ -230,7 +230,7 @@ class SchemaGeneratorToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: InsightsState, config: RunnableConfig) -> PartialAssistantState | None:
         intermediate_steps = state.intermediate_steps or []
         if not intermediate_steps:
             return None

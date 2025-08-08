@@ -1,11 +1,11 @@
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import InsightsState
 from posthog.hogql.context import HogQLContext
 from posthog.schema import AssistantHogQLQuery
 
-from ..schema_generator.parsers import parse_pydantic_structured_output
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
+from ..schema_generator.parsers import parse_pydantic_structured_output
 from ..schema_generator.utils import SchemaGeneratorOutput
 from .mixins import HogQLGeneratorMixin
 from .toolkit import SQL_SCHEMA
@@ -20,7 +20,7 @@ class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[AssistantHogQLQu
 
     hogql_context: HogQLContext
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: InsightsState, config: RunnableConfig) -> InsightsState:
         prompt = await self._construct_system_prompt()
         return await super()._run_with_prompt(state, prompt, config=config)
 
