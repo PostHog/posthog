@@ -15,6 +15,8 @@ import {
     OpenAICompletionMessage,
     OpenAIToolCall,
     VercelSDKImageMessage,
+    VercelSDKInputImageMessage,
+    VercelSDKInputTextMessage,
     VercelSDKTextMessage,
 } from './types'
 
@@ -184,6 +186,28 @@ export function isVercelSDKImageMessage(input: unknown): input is VercelSDKImage
         typeof input.content.image === 'string'
     )
 }
+
+export function isVercelSDKInputImageMessage(input: unknown): input is VercelSDKInputImageMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'input_image' &&
+        'image_url' in input &&
+        typeof input.image_url === 'string'
+    )
+}
+
+export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKInputTextMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'input_text' &&
+        'text' in input &&
+        typeof input.text === 'string'
+    )
+}
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Observability schema.
  *
@@ -226,6 +250,31 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             {
                 role,
                 content: output.content,
+            },
+        ]
+    }
+
+    // Vercel SDK Input Image
+    if (isVercelSDKInputImageMessage(output)) {
+        return [
+            {
+                role,
+                content: [
+                    {
+                        type: 'image',
+                        image: output.image_url,
+                    },
+                ],
+            },
+        ]
+    }
+
+    // Vercel SDK Input Text
+    if (isVercelSDKInputTextMessage(output)) {
+        return [
+            {
+                role,
+                content: output.text,
             },
         ]
     }
