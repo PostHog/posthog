@@ -64,7 +64,7 @@ importers:
         version: 4.6.0(stylelint@15.11.0(typescript@5.2.2))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
+        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@5.2.2))
       stylelint-order:
         specifier: ^6.0.4
         version: 6.0.4(stylelint@15.11.0(typescript@5.2.2))
@@ -827,8 +827,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.6(react@18.2.0))
@@ -1601,8 +1601,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1628,8 +1628,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1655,8 +1655,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1685,8 +1685,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1745,8 +1745,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.6(react@18.2.0))
@@ -1790,8 +1790,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1817,8 +1817,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1844,8 +1844,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1871,8 +1871,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1901,8 +1901,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@18.2.0)
@@ -1940,8 +1940,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -1998,8 +1998,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2037,8 +2037,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2076,8 +2076,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.6(react@18.2.0))
@@ -2112,8 +2112,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2139,8 +2139,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2166,8 +2166,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2193,8 +2193,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2223,8 +2223,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2250,8 +2250,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2274,8 +2274,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       posthog-js:
         specifier: 1.259.0
         version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
@@ -2304,8 +2304,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -12683,6 +12683,11 @@ packages:
 
   kea-router@3.4.0:
     resolution: {integrity: sha512-jlSKsQCrp/obQZRTzr86C7Zh+oO2u3giHwZIZ0XxoDb4u6oK1R5jFIkPKcssKupwwIiY/YasIKeiAOG+Eg7yQQ==}
+    peerDependencies:
+      kea: '>= 3'
+
+  kea-router@3.4.1:
+    resolution: {integrity: sha512-cqhsoBkWtZdp4ZJBZVo27kRbFD2ilZ4ozNe632hLwK4KwtqiaYT7NsbbGbyjbsvCQGi3ClDkNxvpjbcTvx9Pbw==}
     peerDependencies:
       kea: '>= 3'
 
@@ -31821,6 +31826,11 @@ snapshots:
       kea: 3.1.6(react@18.2.0)
       url-pattern: 1.0.3
 
+  kea-router@3.4.1(kea@3.1.6(react@18.2.0)):
+    dependencies:
+      kea: 3.1.6(react@18.2.0)
+      url-pattern: 1.0.3
+
   kea-subscriptions@3.0.1(kea@3.1.6(react@18.2.0)):
     dependencies:
       kea: 3.1.6(react@18.2.0)
@@ -33939,10 +33949,6 @@ snapshots:
   postcss-scss@4.0.9(postcss@8.4.31):
     dependencies:
       postcss: 8.4.31
-
-  postcss-scss@4.0.9(postcss@8.5.6):
-    dependencies:
-      postcss: 8.5.6
 
   postcss-selector-not@8.0.1(postcss@8.5.2):
     dependencies:
@@ -36077,15 +36083,6 @@ snapshots:
     optionalDependencies:
       postcss: 8.4.31
 
-  stylelint-config-recommended-scss@13.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2)):
-    dependencies:
-      postcss-scss: 4.0.9(postcss@8.5.6)
-      stylelint: 15.11.0(typescript@5.2.2)
-      stylelint-config-recommended: 13.0.0(stylelint@15.11.0(typescript@5.2.2))
-      stylelint-scss: 5.3.2(stylelint@15.11.0(typescript@5.2.2))
-    optionalDependencies:
-      postcss: 8.5.6
-
   stylelint-config-recommended@13.0.0(stylelint@15.11.0(typescript@5.2.2)):
     dependencies:
       stylelint: 15.11.0(typescript@5.2.2)
@@ -36097,14 +36094,6 @@ snapshots:
       stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@5.2.2))
     optionalDependencies:
       postcss: 8.4.31
-
-  stylelint-config-standard-scss@11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2)):
-    dependencies:
-      stylelint: 15.11.0(typescript@5.2.2)
-      stylelint-config-recommended-scss: 13.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
-      stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@5.2.2))
-    optionalDependencies:
-      postcss: 8.5.6
 
   stylelint-config-standard@34.0.0(stylelint@15.11.0(typescript@5.2.2)):
     dependencies:
