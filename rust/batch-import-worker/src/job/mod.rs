@@ -74,12 +74,8 @@ fn should_pause_due_to_max_attempts(next_attempt: u32, max_attempts: u32) -> boo
     max_attempts > 0 && next_attempt >= max_attempts
 }
 
-fn reset_backoff_after_success(state: &mut JobState, model: &mut JobModel) {
-    state.backoff_attempt = 0;
+fn reset_backoff_after_success(model: &mut JobModel) {
     model.backoff_attempt = 0;
-    if let Some(model_state) = &mut model.state {
-        model_state.backoff_attempt = 0;
-    }
 }
 
 pub struct Job {
@@ -139,10 +135,11 @@ impl Job {
             .await
             .with_context(|| format!("Failed to construct sink for job {}", model.id))?;
 
-        let mut state = model.state.as_ref().cloned().unwrap_or_else(|| JobState {
-            parts: vec![],
-            backoff_attempt: 0,
-        });
+        let mut state = model
+            .state
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| JobState { parts: vec![] });
 
         if state.parts.is_empty() {
             info!("Found job with no parts, initializing parts list");
@@ -398,7 +395,7 @@ impl Job {
         // Successful fetch/parse: reset backoff state
         {
             let mut model = self.model.lock().await;
-            reset_backoff_after_success(&mut state, &mut model);
+            reset_backoff_after_success(&mut model);
         }
 
         Ok(Some((ret_key, parsed)))
@@ -688,10 +685,6 @@ mod tests {
 
     #[test]
     fn test_reset_backoff_after_success() {
-        let mut state = JobState {
-            parts: vec![],
-            backoff_attempt: 3,
-        };
         let mut model = JobModel {
             // Minimal dummy values; only fields we need in this function
             id: uuid::Uuid::now_v7(),
@@ -703,10 +696,7 @@ mod tests {
             status: super::model::JobStatus::Running,
             status_message: None,
             display_status_message: None,
-            state: Some(JobState {
-                parts: vec![],
-                backoff_attempt: 3,
-            }),
+            state: Some(JobState { parts: vec![] }),
             import_config: super::config::JobConfig {
                 // Construct a trivially valid config that won't be used by this test
                 source: super::config::SourceConfig::Folder(super::config::FolderSourceConfig {
@@ -726,10 +716,8 @@ mod tests {
             backoff_until: None,
         };
 
-        reset_backoff_after_success(&mut state, &mut model);
-        assert_eq!(state.backoff_attempt, 0);
+        reset_backoff_after_success(&mut model);
         assert_eq!(model.backoff_attempt, 0);
-        assert_eq!(model.state.as_ref().unwrap().backoff_attempt, 0);
     }
 
     #[test]

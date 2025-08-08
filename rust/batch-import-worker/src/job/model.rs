@@ -58,8 +58,6 @@ pub struct JobState {
     // Parts are sorted, and we iterate through them in order, to let us import
     // from oldest to newest
     pub parts: Vec<PartState>,
-    #[serde(default)]
-    pub backoff_attempt: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -355,10 +353,7 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
         let (row, keys, lease_id) = input;
         let state = match row.state {
             Some(s) => serde_json::from_value(s).context("Parsing state")?,
-            None => JobState {
-                parts: vec![],
-                backoff_attempt: 0,
-            },
+            None => JobState { parts: vec![] },
         };
 
         let import_config = serde_json::from_value(row.import_config).context("Parsing config")?;

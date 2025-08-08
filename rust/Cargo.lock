@@ -1090,6 +1090,7 @@ dependencies = [
  "health",
  "httpmock",
  "natord",
+ "rand 0.8.5",
  "rayon",
  "rdkafka",
  "reqwest 0.12.3",
