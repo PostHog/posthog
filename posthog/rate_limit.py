@@ -115,7 +115,7 @@ def replace_with_param_names(string, pattern):
     return compiled_pattern.sub(replacement_func, string)
 
 
-def get_route_from_path(path: str) -> str:
+def get_route_from_path(path: str | None) -> str:
     """
     Extract a generic route identifier from a request path to avoid high cardinality
     in metrics. This uses Django's URL resolver to get the actual route pattern
