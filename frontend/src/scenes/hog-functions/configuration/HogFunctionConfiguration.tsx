@@ -258,7 +258,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                                         <LemonButton
                                             type="tertiary"
                                             size="small"
-                                            className="border border-dashed"
+                                            className="mt-2 border border-dashed"
                                             fullWidth
                                         >
                                             <span className="flex flex-wrap flex-1 gap-1 items-center">
