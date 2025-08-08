@@ -338,7 +338,28 @@ impl JobModel {
         self.status = JobStatus::Running;
         self.status_message = None;
         self.display_status_message = None;
-        self.flush(&context.db, true).await
+        // Reset in-memory backoff state
+        self.backoff_attempt = 0;
+        self.backoff_until = None;
+
+        // Persist regular fields
+        self.flush(&context.db, true).await?;
+
+        // Optionally reset DB backoff columns
+        if context.config.backoff_db_columns_enabled {
+            let _ = sqlx::query(
+                r#"
+                UPDATE posthog_batchimport
+                SET backoff_attempt = 0, backoff_until = NULL
+                WHERE id = $1
+                "#,
+            )
+            .bind(self.id)
+            .execute(&context.db)
+            .await?;
+        }
+
+        Ok(())
     }
 
     pub async fn fail(
