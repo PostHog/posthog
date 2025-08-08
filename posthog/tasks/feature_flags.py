@@ -1,7 +1,7 @@
 from celery import shared_task
 import structlog
 
-from posthog.models.feature_flag.local_evaluation import FeatureFlagLocalEvaluationCache
+from posthog.models.feature_flag.local_evaluation import update_flag_caches
 from posthog.tasks.utils import CeleryQueue
 from posthog.models.team import Team
 
@@ -16,7 +16,7 @@ def update_team_flags_cache(team_id: int) -> None:
         logger.exception("Team does not exist", team_id=team_id)
         return
 
-    FeatureFlagLocalEvaluationCache.update_cache(team)
+    update_flag_caches(team)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
