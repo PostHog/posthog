@@ -1134,23 +1134,24 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     if might_have_realtime and not is_v2_enabled:
                         oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
                         newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+                        # if the oldest timestamp is more than 24 hours ago, we don't expect realtime snapshots
+                        # so set this to False even if though it was True before
                         might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
 
-                    # if the oldest timestamp is more than 24 hours ago, we don't expect realtime snapshots
-                    if might_have_realtime:
-                        sources.append(
-                            {
-                                "source": "realtime",
-                                "start_timestamp": newest_timestamp,
-                                "end_timestamp": None,
-                            }
-                        )
+                        if might_have_realtime:
+                            sources.append(
+                                {
+                                    "source": "realtime",
+                                    "start_timestamp": newest_timestamp,
+                                    "end_timestamp": None,
+                                }
+                            )
 
-                        # the UI will use this to try to load realtime snapshots
-                        # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                        # it takes a short while for the subscription to be sync'd into redis
-                        # let's use the network round trip time to get started
-                        publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+                            # the UI will use this to try to load realtime snapshots
+                            # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                            # it takes a short while for the subscription to be sync'd into redis
+                            # let's use the network round trip time to get started
+                            publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
                 response_data["sources"] = sources
 

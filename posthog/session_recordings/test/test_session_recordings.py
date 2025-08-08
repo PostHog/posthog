@@ -1677,7 +1677,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_get_snapshots_blobby_v2_from_lts(
+    def test_get_snapshot_sources_blobby_v2_from_lts(
         self,
         _mock_feature_enabled: MagicMock,
         mock_list_objects: MagicMock,
