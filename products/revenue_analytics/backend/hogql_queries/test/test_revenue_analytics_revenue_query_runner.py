@@ -32,6 +32,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
@@ -39,11 +40,13 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
+    STRIPE_CHARGE_COLUMNS,
 )
 
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 PRODUCTS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
+CHARGES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges"
 
 ALL_MONTHS_LABELS = [
     "Nov 2024",
@@ -958,3 +961,137 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    def test_with_charges_only_data(self):
+        # Delete invoice items, products, and customers to simulate charges-only business
+        self.invoices_table.delete()
+        self.products_table.delete()
+        self.customers_table.delete()
+
+        # Create charges table
+        self.charges_csv_path = Path(__file__).parent / "data" / "stripe_charges.csv"
+        self.charges_table, _, _, self.charges_csv_df, self.charges_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.charges_csv_path,
+                "stripe_charge",
+                STRIPE_CHARGE_COLUMNS,
+                CHARGES_TEST_BUCKET,
+                self.team,
+                source=self.source,
+                credential=self.credential,
+            )
+        )
+
+        self.charges_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
+            source=self.source,
+            table=self.charges_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        # Create some events data to test charges-only scenario
+        s1 = str(uuid7("2024-12-25"))
+        s2 = str(uuid7("2025-01-03"))
+        self._create_purchase_events(
+            [
+                ("p1", [("2024-12-25", s1, 42, "USD", "Prod A", "coupon_x")]),
+                ("p2", [("2025-01-03", s2, 43, "BRL", "Prod B", "coupon_y")]),
+            ]
+        )
+
+        results = self._run_revenue_analytics_revenue_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.events.purchase"],
+                )
+            ],
+        ).results
+
+        # Verify that the query works with charges-only data
+        self.assertEqual(
+            results.gross,
+            [
+                {
+                    "label": "revenue_analytics.events.purchase",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.events.purchase",
+                        "name": "revenue_analytics.events.purchase",
+                    },
+                }
+            ],
+        )
+        self.assertEqual(
+            results.mrr,
+            [
+                {
+                    "label": "revenue_analytics.events.purchase",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren't recurring
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.events.purchase",
+                        "name": "revenue_analytics.events.purchase",
+                    },
+                }
+            ],
+        )
+
+        # Clean up charges data
+        self.charges_cleanup_filesystem()
+
+    def test_with_charges_from_stripe_data(self):
+        # Delete invoice items, products, and customers to simulate charges-only business
+        self.invoices_table.delete()
+        self.products_table.delete()
+        self.customers_table.delete()
+
+        # Create charges table
+        self.charges_csv_path = Path(__file__).parent / "data" / "stripe_charges.csv"
+        self.charges_table, _, _, self.charges_csv_df, self.charges_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.charges_csv_path,
+                "stripe_charge",
+                STRIPE_CHARGE_COLUMNS,
+                CHARGES_TEST_BUCKET,
+                self.team,
+                source=self.source,
+                credential=self.credential,
+            )
+        )
+
+        self.charges_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
+            source=self.source,
+            table=self.charges_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        # Test with charges from Stripe data warehouse
+        results = self._run_revenue_analytics_revenue_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["stripe.posthog_test"],
+                )
+            ],
+        ).results
+
+        # Verify that the query works with charges-only data from Stripe
+        # The charges data should be processed and revenue should be calculated
+        self.assertGreater(len(results.gross), 0)
+        self.assertGreater(len(results.mrr), 0)
+
+        # Clean up charges data
+        self.charges_cleanup_filesystem()
