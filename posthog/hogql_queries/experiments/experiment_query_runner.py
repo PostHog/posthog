@@ -285,7 +285,7 @@ class ExperimentQueryRunner(QueryRunner):
             sorted_results = self._evaluate_experiment_query()
 
             if self.stats_method == "frequentist":
-                frequentist_variants = get_new_variant_results(sorted_results)
+                frequentist_variants = get_new_variant_results(sorted_results, self.metric)
 
                 self._validate_event_variants(frequentist_variants)
 
@@ -298,7 +298,7 @@ class ExperimentQueryRunner(QueryRunner):
                 )
             else:
                 # We default to bayesian
-                bayesian_variants = get_new_variant_results(sorted_results)
+                bayesian_variants = get_new_variant_results(sorted_results, self.metric)
 
                 control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
 

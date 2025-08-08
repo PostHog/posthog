@@ -52,6 +52,7 @@ def split_baseline_and_test_variants(
 
 def get_new_variant_results(
     sorted_results: list[Union[tuple[str, int, int, int], tuple[str, int, int, int, tuple[int, ...]]]],
+    metric: Union[ExperimentFunnelMetric, ExperimentMeanMetric, None] = None,
 ) -> list[ExperimentStatsBase]:
     results = []
     for result in sorted_results:
@@ -60,8 +61,25 @@ def get_new_variant_results(
 
         if has_step_counts:
             key, number_of_samples, sum_val, sum_squares, step_counts = result
+
+            # Extract step names from metric if available, otherwise use default names
+            step_names = []
+            if isinstance(metric, ExperimentFunnelMetric):
+                step_names = [
+                    (step.custom_name or step.event or f"Step {i + 1}")
+                    if hasattr(step, "event")
+                    else (step.custom_name or f"Step {i + 1}")
+                    for i, step in enumerate(metric.series)
+                ]
+
+            # Ensure we have names for all steps, using defaults if needed
+            while len(step_names) < len(step_counts):
+                step_names.append(f"Step {len(step_names) + 1}")
+
             steps_count = [
-                ExperimentFunnelStepResult(step_count=count, step_name=f"Step {i + 1}", step_number=i)
+                ExperimentFunnelStepResult(
+                    step_count=count, step_name=step_names[i] if i < len(step_names) else f"Step {i + 1}", step_number=i
+                )
                 for i, count in enumerate(step_counts)
             ]
         else:
