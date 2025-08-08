@@ -45,9 +45,9 @@ def update_flag_caches(team: Team):
     flags_without_cohorts_hypercache.update_cache(team)
 
 
-def clear_flag_caches(team: Team):
-    flags_hypercache.clear_cache(team)
-    flags_without_cohorts_hypercache.clear_cache(team)
+def clear_flag_caches(team: Team, kinds: list[str] | None = None):
+    flags_hypercache.clear_cache(team, kinds=kinds)
+    flags_without_cohorts_hypercache.clear_cache(team, kinds=kinds)
 
 
 def _get_flags_for_local_evaluation(team: Team):
