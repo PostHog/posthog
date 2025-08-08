@@ -1,6 +1,7 @@
-from typing import TypeVar
+from typing import TypeVar, Union
 from posthog.schema import (
     ExperimentFunnelMetric,
+    ExperimentFunnelStepResult,
     ExperimentMeanMetric,
     ExperimentStatsValidationFailure,
     ExperimentVariantResultBayesian,
@@ -49,20 +50,39 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-def get_new_variant_results(sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentStatsBase]:
-    return [
-        ExperimentStatsBase(
-            key=result[0],
-            number_of_samples=result[1],
-            sum=result[2],
-            sum_squares=result[3],
+def get_new_variant_results(
+    sorted_results: list[Union[tuple[str, int, int, int], tuple[str, int, int, int, tuple[int, ...]]]],
+) -> list[ExperimentStatsBase]:
+    results = []
+    for result in sorted_results:
+        # Check if this is a funnel result by looking for step_counts (5th element)
+        has_step_counts = len(result) > 4 and isinstance(result[4], tuple)
+
+        if has_step_counts:
+            key, number_of_samples, sum_val, sum_squares, step_counts = result
+            steps_count = [
+                ExperimentFunnelStepResult(step_count=count, step_name=f"Step {i + 1}", step_number=i)
+                for i, count in enumerate(step_counts)
+            ]
+        else:
+            key, number_of_samples, sum_val, sum_squares = result[:4]
+            steps_count = None
+
+        results.append(
+            ExperimentStatsBase(
+                key=key,
+                number_of_samples=number_of_samples,
+                sum=sum_val,
+                sum_squares=sum_squares,
+                steps_count=steps_count,
+            )
         )
-        for result in sorted_results
-    ]
+
+    return results
 
 
 def validate_variant_result(
-    variant_result: ExperimentStatsBase, metric: ExperimentFunnelMetric | ExperimentMeanMetric, is_baseline=False
+    variant_result: ExperimentStatsBase, metric: Union[ExperimentFunnelMetric, ExperimentMeanMetric], is_baseline=False
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
 
@@ -79,8 +99,8 @@ def validate_variant_result(
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric, variant: ExperimentStatsBaseValidated
-) -> SampleMeanStatistic | ProportionStatistic:
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric], variant: ExperimentStatsBaseValidated
+) -> Union[SampleMeanStatistic, ProportionStatistic]:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
             n=variant.number_of_samples,
@@ -95,7 +115,7 @@ def metric_variant_to_statistic(
 
 
 def get_frequentist_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric],
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
@@ -124,6 +144,7 @@ def get_frequentist_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             validation_failures=test_variant_validated.validation_failures,
+            steps_count=test_variant_validated.steps_count,
         )
 
         # Check if we can perform statistical analysis
@@ -150,7 +171,7 @@ def get_frequentist_experiment_result(
 
 
 def get_bayesian_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric],
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
@@ -189,6 +210,7 @@ def get_bayesian_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             validation_failures=test_variant_validated.validation_failures,
+            steps_count=test_variant_validated.steps_count,
         )
 
         # Check if we can perform statistical analysis

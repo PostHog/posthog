@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Optional, Union
 
 from posthog.exceptions_capture import capture_exception
 from rest_framework.exceptions import ValidationError
@@ -234,7 +234,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _evaluate_experiment_query(
         self,
-    ) -> list[tuple[str, int, int, int]]:
+    ) -> list[Union[tuple[str, int, int, int], tuple[str, int, int, int, tuple[int, ...]]]]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(
