@@ -33,7 +33,7 @@ SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
 SETUP_WIZARD_DEFAULT_MODEL = "gpt-5-mini"
 
-OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano"}
+OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 
 # Supported Gemini models
 GEMINI_SUPPORTED_MODELS = {
