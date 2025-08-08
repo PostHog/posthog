@@ -6,7 +6,7 @@ from posthoganalytics import capture_exception
 from prometheus_client import Counter
 import structlog
 
-from posthog.models.team import Team
+from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -30,15 +30,15 @@ HYPERCACHE_CACHE_COUNTER = Counter(
 )
 
 
-def cache_key(team_id: int, namespace: str, value: str) -> str:
-    return f"cache/teams/{team_id}/{namespace}/{value}"
-
-
 _HYPER_CACHE_EMPTY_VALUE = "__missing__"
 
 
 class HyperCacheStoreMissing:
     pass
+
+
+# Custom key type for the hypercache
+KeyType = Team | str | int
 
 
 class HyperCache:
@@ -51,23 +51,40 @@ class HyperCache:
         self,
         namespace: str,
         value: str,
-        load_fn: Callable[[Team], dict | HyperCacheStoreMissing],
+        load_fn: Callable[[str | int], dict | HyperCacheStoreMissing],
+        token_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
     ):
         self.namespace = namespace
         self.value = value
         self.load_fn = load_fn
+        self.token_based = token_based
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
 
-    def get_from_cache(self, team: Team) -> dict:
-        data, _ = self.get_from_cache_with_source(team)
+    @staticmethod
+    def team_from_key(key: KeyType) -> Team:
+        if isinstance(key, Team):
+            return key
+        elif isinstance(key, str):
+            return Team.objects.get(api_token=key)
+        else:
+            return Team.objects.get(id=key)
+
+    def get_cache_key(self, key: KeyType) -> str:
+        if self.token_based:
+            return f"cache/team_tokens/{key}/{self.namespace}/{self.value}"
+        else:
+            return f"cache/teams/{key}/{self.namespace}/{self.value}"
+
+    def get_from_cache(self, key: KeyType) -> dict | None:
+        data, _ = self.get_from_cache_with_source(key)
         return data
 
-    def get_from_cache_with_source(self, team: Team) -> tuple[dict | None, str]:
-        key = cache_key(team.id, self.namespace, self.value)
-        data = cache.get(key)
+    def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
+        cache_key = self.get_cache_key(key)
+        data = cache.get(cache_key)
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
@@ -79,60 +96,64 @@ class HyperCache:
 
         # Fallback to s3
         try:
-            data = object_storage.read(key)
+            data = object_storage.read(cache_key)
             if data:
                 response = json.loads(data)
                 HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
-                self._set_cache_value_redis(team, response)
+                self._set_cache_value_redis(key, response)
                 return response, "s3"
         except ObjectStorageError:
             pass
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
-        data = self.load_fn(team)
+        data = self.load_fn(key)
 
         if isinstance(data, HyperCacheStoreMissing):
-            self._set_cache_value_redis(team, None)
+            self._set_cache_value_redis(key, None)
             HYPERCACHE_CACHE_COUNTER.labels(result="missing", namespace=self.namespace, value=self.value).inc()
-            return None, "empty"
+            return None, "db"
 
-        self._set_cache_value_redis(team, data)
+        self._set_cache_value_redis(key, data)
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
-    def update_cache(self, team: Team) -> bool:
-        logger.info(f"Syncing {self.namespace} cache for team {team.id}")
+    def update_cache(self, key: KeyType) -> bool:
+        logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         try:
-            data = self.load_fn(team)
-            self._set_cache_value_redis(team, data)
-            if data is not None:
-                self._set_cache_value_s3(team, data)
-
+            data = self.load_fn(key)
+            self.set_cache_value(key, data)
             return True
         except Exception as e:
             capture_exception(e)
-            logger.exception(f"Failed to sync {self.namespace} cache for team {team.id}", exception=str(e))
+            logger.exception(f"Failed to sync {self.namespace} cache for team {key}", exception=str(e))
             CACHE_SYNC_COUNTER.labels(result="failure", namespace=self.namespace, value=self.value).inc()
             return False
 
-    def clear_cache(self, team: Team, kinds: Optional[list[str]] = None):
+    def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> bool:
+        self._set_cache_value_redis(key, data)
+        self._set_cache_value_s3(key, data)
+
+    def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
         Only meant for use in tests
         """
         kinds = kinds or ["redis", "s3"]
         if "redis" in kinds:
-            cache.delete(cache_key(team.id, self.namespace, self.value))
+            cache.delete(self.get_cache_key(key))
         if "s3" in kinds:
-            object_storage.delete(cache_key(team.id, self.namespace, self.value))
+            object_storage.delete(self.get_cache_key(key))
 
-    def _set_cache_value_redis(self, team: Team, data: dict | None):
-        key = cache_key(team.id, self.namespace, self.value)
-        if data is None:
+    def _set_cache_value_redis(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
+        key = self.get_cache_key(key)
+        if data is None or isinstance(data, HyperCacheStoreMissing):
             cache.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=DEFAULT_CACHE_MISS_TTL)
         else:
             cache.set(key, json.dumps(data), timeout=DEFAULT_CACHE_TTL)
 
-    def _set_cache_value_s3(self, team: Team, data: dict):
-        key = cache_key(team.id, self.namespace, self.value)
-        object_storage.write(key, json.dumps(data))
+    def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
+        key = self.get_cache_key(key)
+        if data is None or isinstance(data, HyperCacheStoreMissing):
+            object_storage.delete(key)
+        else:
+            object_storage.write(key, json.dumps(data))

@@ -22,13 +22,13 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
-    load_fn=lambda team: _get_flags_response_for_local_evaluation(team, include_cohorts=True),
+    load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=True),
 )
 
 flags_without_cohorts_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_without_cohorts.json",
-    load_fn=lambda team: _get_flags_response_for_local_evaluation(team, include_cohorts=False),
+    load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=False),
 )
 
 
@@ -38,6 +38,16 @@ def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -
         if include_cohorts
         else flags_without_cohorts_hypercache.get_from_cache(team)
     )
+
+
+def update_flag_caches(team: Team):
+    flags_hypercache.update_cache(team)
+    flags_without_cohorts_hypercache.update_cache(team)
+
+
+def clear_flag_caches(team: Team, kinds: list[str] | None = None):
+    flags_hypercache.clear_cache(team, kinds=kinds)
+    flags_without_cohorts_hypercache.clear_cache(team, kinds=kinds)
 
 
 def _get_flags_for_local_evaluation(team: Team):
@@ -145,11 +155,6 @@ def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) 
         "cohorts": cohorts,
     }
     return response_data
-
-
-def update_flag_caches(team: Team):
-    flags_hypercache.update_cache(team)
-    flags_without_cohorts_hypercache.update_cache(team)
 
 
 # NOTE: All models that affect the cache should have a signal to update the cache
