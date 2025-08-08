@@ -42,6 +42,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
     ) {
         return (
             <>
+                <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
                 <GroupsIntroduction />
             </>
         )
