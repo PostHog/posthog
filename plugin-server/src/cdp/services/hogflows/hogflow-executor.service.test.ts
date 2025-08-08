@@ -23,6 +23,8 @@ import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService } from './hogflow-executor.service'
 
 const cleanLogs = (logs: string[]): string[] => {
@@ -52,6 +54,8 @@ describe('Hogflow Executor', () => {
         })
         const hogExecutor = new HogExecutorService(hub)
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
+        const recipientsManager = new RecipientsManagerService(hub)
+        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
 
         const exampleHog = `
             print(f'Hello, {inputs.name}!')
@@ -92,7 +96,7 @@ describe('Hogflow Executor', () => {
             bytecode: await compileHog(exampleHogMultiFetch),
         })
 
-        executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager)
+        executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager, recipientPreferencesService)
     })
 
     describe('general event processing', () => {
@@ -120,7 +124,6 @@ describe('Hogflow Executor', () => {
                                         bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
                                     },
                                 },
-                                message_category_id: 'test-category-id',
                             },
                         },
 
