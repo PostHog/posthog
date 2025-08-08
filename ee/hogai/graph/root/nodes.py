@@ -314,13 +314,10 @@ class RootNode(RootNodeUIContextMixin):
         from ee.hogai.tool import get_contextual_tool_class
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
-
-        # Check if session summarization is enabled for the user
-        session_summarization_enabled = self._has_session_summarization_feature_flag()
-
         # Build system prompt with conditional session summarization section
         system_prompt_template = ROOT_SYSTEM_PROMPT
-        if not session_summarization_enabled:
+        # Check if session summarization is enabled for the user
+        if not self._has_session_summarization_feature_flag():
             # Remove session summarization section from prompt using regex
             system_prompt_template = re.sub(
                 r"\n?<session_summarization>.*?</session_summarization>", "", system_prompt_template, flags=re.DOTALL
@@ -439,11 +436,9 @@ class RootNode(RootNodeUIContextMixin):
             session_summarization,
         )
 
-        # Check if session summarization is enabled for the user
-        session_summarization_enabled = self._has_session_summarization_feature_flag()
-
         available_tools: list[type[BaseModel]] = [search_insights]
-        if session_summarization_enabled:
+        # Check if session summarization is enabled for the user
+        if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
