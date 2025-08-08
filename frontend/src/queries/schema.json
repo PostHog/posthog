@@ -14439,7 +14439,8 @@
                 "twilio",
                 "linear",
                 "github",
-                "meta-ads"
+                "meta-ads",
+                "clickup"
             ],
             "type": "string"
         },
@@ -23304,6 +23305,9 @@
                 },
                 "deviceTypesMatchType": {
                     "$ref": "#/definitions/SurveyMatchType"
+                },
+                "linkedFlagVariant": {
+                    "type": "string"
                 },
                 "seenSurveyWaitPeriodInDays": {
                     "type": "number"
