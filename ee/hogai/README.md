@@ -184,6 +184,105 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
     - Add test cases in `test/test_format.py` for your new formatter
     - Ensure tests cover both successful execution and error handling
 
+### Taxonomy Agent
+
+Build small, focused ReAct-style agents that browse your product taxonomy (events, properties, groups) and produce a structured answer.
+
+#### Quickstart
+
+1. Define your structured output (what the agent must return):
+
+```python
+from pydantic import BaseModel
+
+class MyTaxonomyOutput(BaseModel):
+    # Keep this minimal and explicit – it's what the agent must finalize with
+    event: str
+    filters: dict
+```
+
+2. Create a toolkit and add a typed `final_answer` tool (optional: change output formatting to YAML):
+
+```python
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.taxonomy.tools import base_final_answer
+from posthog.models import Team
+
+class MyToolkit(TaxonomyAgentToolkit):
+    def __init__(self, team: Team):
+        super().__init__(team)
+
+    def _get_custom_tools(self) -> list:
+        class final_answer(base_final_answer[MyTaxonomyOutput]):
+            __doc__ = base_final_answer.__doc__
+        return [final_answer]
+
+    # Optional: prefer YAML over XML for property lists
+    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
+        return self._format_properties_yaml(props)
+```
+
+3. Define the loop and tools nodes, then bind them in a graph:
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+from posthog.models import Team, User
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+
+class MyLoopNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MyTaxonomyOutput]]):
+    def __init__(self, team: Team, user: User, toolkit_class: type[MyToolkit]):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+    def _get_system_prompt(self) -> ChatPromptTemplate:
+        system = [
+            "Here you add your custom prompt, you can define things like taxonomy operators, filter logic, or any other instruction you need for your usecase.",
+            *super()._get_default_system_prompts(), # You can reuse the default prompts we
+        ]
+        return ChatPromptTemplate([("system", m) for m in system], template_format="mustache")
+
+
+class MyToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[MyTaxonomyOutput]]):
+    def __init__(self, team: Team, user: User, toolkit_class: type[MyToolkit]):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+
+class MyTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[MyTaxonomyOutput]]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(
+            team,
+            user,
+            loop_node_class=MyLoopNode,
+            tools_node_class=MyToolsNode,
+            toolkit_class=MyToolkit,
+        )
+```
+
+4. Invoke it (typically from a `MaxTool`), mirroring `products/replay/backend/max_tools.py`:
+
+```python
+graph = MyTaxonomyGraph(team=self._team, user=self._user)
+
+graph_context = {
+    "change": "Add a filter for event 'pageview' where $current_url contains 'pricing'",
+    "output": None,
+    "tool_progress_messages": [],
+    **self.context,
+}
+
+result = await graph.compile_full_graph().ainvoke(graph_context)
+
+if isinstance(result["output"], MyTaxonomyOutput):
+    content = "✅ Updated taxonomy selection"
+    payload = result["output"]
+else:
+    content = "❌ Need more info to proceed"
+    payload = MyTaxonomyOutput(event="", filters={})
+```
+
+See `products/replay/backend/max_tools.py` for a full real-world example wiring a taxonomy agent into a `MaxTool`.
+
 ### Key considerations
 
 - **Query execution**: The `AssistantQueryExecutor` class handles the complete query lifecycle including async polling and error handling
