@@ -110,7 +110,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         self.assertIn("equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`), %(hogql_val_0)s)", sql)
 
-    def test_group_join_with_temporal_filtering(self):
+    def test_group_join_with_filtering(self):
         """Test that group_1.properties access includes filtering for $group_1"""
         GroupTypeMapping.objects.create(
             team=self.team,
@@ -147,7 +147,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         self.assertIn("ON equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`)", sql)
         self.assertIn("ON equals('', events__group_1.key)", sql)
 
-    def test_non_clickhouse_dialect_no_temporal_filtering(self):
+    def test_non_clickhouse_dialect_no_filtering(self):
         """Test that non-ClickHouse dialects don't get filtering"""
         GroupTypeMapping.objects.create(
             team=self.team,
@@ -165,7 +165,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         self.assertIn("$group_0", sql)
         self.assertNotIn("if(", sql.lower())
 
-    def test_group_alias_with_temporal_filtering(self):
+    def test_group_alias_with_filtering(self):
         """Test that group aliases (e.g., 'company' for $group_0) work with filtering"""
         GroupTypeMapping.objects.create(
             team=self.team,
