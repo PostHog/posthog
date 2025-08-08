@@ -17,7 +17,7 @@ type ChangeUrlOutput = [
     Record<string, any>,
     {
         replace: boolean
-    }
+    },
 ]
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
