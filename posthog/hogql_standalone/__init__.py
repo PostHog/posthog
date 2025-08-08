@@ -1,0 +1,1 @@
+# HogQL Standalone - Django-independent HogQL processing

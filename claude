@@ -1,0 +1,2 @@
+you have to source .venv/bin/activate before calling python
+most things you need to run in the django shell and not with just python. you run this with DEBUG=1 python manage.py shell -c "{code}"
