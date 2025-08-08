@@ -101,7 +101,7 @@ class TestLoadRawSessionSummary:
             )
             assert summary is not None
             assert summary.data is not None
-            # Ensure all the key action events were filtered out
+            # Ensure all hallucinated key action events were filtered out
             assert summary.data["key_actions"] == [
                 {
                     "segment_index": 0,
