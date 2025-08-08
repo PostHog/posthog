@@ -3,6 +3,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { XMLViewer } from './XMLViewer'
+import { HighlightedXMLViewer } from './HighlightedXMLViewer'
+import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
@@ -373,9 +375,23 @@ export const LLMMessageDisplay = React.memo(
             // If the content appears to be XML, render based on the toggle.
             if (isXmlCandidate && typeof content === 'string') {
                 if (isRenderingXml) {
-                    return <XMLViewer collapsed={3}>{content}</XMLViewer>
+                    return searchQuery?.trim() ? (
+                        <HighlightedXMLViewer collapsed={3} searchQuery={searchQuery}>
+                            {content}
+                        </HighlightedXMLViewer>
+                    ) : (
+                        <XMLViewer collapsed={3}>{content}</XMLViewer>
+                    )
                 }
-                return <span className="font-mono whitespace-pre-wrap">{content}</span>
+                return searchQuery?.trim() ? (
+                    <SearchHighlight
+                        string={content}
+                        substring={searchQuery}
+                        className="font-mono whitespace-pre-wrap"
+                    />
+                ) : (
+                    <span className="font-mono whitespace-pre-wrap">{content}</span>
+                )
             }
 
             // If the content appears to be Markdown, render based on the toggle.
@@ -390,14 +406,34 @@ export const LLMMessageDisplay = React.memo(
 
                         try {
                             // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
-                            return <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
+                            return searchQuery?.trim() ? (
+                                <HighlightedLemonMarkdown className="whitespace-pre-wrap" searchQuery={searchQuery}>
+                                    {escapedContent}
+                                </HighlightedLemonMarkdown>
+                            ) : (
+                                <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
+                            )
                         } catch {
                             // If markdown still fails, fall back to plain text
-                            return <span className="font-mono whitespace-pre-wrap">{content}</span>
+                            return searchQuery?.trim() ? (
+                                <SearchHighlight
+                                    string={content}
+                                    substring={searchQuery}
+                                    className="font-mono whitespace-pre-wrap"
+                                />
+                            ) : (
+                                <span className="font-mono whitespace-pre-wrap">{content}</span>
+                            )
                         }
                     } else {
                         // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
-                        return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
+                        return searchQuery?.trim() ? (
+                            <HighlightedLemonMarkdown className="whitespace-pre-wrap" searchQuery={searchQuery}>
+                                {content}
+                            </HighlightedLemonMarkdown>
+                        ) : (
+                            <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
+                        )
                     }
                 } else {
                     return searchQuery?.trim() ? (
