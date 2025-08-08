@@ -73,7 +73,6 @@ export function BillingSpendView(): JSX.Element {
             export_context: {
                 localData: csv,
                 filename,
-                mediaType: ExporterFormat.CSV,
             },
         })
     }

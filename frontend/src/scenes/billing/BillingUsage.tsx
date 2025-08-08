@@ -71,7 +71,6 @@ export function BillingUsage(): JSX.Element {
             export_context: {
                 localData: csv,
                 filename,
-                mediaType: ExporterFormat.CSV,
             },
         })
     }
