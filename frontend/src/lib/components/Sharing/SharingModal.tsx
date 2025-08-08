@@ -1,7 +1,7 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch, LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -90,6 +90,7 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
         sharingAllowed,
+        sharingAllowed,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -135,23 +136,42 @@ export function SharingModalContent({
                 ) : (
                     <>
                         <h3>Sharing</h3>
-                        {!sharingAllowed && (
-                            <LemonBanner type="warning">
-                                Publicly sharing resources is disabled for this organization.
-                            </LemonBanner>
+                        {!sharingAllowed ? (
+                            <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
+                        ) : (
+                            <AccessControlAction
+                                resourceType={
+                                    dashboardId
+                                        ? AccessControlResourceType.Dashboard
+                                        : insightShortId
+                                          ? AccessControlResourceType.Insight
+                                          : AccessControlResourceType.Project
+                                }
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={userAccessLevel}
+                            >
+                                {({ disabled, disabledReason }) => (
+                                    <>
+                                        {disabled && disabledReason && (
+                                            <LemonBanner type="warning">{disabledReason}</LemonBanner>
+                                        )}
+                                        <LemonSwitch
+                                            id="sharing-switch"
+                                            label={`Share ${resource} publicly`}
+                                            checked={sharingConfiguration.enabled}
+                                            data-attr="sharing-switch"
+                                            onChange={(active) => !disabled && setIsEnabled(active)}
+                                            disabled={disabled || !sharingAllowed}
+                                            bordered
+                                            fullWidth
+                                            tooltip={disabledReason}
+                                        />
+                                    </>
+                                )}
+                            </AccessControlAction>
                         )}
-                        <LemonSwitch
-                            id="sharing-switch"
-                            label={`Share ${resource} publicly`}
-                            checked={sharingConfiguration.enabled && sharingAllowed}
-                            data-attr="sharing-switch"
-                            onChange={(active) => setIsEnabled(active)}
-                            disabled={!sharingAllowed}
-                            bordered
-                            fullWidth
-                        />
 
-                        {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
+                        {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="deprecated-space-y-2">
                                     <LemonButton
