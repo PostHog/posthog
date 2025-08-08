@@ -146,7 +146,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         )`
     }
 
-    // Write both event types to postgres in a single query within a transaction
+    // Write both event types to postgres in a single query
     private async writeToPostgres(
         personEvents: PersonEventPayload[],
         behaviouralEvents: AggregatedBehaviouralEvent[]
@@ -156,23 +156,19 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         }
 
         try {
-            await this.hub.postgres.transaction(PostgresUse.COUNTERS_RW, 'aggregation-writer', async (client) => {
-                const ctes: string[] = []
+            const ctes: string[] = []
 
-                // Add CTEs for each event type
-                if (personEvents.length > 0) {
-                    ctes.push(this.buildPersonEventsCTE(personEvents))
-                }
-                if (behaviouralEvents.length > 0) {
-                    ctes.push(this.buildBehaviouralEventsCTE(behaviouralEvents))
-                }
+            // Add CTEs for each event type
+            if (personEvents.length > 0) {
+                ctes.push(this.buildPersonEventsCTE(personEvents))
+            }
+            if (behaviouralEvents.length > 0) {
+                ctes.push(this.buildBehaviouralEventsCTE(behaviouralEvents))
+            }
 
-                // Build final query
-                const query = `WITH ${ctes.join(', ')} SELECT 1`
-
-                // Execute the single combined query within the transaction
-                await this.hub.postgres.query(client, query, undefined, 'counters-batch-upsert')
-            })
+            // Build and execute the single combined query
+            const query = `WITH ${ctes.join(', ')} SELECT 1`
+            await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, undefined, 'counters-batch-upsert')
         } catch (error) {
             logger.error('Failed to write to COUNTERS postgres', { error })
             throw error
