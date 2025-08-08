@@ -6,10 +6,10 @@ import time
 import uuid
 import json
 import logging
-import requests
 from typing import Any, Optional
 from dataclasses import dataclass
 from enum import Enum
+from products.marketing_researcher.backend.service import MarketingResearcherService
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,13 @@ class GraphExecutionEngine:
         self.nodes: dict[str, GraphNode] = {}
         self.execution_context: dict[str, Any] = {}
         self.execution_id = str(uuid.uuid4())
-        self.streaming_callback = None  # For real-time streaming during node execution
+        self.streaming_callback = None
+
+        try:
+            self.marketing_researcher_service = MarketingResearcherService()
+        except ImportError:
+            logger.warning("Marketing researcher service not available")
+            self.marketing_researcher_service = None
 
     def add_node(self, node_id: str, name: str, dependencies: list[str] | None = None):
         """Add a node to the graph."""
@@ -121,8 +127,9 @@ class GraphExecutionEngine:
             result = self._execute_enrich_competitors(node_id)
         elif step_id == "generate_recommendations":
             result = self._execute_generate_recommendations(node_id)
+        elif step_id == "analyze_web_presence":
+            result = self._execute_analyze_web_presence(node_id)
         elif step_id == "get_site_content":
-            # Legacy - Get site content and competitor information from API
             result = self._execute_get_site_content(node_id)
         elif step_id == "get_summary":
             result = self._execute_get_summary(node)
@@ -143,10 +150,8 @@ class GraphExecutionEngine:
         summary_text = self.execution_context.get("summary_text", f"Platform for analytics and insights")
 
         try:
-            from products.marketing_researcher.backend.service import marketing_researcher_service
-
-            if marketing_researcher_service.is_available:
-                result = marketing_researcher_service.find_competitors_only(website_url, summary_text)
+            if self.marketing_researcher_service and self.marketing_researcher_service.is_available:
+                result = self.marketing_researcher_service.find_competitors_only(website_url, summary_text)
                 return {
                     "competitors_found": result["total_competitors"],
                     "competitors": result["competitors"],
@@ -161,6 +166,26 @@ class GraphExecutionEngine:
             logger.exception(f"Error finding competitors: {e}")
 
         return {"competitors_found": 0, "competitors": [], "status": "failed", "error": "Could not find competitors"}
+
+    def _execute_analyze_web_presence(self, node_id: str) -> dict[str, Any]:
+        """Analyze current web presence of the target company using marketing researcher service."""
+        website_url = self.execution_context.get("website_url", "unknown")
+
+        try:
+            if not self.marketing_researcher_service:
+                raise Exception("Marketing researcher service not available")
+
+            # Use the marketing researcher service to analyze web presence
+            result = self.marketing_researcher_service.analyze_web_presence(website_url)
+            return result
+
+        except Exception as e:
+            logger.exception(f"Error analyzing web presence: {e}")
+            return {
+                "web_presence": {"status": "failed", "error": str(e)},
+                "status": "failed",
+                "error": str(e),
+            }
 
     def _execute_enrich_competitors(self, node_id: str) -> dict[str, Any]:
         """Enrich competitors progressively, streaming each enriched competitor as it becomes available."""
@@ -177,9 +202,7 @@ class GraphExecutionEngine:
         logger.info(f"Progressive enrichment: processing {len(top_competitors)} competitors")
 
         try:
-            from products.marketing_researcher.backend.service import marketing_researcher_service
-
-            if not marketing_researcher_service.is_available:
+            if not self.marketing_researcher_service or not self.marketing_researcher_service.is_available:
                 return {
                     "enriched_competitors": competitors,
                     "enrichment_count": 0,
@@ -198,7 +221,7 @@ class GraphExecutionEngine:
 
                 # Enrich individual competitor
                 competitor_start_time = time.time()
-                seo_data = marketing_researcher_service._extractor.extract_marketing_data(competitor_url)
+                seo_data = self.marketing_researcher_service._extractor.extract_marketing_data(competitor_url)
                 competitor_time = time.time() - competitor_start_time
 
                 enriched_competitor = {**competitor, "seo_data": seo_data}
@@ -247,9 +270,7 @@ class GraphExecutionEngine:
             return {"recommendations": "No competitors available for analysis", "status": "failed"}
 
         try:
-            from products.marketing_researcher.backend.service import marketing_researcher_service
-
-            if not marketing_researcher_service.is_available:
+            if not self.marketing_researcher_service or not self.marketing_researcher_service.is_available:
                 return {
                     "marketing_recommendations": "Marketing researcher service not available",
                     "status": "failed",
@@ -257,7 +278,7 @@ class GraphExecutionEngine:
                 }
 
             # Use the marketing service to generate recommendations
-            result = marketing_researcher_service.generate_marketing_recommendations(
+            result = self.marketing_researcher_service.generate_marketing_recommendations(
                 enriched_competitors, target_company
             )
 
@@ -274,7 +295,6 @@ class GraphExecutionEngine:
 
     def _execute_init(self, node_id: str) -> dict[str, Any]:
         """Initialize the analysis."""
-        time.sleep(0.3)
         website_url = self.execution_context.get("website_url", "unknown")
 
         return {
@@ -282,147 +302,6 @@ class GraphExecutionEngine:
             "target_url": website_url,
             "analysis_id": self.execution_id,
             "timestamp": time.time(),
-        }
-
-    def _execute_get_site_content(self, node_id: str) -> dict[str, Any]:
-        """Get site content - works for both main site and competitors."""
-        time.sleep(1.0 if node_id == "get_site_content" else 0.7)
-
-        # Determine which URL to analyze
-        if node_id == "get_site_content":
-            # Main site analysis
-            website_url = self.execution_context.get("website_url", "unknown")
-            is_main_site = True
-        else:
-            # Competitor analysis - get URL from context
-            website_url = self.execution_context.get(f"{node_id}_url", "unknown")
-            is_main_site = False
-
-        # Parse domain for analysis
-        domain = website_url.split("//")[1].split(".")[0] if "//" in website_url else "unknown"
-
-        # Get competitors using the marketing research API
-        competitors = []
-        marketing_research_data = None
-
-        try:
-            # Call the marketing research API for any site (main or competitor)
-            response = requests.post(
-                "http://localhost:8000/api/marketing_research/find_competitors/",
-                json={
-                    "website_url": website_url,
-                    "summary_text": f"{domain.title()} is a platform that helps businesses with analytics and insights",
-                },
-                timeout=100,
-            )
-
-            if response.status_code == 200:
-                marketing_research_data = response.json()
-                # Extract all competitor URLs from the API response
-                if marketing_research_data.get("results"):
-                    competitors = [result["url"] for result in marketing_research_data["results"]]
-
-        except Exception:
-            pass
-            # No fallback - just continue with empty competitors
-
-        # Generate site data from API response or use generic data
-        if marketing_research_data and "results" in marketing_research_data and marketing_research_data["results"]:
-            # Use data from the first result if available (the site itself might be in the results)
-            first_result = marketing_research_data["results"][0]
-            title = first_result.get("title", f"{domain.title()} - Platform")
-            description = first_result.get("summary", f"Platform by {domain.title()}")
-            keywords = ["analytics", "platform", domain]
-        else:
-            # Generic fallback
-            title = f"{domain.title()} - Platform"
-            description = f"Platform by {domain.title()}"
-            keywords = ["analytics", "platform", domain]
-
-        # Generate dynamic SEO score
-        seo_score = 70 + (hash(domain) % 30)
-
-        result = {
-            "site_data": {
-                "url": website_url,
-                "title": title,
-                "description": description,
-                "keywords": keywords,
-                "page_load_speed": round(2.0 + (hash(domain) % 10) / 10, 1),
-                "seo_score": seo_score,
-            },
-            "competitors": competitors,
-            "metadata": {
-                "analysis_depth": "comprehensive" if is_main_site else "competitor",
-                "content_pages_analyzed": 15 if is_main_site else 8,
-                "social_links_found": 8 if is_main_site else 5,
-                "is_main_site": is_main_site,
-            },
-        }
-
-        # Add marketing research data to the result if available
-        if marketing_research_data:
-            result["marketing_research_data"] = marketing_research_data
-
-        # TODO: Competitor iterative logic (commented for future use with get their ads)
-        # Only create dynamic competitor nodes for the main site
-        # if is_main_site:
-        #     competitor_node_ids = []
-        #     for i in range(len(competitors)):
-        #         comp_node_id = f"get_competitor_{i+1}"
-        #         comp_url = competitors[i]
-        #         if comp_node_id not in self.nodes:
-        #             self.add_node(
-        #                 node_id=comp_node_id,
-        #                 name=f"Analyze competitor: {comp_url}",
-        #                 dependencies=["get_site_content"]
-        #             )
-        #             self.execution_context[f"{comp_node_id}_url"] = comp_url
-        #             competitor_node_ids.append(comp_node_id)
-        #
-        #     # Update get_summary dependencies to include all competitor nodes
-        #     if "get_summary" in self.nodes and competitor_node_ids:
-        #         current_deps = self.nodes["get_summary"].dependencies
-        #         new_deps = list(set(current_deps + competitor_node_ids))
-        #         self.nodes["get_summary"].dependencies = new_deps
-
-        return result
-
-    def _execute_get_summary(self, node_id: str) -> dict[str, Any]:
-        """Generate final summary based on all previous results."""
-        time.sleep(0.8)
-
-        # Collect data from all previous nodes
-        self.execution_context.get("get_site_content", {})
-        competitors = []
-        for k, v in self.execution_context.items():
-            if k.startswith("get_competitor_") and isinstance(v, dict):
-                competitors.append(v)
-
-        total_competitors_found = sum(len(comp.get("competitors", [])) for comp in competitors)
-
-        return {
-            "summary": {
-                "analyzed_site": self.execution_context.get("website_url"),
-                "main_competitors": len(competitors),
-                "total_competitor_network": total_competitors_found,
-                "market_analysis": {
-                    "position": "Strong product analytics leader",
-                    "key_differentiators": ["Open source", "All-in-one platform", "Privacy-focused"],
-                    "competitive_advantages": ["Feature completeness", "Developer-friendly", "Transparent pricing"],
-                },
-                "recommendations": [
-                    "Expand feature flag capabilities",
-                    "Improve onboarding flow",
-                    "Strengthen enterprise security features",
-                    "Enhance mobile analytics",
-                ],
-                "execution_stats": {
-                    "total_nodes_executed": len([n for n in self.nodes.values() if n.status == NodeStatus.COMPLETED]),
-                    "total_execution_time": sum(n.execution_time for n in self.nodes.values()),
-                    "analysis_depth": "comprehensive",
-                },
-            }
         }
 
     def execute_with_streaming(self, initial_data: dict[str, Any]):
@@ -495,7 +374,16 @@ class GraphExecutionEngine:
                 completed_count += 1
 
                 # Special handling for immediate streaming after node completion
-                if node_id == "find_competitors":
+                if node_id == "analyze_web_presence":
+                    # Stream web presence analysis results
+                    web_presence_data = {
+                        "event_type": "web_presence_analyzed",
+                        "web_presence": result.get("web_presence", {}),
+                        "target_url": result.get("web_presence", {}).get("target_url", ""),
+                        "analysis_summary": result.get("web_presence", {}).get("analysis_summary", {}),
+                    }
+                    yield {"event": "web-presence-analyzed", "data": json.dumps(web_presence_data)}
+                elif node_id == "find_competitors":
                     # Immediately stream competitors list after finding them
                     competitors_data = {
                         "event_type": "competitors_found",
@@ -528,6 +416,10 @@ class GraphExecutionEngine:
                     final_step_id = "generate_recommendations"
                     kind = "generate_recommendations"
                     formatted_node_id = "generate_recommendations_0"
+                elif node_id == "analyze_web_presence":
+                    final_step_id = "analyze_web_presence"
+                    kind = "analyze_web_presence"
+                    formatted_node_id = "analyze_web_presence_0"
                 else:
                     final_step_id = node_id
                     kind = "main"
@@ -575,7 +467,8 @@ def create_marketing_analysis_graph() -> GraphExecutionEngine:
     graph = GraphExecutionEngine()
 
     graph.add_node("init", "Initialize Analysis", [])
-    graph.add_node("find_competitors", "Find Competitors", ["init"])
+    graph.add_node("analyze_web_presence", "Analyze Current Web Presence", ["init"])
+    graph.add_node("find_competitors", "Find Competitors", ["analyze_web_presence"])
     graph.add_node("enrich_competitors", "Enrich Competitors", ["find_competitors"])
     graph.add_node("generate_recommendations", "Generate Marketing Recommendations", ["enrich_competitors"])
 

@@ -37,25 +37,25 @@ class MarketingResearcherService:
     def client(self) -> Optional[ExaClient]:
         return self._client
 
-    def find_competitors(self, website_url: str, summary_text: str) -> list[dict[str, Any]]:
+    def _ensure_available(self) -> None:
         if not self.is_available:
             raise ExaConfigurationError("Marketing Researcher service is not available")
 
-        # Extract domain and create comprehensive exclusion list
+    def find_competitors(self, website_url: str, summary_text: str) -> list[dict[str, Any]]:
+        self._ensure_available()
+
         excluded_domains = self._build_exclusion_list(website_url)
 
-        # Create a competitor-focused search query
         competitor_query = self._build_competitor_query(website_url, summary_text)
 
-        logger.info(f"Searching for competitors with query: {competitor_query}")
-        logger.info(f"Excluding domains: {excluded_domains}")
+        logger.info(f"Searching for competitors with query: {competitor_query}. Excluding domains: {excluded_domains}")
 
         return self._client.search_and_contents(
             query=competitor_query,
-            num_results=15,  # Get more results to account for filtering
+            num_results=10,
             search_type="neural",
             use_autoprompt=True,
-            include_text=False,  # Skip text to reduce response size
+            include_text=False,
             summary_query="Describe what this company does, their main product/service, and target market in 2-3 sentences. Include key differentiators or positioning if evident.",
             exclude_domains=excluded_domains,
         )
@@ -159,39 +159,9 @@ class MarketingResearcherService:
                     "url": target_company.get("url", ""),
                     "description": target_company.get("description", ""),
                 },
-                "competitors": [],
+                "competitors": enriched_competitors[:5],
             }
 
-            # Include top 5 enriched competitors with their data
-            for i, competitor in enumerate(enriched_competitors[:5]):
-                competitor_data = {
-                    "rank": i + 1,
-                    "title": competitor.get("title", "Unknown Company"),
-                    "url": competitor.get("url", ""),
-                    "summary": competitor.get("summary", ""),
-                    "score": competitor.get("score", 0),
-                }
-
-                # Add SEO data if available
-                if "seo_data" in competitor:
-                    seo = competitor["seo_data"]
-                    competitor_data["seo_insights"] = {
-                        "title": seo.get("title", ""),
-                        "description": seo.get("description", ""),
-                        "keywords": seo.get("keywords", [])[:10],  # Limit to top 10 keywords
-                        "h1_tags": seo.get("h1_tags", [])[:5],  # Limit to first 5 H1s
-                        "load_speed": seo.get("load_speed"),
-                        "technologies": seo.get("technologies", [])[:10],  # Top 10 technologies
-                    }
-
-                analysis_data["competitors"].append(competitor_data)
-
-            # Add remaining competitors without detailed analysis
-            remaining_count = len(enriched_competitors) - 5
-            if remaining_count > 0:
-                analysis_data["additional_competitors_found"] = remaining_count
-
-            # Call OpenAI for recommendations
             user_content = json.dumps(analysis_data, indent=2)
 
             logger.info(
@@ -213,12 +183,8 @@ class MarketingResearcherService:
 
             return {
                 "marketing_recommendations": recommendations,
-                "competitors_analyzed": len(enriched_competitors[:5]),
-                "final_analysis": {
-                    "total_competitors": len(enriched_competitors),
-                    "enriched_count": min(5, len(enriched_competitors)),
-                    "target_company": target_company,
-                },
+                "competitors_analyzed": len(enriched_competitors),
+                "target_company": target_company,
                 "status": "completed",
             }
 
@@ -226,16 +192,91 @@ class MarketingResearcherService:
             logger.exception(f"Error generating marketing recommendations: {e}")
 
             return {
-                "marketing_recommendations": f"Could not generate AI-powered marketing recommendations due to technical error: {str(e)}",
-                "competitors_analyzed": len(enriched_competitors[:5]),
-                "final_analysis": {
-                    "total_competitors": len(enriched_competitors),
-                    "enriched_count": min(5, len(enriched_competitors)),
-                    "target_company": target_company,
+                "marketing_recommendations": recommendations,
+                "competitors_analyzed": len(enriched_competitors),
+                "target_company": target_company,
+                "status": "completed",
+            }
+
+    def analyze_web_presence(self, website_url: str) -> dict[str, Any]:
+        """Analyze the current web presence of a company using Exa search and SEO extraction."""
+        self._ensure_available()
+
+        try:
+            # Use Exa to search for content about the target company
+            company_query = f"site:{website_url} OR about {website_url} company information products services"
+
+            # Search for the company's own content and mentions
+            company_content = self._client.search_and_contents(
+                query=company_query,
+                num_results=10,
+                search_type="neural",
+                use_autoprompt=True,
+                include_text=False,
+                summary_query="What does this company do? Describe their main products, services, and target market.",
+            )
+
+            # Also search for recent news or mentions about the company
+            domain_name = website_url.replace("https://", "").replace("http://", "").replace("www.", "")
+            mentions_query = f'"{domain_name}" company news updates'
+
+            recent_mentions = self._client.search_and_contents(
+                query=mentions_query,
+                num_results=5,
+                search_type="neural",
+                use_autoprompt=True,
+                include_text=False,
+                summary_query="What is being discussed about this company? Include any recent developments, news, or industry mentions.",
+            )
+
+            # Extract SEO data from the main website
+            seo_data = self._extractor.extract_marketing_data(website_url)
+
+            # Compile web presence analysis
+            web_presence_analysis = {
+                "target_url": website_url,
+                "seo_analysis": {
+                    "meta_data": seo_data.get("seo_metadata", {}),
+                    "social_channels": seo_data.get("social_channels", {}),
+                    "technical_info": {
+                        "content_type": seo_data.get("content_type", ""),
+                        "server": seo_data.get("server", ""),
+                    },
                 },
+                "content_presence": {
+                    "owned_content_found": len(company_content),
+                    "company_content": company_content[:5],  # Top 5 results
+                },
+                "market_mentions": {
+                    "mentions_found": len(recent_mentions),
+                    "recent_mentions": recent_mentions,
+                },
+                "analysis_summary": {
+                    "has_strong_seo": bool(seo_data.get("seo_metadata", {}).get("description")),
+                    "has_social_presence": bool(seo_data.get("social_channels", {})),
+                    "content_visibility": "high"
+                    if len(company_content) >= 5
+                    else "medium"
+                    if len(company_content) >= 2
+                    else "low",
+                    "market_visibility": "high"
+                    if len(recent_mentions) >= 3
+                    else "medium"
+                    if len(recent_mentions) >= 1
+                    else "low",
+                },
+            }
+
+            logger.info(f"Web presence analysis completed for {website_url}")
+            return {
+                "web_presence": web_presence_analysis,
+                "status": "completed",
+            }
+
+        except Exception as e:
+            logger.exception(f"Error analyzing web presence for {website_url}: {e}")
+            return {
+                "web_presence": {"status": "failed", "error": str(e)},
                 "status": "failed",
                 "error": str(e),
             }
-
-
-marketing_researcher_service = MarketingResearcherService()
