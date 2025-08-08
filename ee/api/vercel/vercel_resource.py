@@ -11,10 +11,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import mixins
 from ee.api.authentication import VercelAuthentication
-from ee.api.vercel_installation import VercelInstallationPermission, get_vercel_plans
+from ee.api.vercel.vercel_installation import VercelInstallationPermission, get_vercel_plans
 from posthog.models.organization import Organization
-from ee.models.vercel_resource import VercelResource
-from ee.models.vercel_installation import VercelInstallation
+from ee.models.vercel.vercel_resource import VercelResource
+from ee.models.vercel.vercel_installation import VercelInstallation
 from posthog.models.team.team import Team
 from posthog.models import ProductIntent
 

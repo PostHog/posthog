@@ -375,7 +375,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_auth_type_validation_success(self, mock_get_jwks):
         """Test permission with valid auth type"""
-        from ee.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel.vercel_installation import VercelInstallationPermission
 
         permission = VercelInstallationPermission()
 
@@ -395,7 +395,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_auth_type_validation_failure(self, mock_get_jwks):
         """Test permission with invalid auth type for action"""
-        from ee.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel.vercel_installation import VercelInstallationPermission
         from rest_framework.exceptions import PermissionDenied
 
         permission = VercelInstallationPermission()
@@ -418,7 +418,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_installation_id_match_success(self, mock_get_jwks):
         """Test permission with matching installation ID"""
-        from ee.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel.vercel_installation import VercelInstallationPermission
 
         permission = VercelInstallationPermission()
 
@@ -437,7 +437,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_installation_id_match_failure(self, mock_get_jwks):
         """Test permission with mismatched installation ID"""
-        from ee.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel.vercel_installation import VercelInstallationPermission
         from rest_framework.exceptions import PermissionDenied
 
         permission = VercelInstallationPermission()
@@ -459,7 +459,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_missing_auth_header(self, mock_get_jwks):
         """Test permission with missing X-Vercel-Auth header"""
-        from ee.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel.vercel_installation import VercelInstallationPermission
         from rest_framework.exceptions import AuthenticationFailed
 
         permission = VercelInstallationPermission()

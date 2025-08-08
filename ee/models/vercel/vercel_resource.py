@@ -5,7 +5,7 @@ import structlog
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
-from ee.models.vercel_installation import VercelInstallation
+from ee.models.vercel.vercel_installation import VercelInstallation
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
 from posthog.utils import absolute_uri
 from ee.vercel.client import VercelAPIClient

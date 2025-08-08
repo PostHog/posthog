@@ -7,7 +7,7 @@ from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
 from ee.api import integration
-from ee.api import vercel_sso
+from ee.api.vercel import vercel_sso
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (

@@ -17,7 +17,7 @@ from rest_framework.permissions import BasePermission
 from ee.api.authentication import VercelAuthentication
 from posthog.event_usage import report_user_signed_up
 from posthog.models.user import User
-from ee.models.vercel_installation import VercelInstallation
+from ee.models.vercel.vercel_installation import VercelInstallation
 from rest_framework import decorators
 
 

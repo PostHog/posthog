@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.utils import timezone
 from rest_framework import status
-from ee.models.vercel_installation import VercelInstallation
+from ee.models.vercel.vercel_installation import VercelInstallation
 from posthog.test.base import APIBaseTest
 
 
