@@ -14,18 +14,14 @@ import { InsightLogicProps } from '~/types'
 import type { llmObservabilityTraceDataLogicType } from './llmObservabilityTraceDataLogicType'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
 import { formatLLMUsage, normalizeMessages } from './utils'
-import { eventMatchesSearch, findSearchMatches } from './searchUtils'
+import {
+    eventMatchesSearch,
+    findMessageOccurrences,
+    findSidebarOccurrences,
+    findTraceOccurrences,
+    SearchOccurrence,
+} from './searchUtils'
 
-export interface SearchOccurrence {
-    type: 'sidebar' | 'message'
-    eventId?: string // For both sidebar and message items
-    messageIndex?: number // For messages
-    messageType?: 'input' | 'output' // For messages
-    field: string // 'title' | 'model' | 'provider' | 'role' | 'content' | 'error'
-    startIndex: number // Position within the field
-}
-
-// Helper function to count occurrences of a substring in a string
 export interface TraceDataLogicProps {
     traceId: string
     query: DataTableNode
@@ -157,196 +153,14 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                 }
 
                 const query = searchQuery.toLowerCase().trim()
-                const occurrences: SearchOccurrence[] = []
 
-                // Helper to find all occurrences in a string
-                const findOccurrences = (text: string, field: string, meta: Partial<SearchOccurrence>): number => {
-                    const matches = findSearchMatches(text, query)
-                    for (const match of matches) {
-                        const occurrence: SearchOccurrence = {
-                            type: (meta.type || 'sidebar') as 'sidebar' | 'message',
-                            field,
-                            startIndex: match.startIndex,
-                            ...meta,
-                        }
-                        occurrences.push(occurrence)
-                    }
-                    return matches.length
-                }
+                // Collect occurrences from different sources
+                const traceOccurrences = findTraceOccurrences(trace, query)
+                const sidebarOccurrences = findSidebarOccurrences(showableEvents, query)
+                const messageOccurrences = findMessageOccurrences(showableEvents, query, normalizeMessages)
 
-                // First, add trace-level occurrences
-                if (trace) {
-                    const traceTitle = trace.traceName || ''
-                    findOccurrences(traceTitle, 'title', { type: 'sidebar', eventId: trace.id })
-                }
-
-                // Then add sidebar occurrences from events
-                showableEvents.forEach((event) => {
-                    // Event title (only from span name, not event.event)
-                    const title = event.properties.$ai_span_name || ''
-                    if (title) {
-                        findOccurrences(title, 'title', { type: 'sidebar', eventId: event.id })
-                    }
-
-                    // Model and provider (displayed together in the UI)
-                    if (event.event === '$ai_generation' && event.properties.$ai_span_name) {
-                        let modelText = event.properties.$ai_model || ''
-                        if (event.properties.$ai_provider) {
-                            modelText = `${modelText} (${event.properties.$ai_provider})`
-                        }
-                        // Use 'model' field for the combined model + provider string
-                        findOccurrences(modelText, 'model', { type: 'sidebar', eventId: event.id })
-                    }
-                })
-
-                // Process message occurrences in visual order
-                showableEvents.forEach((event) => {
-                    // FIRST: Tools and additional kwargs (shown at top of input messages)
-                    if (event.event === '$ai_generation') {
-                        // Check for tools in the input (displayed as "available tools")
-                        if (event.properties.$ai_tools) {
-                            const toolsStr = JSON.stringify(event.properties.$ai_tools)
-
-                            findOccurrences(toolsStr, 'tools', {
-                                type: 'message',
-                                eventId: event.id,
-                                messageType: 'input',
-                            })
-                        }
-                    }
-
-                    // SECOND: Input messages - normalize them the same way the display does
-                    if (event.event === '$ai_generation') {
-                        const normalizedInput = normalizeMessages(
-                            event.properties.$ai_input,
-                            'user',
-                            event.properties.$ai_tools
-                        )
-                        normalizedInput.forEach((msg, msgIndex) => {
-                            // Content
-                            const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-
-                            findOccurrences(content, 'content', {
-                                type: 'message',
-                                eventId: event.id,
-                                messageIndex: msgIndex,
-                                messageType: 'input',
-                            })
-
-                            // Check for additional properties in the message (tools property is already handled above)
-                            const { role: _r, content: _c, tools: _t, ...additionalKwargs } = msg
-
-                            // Search in additional kwargs if present
-                            if (Object.keys(additionalKwargs).length > 0) {
-                                const additionalStr = JSON.stringify(additionalKwargs)
-
-                                findOccurrences(additionalStr, 'additionalKwargs', {
-                                    type: 'message',
-                                    eventId: event.id,
-                                    messageIndex: msgIndex,
-                                    messageType: 'input',
-                                })
-                            }
-                        })
-                    } else {
-                        // Fallback for non-generation events
-                        const inputMessages = event.properties.$ai_input
-                        if (Array.isArray(inputMessages)) {
-                            inputMessages.forEach((msg, msgIndex) => {
-                                // Content
-                                const content =
-                                    typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-
-                                findOccurrences(content, 'content', {
-                                    type: 'message',
-                                    eventId: event.id,
-                                    messageIndex: msgIndex,
-                                    messageType: 'input',
-                                })
-                            })
-                        }
-                    }
-
-                    // THIRD: Output messages - normalize them the same way the display does
-                    if (event.event === '$ai_generation') {
-                        const outputToNormalize = event.properties.$ai_output_choices ?? event.properties.$ai_output
-
-                        const normalizedOutput = normalizeMessages(outputToNormalize, 'assistant')
-
-                        normalizedOutput.forEach((msg, msgIndex) => {
-                            // Content
-                            const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-
-                            findOccurrences(content, 'content', {
-                                type: 'message',
-                                eventId: event.id,
-                                messageIndex: msgIndex,
-                                messageType: 'output',
-                            })
-
-                            // Check for additional properties in the message (like tool_calls, etc.)
-                            // These are displayed as JSON in additionalKwargsEntries
-                            const { role: _role, content: _content, ...additionalKwargs } = msg
-
-                            // Search in additional kwargs if present
-                            if (Object.keys(additionalKwargs).length > 0) {
-                                const additionalStr = JSON.stringify(additionalKwargs)
-
-                                findOccurrences(additionalStr, 'additionalKwargs', {
-                                    type: 'message',
-                                    eventId: event.id,
-                                    messageIndex: msgIndex,
-                                    messageType: 'output',
-                                })
-                            }
-                        })
-                    } else {
-                        // Fallback for non-generation events
-                        const outputMessages = event.properties.$ai_output_choices || event.properties.$ai_output
-
-                        if (Array.isArray(outputMessages)) {
-                            outputMessages.forEach((msg, msgIndex) => {
-                                // Content
-                                const content =
-                                    typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-
-                                findOccurrences(content, 'content', {
-                                    type: 'message',
-                                    eventId: event.id,
-                                    messageIndex: msgIndex,
-                                    messageType: 'output',
-                                })
-
-                                // Check for additional properties in the message
-                                const { role: _roleMsg, content: _contentMsg, ...additionalKwargs } = msg
-
-                                // Search in additional kwargs if present
-                                if (Object.keys(additionalKwargs).length > 0) {
-                                    const additionalStr = JSON.stringify(additionalKwargs)
-
-                                    findOccurrences(additionalStr, 'additionalKwargs', {
-                                        type: 'message',
-                                        eventId: event.id,
-                                        messageIndex: msgIndex,
-                                        messageType: 'output',
-                                    })
-                                }
-                            })
-                        }
-                    }
-
-                    // FOURTH: Error messages (if any)
-                    if (event.properties.$ai_error) {
-                        const error = JSON.stringify(event.properties.$ai_error)
-
-                        findOccurrences(error, 'error', {
-                            type: 'message',
-                            eventId: event.id,
-                        })
-                    }
-                })
-
-                return occurrences
+                // Combine all occurrences
+                return [...traceOccurrences, ...sidebarOccurrences, ...messageOccurrences]
             },
         ],
         metricEvents: [
