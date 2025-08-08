@@ -1,14 +1,14 @@
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled } from '@posthog/icons'
+import { IconArrowRight, IconStopFilled, IconCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useState, useEffect, useMemo, useRef } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import React from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
+// import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
@@ -18,6 +18,27 @@ import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import posthog from 'posthog-js'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
 import { ToolDefinition } from '../maxGlobalLogic'
+import './QuestionInput.scss'
+
+export const MAX_CAN = [
+    'Query data',
+    'Generate and fix HogQL queries',
+    'Search session recordings',
+    'Analyze user interviews',
+    'Create surveys',
+    'Navigate to relevant places in PostHog',
+    'Search error tracking issues',
+    'Summarize experiment results',
+    'Author Hog functions (transformations, filters, inputs)',
+    'Answer questions from PostHog docs',
+] as const
+
+export const MAX_CANNOT = [
+    'Access your infrastructure, source code, or third‑party tools',
+    'Browse the web beyond PostHog documentation',
+    'See data outside this PostHog project',
+    'Guarantee correctness of the queries created',
+] as const
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -39,89 +60,7 @@ interface ToolsDisplayProps {
     bottomActions?: ReactNode
 }
 
-const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomActions }) => {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [visibleCount, setVisibleCount] = useState(tools.length)
-
-    const { ref } = useResizeObserver<HTMLDivElement>({
-        ref: containerRef,
-        onResize: ({ width = 0 }) => {
-            if (width > 0 && containerRef.current) {
-                // Measure how many tools can fit in the available width
-                const tempContainer = document.createElement('div')
-                tempContainer.style.position = 'absolute'
-                tempContainer.style.visibility = 'hidden'
-                tempContainer.style.display = 'flex'
-                tempContainer.style.flexWrap = 'wrap'
-                tempContainer.style.gap = '4px'
-                tempContainer.style.fontSize = '12px'
-                tempContainer.style.fontWeight = '500'
-                tempContainer.style.paddingLeft = '6px'
-                tempContainer.style.paddingRight = '6px'
-                tempContainer.style.whiteSpace = 'nowrap'
-
-                document.body.appendChild(tempContainer)
-
-                // Add "Tools available:" text
-                const prefixSpan = document.createElement('span')
-                prefixSpan.textContent = 'Tools available: '
-                tempContainer.appendChild(prefixSpan)
-
-                let count = 0
-                const maxWidth = width - 12 // Account for padding
-
-                // Try adding tools one by one
-                for (let i = 0; i < tools.length; i++) {
-                    const toolSpan = document.createElement('span')
-                    toolSpan.style.display = 'inline-flex'
-                    toolSpan.style.alignItems = 'center'
-                    toolSpan.style.gap = '2px'
-                    toolSpan.style.padding = '1px 4px'
-                    toolSpan.style.borderRadius = '4px'
-                    toolSpan.style.backgroundColor = 'var(--color-border-light)'
-                    toolSpan.textContent = tools[i].displayName
-
-                    tempContainer.appendChild(toolSpan)
-
-                    // Check if we need to show "+ n more" instead
-                    const remainingTools = tools.length - i
-                    if (remainingTools > 1) {
-                        const moreSpan = document.createElement('span')
-                        moreSpan.textContent = `+ ${remainingTools} more`
-                        moreSpan.style.padding = '1px 4px'
-                        moreSpan.style.borderRadius = '4px'
-                        moreSpan.style.backgroundColor = 'var(--color-border-light)'
-                        tempContainer.appendChild(moreSpan)
-
-                        if (tempContainer.scrollWidth > maxWidth) {
-                            // Remove the "+ n more" and the current tool
-                            tempContainer.removeChild(moreSpan)
-                            tempContainer.removeChild(toolSpan)
-                            break
-                        } else {
-                            // Remove the "+ n more" for now, we'll add it back if needed
-                            tempContainer.removeChild(moreSpan)
-                        }
-                    }
-
-                    if (tempContainer.scrollWidth > maxWidth) {
-                        // This tool doesn't fit, remove it
-                        tempContainer.removeChild(toolSpan)
-                        break
-                    }
-
-                    count = i + 1
-                }
-
-                document.body.removeChild(tempContainer)
-                setVisibleCount(count)
-            }
-        },
-    })
-
-    const visibleTools = useMemo(() => tools.slice(0, visibleCount), [tools, visibleCount])
-    const hiddenCount = tools.length - visibleCount
-
+const ToolsMarquee: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomActions }) => {
     return (
         <div className="flex items-center w-full gap-1 justify-center">
             <Tooltip
@@ -131,91 +70,73 @@ const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomAc
                         <div className="mb-2">
                             <div className="font-semibold mb-1">What Max can do</div>
                             <ul className="space-y-0.5 text-sm">
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Create and query insights</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Generate and fix HogQL queries</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Search session recordings</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Analyze user interviews</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Create surveys</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Navigate to relevant places in PostHog</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Search error tracking issues</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Summarize experiment results</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Author Hog functions (transformations, filters, inputs)</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-success shrink-0" />
-                                    <span>Answer questions from PostHog docs</span>
-                                </li>
+                                {MAX_CAN.map((item) => (
+                                    <li key={item} className="flex items-center">
+                                        <IconCheck className="text-base text-success shrink-0 mx-2" />
+                                        <span>{item}</span>
+                                    </li>
+                                ))}
                             </ul>
                         </div>
                         <div>
                             <div className="font-semibold mb-1">What Max can't do</div>
                             <ul className="space-y-0.5 text-sm">
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-danger shrink-0" />
-                                    <span>Access your infrastructure, source code, or third‑party tools</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-danger shrink-0" />
-                                    <span>Browse the web beyond PostHog documentation</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-danger shrink-0" />
-                                    <span>See data outside this PostHog project</span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <span className="inline-block size-2 rounded-full bg-danger shrink-0" />
-                                    <span>Guarantee correctness of the queries created</span>
-                                </li>
+                                {MAX_CANNOT.map((item) => (
+                                    <li key={item} className="flex items-center">
+                                        <IconX className="text-base text-danger shrink-0 mx-2" />
+                                        <span>{item}</span>
+                                    </li>
+                                ))}
                             </ul>
                         </div>
                     </div>
                 }
             >
                 <div
-                    ref={ref}
                     className={clsx(
-                        'flex flex-wrap items-center gap-1 text-xs font-medium cursor-default px-1.5 whitespace-nowrap cursor-help',
+                        'relative flex items-center text-xs font-medium cursor-help',
                         !isFloating
                             ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                             : `w-full pb-1`
                     )}
                 >
-                    <span>Tools available:</span>
-                    {visibleTools.map((tool) => (
-                        <em key={tool.name} className="inline-flex items-center gap-1">
-                            {tool.icon && <span className="flex items-center text-sm">{tool.icon}</span>}
-                            {tool.displayName}
-                        </em>
-                    ))}
-                    {hiddenCount > 0 && (
-                        <span className="px-1.5 py-0.5 rounded text-xs bg-border-light">+ {hiddenCount} more</span>
-                    )}
+                    <div className="relative flex-1 overflow-hidden">
+                        <div className="QuestionInput__ToolsMarquee__track">
+                            <div className="QuestionInput__ToolsMarquee__content">
+                                <span className="shrink-0">Tools available:</span>
+                                {tools.map((tool) => (
+                                    <em key={`a-${tool.name}`} className="inline-flex items-center gap-1">
+                                        {tool.icon && <span className="flex items-center text-sm">{tool.icon}</span>}
+                                        {tool.displayName}
+                                    </em>
+                                ))}
+                            </div>
+                            <div className="QuestionInput__ToolsMarquee__content" aria-hidden>
+                                <span className="shrink-0">Tools available:</span>
+                                {tools.map((tool) => (
+                                    <em key={`b-${tool.name}`} className="inline-flex items-center gap-1">
+                                        {tool.icon && <span className="flex items-center text-sm">{tool.icon}</span>}
+                                        {tool.displayName}
+                                    </em>
+                                ))}
+                            </div>
+                        </div>
+                        {/* Edge fades */}
+                        <span
+                            aria-hidden
+                            className={clsx(
+                                'pointer-events-none absolute left-0 top-0 h-full w-6',
+                                'bg-gradient-to-r from-[var(--glass-bg-3000)] to-transparent'
+                            )}
+                        />
+                        <span
+                            aria-hidden
+                            className={clsx(
+                                'pointer-events-none absolute right-0 top-0 h-full w-6',
+                                'bg-gradient-to-l from-[var(--glass-bg-3000)] to-transparent'
+                            )}
+                        />
+                    </div>
                 </div>
             </Tooltip>
             {bottomActions && <div className="ml-auto">{bottomActions}</div>}
@@ -379,7 +300,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
+                <ToolsMarquee isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
             </div>
         </div>
     )
