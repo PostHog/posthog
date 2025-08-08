@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -146,6 +147,7 @@ export const inviteLogic = kea<inviteLogicType>([
                 appendInviteRow: (state) => [...state, EMPTY_INVITE],
                 resetInviteRows: () => [EMPTY_INVITE],
                 inviteTeamMembersSuccess: () => [EMPTY_INVITE],
+
                 addProjectAccess: (state, { inviteIndex, projectId, level }) => {
                     const newState = [...state]
                     const invite = { ...newState[inviteIndex] }
