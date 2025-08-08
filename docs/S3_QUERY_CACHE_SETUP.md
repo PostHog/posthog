@@ -2,14 +2,13 @@
 
 ## How It Works
 
-1. **TTL Calculation**: `math.ceil(CACHED_RESULTS_TTL_seconds / 86400)`, minimum 1 day
-2. **Object Tagging**: Each S3 object gets tags:
+1 **Object Tagging**: Each S3 object gets tags:
    ```
    ttl_days=1              # Calculated TTL in days
    cache_type=query_data   # Object type identifier
    team_id=123            # Team identifier
    ```
-3. **Automatic Deletion**: S3 lifecycle rules delete objects matching tag criteria
+2 **Automatic Deletion**: S3 lifecycle rules delete objects matching tag criteria
 
 ## Required S3 Lifecycle Rules
 
