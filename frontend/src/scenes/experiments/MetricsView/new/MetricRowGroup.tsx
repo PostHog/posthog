@@ -148,7 +148,7 @@ export function MetricRowGroup({
         }))
     }
 
-    const handleTooltipMouseMove = (e: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
+    const handleTooltipMouseMove = (_: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
         // Only reposition if not already positioned
         if (tooltipRef.current && !tooltipState.isPositioned) {
             const chartCell = chartCellRefs.current[variantResult.key]
