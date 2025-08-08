@@ -108,6 +108,7 @@ describe('session recording integration', () => {
     ): MessageWithTeam => ({
         team: {
             teamId,
+            retentionPeriod: '30d',
             consoleLogIngestionEnabled: false,
         },
         message: {

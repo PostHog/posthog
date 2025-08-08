@@ -2,10 +2,12 @@ import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
 import { parseJSON } from '../../../../utils/json-parse'
+import { ValidRetentionPeriods } from '../constants'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
 import { SnapshotEvent } from '../kafka/types'
 import { MessageWithTeam } from '../teams/types'
+import { RetentionPeriod } from '../types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
@@ -48,6 +50,7 @@ export class SnappySessionRecorderMock {
     constructor(
         public readonly sessionId: string,
         public readonly teamId: number,
+        public readonly retentionPeriod: RetentionPeriod,
         private readonly batchId: string
     ) {}
 
@@ -103,6 +106,7 @@ export class SnappySessionRecorderMock {
             snapshotSource: null,
             snapshotLibrary: null,
             batchId: this.batchId,
+            retentionPeriod: this.retentionPeriod,
         }
     }
 }
@@ -134,8 +138,8 @@ jest.mock('./snappy-session-recorder', () => ({
     SnappySessionRecorder: jest
         .fn()
         .mockImplementation(
-            (sessionId: string, teamId: number, batchId: string) =>
-                new SnappySessionRecorderMock(sessionId, teamId, batchId)
+            (sessionId: string, teamId: number, retentionPeriod: RetentionPeriod, batchId: string) =>
+                new SnappySessionRecorderMock(sessionId, teamId, retentionPeriod, batchId)
         ),
 }))
 
@@ -151,8 +155,13 @@ describe('SessionBatchRecorder', () => {
         jest.clearAllMocks()
 
         jest.mocked(SnappySessionRecorder).mockImplementation(
-            (sessionId: string, teamId: number, batchId: string) =>
-                new SnappySessionRecorderMock(sessionId, teamId, batchId) as unknown as SnappySessionRecorder
+            (sessionId: string, teamId: number, retentionPeriod: RetentionPeriod, batchId: string) =>
+                new SnappySessionRecorderMock(
+                    sessionId,
+                    teamId,
+                    retentionPeriod,
+                    batchId
+                ) as unknown as SnappySessionRecorder
         )
 
         mockWriter = {
@@ -200,6 +209,7 @@ describe('SessionBatchRecorder', () => {
     ): MessageWithTeam => ({
         team: {
             teamId,
+            retentionPeriod: '30d',
             consoleLogIngestionEnabled: false,
         },
         message: {
@@ -276,7 +286,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const lines = parseLines(writtenData[0])
@@ -312,7 +322,7 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -345,7 +355,7 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -362,7 +372,7 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -407,7 +417,7 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -488,7 +498,7 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -813,7 +823,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             const writtenData1 = captureWrittenData(mockWriter.writeSession as jest.Mock)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Reset mock for second batch
@@ -832,7 +842,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             const writtenData2 = captureWrittenData(mockWriter.writeSession as jest.Mock)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             const lines1 = parseLines(writtenData1[0])
@@ -853,16 +863,16 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await recorder.flush()
 
-            expect(mockStorage.newBatch).toHaveBeenCalledTimes(1)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.newBatch).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Second flush with no new events
             await recorder.flush()
 
             // Should not create a new batch or write any data
-            expect(mockStorage.newBatch).toHaveBeenCalledTimes(1) // Only from first flush
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockStorage.newBatch).toHaveBeenCalledTimes(ValidRetentionPeriods.length) // Only from first flush
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length) // Only from first flush
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1) // Only from first flush
 
             // Should still commit offsets
@@ -935,7 +945,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
@@ -980,7 +990,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
@@ -1001,7 +1011,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
@@ -1120,7 +1130,7 @@ describe('SessionBatchRecorder', () => {
             const lines2 = parseLines(writtenData[1])
             expect(lines1).toEqual([['window1', messages[0].message.eventsByWindowId.window1[0]]])
             expect(lines2).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
@@ -1356,7 +1366,7 @@ describe('SessionBatchRecorder', () => {
     describe('metadata handling', () => {
         it('should pass non-default metadata values to storeSessionBlocks', async () => {
             // Create a custom mock implementation of SnappySessionRecorderMock that returns non-default values
-            const customRecorder = new SnappySessionRecorderMock('session_custom', 3, 'test_batch_id')
+            const customRecorder = new SnappySessionRecorderMock('session_custom', 3, '30d', 'test_batch_id')
 
             // Override the end method to return non-default values
             customRecorder.end = jest.fn().mockReturnValue({
@@ -1375,6 +1385,7 @@ describe('SessionBatchRecorder', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 batchId: 'test_batch_id',
+                retentionPeriod: '30d',
             })
 
             jest.mocked(SnappySessionRecorder).mockImplementationOnce(
