@@ -68,7 +68,14 @@ SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
 RouteName = Literal[
-    "insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search", "billing", "session_summarization"
+    "insights",
+    "root",
+    "end",
+    "search_documentation",
+    "memory_onboarding",
+    "insights_search",
+    "billing",
+    "session_summarization",
 ]
 
 
