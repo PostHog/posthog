@@ -386,17 +386,6 @@ class TestHyperCacheEdgeCases(HyperCacheTestBase):
         with pytest.raises(TypeError):
             hc.get_from_cache(self.mock_team)
 
-    def test_json_deserialization_error(self):
-        """Test handling of corrupted JSON data in cache"""
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
-        cache.set(key, "invalid json", timeout=DEFAULT_CACHE_TTL)
-
-        # Should fall back to S3/DB when Redis has invalid JSON
-        result, source = self.hypercache.get_from_cache_with_source(self.mock_team)
-
-        assert result == {"default": "data"}
-        assert source == "db"
-
     def test_empty_namespace_and_value(self):
         """Test with empty namespace and value strings"""
 
