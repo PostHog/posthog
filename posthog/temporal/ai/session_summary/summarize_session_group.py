@@ -515,7 +515,7 @@ async def _start_session_group_summary_workflow(
         retry_policy=retry_policy,
     )
 
-    # Poll for status every 3 seconds
+    # Poll for status
     while True:
         # Check workflow status
         workflow_description = await handle.describe()
