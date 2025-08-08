@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from django.db import transaction, models, IntegrityError
+from django.db import models, IntegrityError
 from django.db.models import Count
 from posthog.models import EventDefinition, PropertyDefinition, GroupTypeMapping
 from posthog.storage.environments_rollback_storage import get_all_rollback_organization_ids
@@ -112,14 +112,13 @@ class Command(BaseCommand):
             batch_ids = all_misaligned_ids[i : i + self.batch_size]
             batch_records = EventDefinition.objects.filter(id__in=batch_ids).select_related("team")
 
-            with transaction.atomic():
-                for event_def in batch_records:
-                    event_def.project_id = event_def.team.project_id
-                    try:
-                        event_def.save(update_fields=["project_id"])
-                        updated_count += 1
-                    except IntegrityError:
-                        self.failed_records["EventDefinition"].append(event_def.id)
+            for event_def in batch_records:
+                event_def.project_id = event_def.team.project_id
+                try:
+                    event_def.save(update_fields=["project_id"])
+                    updated_count += 1
+                except IntegrityError:
+                    self.failed_records["EventDefinition"].append(event_def.id)
 
             if i + self.batch_size < len(all_misaligned_ids):
                 self.stdout.write(
@@ -185,14 +184,13 @@ class Command(BaseCommand):
             batch_ids = all_misaligned_ids[i : i + self.batch_size]
             batch_records = PropertyDefinition.objects.filter(id__in=batch_ids).select_related("team")
 
-            with transaction.atomic():
-                for property_def in batch_records:
-                    property_def.project_id = property_def.team.project_id
-                    try:
-                        property_def.save(update_fields=["project_id"])
-                        updated_count += 1
-                    except IntegrityError:
-                        self.failed_records["PropertyDefinition"].append(property_def.id)
+            for property_def in batch_records:
+                property_def.project_id = property_def.team.project_id
+                try:
+                    property_def.save(update_fields=["project_id"])
+                    updated_count += 1
+                except IntegrityError:
+                    self.failed_records["PropertyDefinition"].append(property_def.id)
 
             if i + self.batch_size < len(all_misaligned_ids):
                 self.stdout.write(
@@ -258,14 +256,13 @@ class Command(BaseCommand):
             batch_ids = all_misaligned_ids[i : i + self.batch_size]
             batch_records = GroupTypeMapping.objects.filter(id__in=batch_ids).select_related("team")
 
-            with transaction.atomic():
-                for group_type_mapping in batch_records:
-                    group_type_mapping.project_id = group_type_mapping.team.project_id
-                    try:
-                        group_type_mapping.save(update_fields=["project_id"])
-                        updated_count += 1
-                    except IntegrityError:
-                        self.failed_records["GroupTypeMapping"].append(group_type_mapping.id)
+            for group_type_mapping in batch_records:
+                group_type_mapping.project_id = group_type_mapping.team.project_id
+                try:
+                    group_type_mapping.save(update_fields=["project_id"])
+                    updated_count += 1
+                except IntegrityError:
+                    self.failed_records["GroupTypeMapping"].append(group_type_mapping.id)
 
             if i + self.batch_size < len(all_misaligned_ids):
                 self.stdout.write(
