@@ -145,7 +145,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": "/api/projects/TEAM_ID/feature_flags",
+                "route": "api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -181,7 +181,7 @@ class TestUserAPI(APIBaseTest):
                     "team_id": self.team.pk,
                     "scope": "sustained",
                     "rate": "5/hour",
-                    "path": "/api/projects/TEAM_ID/feature_flags",
+                    "route": "api/projects/TEAM_ID/feature_flags/",
                     "hashed_personal_api_key": self.hashed_personal_api_key,
                 },
             )
@@ -223,7 +223,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "clickhouse_burst",
                 "rate": "5/minute",
-                "path": "/api/projects/TEAM_ID/events",
+                "route": "api/projects/TEAM_ID/events/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -256,7 +256,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/projects/TEAM_ID/feature_flags",
+                "route": "api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -335,7 +335,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/organizations/ORG_ID/plugins",
+                "route": "api/organizations/ORG_ID/plugins/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -396,7 +396,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": "/api/login",
+                "route": "api/login/",
                 "hashed_personal_api_key": None,
             },
         )
@@ -607,7 +607,7 @@ class TestUserAPI(APIBaseTest):
             (
                 "/api/projects/123/feature_flags/",
                 "^api/projects/(?P<parent_lookup_project_id>[^/.]+)/feature_flags/?$",
-                "api/projects/PARENT_LOOKUP_PROJECT_ID/feature_flags/",
+                "api/projects/TEAM_ID/feature_flags/",
                 "Django route pattern with named regexp parameters",
             ),
             (
@@ -642,7 +642,8 @@ class TestUserAPI(APIBaseTest):
             ),
         ]
     )
-    def test_get_route_from_path(self, test_path, mock_route, expected_result, description):
+    @patch("posthog.rate_limit.statsd.incr")
+    def test_get_route_from_path(self, test_path, mock_route, expected_result, description, incr_mock):
         """Test that get_route_from_path correctly extracts and normalizes route patterns"""
         if test_path in ("", None):
             # Direct test for empty/None paths

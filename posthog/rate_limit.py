@@ -115,12 +115,6 @@ def replace_with_param_names(string, pattern):
     return compiled_pattern.sub(replacement_func, string)
 
 
-def fix_prefix(path):
-    route_id = path_by_env_pattern.sub("/api/environments/TEAM_ID/", path)
-    route_id = path_by_team_pattern.sub("/api/projects/TEAM_ID/", route_id)
-    return path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
-
-
 def get_route_from_path(path: str) -> str:
     """
     Extract a generic route identifier from a request path to avoid high cardinality
@@ -130,6 +124,16 @@ def get_route_from_path(path: str) -> str:
     if not path:
         return ""
 
+    def extract_param_name(m):
+        param = m.group(1) or m.group(2)
+        if param.startswith("parent_lookup_"):
+            param = param[len("parent_lookup_") :]
+        if param == "organization_id":
+            return "ORG_ID"
+        if param == "project_id" or param == "environment_id":
+            return "TEAM_ID"
+        return param.upper()
+
     param_names = re.compile(r"/(?:\(.*?<(?:\w+:)?(\w+)>.*?\)|<(?:\w+:)?(\w+)>)(?:/|$)")
     with suppress(Exception):
         resolved = patchable_resolve(path)
@@ -138,18 +142,18 @@ def get_route_from_path(path: str) -> str:
             # Convert Django URL parameter syntax to a label-friendly format
             # e.g., "<team_id>" becomes "TEAM_ID
             # return replace_with_param_names(route_id, route_pattern)
-            if route_pattern.startswith("^"):
-                route_pattern = route_pattern[1:]
-            if route_pattern.endswith("$"):
-                route_pattern = route_pattern[:-1]
-            if route_pattern.endswith("?"):
-                route_pattern = route_pattern[:-1]
+            route_id = param_names.sub(lambda m: "/" + extract_param_name(m) + "/", route_pattern)
+            if route_id.startswith("^"):
+                route_id = route_id[1:]
+            if route_id.endswith("$"):
+                route_id = route_id[:-1]
+            if route_id.endswith("?"):
+                route_id = route_id[:-1]
+            return route_id
 
-            return param_names.sub(
-                lambda m: "/" + (m.group(1) if m.group(1) else m.group(2)).upper() + "/", route_pattern
-            )
-
-    return fix_prefix(path)
+    route_id = path_by_env_pattern.sub("/api/environments/TEAM_ID/", path)
+    route_id = path_by_team_pattern.sub("/api/projects/TEAM_ID/", route_id)
+    return path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
 
 
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
@@ -205,7 +209,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             if team_is_allowed_to_bypass_throttle(team_id):
                 statsd.incr(
                     "team_allowed_to_bypass_rate_limit_exceeded",
-                    tags={"team_id": team_id, "path": route, "route": route},
+                    tags={"team_id": team_id, "route": route},
                 )
                 RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=route, route=route).inc()
                 return True
@@ -219,7 +223,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                         "team_id": team_id,
                         "scope": scope,
                         "rate": rate,
-                        "path": route,
                         "route": route,
                         "hashed_personal_api_key": hash_key_value(personal_api_key[0]) if personal_api_key else None,
                     },
