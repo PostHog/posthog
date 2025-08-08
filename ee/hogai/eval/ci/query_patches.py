@@ -3,9 +3,17 @@ from typing import TYPE_CHECKING
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.schema import EventTaxonomyItem, EventTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQueryResponse
+from posthog.models import GroupTypeMapping
+from posthog.schema import (
+    ActorsPropertyTaxonomyQueryResponse,
+    ActorsPropertyTaxonomyResponse,
+    EventTaxonomyItem,
+    EventTaxonomyQueryResponse,
+    TeamTaxonomyItem,
+    TeamTaxonomyQueryResponse,
+)
 
-from .oracles import property_value_oracle
+from .synthesizers import property_value_oracle
 
 try:
     from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -48,4 +56,24 @@ ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[str | int, list[Event
 
 class PatchedActorsPropertyTaxonomyQueryRunner(ActorsPropertyTaxonomyQueryRunner):
     def calculate(self):
-        return property_value_oracle.synthesize_event("Event", self.query.property, self.query.property_type)
+        if isinstance(self.query.group_type_index, int):
+            try:
+                group_type_name = GroupTypeMapping.objects.get(
+                    team=self.team, group_type_index=self.query.group_type_index
+                ).group_type
+                synthesized_values = property_value_oracle.synthesize_group(
+                    group_type_name, self.query.property, self.query.property_type
+                )
+                result = ActorsPropertyTaxonomyResponse(
+                    sample_values=synthesized_values, sample_count=len(synthesized_values)
+                )
+            except GroupTypeMapping.DoesNotExist:
+                result = ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)
+        else:
+            synthesized_values = property_value_oracle.synthesize_event(
+                self.query.event or "No event name provided", self.query.property, self.query.property_type
+            )
+            result = ActorsPropertyTaxonomyResponse(
+                sample_values=synthesized_values, sample_count=len(synthesized_values)
+            )
+        return ActorsPropertyTaxonomyQueryResponse(results=result, modifiers=self.modifiers)
