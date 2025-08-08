@@ -51,10 +51,6 @@ def cache_key_flags_without_cohorts(team_id: int) -> str:
     return f"cache/teams/{team_id}/feature_flags/flags_without_cohorts.json"
 
 
-class FeatureFlagLocalEvaluationCacheDoesNotExist(Exception):
-    pass
-
-
 class FeatureFlagLocalEvaluationCache:
     """
     This class is used for building and storing cached payloads of any feature flag elements that are used in high volume fault tolerant endpoints such as local evaluation.
@@ -173,9 +169,6 @@ class FeatureFlagLocalEvaluationCache:
         key = cache_key_flags_with_cohorts(team.id) if include_cohorts else cache_key_flags_without_cohorts(team.id)
 
         data = cache.get(key)
-        if data == "404":
-            FLAGS_CACHE_COUNTER.labels(result="hit_but_missing").inc()
-            raise FeatureFlagLocalEvaluationCacheDoesNotExist()
 
         if data:
             FLAGS_CACHE_COUNTER.labels(result="hit_redis").inc()
@@ -192,15 +185,10 @@ class FeatureFlagLocalEvaluationCache:
             pass
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
-        try:
-            data = cls.get_flags_response_for_local_evaluation(team, include_cohorts)
-            cache.set(key, json.dumps(data), timeout=CACHE_TIMEOUT)
-            FLAGS_CACHE_COUNTER.labels(result="miss_but_success").inc()
-            return data, "postgres"
-        except FeatureFlagLocalEvaluationCacheDoesNotExist:
-            cache.set(key, "404", timeout=CACHE_MISS_TIMEOUT)
-            FLAGS_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise
+        data = cls.get_flags_response_for_local_evaluation(team, include_cohorts)
+        cache.set(key, json.dumps(data), timeout=CACHE_TIMEOUT)
+        FLAGS_CACHE_COUNTER.labels(result="miss_but_success").inc()
+        return data, "postgres"
 
     @classmethod
     def update_cache(cls, team: Team):
