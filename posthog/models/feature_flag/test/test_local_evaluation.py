@@ -146,7 +146,8 @@ class TestLocalEvaluationCache(BaseTest):
 
         return flags, cohorts
 
-    def _assert_payload_valid_with_cohorts(self, response: dict):
+    def _assert_payload_valid_with_cohorts(self, response: dict | None):
+        assert response is not None
         assert len(response.get("flags", [])) == 2
         assert response.get("group_type_mapping", {}) == {"0": "organization"}
         assert len(response.get("cohorts", {})) == 2
