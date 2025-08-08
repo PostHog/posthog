@@ -22,13 +22,13 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
-    load_fn=lambda team: _get_flags_response_for_local_evaluation(team, include_cohorts=True),
+    load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=True),
 )
 
 flags_without_cohorts_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_without_cohorts.json",
-    load_fn=lambda team: _get_flags_response_for_local_evaluation(team, include_cohorts=False),
+    load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=False),
 )
 
 

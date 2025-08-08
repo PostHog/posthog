@@ -71,10 +71,6 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     return joined
 
 
-def cache_key_for_team_token(team_token: str) -> str:
-    return f"remote_config/{team_token}/config"
-
-
 def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
     from posthog.api.utils import on_permitted_recording_domain
 
@@ -105,6 +101,15 @@ class RemoteConfig(UUIDModel):
     config = models.JSONField()
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
+
+    @property
+    def hypercache(self):
+        return HyperCache(
+            namespace="array",
+            value="config.json",
+            token_based=True,  # We store and load via the team token
+            load_fn=lambda _: self.build_config(),
+        )
 
     def build_config(self):
         from posthog.models.feature_flag import FeatureFlag
