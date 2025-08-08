@@ -198,8 +198,9 @@ class _SharedAssistantState(BaseState):
     """
     session_summarization_query: Optional[str] = Field(default=None)
     """
-   The user's query for summarizing sessions.
-   """
+    The user's query for summarizing sessions.
+    """
+
 
 class AssistantState(_SharedAssistantState):
     messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
