@@ -215,10 +215,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (props.accessToken) {
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
+                    const blob_v2_lts = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY]
                     const response = await api.recordings.listSnapshotSources(
                         props.sessionRecordingId,
                         {
                             blob_v2,
+                            blob_v2_lts,
                         },
                         headers
                     )

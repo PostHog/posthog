@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 )
 def extract_insight_query_metadata(insight_id: str) -> None:
     try:
-        logger.info(
+        logger.warn(
             "Extracting query metadata for insight",
             insight_id=insight_id,
         )

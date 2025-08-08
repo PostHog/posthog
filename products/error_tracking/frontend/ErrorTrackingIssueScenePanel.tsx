@@ -42,7 +42,6 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                 onSave={updateDescription}
                 dataAttrKey={RESOURCE_TYPE}
             />
-            <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
             <IssueStatusSelect status={issue.status} onChange={updateStatus} />
             <IssueAssigneeSelect
@@ -51,23 +50,27 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                 disabled={issue.status != 'active'}
             />
             <IssueExternalReference />
+            <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
-            <ScenePanelDivider />
+            {/* Add a div here to break out of the gap-2 */}
+            <div>
+                <ScenePanelDivider className="mb-0" />
 
-            <ScenePanelCommonActions isFirst={false}>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
-                            void copyToClipboard(
-                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                'issue link'
-                            )
-                        },
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            </ScenePanelCommonActions>
+                <ScenePanelCommonActions>
+                    <SceneCommonButtons
+                        comment
+                        share={{
+                            onClick: () => {
+                                void copyToClipboard(
+                                    window.location.origin + urls.errorTrackingIssue(issue.id),
+                                    'issue link'
+                                )
+                            },
+                        }}
+                        dataAttrKey={RESOURCE_TYPE}
+                    />
+                </ScenePanelCommonActions>
+            </div>
         </div>
     ) : null
 }
@@ -83,7 +86,7 @@ const IssueStatusSelect = ({
         <ScenePanelLabel title="Status">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive fullWidth className="flex justify-between">
+                    <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
                         <StatusIndicator status={status} withTooltip={true} />
                         <DropdownMenuOpenIndicator />
                     </ButtonPrimitive>
@@ -135,6 +138,7 @@ const IssueAssigneeSelect = ({
                         disabled={disabled}
                         className="flex justify-between"
                         data-state={isOpen ? 'open' : 'closed'}
+                        variant="panel"
                     >
                         <div className="flex items-center">
                             <AssigneeIconDisplay assignee={anyAssignee} size="small" />

@@ -3,7 +3,7 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonButton } from '../LemonButton'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 type Story = StoryObj<typeof LemonTable>
 const meta: Meta<typeof LemonTable> = {
@@ -250,7 +250,7 @@ export const WithMandatorySorting: Story = BasicTemplate.bind({})
 WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true }
 
 export const WithStickyFirstColumn = (): JSX.Element => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         const scrollableInner = document.querySelector(
             '#story--lemon-ui-lemon-table--with-sticky-first-column .scrollable__inner'
         )
