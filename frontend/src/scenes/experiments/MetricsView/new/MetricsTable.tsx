@@ -1,8 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { TableHeader } from './TableHeader'
-import { MetricRowGroup } from './MetricRowGroup'
-import { getVariantInterval, type ExperimentVariantResult } from '../shared/utils'
-import { experimentLogic } from '../../experimentLogic'
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import {
     ExperimentFunnelsQuery,
@@ -11,6 +7,10 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
+import { experimentLogic } from '../../experimentLogic'
+import { getVariantInterval, type ExperimentVariantResult } from '../shared/utils'
+import { MetricRowGroup } from './MetricRowGroup'
+import { TableHeader } from './TableHeader'
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
@@ -83,6 +83,14 @@ export function MetricsTable({
 
                         const isLoading = !result && !error && !!experiment.start_date
 
+                        // Hide details button/modal when ResultsBreakdown is shown for single primary funnel metrics
+                        const shouldHideDetails =
+                            !isSecondary &&
+                            metrics.length === 1 &&
+                            metric.metric_type === 'funnel' &&
+                            result &&
+                            hasMinimumExposureForResults
+
                         return (
                             <MetricRowGroup
                                 key={metricIndex}
@@ -103,6 +111,7 @@ export function MetricsTable({
                                 error={error}
                                 isLoading={isLoading}
                                 hasMinimumExposureForResults={hasMinimumExposureForResults}
+                                shouldHideDetails={shouldHideDetails}
                             />
                         )
                     })}
