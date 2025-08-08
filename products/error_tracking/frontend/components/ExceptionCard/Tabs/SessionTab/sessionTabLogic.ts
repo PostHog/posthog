@@ -1,23 +1,10 @@
 import { actions, connect, defaults, events, kea, key, path, props, reducers, selectors, propsChanged } from 'kea'
 
 import type { sessionTabLogicType } from './sessionTabLogicType'
-import { dayjs } from 'lib/dayjs'
-import {
-    SessionTimelineEvent,
-    SessionTimelineItem,
-    SessionTimelineRenderer,
-    RendererGroup,
-} from './SessionTimelineItem/base'
-import {
-    eventRenderer,
-    exceptionRenderer,
-    featureFlagRenderer,
-    pageRenderer,
-    surveysRenderer,
-    webAnalyticsRenderer,
-} from './SessionTimelineItem/event'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { ItemCategory, ItemCollector, TimelineItem } from './SessionTimeline/timeline'
 
 export type SessionTabLogicProps = {
     sessionId: string
@@ -31,8 +18,6 @@ export type TimelineEvent = {
     event: string
     timestamp: string
 }
-
-export type RendererRegistry = SessionTimelineRenderer<SessionTimelineItem>[]
 
 function getRecordingProps(sessionId: string): SessionRecordingPlayerProps {
     return {
@@ -58,100 +43,46 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
 
     propsChanged(({ actions, props }, oldProps) => {
         if (props.timestamp !== oldProps.timestamp) {
-            actions.setRecordingTimestamp(props.timestamp, 5000)
+            actions.setRecordingTimestamp(dayjs(props.timestamp), 5000)
         }
     }),
 
     actions({
-        registerRenderer: (renderer: SessionTimelineRenderer<SessionTimelineItem>) => ({
-            renderer,
-        }),
-        toggleGroup: (name: RendererGroup) => ({ name }),
-        setRecordingTimestamp: (timestamp: string, offset: number) => ({ timestamp, offset }),
-        loadEvents: true,
-        setEvents: (events: SessionTimelineEvent[]) => ({ events }),
+        toggleCategory: (category: ItemCategory) => ({ category }),
+        setRecordingTimestamp: (timestamp: Dayjs, offset: number) => ({ timestamp, offset }),
+        setItems: (items: TimelineItem[]) => ({ items }),
     }),
 
     defaults({
-        activeGroups: [] as RendererGroup[],
-        rendererRegistry: [] as RendererRegistry,
+        currentCategories: [ItemCategory.ERROR_TRACKING, ItemCategory.PRODUCT_ANALYTICS] as ItemCategory[],
         recordingTimestamp: null as number | null,
-        events: [] as SessionTimelineEvent[],
-        filteredItems: [] as [SessionTimelineItem, SessionTimelineRenderer<SessionTimelineItem>][],
+        items: [] as TimelineItem[],
+        collector: null as ItemCollector | null,
     }),
 
     reducers({
-        rendererRegistry: {
-            registerRenderer: (state, { renderer }: { renderer: SessionTimelineRenderer<SessionTimelineItem> }) => [
-                ...state,
-                renderer,
-            ],
-        },
-        activeGroups: {
-            registerRenderer: (state, { renderer }: { renderer: SessionTimelineRenderer<SessionTimelineItem> }) => [
-                ...state,
-                renderer.group,
-            ],
-            toggleGroup: (state, { name }: { name: RendererGroup }) => {
-                if (state.includes(name)) {
-                    return state.filter((r: RendererGroup) => r !== name)
+        currentCategories: {
+            toggleCategory: (state, { category }: { category: ItemCategory }) => {
+                if (state.includes(category)) {
+                    return state.filter((c) => c !== category)
                 }
-                return [...state, name]
+                return [...state, category]
             },
         },
         recordingTimestamp: {
-            setRecordingTimestamp: (_, { timestamp, offset }: { timestamp: string; offset: number }) =>
+            setRecordingTimestamp: (_, { timestamp, offset }: { timestamp: Dayjs; offset: number }) =>
                 dayjs(timestamp).valueOf() - offset,
         },
-        events: {
-            setEvents: (_, { events }: { events: SessionTimelineEvent[] }) => events,
+        items: {
+            setItems: (_, { items }: { items: TimelineItem[] }) => items,
+        },
+        collector: {
+            setCollector: (_, { collector }: { collector: ItemCollector }) => collector,
         },
     }),
     selectors({
         sessionId: [() => [(_, props) => props.sessionId], (sessionId: string) => sessionId],
         timestamp: [() => [(_, props) => props.timestamp], (timestamp: string) => timestamp],
-        items: [
-            (s) => [s.events, s.rendererRegistry],
-            (
-                events: SessionTimelineEvent[],
-                rendererRegistry: RendererRegistry
-            ): [SessionTimelineItem, SessionTimelineRenderer<SessionTimelineItem> | undefined][] => {
-                function getRenderer(
-                    item: SessionTimelineItem
-                ): SessionTimelineRenderer<SessionTimelineItem> | undefined {
-                    return rendererRegistry.find((renderer) => renderer.predicate(item))
-                }
-                return events.map((event) => [event, getRenderer(event)])
-            },
-        ],
-        filteredItems: [
-            (s) => [s.items, s.activeGroups],
-            (items: [SessionTimelineItem, SessionTimelineRenderer<SessionTimelineItem>][], activeGroups: string[]) => {
-                return items.filter(([_, renderer]) => !!renderer && activeGroups.includes(renderer.group))
-            },
-        ],
-        isGroupActive: [
-            (s) => [s.activeGroups],
-            (activeGroups: string[]) => {
-                return (group: string) => activeGroups.includes(group)
-            },
-        ],
-        usedGroups: [
-            (s) => [s.items],
-            (items: [SessionTimelineItem, SessionTimelineRenderer<SessionTimelineItem> | undefined][]) => {
-                const orderedRenderers = Object.values(RendererGroup)
-                const usedGroupsSet = items.reduce((acc, [_, renderer]) => {
-                    if (!renderer) {
-                        return acc
-                    }
-                    acc.add(renderer.group)
-                    return acc
-                }, new Set<RendererGroup>())
-                return Array.from(usedGroupsSet).sort(
-                    (a, b) => orderedRenderers.indexOf(a) - orderedRenderers.indexOf(b)
-                )
-            },
-        ],
         recordingProps: [
             () => [(_, props) => props.sessionId],
             (sessionId: string) => {
@@ -161,13 +92,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     }),
     events(({ props, actions }) => ({
         afterMount: () => {
-            actions.registerRenderer(exceptionRenderer)
-            actions.registerRenderer(featureFlagRenderer)
-            actions.registerRenderer(pageRenderer)
-            actions.registerRenderer(surveysRenderer)
-            actions.registerRenderer(webAnalyticsRenderer)
-            actions.registerRenderer(eventRenderer)
-            actions.setRecordingTimestamp(props.timestamp, 5000)
+            actions.setRecordingTimestamp(dayjs(props.timestamp), 5000)
         },
     })),
 ])

@@ -5,7 +5,7 @@ import {
     TabsPrimitiveList,
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { SessionTimeline } from './SessionTimeline'
+import { SessionTimeline } from './SessionTimeline/SessionTimeline'
 import { SessionRecording } from './SessionRecording'
 import { SubHeader } from '../SubHeader'
 import { BindLogic, useActions, useValues } from 'kea'

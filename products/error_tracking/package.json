@@ -7,6 +7,7 @@
         "kea-loaders": "^3.1.1",
         "kea-router": "^3.4.0",
         "kea-subscriptions": "^3.0.1",
+        "lodash.throttle": "^4.1.1",
         "posthog-js": "1.258.5"
     },
     "peerDependencies": {
@@ -21,8 +22,8 @@
         "@types/react": "*",
         "@types/react-transition-group": "*",
         "clsx": "*",
+        "cva": "1.0.0-beta.3",
         "d3": "*",
-        "cva": "npm:class-variance-authority@*",
         "fast-deep-equal": "*",
         "fuse.js": "*",
         "react": "*",
@@ -30,5 +31,8 @@
         "ts-pattern": "*",
         "use-debounce": "*",
         "use-resize-observer": "*"
+    },
+    "devDependencies": {
+        "@types/lodash.throttle": "^4.1.9"
     }
 }
