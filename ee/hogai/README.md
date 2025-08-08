@@ -186,7 +186,7 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
 ### Taxonomy Agent
 
-Build small, focused ReAct-style agents that browse your product taxonomy (events, properties, groups) and produce a structured answer.
+Build small, focused ReAct-style agents that browse the product taxonomy (events, entity properties, event properties) and produce a structured answer.
 
 #### Quickstart
 
