@@ -51,7 +51,7 @@ class HyperCache:
         self,
         namespace: str,
         value: str,
-        load_fn: Callable[[str | int], dict | HyperCacheStoreMissing],
+        load_fn: Callable[[KeyType], dict | HyperCacheStoreMissing],
         token_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
@@ -130,7 +130,7 @@ class HyperCache:
             CACHE_SYNC_COUNTER.labels(result="failure", namespace=self.namespace, value=self.value).inc()
             return False
 
-    def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> bool:
+    def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
         self._set_cache_value_redis(key, data)
         self._set_cache_value_s3(key, data)
 
