@@ -44,7 +44,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
         ],
     })),
     actions({
-        setTabKey: (tabKey: string) => ({ tabKey }),
+        setTabKey: (tabKey: string, clearSearchParams?: boolean) => ({ tabKey, clearSearchParams }),
     }),
     reducers({
         tabKey: [
@@ -154,7 +154,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
         ],
     }),
     actionToUrl(({ values }) => ({
-        setTabKey: ({ tabKey }) => {
+        setTabKey: ({ tabKey, clearSearchParams = true }) => {
             let tabUrl = values.tabs.find((x) => x.key === tabKey)?.url
             if (!tabUrl && values.groupTypesLoading) {
                 const groupMatch = tabKey.match(/^groups-(\d+)$/)
@@ -165,21 +165,32 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
             if (!tabUrl) {
                 return values.tabs[0].url
             }
-            // Preserve existing search params when changing tabs
+            if (clearSearchParams) {
+                return tabUrl
+            }
             return [tabUrl, router.values.searchParams, router.values.hashParams, { replace: true }]
         },
     })),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const urlToAction = {
             [urls.persons()]: () => {
-                actions.setTabKey('persons')
+                if (values.activeTab?.key === 'persons') {
+                    return
+                }
+                actions.setTabKey('persons', false)
             },
             [urls.cohorts()]: () => {
-                actions.setTabKey('cohorts')
+                if (values.activeTab?.key === 'cohorts') {
+                    return
+                }
+                actions.setTabKey('cohorts', false)
             },
         } as Record<string, (...args: any[]) => void>
         urlToAction[urls.groups(':key')] = ({ key }: { key: string }) => {
-            actions.setTabKey(`groups-${key}`)
+            if (values.activeTab?.key === `groups-${key}`) {
+                return
+            }
+            actions.setTabKey(`groups-${key}`, false)
             actions.setGroupTypeIndex(parseInt(key))
         }
         return urlToAction

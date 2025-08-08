@@ -21,8 +21,8 @@ import { CohortType, ProductKey } from '~/types'
 import { cohortsModel } from '../../models/cohortsModel'
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(cohortsModel)
-    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsModel)
+    const { cohorts, cohortsLoading, pagination, cohortFilters, cohortSorting } = useValues(cohortsModel)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsModel)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState(cohortFilters.search || '')
 
@@ -172,6 +172,11 @@ export function Cohorts(): JSX.Element {
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
+                sorting={cohortSorting}
+                onSort={(sorting) => {
+                    setCohortSorting(sorting)
+                }}
+                useURLForSorting={false}
             />
         </>
     )
