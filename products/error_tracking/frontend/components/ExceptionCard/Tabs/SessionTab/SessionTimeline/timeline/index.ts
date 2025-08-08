@@ -1,14 +1,12 @@
 import { Dayjs } from 'lib/dayjs'
 import { exceptionLoader, exceptionRenderer } from './items/exceptions'
 import { pageLoader, pageRenderer } from './items/page'
+import { customItemLoader, customItemRenderer } from './items/custom'
 
 export enum ItemCategory {
     ERROR_TRACKING = 'error-tracking',
-    PRODUCT_ANALYTICS = 'product-analytics',
-    WEB_ANALYTICS = 'web-analytics',
-    SURVEYS = 'surveys',
-    FEATURE_FLAGS = 'feature-flags',
-    INTERNALS = 'internals',
+    CUSTOM_EVENTS = 'custom-events',
+    PAGE_VIEWS = 'page-views',
 }
 
 export interface TimelineItem {
@@ -103,7 +101,8 @@ export class ItemCollector {
         this.afterCursor = this.timestamp
         this.itemCache = new ItemCache<TimelineItem>()
         this.addCategory(ItemCategory.ERROR_TRACKING, exceptionRenderer, exceptionLoader(sessionId, this.timestamp))
-        this.addCategory(ItemCategory.PRODUCT_ANALYTICS, pageRenderer, pageLoader(sessionId, this.timestamp))
+        this.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, pageLoader(sessionId, this.timestamp))
+        this.addCategory(ItemCategory.CUSTOM_EVENTS, customItemRenderer, customItemLoader(sessionId, this.timestamp))
     }
 
     addCategory(category: ItemCategory, renderer: ItemRenderer<TimelineItem>, loader: ItemLoader<TimelineItem>): void {

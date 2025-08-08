@@ -43,7 +43,7 @@ export class PageItemLoader extends EventLoader<PageItem> {
     buildItem(evt: any): PageItem {
         return {
             id: evt[0],
-            category: ItemCategory.PRODUCT_ANALYTICS,
+            category: ItemCategory.PAGE_VIEWS,
             timestamp: dayjs.utc(evt[1]),
             payload: {
                 runtime: getRuntimeFromLib(evt[3]),

@@ -54,7 +54,11 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     }),
 
     defaults({
-        currentCategories: [ItemCategory.ERROR_TRACKING, ItemCategory.PRODUCT_ANALYTICS] as ItemCategory[],
+        currentCategories: [
+            ItemCategory.ERROR_TRACKING,
+            ItemCategory.PAGE_VIEWS,
+            ItemCategory.CUSTOM_EVENTS,
+        ] as ItemCategory[],
         recordingTimestamp: null as number | null,
         items: [] as TimelineItem[],
         collector: null as ItemCollector | null,
