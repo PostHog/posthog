@@ -66,11 +66,7 @@ class SessionSummarizationNode(AssistantNode):
                 "current_filters": {},  # Empty state, as we need results from the query-to-filter
             }
         )
-        if (
-            not result
-            or not isinstance(result, dict)
-            or not result.get("output")
-        ):
+        if not result or not isinstance(result, dict) or not result.get("output"):
             self.logger.error(
                 f"Invalid result from filter options graph: {result}",
                 extra={
@@ -224,7 +220,7 @@ class SessionSummarizationNode(AssistantNode):
                 summaries_content = await self._summarize_sessions_individually(session_ids=session_ids, writer=writer)
             else:
                 # For large groups, process in detail, searching for patterns
-                # TODO: Allow users to define the pattern themselves
+                # TODO: Allow users to define the pattern themselves (or rather catch it from the query)
                 self._stream_progress(
                     progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
                     writer=writer,
