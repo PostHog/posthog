@@ -144,6 +144,20 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 10)  # success_count
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 5)  # failure_count
 
+        # Check that steps_count is populated for funnel metrics
+        self.assertIsNotNone(control_variant.steps_count)
+        self.assertEqual(len(control_variant.steps_count), 1)  # Single step funnel
+        # For single step funnel, step_count equals users who completed that step
+        self.assertEqual(control_variant.steps_count[0].step_count, 8)  # Users who completed purchase
+        self.assertEqual(control_variant.steps_count[0].step_name, "purchase")  # Event name
+        self.assertEqual(control_variant.steps_count[0].step_number, 0)
+
+        self.assertIsNotNone(test_variant.steps_count)
+        self.assertEqual(len(test_variant.steps_count), 1)  # Single step funnel
+        self.assertEqual(test_variant.steps_count[0].step_count, 10)  # Users who completed purchase
+        self.assertEqual(test_variant.steps_count[0].step_name, "purchase")  # Event name
+        self.assertEqual(test_variant.steps_count[0].step_number, 0)
+
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_group_aggregation_funnel_metric(self):
@@ -1344,6 +1358,32 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
+
+        # Check that steps_count is populated for 6-step funnel
+        self.assertIsNotNone(control_variant.steps_count)
+        self.assertEqual(len(control_variant.steps_count), 6)  # Six steps in funnel
+        expected_events = [
+            "$pageview",
+            "add to cart",
+            "checkout started",
+            "checkout completed",
+            "survey submitted",
+            "referral",
+        ]
+        for i, step in enumerate(control_variant.steps_count):
+            self.assertEqual(step.step_name, expected_events[i])
+            self.assertEqual(step.step_number, i)
+            # Step counts should decrease as we go through the funnel
+            # Based on test setup: 8 users complete all steps, 5 complete only first 3 steps
+            if i == 0:
+                self.assertEqual(step.step_count, 13)  # All users reach first step
+            elif i <= 2:
+                self.assertEqual(step.step_count, 13)  # First 3 steps: both groups complete these
+            else:
+                self.assertEqual(step.step_count, 8)  # Steps 4-6: only successful users complete these
+
+        self.assertIsNotNone(test_variant.steps_count)
+        self.assertEqual(len(test_variant.steps_count), 6)  # Six steps in funnel
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries

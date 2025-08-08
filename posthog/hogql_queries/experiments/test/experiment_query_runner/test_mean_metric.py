@@ -117,6 +117,10 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+        # Check that steps_count is None for mean metrics
+        self.assertIsNone(control_variant.steps_count)
+        self.assertIsNone(test_variant.steps_count)
+
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_outlier_handling_for_sum_metric(self):
