@@ -216,10 +216,14 @@ impl Job {
                 };
 
                 let policy = self.context.config.backoff_policy();
-                let current_attempt = {
+                let current_attempt = if self.context.config.backoff_db_columns_enabled {
                     let model = self.model.lock().await;
                     model.backoff_attempt.max(0) as u32
+                } else {
+                    let state = self.state.lock().await;
+                    state.backoff_attempt
                 };
+                let (next_attempt, precomputed_delay) = next_attempt_and_delay(current_attempt, policy);
                 match decide_on_error(
                     &e,
                     current_date_range.as_deref(),
@@ -230,8 +234,15 @@ impl Job {
                     ErrorHandlingDecision::Backoff { delay, status_msg, display_msg } => {
                         error!("Rate limited (429): scheduling retry in {:?}", delay);
                         let mut model = self.model.lock().await;
-                        model
-                            .schedule_backoff(&self.context.db, delay, status_msg, Some(display_msg))
+                    model
+                        .schedule_backoff(
+                            &self.context.db,
+                            precomputed_delay.min(delay),
+                            status_msg,
+                            Some(display_msg),
+                            next_attempt as i32,
+                            self.context.config.backoff_db_columns_enabled,
+                        )
                             .await?;
                         return Ok(None);
                     }

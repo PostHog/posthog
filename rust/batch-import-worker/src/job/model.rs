@@ -167,6 +167,8 @@ impl JobModel {
         delay: StdDuration,
         status_message: String,
         display_message: Option<String>,
+        next_attempt: i32,
+        db_columns_enabled: bool,
     ) -> Result<(), Error> {
         let Some(current_lease) = self.lease_id.as_ref() else {
             anyhow::bail!("Cannot schedule backoff on a job with no lease")
@@ -185,27 +187,55 @@ impl JobModel {
 
         let state_json = serde_json::to_value(&self.state)?;
 
-        let res = sqlx::query(
-            r#"
-            UPDATE posthog_batchimport
-            SET
-                status = 'running',
-                status_message = $3,
-                display_status_message = $4,
-                updated_at = now(),
-                leased_until = $2,
-                state = $5
-            WHERE id = $1 AND lease_id = $6
-            "#,
-        )
-        .bind(self.id)
-        .bind(until)
-        .bind(&status_message)
-        .bind(&display_message)
-        .bind(state_json)
-        .bind(current_lease)
-        .execute(pool)
-        .await?;
+        let res = if db_columns_enabled {
+            // Write DB backoff columns too
+            sqlx::query(
+                r#"
+                UPDATE posthog_batchimport
+                SET
+                    status = 'running',
+                    status_message = $3,
+                    display_status_message = $4,
+                    updated_at = now(),
+                    leased_until = $2,
+                    state = $5,
+                    backoff_attempt = $6,
+                    backoff_until = $2
+                WHERE id = $1 AND lease_id = $7
+                "#,
+            )
+            .bind(self.id)
+            .bind(until)
+            .bind(&status_message)
+            .bind(&display_message)
+            .bind(state_json)
+            .bind(next_attempt)
+            .bind(current_lease)
+            .execute(pool)
+            .await?
+        } else {
+            sqlx::query(
+                r#"
+                UPDATE posthog_batchimport
+                SET
+                    status = 'running',
+                    status_message = $3,
+                    display_status_message = $4,
+                    updated_at = now(),
+                    leased_until = $2,
+                    state = $5
+                WHERE id = $1 AND lease_id = $6
+                "#,
+            )
+            .bind(self.id)
+            .bind(until)
+            .bind(&status_message)
+            .bind(&display_message)
+            .bind(state_json)
+            .bind(current_lease)
+            .execute(pool)
+            .await?
+        };
 
         throw_if_no_rows(res)?;
 
@@ -214,6 +244,8 @@ impl JobModel {
         self.status_message = Some(status_message);
         self.display_status_message = display_message;
         self.leased_until = Some(until);
+        self.backoff_attempt = next_attempt;
+        self.backoff_until = Some(until);
 
         Ok(())
     }
