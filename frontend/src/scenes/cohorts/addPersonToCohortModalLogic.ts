@@ -9,6 +9,8 @@ import { CohortType, PersonType } from '~/types'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import { cohortEditLogic } from './cohortEditLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 export type AddPersonToCohortModalProps = {
     id?: CohortType['id']
@@ -79,8 +81,13 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
             if (response) {
                 lemonToast.success('Person added to cohort')
             }
-            const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: props.id })
+            const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId })
             await mountedCohortEditLogic?.actions.updateCohortCount()
+
+            const mountedDataNodeLogic = dataNodeLogic.findMounted({
+                key: createCohortDataNodeLogicKey(cohortId),
+            })
+            mountedDataNodeLogic?.actions.loadData('force_blocking')
         },
     })),
     events(({ actions }) => ({
