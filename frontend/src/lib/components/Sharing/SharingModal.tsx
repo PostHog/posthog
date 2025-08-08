@@ -1,7 +1,7 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -29,9 +29,16 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { isInsightVizNode } from '~/queries/utils'
-import { AccessControlResourceType, AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlResourceType,
+    AvailableFeature,
+    InsightShortId,
+    QueryBasedInsightModel,
+    AccessControlLevel,
+} from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
+import { AccessControlAction } from '../AccessControlAction'
 import { sharingLogic } from './sharingLogic'
 
 export const SHARING_MODAL_WIDTH = 600
@@ -49,6 +56,7 @@ export interface SharingModalBaseProps {
      * When generating a link to a recording, this form can be used to allow the user to specify a timestamp
      */
     recordingLinkTimeForm?: ReactNode
+    userAccessLevel?: AccessControlLevel
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -65,6 +73,7 @@ export function SharingModalContent({
     additionalParams,
     previewIframe = false,
     recordingLinkTimeForm = undefined,
+    userAccessLevel,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
@@ -80,7 +89,6 @@ export function SharingModalContent({
         embedCode,
         iframeProperties,
         shareLink,
-        sharingAllowed,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -126,23 +134,38 @@ export function SharingModalContent({
                 ) : (
                     <>
                         <h3>Sharing</h3>
-                        {!sharingAllowed && (
-                            <LemonBanner type="warning">
-                                Publicly sharing resources is disabled for this organization.
-                            </LemonBanner>
-                        )}
-                        <LemonSwitch
-                            id="sharing-switch"
-                            label={`Share ${resource} publicly`}
-                            checked={sharingConfiguration.enabled && sharingAllowed}
-                            data-attr="sharing-switch"
-                            onChange={(active) => setIsEnabled(active)}
-                            disabled={!sharingAllowed}
-                            bordered
-                            fullWidth
-                        />
+                        <AccessControlAction
+                            resourceType={
+                                dashboardId
+                                    ? AccessControlResourceType.Dashboard
+                                    : insightShortId
+                                      ? AccessControlResourceType.Insight
+                                      : AccessControlResourceType.Project
+                            }
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={userAccessLevel}
+                        >
+                            {({ disabled, disabledReason }) => (
+                                <div>
+                                    <LemonSwitch
+                                        id="sharing-switch"
+                                        label={`Share ${resource} publicly`}
+                                        checked={sharingConfiguration.enabled}
+                                        data-attr="sharing-switch"
+                                        onChange={(active) => !disabled && setIsEnabled(active)}
+                                        disabled={disabled}
+                                        bordered
+                                        fullWidth
+                                        tooltip={disabledReason}
+                                    />
+                                    {disabled && disabledReason && (
+                                        <div className="text-muted text-xs mt-1">{disabledReason}</div>
+                                    )}
+                                </div>
+                            )}
+                        </AccessControlAction>
 
-                        {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
+                        {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="deprecated-space-y-2">
                                     <LemonButton
