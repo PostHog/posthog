@@ -92,6 +92,11 @@ async def stream_llm(
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_key)
     client = get_async_openai_client()
+    if model not in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
+        raise ValueError(
+            f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
+            f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS}"
+        )
     stream: AsyncStream = await client.chat.completions.create(  # type: ignore[call-overload]
         messages=messages,
         model=model,
