@@ -362,8 +362,6 @@ class RemoteConfig(UUIDModel):
         try:
             config = self.build_config()
 
-            # NOTE: Eventually this will replace a lot of other code - just wanted to get it populating first
-
             if not force and config == self.config:
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
