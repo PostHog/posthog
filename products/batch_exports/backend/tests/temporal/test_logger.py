@@ -311,8 +311,7 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
         external_logger.info("Hi! This is an external %s log from an activity", "info")
         logger.info("Hi! This is an internal %s log from an activity", "info")
 
-    with override_settings(TEMPORAL_USE_EXTERNAL_LOGGER=True):
-        await activity_environment.run(log_activity)
+    await activity_environment.run(log_activity)
 
     assert len(queue.entries) == 1
     message_dict = json.loads(queue.entries[0].decode("utf-8"))
@@ -382,7 +381,7 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         external_logger.info("Hi! This is an external %s log from an activity", "info")
         logger.info("Hi! This is an internal %s log from an activity", "info")
 
-    with freezegun.freeze_time("2023-11-03 10:00:00.123123"), override_settings(TEMPORAL_USE_EXTERNAL_LOGGER=True):
+    with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
         await activity_environment.run(log_activity)
 
     assert len(queue.entries) == 1

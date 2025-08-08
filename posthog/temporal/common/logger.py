@@ -391,7 +391,7 @@ class PutInLogQueueProcessor:
         Always return event_dict so that processors that come later in the chain can do
         their own thing.
         """
-        if getattr(logger, "name", None) != EXTERNAL_LOGGER_NAME and settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+        if getattr(logger, "name", None) != EXTERNAL_LOGGER_NAME:
             return event_dict
 
         try:

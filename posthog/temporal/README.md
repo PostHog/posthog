@@ -312,9 +312,6 @@ The key difference is that `get_external_logger` will return a logger named `EXT
 > External log messages are also printed to stdout and picked up by our internal log consumers, so they will also be available in our monitoring dashboards.
 
 > [!IMPORTANT]
-> This logging API is currently asyncio-only and opt-in. We are working on making it available for all activities. In the meantime, you can set `TEMPORAL_USE_EXTERNAL_LOGGER` to `true` in your workers to use the API described here.
-
-> [!IMPORTANT]
 > The `log_entries` table requires a `log_source` and `log_source_id` to be set. The `get_temporal_context` function from `logger.py` is used to set these variables based on Temporal context variables. Take a look at how we resolve these for other products and add your own logic if required. In general, `log_source` should be your product name, and `log_source_id` should be some uniquely identifiable ID associated with an instance of your product. So, for example, batch exports uses `log_source="batch_exports"` and parses the batch export ID from the workflow ID to obtain a unique `log_source_id` for this batch export.
 
 `get_logger` and `get_external_logger` are meant to be called only **once** at the top of your module. If you are going to be logging several times, call `bind` on the loggers to avoid the global lookup. This method also allows binding variables to the logger itself.
