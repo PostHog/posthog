@@ -499,6 +499,10 @@ export function criteriaToHumanSentence(
     return <>{words}</>
 }
 
+export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
+    return `cohort_${cohortId}_persons`
+}
+
 export const COHORT_MATCHING_DAYS = {
     '1': 'day',
     '7': 'week',

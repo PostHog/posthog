@@ -6042,6 +6042,223 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "keys" in data
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
+    def test_local_evaluation_caching_basic(self):
+        """Test basic caching functionality for local_evaluation endpoint."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        cache.clear()  # Start with empty cache
+
+        # First request should miss cache and populate it
+        self.client.logout()
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Check that cache is now populated
+        cache_key = f"local_evaluation/{self.team.project_id}/v1"
+        cached_data = cache.get(cache_key)
+        self.assertIsNotNone(cached_data)
+        self.assertEqual(len(cached_data["flags"]), 1)
+        self.assertEqual(cached_data["flags"][0]["key"], "test-flag")
+
+    def test_local_evaluation_caching_with_cohorts(self):
+        """Test caching with send_cohorts parameter."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        cache.clear()
+
+        # Test cache for send_cohorts=true
+        self.client.logout()
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Check separate cache key for cohorts version
+        cache_key_cohorts = f"local_evaluation/{self.team.project_id}/cohorts/v1"
+        cache_key_regular = f"local_evaluation/{self.team.project_id}/v1"
+
+        cached_cohorts = cache.get(cache_key_cohorts)
+        cached_regular = cache.get(cache_key_regular)
+
+        self.assertIsNotNone(cached_cohorts)
+        self.assertIsNone(cached_regular)  # Regular cache should not be populated yet
+
+    def test_local_evaluation_cache_invalidation_on_flag_change(self):
+        """Test cache invalidation when feature flags change."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        cache.clear()
+
+        # Populate cache
+        self.client.logout()
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify cache is populated
+        cache_key = f"local_evaluation/{self.team.project_id}/v1"
+        cache_key_cohorts = f"local_evaluation/{self.team.project_id}/cohorts/v1"
+        self.assertIsNotNone(cache.get(cache_key))
+
+        # Update the flag (this should trigger cache invalidation via signal handler)
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag.save()
+
+        # Cache should now be invalidated
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(cache_key_cohorts))
+
+    def test_local_evaluation_cache_invalidation_on_cohort_change(self):
+        """Test cache invalidation when cohorts change."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        cache.clear()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        # Populate both cache variants
+        self.client.logout()
+        response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify both caches are populated
+        cache_key = f"local_evaluation/{self.team.project_id}/v1"
+        cache_key_cohorts = f"local_evaluation/{self.team.project_id}/cohorts/v1"
+        self.assertIsNotNone(cache.get(cache_key))
+        self.assertIsNotNone(cache.get(cache_key_cohorts))
+
+        # Update the cohort (this should trigger cache invalidation via signal handler)
+        cohort.name = "Updated Test Cohort"
+        cohort.save()
+
+        # Both caches should now be invalidated
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(cache_key_cohorts))
+
+    def test_local_evaluation_cache_invalidation_on_group_type_mapping_change(self):
+        """Test cache invalidation when group type mappings change."""
+        # Create a group type mapping
+        GroupTypeMapping.objects.create(
+            team=self.team,
+            project=self.team.project,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-groups",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        cache.clear()
+
+        # Populate both cache variants
+        self.client.logout()
+        response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify both caches are populated
+        cache_key = f"local_evaluation/{self.team.project_id}/v1"
+        cache_key_cohorts = f"local_evaluation/{self.team.project_id}/cohorts/v1"
+        self.assertIsNotNone(cache.get(cache_key))
+        self.assertIsNotNone(cache.get(cache_key_cohorts))
+
+        # Update the group type mapping (this should trigger cache invalidation)
+        group_mapping = GroupTypeMapping.objects.get(team=self.team)
+        group_mapping.name_singular = "Company"
+        group_mapping.save()
+
+        # Both caches should now be invalidated
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(cache_key_cohorts))
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
