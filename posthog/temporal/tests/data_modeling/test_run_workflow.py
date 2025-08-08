@@ -1271,4 +1271,4 @@ async def test_create_table_activity_invalid_uuid_fails(activity_environment, at
 
     mock_create_table.assert_not_called()
 
-    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in cap_logs[0]
+    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in cap_logs[0]["event"]
