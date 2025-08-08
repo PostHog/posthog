@@ -18,6 +18,7 @@ use crate::{
 
 pub mod config;
 pub mod model;
+pub mod backoff;
 
 pub struct Job {
     pub context: Arc<AppContext>,
