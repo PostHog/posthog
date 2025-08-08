@@ -276,7 +276,7 @@ class SessionSummarizationNode(AssistantNode):
             extra={
                 "team_id": getattr(self._team, "id", "unknown"),
                 "conversation_id": conversation_id,
-                "execution_time_ms": round(time.time() - start_time * 1000, 2),
+                "execution_time_ms": round(time.time() - start_time, 2) * 1000,
                 "error": str(error) if error else None,
             },
         )
