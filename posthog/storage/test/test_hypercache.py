@@ -9,7 +9,6 @@ from posthog.storage.hypercache import (
     DEFAULT_CACHE_TTL,
     DEFAULT_CACHE_MISS_TTL,
 )
-from posthog.storage.object_storage import ObjectStorageError
 from posthog.storage import object_storage
 
 
