@@ -279,5 +279,93 @@ describe('CdpAggregationWriterConsumer', () => {
             )
             expect(result.rows).toHaveLength(1)
         })
+
+        it('should handle person events only (no behavioral events)', async () => {
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const personEvents: PersonEventPayload[] = [
+                {
+                    type: 'person-performed-event',
+                    personId,
+                    eventName: 'signup',
+                    teamId: team.id,
+                },
+                {
+                    type: 'person-performed-event',
+                    personId,
+                    eventName: 'login',
+                    teamId: team.id,
+                },
+            ]
+
+            // Write only person events (no behavioral events)
+            await processor['writeToPostgres'](personEvents, [])
+
+            // Verify person events were written
+            const personResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM person_performed_events WHERE team_id = $1 AND person_id = $2 ORDER BY event_name',
+                [team.id, personId],
+                'test-read-person-only-events'
+            )
+            expect(personResult.rows).toHaveLength(2)
+            expect(personResult.rows[0].event_name).toBe('login')
+            expect(personResult.rows[1].event_name).toBe('signup')
+
+            // Verify no behavioral events were written
+            const behavioralResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1',
+                [team.id],
+                'test-read-no-behavioral-events'
+            )
+            expect(behavioralResult.rows).toHaveLength(0)
+        })
+
+        it('should handle behavioral events only (no person events)', async () => {
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const behavioralEvents: AggregatedBehaviouralEvent[] = [
+                {
+                    type: 'behavioural-filter-match-event',
+                    teamId: team.id,
+                    personId,
+                    filterHash: 'hash789',
+                    date: '2023-12-01',
+                    counter: 5,
+                },
+                {
+                    type: 'behavioural-filter-match-event',
+                    teamId: team.id,
+                    personId,
+                    filterHash: 'hash456',
+                    date: '2023-12-01',
+                    counter: 2,
+                },
+            ]
+
+            // Write only behavioral events (no person events)
+            await processor['writeToPostgres']([], behavioralEvents)
+
+            // Verify behavioral events were written
+            const behavioralResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1 AND person_id = $2 ORDER BY filter_hash',
+                [team.id, personId],
+                'test-read-behavioral-only-events'
+            )
+            expect(behavioralResult.rows).toHaveLength(2)
+            expect(behavioralResult.rows[0].filter_hash).toBe('hash456')
+            expect(behavioralResult.rows[0].counter).toBe(2)
+            expect(behavioralResult.rows[1].filter_hash).toBe('hash789')
+            expect(behavioralResult.rows[1].counter).toBe(5)
+
+            // Verify no person events were written
+            const personResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM person_performed_events WHERE team_id = $1 AND person_id = $2',
+                [team.id, personId],
+                'test-read-no-person-events'
+            )
+            expect(personResult.rows).toHaveLength(0)
+        })
     })
 })

@@ -114,6 +114,38 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
     }
 
+    // Helper to build person events CTE
+    private buildPersonEventsCTE(personEvents: PersonEventPayload[]): string {
+        const values = personEvents
+            .map((event) => `(${event.teamId}, '${event.personId}', '${event.eventName.replace(/'/g, "''")}')`)
+            .join(',')
+
+        return `person_inserts AS (
+            INSERT INTO person_performed_events (team_id, person_id, event_name)
+            VALUES ${values}
+            ON CONFLICT (team_id, person_id, event_name) DO NOTHING
+            RETURNING 1
+        )`
+    }
+
+    // Helper to build behavioural events CTE
+    private buildBehaviouralEventsCTE(behaviouralEvents: AggregatedBehaviouralEvent[]): string {
+        const values = behaviouralEvents
+            .map(
+                (event) =>
+                    `(${event.teamId}, '${event.personId}', '${event.filterHash}', '${event.date}', ${event.counter})`
+            )
+            .join(',')
+
+        return `behavioural_inserts AS (
+            INSERT INTO behavioural_filter_matched_events (team_id, person_id, filter_hash, date, counter)
+            VALUES ${values}
+            ON CONFLICT (team_id, person_id, filter_hash, date) 
+            DO UPDATE SET counter = behavioural_filter_matched_events.counter + EXCLUDED.counter
+            RETURNING 1
+        )`
+    }
+
     // Write both event types to postgres in a single query within a transaction
     private async writeToPostgres(
         personEvents: PersonEventPayload[],
@@ -125,61 +157,18 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
 
         try {
             await this.hub.postgres.transaction(PostgresUse.COUNTERS_RW, 'aggregation-writer', async (client) => {
-                // Build the combined query using CTEs
-                let query = 'WITH '
-                const queryParts: string[] = []
+                const ctes: string[] = []
 
+                // Add CTEs for each event type
                 if (personEvents.length > 0) {
-                    const personEventsValues = personEvents
-                        .map(
-                            (event) =>
-                                `(${event.teamId}, '${event.personId}', '${event.eventName.replace(/'/g, "''")}')`
-                        )
-                        .join(',')
-
-                    queryParts.push(`
-                        person_inserts AS (
-                            INSERT INTO person_performed_events (team_id, person_id, event_name)
-                            VALUES ${personEventsValues}
-                            ON CONFLICT (team_id, person_id, event_name) DO NOTHING
-                            RETURNING 1
-                        )
-                    `)
+                    ctes.push(this.buildPersonEventsCTE(personEvents))
                 }
-
                 if (behaviouralEvents.length > 0) {
-                    const behaviouralEventsValues = behaviouralEvents
-                        .map(
-                            (event) =>
-                                `(${event.teamId}, '${event.personId}', '${event.filterHash}', '${event.date}', ${event.counter})`
-                        )
-                        .join(',')
-
-                    queryParts.push(`
-                        behavioural_inserts AS (
-                            INSERT INTO behavioural_filter_matched_events (team_id, person_id, filter_hash, date, counter)
-                            VALUES ${behaviouralEventsValues}
-                            ON CONFLICT (team_id, person_id, filter_hash, date) 
-                            DO UPDATE SET counter = behavioural_filter_matched_events.counter + EXCLUDED.counter
-                            RETURNING 1
-                        )
-                    `)
+                    ctes.push(this.buildBehaviouralEventsCTE(behaviouralEvents))
                 }
 
-                // Build the final query
-                if (queryParts.length === 0) {
-                    return
-                } else if (queryParts.length === 1) {
-                    query = queryParts[0].trim()
-                    query = query.replace(/\)\s*$/, ') SELECT 1')
-                    if (!query.startsWith('WITH')) {
-                        query = 'WITH ' + query
-                    }
-                } else {
-                    query += queryParts.join(',')
-                    query +=
-                        ' SELECT (SELECT COUNT(*) FROM person_inserts) as person_count, (SELECT COUNT(*) FROM behavioural_inserts) as behavioural_count'
-                }
+                // Build final query
+                const query = `WITH ${ctes.join(', ')} SELECT 1`
 
                 // Execute the single combined query within the transaction
                 await this.hub.postgres.query(client, query, undefined, 'counters-batch-upsert')
