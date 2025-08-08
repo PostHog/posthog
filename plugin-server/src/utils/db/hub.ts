@@ -17,6 +17,8 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { RustyHook } from '../../worker/rusty-hook'
 import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
@@ -114,6 +116,8 @@ export async function createHub(
     const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
+    const groupRepository = new PostgresGroupRepository(postgres)
+    const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
@@ -144,6 +148,8 @@ export async function createHub(
         rootAccessManager,
         rustyHook,
         actionMatcher,
+        groupRepository,
+        clickhouseGroupRepository,
         actionManager,
         actionManagerCDP,
         geoipService,
