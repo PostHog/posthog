@@ -89,7 +89,7 @@ impl JobModel {
             WITH next_job AS (
                 SELECT *, lease_id as previous_lease_id
                 FROM posthog_batchimport
-                WHERE status = 'running' AND coalesce(leased_until, now()) <= now()
+                WHERE status = 'running' AND (leased_until IS NULL OR leased_until <= now())
                 ORDER BY created_at
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
@@ -124,10 +124,11 @@ impl JobModel {
 
         let id = row.id;
 
-        match (row, context.encryption_keys.as_slice(), new_lease_id)
+        let parsed: anyhow::Result<JobModel> = (row, context.encryption_keys.as_slice(), new_lease_id)
             .try_into()
-            .context("Failed to parse job row")
-        {
+            .context("Failed to parse job row");
+
+        match parsed {
             Ok(mut model) => {
                 // Optionally load DB backoff columns if enabled (requires migration)
                 if context.config.backoff_db_columns_enabled {
@@ -140,10 +141,10 @@ impl JobModel {
                     .await
                     {
                         // Annotate types for clarity
-                        let attempt: Result<i32, _> = rec.try_get("backoff_attempt");
+                        let attempt: Result<i32, sqlx::Error> = rec.try_get("backoff_attempt");
                         if let Ok(a) = attempt { model.backoff_attempt = a; }
 
-                        let until: Result<Option<DateTime<Utc>>, _> = rec.try_get("backoff_until");
+                        let until: Result<Option<DateTime<Utc>>, sqlx::Error> = rec.try_get("backoff_until");
                         if let Ok(u) = until { model.backoff_until = u; }
                     }
                 }
