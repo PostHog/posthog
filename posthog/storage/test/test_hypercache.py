@@ -160,8 +160,7 @@ class TestHyperCacheIntegration(HyperCacheTestBase):
             return self.sample_data
 
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
-
-        self.hypercache.clear_cache(self.team_id, kinds=["redis", "s3"])
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         # Get data (should load from DB and cache it)
         result, source = hc.get_from_cache_with_source(self.team_id)
@@ -170,7 +169,7 @@ class TestHyperCacheIntegration(HyperCacheTestBase):
         assert source == "db"
 
         # Verify Redis cache was set
-        cached_data = self.hypercache.get_from_cache(self.team_id)
+        cached_data = hc.get_from_cache(self.team_id)
         assert cached_data == self.sample_data
         assert source == "redis"
 
