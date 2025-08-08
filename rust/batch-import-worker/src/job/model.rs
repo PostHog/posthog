@@ -31,6 +31,13 @@ pub struct JobModel {
     pub import_config: JobConfig,
     pub secrets: JobSecrets,
 
+    // Backoff (DB columns to be added via migration):
+    // - backoff_attempt INTEGER NOT NULL DEFAULT 0
+    // - backoff_until TIMESTAMPTZ NULL
+    // For now these are populated with defaults and will be wired once columns exist
+    pub backoff_attempt: i32,
+    pub backoff_until: Option<DateTime<Utc>>,
+
     // Not actually in the model, but we calculate it on fetch to let us reason about whether
     // we're resuming an interrupted job
     pub was_leased: bool,
@@ -286,6 +293,8 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
             state: Some(state),
             import_config,
             secrets,
+            backoff_attempt: 0,
+            backoff_until: None,
             was_leased: row.previous_lease_id.is_some(),
         })
     }
