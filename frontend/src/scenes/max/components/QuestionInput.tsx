@@ -65,125 +65,6 @@ interface QuestionInputProps {
     onSubmit?: () => void
 }
 
-interface ToolsDisplayProps {
-    isFloating?: boolean
-    tools: ToolDefinition[]
-    bottomActions?: ReactNode
-}
-
-const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomActions }) => {
-    const toolsContainerRef = useRef<HTMLDivElement>(null)
-    const toolsRef = useRef<HTMLElement[]>([])
-    const [firstToolOverflowing, setFirstToolOverflowing] = useState<AssistantContextualTool | null>(null)
-
-    useResizeObserver({
-        ref: toolsContainerRef,
-        onResize: () => {
-            let foundOverflow = false
-            for (let i = 0; i < toolsRef.current.length; i++) {
-                const toolEl = toolsRef.current[i]
-                if (toolEl) {
-                    const rightOverflow =
-                        toolEl.getBoundingClientRect().right - toolEl.parentElement!.getBoundingClientRect().right
-                    // Items other than the last one need 60px free space to the right to safely show "+ n more"
-                    const freeSpaceRequirementPx = i < toolsRef.current.length - 1 ? 60 : 0
-                    if (rightOverflow > -freeSpaceRequirementPx) {
-                        setFirstToolOverflowing(tools[tools.length - i - 1].name)
-                        foundOverflow = true
-                        break
-                    }
-                }
-            }
-            if (!foundOverflow) {
-                setFirstToolOverflowing(null)
-            }
-        },
-    })
-
-    // We show the tools reversed, so the ones registered last (scene-specific) are shown first
-    const toolsInReverse = tools.toReversed()
-    const toolsHidden = firstToolOverflowing
-        ? toolsInReverse
-              .slice(toolsInReverse.findIndex((tool) => tool.name === firstToolOverflowing))
-              .map((tool) => tool.name)
-        : []
-
-    return (
-        <div ref={toolsContainerRef} className="flex items-center w-full gap-1 justify-center cursor-help">
-            <Tooltip
-                placement="bottom-end"
-                arrowOffset={8 /* 8px from right edge to align with the info icon */}
-                title={
-                    <>
-                        <div className="mb-2">
-                            <div className="font-semibold mb-0.5">Max can:</div>
-                            <ul className="space-y-0.5 text-sm">
-                                {MAX_CAN.map((item, index) => (
-                                    <li key={index} className="flex items-center">
-                                        <IconCheck className="text-base text-success shrink-0 ml-1 mr-2" />
-                                        <span>{item}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                        <div>
-                            <div className="font-semibold mb-0.5">Max can't (yet):</div>
-                            <ul className="space-y-0.5 text-sm">
-                                {MAX_CANNOT.map((item, index) => (
-                                    <li key={index} className="flex items-center">
-                                        <IconX className="text-base text-danger shrink-0 ml-1 mr-2" />
-                                        <span>{item}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </>
-                }
-            >
-                <div
-                    className={clsx(
-                        'relative flex items-center text-xs font-medium justify-between gap-1 px-1',
-                        !isFloating
-                            ? 'w-[calc(100%-1rem)] py-0.75 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                            : `w-full pb-1`
-                    )}
-                >
-                    <div className="w-full flex items-center gap-1">
-                        <span className="shrink-0">Tools available:</span>
-                        {toolsInReverse.map((tool, index) => (
-                            <React.Fragment key={tool.name}>
-                                <span
-                                    ref={(e) => e && (toolsRef.current[index] = e)}
-                                    className="relative flex-shrink-0"
-                                >
-                                    <em
-                                        className={clsx(
-                                            // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
-                                            // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
-                                            'relative inline-flex items-center gap-1 border border-[var(--color-posthog-3000-300)] border-dashed rounded-sm pl-0.5 pr-1',
-                                            toolsHidden.includes(tool.name) && 'invisible'
-                                        )}
-                                    >
-                                        <span className="text-sm">{tool.icon || <IconWrench />}</span>
-                                        {tool.displayName}
-                                    </em>
-                                    {tool.name === firstToolOverflowing && (
-                                        <span className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center gap-1">
-                                            + {toolsHidden.length} more
-                                        </span>
-                                    )}
-                                </span>
-                            </React.Fragment>
-                        ))}
-                    </div>
-                    <IconInfo className="text-sm" />
-                </div>
-            </Tooltip>
-            {bottomActions && <div className="ml-auto">{bottomActions}</div>}
-        </div>
-    )
-}
-
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
     {
         isFloating,
@@ -345,3 +226,128 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         </div>
     )
 })
+
+interface ToolsDisplayProps {
+    isFloating?: boolean
+    tools: ToolDefinition[]
+    bottomActions?: ReactNode
+}
+
+const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomActions }) => {
+    const toolsContainerRef = useRef<HTMLDivElement>(null)
+    const toolsRef = useRef<HTMLElement[]>([])
+    const [firstToolOverflowing, setFirstToolOverflowing] = useState<AssistantContextualTool | null>(null)
+
+    useResizeObserver({
+        ref: toolsContainerRef,
+        onResize: () => {
+            let foundOverflow = false
+            for (let i = 0; i < toolsRef.current.length; i++) {
+                const toolEl = toolsRef.current[i]
+                if (toolEl) {
+                    const rightOverflow =
+                        toolEl.getBoundingClientRect().right - toolEl.parentElement!.getBoundingClientRect().right
+                    // Items other than the last one need 60px free space to the right to safely show "+ n more"
+                    const freeSpaceRequirementPx = i < toolsRef.current.length - 1 ? 60 : 0
+                    if (rightOverflow > -freeSpaceRequirementPx) {
+                        setFirstToolOverflowing(tools[tools.length - i - 1].name)
+                        foundOverflow = true
+                        break
+                    }
+                }
+            }
+            if (!foundOverflow) {
+                setFirstToolOverflowing(null)
+            }
+        },
+    })
+
+    // We show the tools reversed, so the ones registered last (scene-specific) are shown first
+    const toolsInReverse = tools.toReversed()
+    const toolsHidden = firstToolOverflowing
+        ? toolsInReverse
+              .slice(toolsInReverse.findIndex((tool) => tool.name === firstToolOverflowing))
+              .map((tool) => tool.name)
+        : []
+
+    return (
+        <div ref={toolsContainerRef} className="flex items-center w-full gap-1 justify-center cursor-help">
+            <Tooltip
+                placement="bottom-end"
+                arrowOffset={8 /* 8px from right edge to align with the info icon */}
+                title={
+                    <>
+                        <div className="mb-2">
+                            <div className="font-semibold mb-0.5">Max can:</div>
+                            <ul className="space-y-0.5 text-sm">
+                                {MAX_CAN.map((item, index) => (
+                                    <li key={index} className="flex items-center">
+                                        <IconCheck className="text-base text-success shrink-0 ml-1 mr-2" />
+                                        <span>{item}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div>
+                            <div className="font-semibold mb-0.5">Max can't (yet):</div>
+                            <ul className="space-y-0.5 text-sm">
+                                {MAX_CANNOT.map((item, index) => (
+                                    <li key={index} className="flex items-center">
+                                        <IconX className="text-base text-danger shrink-0 ml-1 mr-2" />
+                                        <span>{item}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </>
+                }
+            >
+                <div
+                    className={clsx(
+                        'relative flex items-center text-xs font-medium justify-between gap-1 px-1',
+                        !isFloating
+                            ? 'w-[calc(100%-1rem)] py-0.75 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                            : `w-full pb-1`
+                    )}
+                >
+                    <div className="w-full flex items-center gap-1">
+                        <span className="shrink-0">Tools available:</span>
+                        {toolsInReverse.map((tool, index) => (
+                            <React.Fragment key={tool.name}>
+                                <span
+                                    ref={(e) => e && (toolsRef.current[index] = e)}
+                                    className="relative flex-shrink-0"
+                                >
+                                    <ToolPill tool={tool} hidden={toolsHidden.includes(tool.name)} />
+                                    {tool.name === firstToolOverflowing && (
+                                        <span className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center gap-1">
+                                            + {toolsHidden.length} more
+                                        </span>
+                                    )}
+                                </span>
+                            </React.Fragment>
+                        ))}
+                    </div>
+                    <IconInfo className="text-sm" />
+                </div>
+            </Tooltip>
+            {bottomActions && <div className="ml-auto">{bottomActions}</div>}
+        </div>
+    )
+}
+
+function ToolPill({ tool, hidden }: { tool: ToolDefinition; hidden: boolean }): JSX.Element {
+    return (
+        <em
+            className={clsx(
+                // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
+                // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
+                'relative inline-flex items-center gap-1 border border-[var(--color-posthog-3000-300)] border-dashed rounded-sm pl-0.5 pr-1',
+                hidden && 'invisible'
+            )}
+        >
+            <span className="text-sm">{tool.icon || <IconWrench />}</span>
+            {tool.displayName}
+        </em>
+    )
+}
