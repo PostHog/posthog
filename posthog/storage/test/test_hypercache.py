@@ -7,7 +7,6 @@ from posthog.models.team import Team
 from posthog.storage.hypercache import (
     HyperCache,
     HyperCacheStoreMissing,
-    cache_key,
     _HYPER_CACHE_EMPTY_VALUE,
     DEFAULT_CACHE_TTL,
     DEFAULT_CACHE_MISS_TTL,
@@ -44,7 +43,7 @@ class HyperCacheTestBase:
 class TestCacheKey(HyperCacheTestBase):
     def test_cache_key_format(self):
         """Test that cache key is formatted correctly"""
-        key = cache_key(123, "test_namespace", "test_value")
+        key = self.hypercache.get_cache_key(123)
         assert key == "cache/teams/123/test_namespace/test_value"
 
 
@@ -79,7 +78,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
     def test_get_from_cache_redis_hit(self):
         """Test getting data from Redis cache"""
         # Set up cache with data
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.set(key, json.dumps(self.sample_data), timeout=DEFAULT_CACHE_TTL)
 
         result, source = self.hypercache.get_from_cache_with_source(self.mock_team)
@@ -90,7 +89,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
     def test_get_from_cache_s3_fallback(self):
         """Test getting data from S3 when Redis cache misses"""
         # Clear Redis cache
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.delete(key)
 
         # Set up S3 with data
@@ -104,7 +103,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
     def test_get_from_cache_s3_error_fallback_to_db(self):
         """Test getting data from database when both Redis and S3 fail"""
         # Clear both Redis and S3
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.delete(key)
         try:
             object_storage.delete(key)
@@ -119,7 +118,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
     def test_get_from_cache_with_source_redis_hit(self):
         """Test getting data with source information - Redis hit"""
         # Set up cache with data
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.set(key, json.dumps(self.sample_data), timeout=DEFAULT_CACHE_TTL)
 
         result, source = self.hypercache.get_from_cache_with_source(self.mock_team)
@@ -130,7 +129,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
     def test_get_from_cache_with_source_s3_hit(self):
         """Test getting data with source information - S3 hit"""
         # Clear Redis cache
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.delete(key)
 
         # Set up S3 with data
@@ -144,7 +143,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
     def test_get_from_cache_with_source_db_hit(self):
         """Test getting data with source information - Database hit"""
         # Clear both Redis and S3
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.delete(key)
         try:
             object_storage.delete(key)
@@ -165,7 +164,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn_store_missing)
 
         # Clear both Redis and S3
-        key = cache_key(self.mock_team.id, hc.namespace, hc.value)
+        key = hc.get_cache_key(self.mock_team)
         cache.delete(key)
         try:
             object_storage.delete(key)
@@ -192,7 +191,7 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
         assert result is True
 
         # Verify data was cached
-        key = cache_key(self.mock_team.id, hc.namespace, hc.value)
+        key = hc.get_cache_key(self.mock_team)
         cached_data = cache.get(key)
         assert cached_data == json.dumps(self.sample_data)
 
@@ -217,7 +216,7 @@ class TestHyperCacheClearCache(HyperCacheTestBase):
     def test_clear_cache_redis_only(self):
         """Test clearing only Redis cache"""
         # Set up both Redis and S3
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.set(key, json.dumps(self.sample_data), timeout=DEFAULT_CACHE_TTL)
         object_storage.write(key, json.dumps(self.sample_data))
 
@@ -231,7 +230,7 @@ class TestHyperCacheClearCache(HyperCacheTestBase):
     def test_clear_cache_s3_only(self):
         """Test clearing only S3 cache"""
         # Set up both Redis and S3
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.set(key, json.dumps(self.sample_data), timeout=DEFAULT_CACHE_TTL)
         object_storage.write(key, json.dumps(self.sample_data))
 
@@ -249,7 +248,7 @@ class TestHyperCacheClearCache(HyperCacheTestBase):
     def test_clear_cache_both(self):
         """Test clearing both Redis and S3 cache"""
         # Set up both Redis and S3
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cache.set(key, json.dumps(self.sample_data), timeout=DEFAULT_CACHE_TTL)
         object_storage.write(key, json.dumps(self.sample_data))
 
@@ -286,7 +285,7 @@ class TestHyperCachePrivateMethods(HyperCacheTestBase):
         """Test setting Redis cache with data"""
         self.hypercache._set_cache_value_redis(self.mock_team, self.sample_data)
 
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cached_data = cache.get(key)
         assert cached_data == json.dumps(self.sample_data)
 
@@ -294,7 +293,7 @@ class TestHyperCachePrivateMethods(HyperCacheTestBase):
         """Test setting Redis cache with None data"""
         self.hypercache._set_cache_value_redis(self.mock_team, None)
 
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         cached_data = cache.get(key)
         assert cached_data == _HYPER_CACHE_EMPTY_VALUE
 
@@ -302,7 +301,7 @@ class TestHyperCachePrivateMethods(HyperCacheTestBase):
         """Test setting S3 cache"""
         self.hypercache._set_cache_value_s3(self.mock_team, self.sample_data)
 
-        key = cache_key(self.mock_team.id, self.hypercache.namespace, self.hypercache.value)
+        key = self.hypercache.get_cache_key(self.mock_team)
         s3_data = object_storage.read(key)
         assert s3_data == json.dumps(self.sample_data)
 
@@ -317,7 +316,7 @@ class TestHyperCacheIntegration(HyperCacheTestBase):
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
 
         # Clear both Redis and S3
-        key = cache_key(self.mock_team.id, hc.namespace, hc.value)
+        key = hc.get_cache_key(self.mock_team)
         cache.delete(key)
         try:
             object_storage.delete(key)
@@ -349,7 +348,7 @@ class TestHyperCacheIntegration(HyperCacheTestBase):
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
 
         # Clear Redis but set S3
-        key = cache_key(self.mock_team.id, hc.namespace, hc.value)
+        key = hc.get_cache_key(self.mock_team)
         cache.delete(key)
         object_storage.write(key, json.dumps(self.sample_data))
 
@@ -375,7 +374,7 @@ class TestHyperCacheEdgeCases(HyperCacheTestBase):
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
 
         # Clear both Redis and S3
-        key = cache_key(self.mock_team.id, hc.namespace, hc.value)
+        key = hc.get_cache_key(self.mock_team)
         cache.delete(key)
         try:
             object_storage.delete(key)
@@ -409,7 +408,7 @@ class TestHyperCacheEdgeCases(HyperCacheTestBase):
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
 
         # Clear both Redis and S3
-        key = cache_key(self.mock_team.id, hc.namespace, hc.value)
+        key = hc.get_cache_key(self.mock_team)
         cache.delete(key)
         try:
             object_storage.delete(key)
