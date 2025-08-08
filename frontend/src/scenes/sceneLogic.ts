@@ -2,7 +2,7 @@ import { actions, afterMount, BuiltLogic, connect, kea, listeners, path, props, 
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { identifierToHuman, getRelativeNextPath } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
@@ -801,11 +801,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title } : tab))
                 actions.setTabs(newTabs)
             }
-            // When the title changes, trigger a history REPLACE event to persist the new title in the browser
-            if (values.featureFlags[FEATURE_FLAGS.SCENE_TABS] && values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]) {
-                const { currentLocation } = router.values
-                router.actions.replace(currentLocation.pathname, currentLocation.search, currentLocation.hash)
-            }
+            router.actions.refreshRouterState()
         },
         tabs: () => {
             const { tabIds } = values
