@@ -163,7 +163,7 @@ const itemContainer = cva({
     variants: {
         selected: {
             true: 'bg-[var(--gray-1)] border-1 border-accent',
-            false: 'border-b border-[var(--gray-3)]',
+            false: 'border-b border-[var(--gray-2)]',
         },
     },
 })
