@@ -230,7 +230,7 @@ export enum SurveyTemplateType {
     BetaFeedback = 'Beta feedback',
 }
 
-type SurveyTemplate = Partial<Survey> & {
+export type SurveyTemplate = Partial<Survey> & {
     templateType: SurveyTemplateType
     tagType?: 'success' | 'primary' | 'completion' | 'default'
     category?: 'Metrics' | 'Product' | 'Business' | 'General'
