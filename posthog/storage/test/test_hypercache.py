@@ -2,12 +2,11 @@ import json
 import pytest
 from unittest.mock import Mock
 from django.core.cache import cache
-from django.test import override_settings
 
 from posthog.models.team import Team
 from posthog.storage.hypercache import (
     HyperCache,
-    HyperCacheStoreMissingException,
+    HyperCacheStoreMissing,
     cache_key,
     _HYPER_CACHE_EMPTY_VALUE,
     DEFAULT_CACHE_TTL,
@@ -117,22 +116,6 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         assert result == {"default": "data"}
         assert source == "db"
 
-    def test_get_from_cache_db_missing_exception(self):
-        """Test handling when database load function raises HyperCacheStoreMissingException"""
-
-        def load_fn_raises_exception(team):
-            raise HyperCacheStoreMissingException()
-
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn_raises_exception)
-
-        # Clear both Redis and S3
-        self.hypercache.clear_cache(self.mock_team)
-
-        result, source = hc.get_from_cache_with_source(self.mock_team)
-
-        assert result == _HYPER_CACHE_EMPTY_VALUE
-        assert source == "empty"
-
     def test_get_from_cache_with_source_redis_hit(self):
         """Test getting data with source information - Redis hit"""
         # Set up cache with data
@@ -176,10 +159,10 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
     def test_get_from_cache_with_source_empty(self):
         """Test getting data with source information - Empty result"""
 
-        def load_fn_raises_exception(team):
-            raise HyperCacheStoreMissingException()
+        def load_fn_store_missing(team):
+            return HyperCacheStoreMissing()
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn_raises_exception)
+        hc = HyperCache(namespace="test", value="value", load_fn=load_fn_store_missing)
 
         # Clear both Redis and S3
         key = cache_key(self.mock_team.id, hc.namespace, hc.value)
@@ -216,30 +199,6 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
         # Verify S3 was written
         s3_data = object_storage.read(key)
         assert s3_data == json.dumps(self.sample_data)
-
-    def test_update_cache_with_none_data(self):
-        """Test cache update with None data"""
-
-        def load_fn(team):
-            return None
-
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
-
-        result = hc.update_cache(self.mock_team)
-
-        assert result is True
-
-        # Verify empty value was cached
-        key = cache_key(self.mock_team.id, hc.namespace, hc.value)
-        cached_data = cache.get(key)
-        assert cached_data == _HYPER_CACHE_EMPTY_VALUE
-
-        # Should not write to S3 when data is None
-        try:
-            s3_data = object_storage.read(key)
-            assert s3_data is None  # Should not exist
-        except ObjectStorageError:
-            pass  # Expected - key should not exist
 
     def test_update_cache_failure(self):
         """Test cache update failure"""

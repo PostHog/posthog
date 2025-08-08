@@ -37,7 +37,7 @@ def cache_key(team_id: int, namespace: str, value: str) -> str:
 _HYPER_CACHE_EMPTY_VALUE = "__missing__"
 
 
-class HyperCacheStoreMissingException(Exception):
+class HyperCacheStoreMissing:
     pass
 
 
@@ -51,7 +51,7 @@ class HyperCache:
         self,
         namespace: str,
         value: str,
-        load_fn: Callable[[Team], dict],
+        load_fn: Callable[[Team], dict | HyperCacheStoreMissing],
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
     ):
@@ -65,13 +65,17 @@ class HyperCache:
         data, _ = self.get_from_cache_with_source(team)
         return data
 
-    def get_from_cache_with_source(self, team: Team) -> tuple[dict, str]:
+    def get_from_cache_with_source(self, team: Team) -> tuple[dict | None, str]:
         key = cache_key(team.id, self.namespace, self.value)
         data = cache.get(key)
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
-            return json.loads(data), "redis"
+
+            if data == _HYPER_CACHE_EMPTY_VALUE:
+                return None, "redis"
+            else:
+                return json.loads(data), "redis"
 
         # Fallback to s3
         try:
@@ -85,15 +89,15 @@ class HyperCache:
             pass
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
-        try:
-            data = self.load_fn(team)
-        except HyperCacheStoreMissingException:
-            cache.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=DEFAULT_CACHE_TTL)
-            HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
-            return _HYPER_CACHE_EMPTY_VALUE, "empty"
+        data = self.load_fn(team)
+
+        if isinstance(data, HyperCacheStoreMissing):
+            self._set_cache_value_redis(team, None)
+            HYPERCACHE_CACHE_COUNTER.labels(result="missing", namespace=self.namespace, value=self.value).inc()
+            return None, "empty"
 
         self._set_cache_value_redis(team, data)
-        HYPERCACHE_CACHE_COUNTER.labels(result="missing", namespace=self.namespace, value=self.value).inc()
+        HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
     def update_cache(self, team: Team) -> bool:
