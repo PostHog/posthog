@@ -19,12 +19,10 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -178,26 +176,24 @@ function UrlConfigForm({
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
-                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_REGEX}>
-                        <AiRegexHelper
-                            onApply={(regex) => {
-                                try {
-                                    const payload: SessionReplayUrlTriggerConfig = {
-                                        url: regex,
-                                        matching: 'regex',
-                                    }
-                                    if (type === 'trigger') {
-                                        addUrlTrigger(payload)
-                                    } else {
-                                        addUrlBlocklist(payload)
-                                    }
-                                } catch {
-                                    lemonToast.error('Failed to apply regex')
+                    <AiRegexHelper
+                        onApply={(regex) => {
+                            try {
+                                const payload: SessionReplayUrlTriggerConfig = {
+                                    url: regex,
+                                    matching: 'regex',
                                 }
-                            }}
-                        />
-                        <AiRegexHelperButton />
-                    </FlaggedFeature>
+                                if (type === 'trigger') {
+                                    addUrlTrigger(payload)
+                                } else {
+                                    addUrlBlocklist(payload)
+                                }
+                            } catch {
+                                lemonToast.error('Failed to apply regex')
+                            }
+                        }}
+                    />
+                    <AiRegexHelperButton />
                 </div>
 
                 <div className="flex gap-2">
