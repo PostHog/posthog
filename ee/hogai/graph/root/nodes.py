@@ -326,7 +326,7 @@ class RootNode(RootNodeUIContextMixin):
                 r"\n?<session_summarization>.*?</session_summarization>", "", system_prompt_template, flags=re.DOTALL
             )
             # Also remove the reference to session_summarization in basic_functionality
-            system_prompt_template = re.sub(r"\n?\d+\. `session_summarization`[^\n]*", "", system_prompt_template)
+            system_prompt_template = re.sub(r"\n?\d+\. `session_summarization`.*?[^\n]*", "", system_prompt_template)
 
         prompt = (
             ChatPromptTemplate.from_messages(
