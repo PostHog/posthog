@@ -4,7 +4,7 @@ from typing import Literal
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 
 from langchain_openai import ChatOpenAI
@@ -243,7 +243,7 @@ Current Results: {insight_info['results']}"""
 
         user_prompt = ITERATIVE_SEARCH_USER_PROMPT.format(query=search_query)
 
-        messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+        messages: list[BaseMessage] = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
 
         if has_pagination:
             read_tool = self._create_read_insights_tool()
@@ -612,7 +612,7 @@ Current Results: {insight_info['results']}"""
             selection_instruction=selection_instruction,
         )
 
-        messages = [SystemMessage(content=system_prompt)]
+        messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
 
         for _ in range(self._max_insights_evaluation_iterations):
             response = llm_with_tools.invoke(messages)
@@ -638,6 +638,8 @@ Current Results: {insight_info['results']}"""
                 if viz_message:
                     visualization_messages.append(viz_message)
                 insight = selection["insight"]
+                if insight is None:
+                    continue
                 insight_name = insight.name or insight.derived_name or "Unnamed"
                 insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
                 insight_hyperlink = f"[{insight_name}]({insight_url})"

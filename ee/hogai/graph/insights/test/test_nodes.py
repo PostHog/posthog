@@ -564,7 +564,7 @@ class TestInsightSearchNode(BaseTest):
 
         self.assertIn(f"ID: {self.insight1.id}", summary)
         self.assertIn("Daily Pageviews", summary)
-        self.assertIn("Type: TRENDS", summary)  # Should detect TRENDS type from filters
+        self.assertIn("Type: Trends", summary)  # Should detect Trends type from query
         self.assertIn("✓ Executable", summary)  # Should be executable
         self.assertIn("Description: Track daily website traffic", summary)
 
