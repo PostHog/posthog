@@ -3,10 +3,8 @@ import {
     LemonButton,
     LemonDivider,
     LemonDropdown,
-    LemonInput,
     LemonSwitch,
     LemonTag,
-    LemonTextArea,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -34,7 +32,6 @@ import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
 import { humanizeHogFunctionType } from '../hog-function-utils'
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { InlineEditableField } from './components/InlineEditableField'
 
 export interface HogFunctionConfigurationProps {
