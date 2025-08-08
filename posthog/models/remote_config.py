@@ -19,7 +19,6 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
-from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
@@ -69,10 +68,6 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
-
-
-def cache_key_for_team_token(team_token: str) -> str:
-    return f"remote_config/{team_token}/config"
 
 
 def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
@@ -324,41 +319,19 @@ class RemoteConfig(UUIDModel):
         return site_apps_js + site_functions_js
 
     @classmethod
-    def _get_config_via_cache(cls, token: str) -> dict:
-        key = cache_key_for_team_token(token)
-
-        data = cache.get(key)
-        if data == "404":
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
-            raise cls.DoesNotExist()
-
-        if data:
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
-            return data
-
-        REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
-        try:
-            remote_config = cls.objects.select_related("team").get(team__api_token=token)
-        except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise
-
-        data = remote_config.build_config()
-        cache.set(key, data, timeout=CACHE_TIMEOUT)
-
-        return data
-
-    @classmethod
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
-        config = cls._get_config_via_cache(token)
+        config = cls.get_hypercache().get_from_cache(token)
+        if config is None:
+            raise RemoteConfig.DoesNotExist()
         config = sanitize_config_for_public_cdn(config, request=request)
 
         return config
 
     @classmethod
     def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        config = cls._get_config_via_cache(token)
+        config = cls.get_hypercache().get_from_cache(token)
+        if config is None:
+            raise RemoteConfig.DoesNotExist()
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
@@ -408,8 +381,6 @@ class RemoteConfig(UUIDModel):
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
 
-            # Update the redis cache key for the config
-            cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
             # Invalidate Cloudflare CDN cache
             self._purge_cdn()
 
