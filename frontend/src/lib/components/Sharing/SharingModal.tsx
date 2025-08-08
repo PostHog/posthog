@@ -89,7 +89,7 @@ export function SharingModalContent({
         embedCode,
         iframeProperties,
         shareLink,
-        sharingAllowed, // <-- add this to sharingLogic if not already present
+        sharingAllowed,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -170,7 +170,7 @@ export function SharingModalContent({
                             </AccessControlAction>
                         )}
 
-                        {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
+                        {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="deprecated-space-y-2">
                                     <LemonButton
