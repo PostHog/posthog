@@ -93,7 +93,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
         case PluginServerMode.cdp_aggregation_writer:
             return {
-                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
+                cdpAggregationWriter: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {
