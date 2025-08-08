@@ -12,6 +12,7 @@ from pydantic_avro import AvroBase
 from dags.common import JobOwners
 from dags.max_ai.utils import compose_clickhouse_dump_path, compose_postgres_dump_path
 from ee.hogai.eval.schema import (
+    ActorsPropertyTaxonomySchema,
     ClickhouseProjectDataSnapshot,
     DataWarehouseTableSchema,
     GroupTypeMappingSchema,
@@ -21,10 +22,11 @@ from ee.hogai.eval.schema import (
     TeamSchema,
     TeamTaxonomyItemSchema,
 )
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.models import Team
-from posthog.schema import EventTaxonomyQuery, TeamTaxonomyItem, TeamTaxonomyQuery
+from posthog.models import GroupTypeMapping, Team
+from posthog.schema import ActorsPropertyTaxonomyQuery, EventTaxonomyQuery, TeamTaxonomyItem, TeamTaxonomyQuery
 
 
 def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
@@ -138,6 +140,28 @@ def snapshot_properties_taxonomy(
     return file_key
 
 
+def snapshot_actors_property_taxonomy(context: dagster.OpExecutionContext, s3: S3Resource, team: Team):
+    # Snapshot all group type mappings and person
+    results: list[PropertyTaxonomySchema] = []
+    group_type_mappings: list[int | None] = [
+        None,
+        *(g.group_type_index for g in GroupTypeMapping.objects.filter(team=team)),
+    ]
+    for index in group_type_mappings:
+        log_entity = f"group type {index}" if index else "persons"
+        context.log.info(f"Snapshotting properties taxonomy for {log_entity}")
+        res = ActorsPropertyTaxonomyQueryRunner(
+            query=ActorsPropertyTaxonomyQuery(group_type_index=index, maxPropertyValues=25),
+            team=team,
+        ).calculate()
+        results.append(ActorsPropertyTaxonomySchema(group_type_index=index, results=res.results))
+    file_key = compose_clickhouse_dump_path(team.id, "actors_property_taxonomy.avro")
+    context.log.info(f"Dumping actors property taxonomy to {file_key}")
+    with dump_model(s3=s3, schema=ActorsPropertyTaxonomySchema, file_key=file_key) as dump:
+        dump(results)
+    return file_key
+
+
 @dagster.op(
     description="Snapshots ClickHouse project data",
     tags={"owner": JobOwners.TEAM_MAX_AI.value},
@@ -148,19 +172,21 @@ def snapshot_clickhouse_project_data(
     team = Team.objects.get(id=project_id)
     event_taxonomy_file_key, event_taxonomy = snapshot_events_taxonomy(s3, team)
     properties_taxonomy_file_key = snapshot_properties_taxonomy(context, s3, team, event_taxonomy)
+    actors_property_taxonomy_file_key = snapshot_actors_property_taxonomy(context, s3, team)
+    materialized_result = ClickhouseProjectDataSnapshot(
+        event_taxonomy=event_taxonomy_file_key,
+        properties_taxonomy=properties_taxonomy_file_key,
+        actors_property_taxonomy=actors_property_taxonomy_file_key,
+    )
     context.log_event(
         dagster.AssetMaterialization(
             asset_key="project_clickhouse_snapshots",
             description="Avro snapshots of project ClickHouse data",
             metadata={
                 "project_id": project_id,
-                "event_taxonomy": event_taxonomy_file_key,
-                "properties_taxonomy": properties_taxonomy_file_key,
+                **materialized_result.model_dump(),
             },
             tags={"owner": JobOwners.TEAM_MAX_AI.value},
         )
     )
-    return ClickhouseProjectDataSnapshot(
-        event_taxonomy=event_taxonomy_file_key,
-        properties_taxonomy=properties_taxonomy_file_key,
-    )
+    return materialized_result

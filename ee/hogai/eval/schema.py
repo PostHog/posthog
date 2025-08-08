@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from pydantic_avro import AvroBase
 
 from posthog.models import DataWarehouseTable, GroupTypeMapping, PropertyDefinition, Team
-from posthog.schema import EventTaxonomyItem, TeamTaxonomyItem
+from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
 
 
 class EvalsDockerImageConfig(BaseModel):
@@ -157,9 +157,16 @@ class PropertyTaxonomySchema(AvroBase):
     results: list[EventTaxonomyItem]
 
 
+# posthog/hogql_queries/ai/actors_property_taxonomy_query_runner.py
+class ActorsPropertyTaxonomySchema(AvroBase):
+    group_type_index: int | None
+    results: ActorsPropertyTaxonomyResponse
+
+
 class ClickhouseProjectDataSnapshot(BaseModel):
     event_taxonomy: str
     properties_taxonomy: str
+    actors_property_taxonomy: str
 
 
 class ProjectSnapshot(BaseModel):
