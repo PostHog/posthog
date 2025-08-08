@@ -469,6 +469,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                         values.breakdownFilter.breakdowns,
                         {
                             histogram_bin_count: binsUsed ? binCount : undefined,
+                            breakdown_bins: [],
                         },
                         breakdown,
                         breakdownType
@@ -514,12 +515,17 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             }
 
             if (values.isMultipleBreakdownsEnabled) {
+                const breakdownUpdate: Partial<Breakdown> = {
+                    breakdown_bins: bins,
+                }
+                if (bins?.length) {
+                    breakdownUpdate.histogram_bin_count = undefined
+                }
+
                 props.updateBreakdownFilter?.({
                     breakdowns: updateNestedBreakdown(
                         values.breakdownFilter.breakdowns,
-                        {
-                            breakdown_bins: bins,
-                        },
+                        breakdownUpdate,
                         breakdown,
                         breakdownType
                     ),
