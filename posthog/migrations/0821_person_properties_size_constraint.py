@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 ) THEN
                     ALTER TABLE posthog_person
                     ADD CONSTRAINT check_properties_size
-                    CHECK (pg_column_size(properties) <= 524288) NOT VALID;
+                    CHECK (pg_column_size(properties) <= 655360) NOT VALID;
                 END IF;
             END
             $$ LANGUAGE plpgsql;
