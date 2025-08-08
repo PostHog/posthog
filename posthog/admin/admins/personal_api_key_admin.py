@@ -12,12 +12,30 @@ from posthog.tasks.email import send_personal_api_key_exposed
 class PersonalAPIKeyAdmin(admin.ModelAdmin):
     change_form_template = "admin/posthog/personal_api_key/change_form.html"
 
-    readonly_fields = ("roll_action",)
+    fields = (
+        "id",
+        "user",
+        "label",
+        "created_at",
+        "last_used_at",
+        "last_rolled_at",
+        "scopes",
+        "scoped_teams",
+        "scoped_organizations",
+        "team",
+        "roll_action",
+    )
+    readonly_fields = (
+        "id",
+        "team",
+        "user",
+        "roll_action",
+    )
     list_display = ("id", "label", "mask_value", "user_link", "created_at", "last_used_at", "scopes", "roll_action")
     list_display_links = ("id", "label")
     list_select_related = ("user",)
     search_fields = ("id", "user__email", "scopes")
-    autocomplete_fields = ("user",)
+    autocomplete_fields = ("user", "team")
     ordering = ("-created_at",)
 
     @admin.display(description="User")
