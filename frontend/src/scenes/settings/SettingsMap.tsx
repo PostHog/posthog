@@ -228,6 +228,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
+                flag: '!CRM_ITERATION_ONE',
             },
             {
                 id: 'persons-join-mode',
@@ -332,6 +333,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Pre-aggregated tables',
                 component: <PreAggregatedTablesSetting />,
                 flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-crm',
+        title: 'CRM',
+        flag: 'CRM_ITERATION_ONE',
+        settings: [
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
             },
         ],
     },

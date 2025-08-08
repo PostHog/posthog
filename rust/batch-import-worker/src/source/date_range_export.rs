@@ -254,7 +254,7 @@ impl DateRangeExportSource {
                     if let Err(e) = tokio::fs::remove_file(&path).await {
                         warn!("Failed to remove temp file {}: {:?}", path.display(), e);
                     } else {
-                        info!("Cleaned up temp file: {}", path.display());
+                        debug!("Cleaned up temp file: {}", path.display());
                     }
                 }
             }
@@ -541,7 +541,7 @@ impl DataSource for DateRangeExportSource {
     async fn prepare_for_job(&self) -> Result<(), Error> {
         let temp_dir =
             tempfile::tempdir().with_context(|| "Failed to create temp directory for job")?;
-        info!("Created temp directory for job: {:?}", temp_dir.path());
+        debug!("Created temp directory for job: {:?}", temp_dir.path());
 
         {
             let mut temp_dir_guard = self.temp_dir.lock().await;
@@ -552,39 +552,20 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn cleanup_after_job(&self) -> Result<(), Error> {
-        let keys_and_data = {
+        // Best-effort:clear in-memory references and drop the job-scoped temp dir.
+        // TempDir drop removes the directory recursively; per-file deletes are redundant and noisy.
+        {
             let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys
-                .drain()
-                .collect::<Vec<(String, ExtractedPartData)>>()
-        };
-        let mut cleanup_errors = Vec::new();
-
-        for (key, extracted_part) in keys_and_data {
-            if let Err(e) = tokio::fs::remove_file(&extracted_part.data_file_path).await {
-                let err = e.to_string();
-                cleanup_errors.push((key.clone(), e));
-                warn!("Failed to remove temp file for key {}: {}", key, err);
-            } else {
-                info!("Cleaned up key: {}", key);
-            }
+            prepared_keys.clear();
         }
         {
             let mut temp_dir_guard = self.temp_dir.lock().await;
             if let Some(temp_dir) = temp_dir_guard.take() {
                 drop(temp_dir);
-                info!("Cleaned up temp directory");
+                debug!("Cleaned up temp directory");
             }
         }
-
-        info!("Job cleanup complete");
-        if !cleanup_errors.is_empty() {
-            return Err(Error::msg(format!(
-                "Failed to cleanup {} keys: {:?}",
-                cleanup_errors.len(),
-                cleanup_errors.iter().map(|(k, _)| k).collect::<Vec<_>>()
-            )));
-        }
+        debug!("Job cleanup complete");
         Ok(())
     }
 
@@ -620,7 +601,7 @@ impl DataSource for DateRangeExportSource {
             if let Err(e) = tokio::fs::remove_file(&extracted_part.data_file_path).await {
                 warn!("Failed to remove temp file for key {}: {}", key, e);
             } else {
-                info!("Cleaned up key: {}", key);
+                debug!("Cleaned up key: {}", key);
             }
         }
         Ok(())

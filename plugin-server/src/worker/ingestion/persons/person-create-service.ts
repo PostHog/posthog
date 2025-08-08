@@ -3,8 +3,10 @@ import { DateTime } from 'luxon'
 
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'
+import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
 import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 export class PersonCreateService {
     constructor(private context: PersonContext) {}
@@ -41,42 +43,60 @@ export class PersonCreateService {
             propertiesLastUpdatedAt[key] = createdAt.toISO()
         })
 
-        const result = await (tx || this.context.personStore).createPerson(
-            createdAt,
-            props,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
-            teamId,
-            isUserId,
-            isIdentified,
-            uuid,
-            distinctIds
-        )
+        try {
+            const result = await (tx || this.context.personStore).createPerson(
+                createdAt,
+                props,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                distinctIds
+            )
 
-        if (result.success) {
-            await this.context.kafkaProducer.queueMessages(result.messages)
-            return [result.person, result.created]
-        }
-
-        // Handle creation conflict - another process created the person concurrently
-        if (result.error === 'CreationConflict') {
-            // Try to fetch the person that was created concurrently
-            for (const distinctIdInfo of distinctIds) {
-                const existingPerson = await this.context.personStore.fetchForUpdate(teamId, distinctIdInfo.distinctId)
-                if (existingPerson) {
-                    return [existingPerson, false]
-                }
+            if (result.success) {
+                await this.context.kafkaProducer.queueMessages(result.messages)
+                return [result.person, result.created]
             }
 
-            // If we still can't find the person, something is wrong
-            throw new Error(
-                `Person creation failed with constraint violation, but could not fetch existing person for distinct IDs: ${result.distinctIds.join(
-                    ', '
-                )}`
-            )
-        }
+            // Handle creation conflict - another process created the person concurrently
+            if (result.error === 'CreationConflict') {
+                // Try to fetch the person that was created concurrently
+                for (const distinctIdInfo of distinctIds) {
+                    const existingPerson = await this.context.personStore.fetchForUpdate(
+                        teamId,
+                        distinctIdInfo.distinctId
+                    )
+                    if (existingPerson) {
+                        return [existingPerson, false]
+                    }
+                }
 
-        // This should never happen due to the discriminated union, but TypeScript requires it
-        throw new Error('Unexpected CreatePersonResult state')
+                // If we still can't find the person, something is wrong
+                throw new Error(
+                    `Person creation failed with constraint violation, but could not fetch existing person for distinct IDs: ${result.distinctIds.join(
+                        ', '
+                    )}`
+                )
+            }
+
+            // This should never happen due to the discriminated union, but TypeScript requires it
+            throw new Error('Unexpected CreatePersonResult state')
+        } catch (error) {
+            if (error instanceof PersonPropertiesSizeViolationError) {
+                await captureIngestionWarning(this.context.kafkaProducer, teamId, 'person_properties_size_violation', {
+                    personId: error.personId,
+                    distinctId: distinctIds[0]?.distinctId,
+                    teamId: teamId,
+                    message: 'Person properties exceeds size limit and was rejected',
+                })
+                throw error
+            }
+
+            // Re-throw other errors
+            throw error
+        }
     }
 }

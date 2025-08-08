@@ -224,10 +224,16 @@ export enum SurveyTemplateType {
     CCR = 'Customer churn rate (CCR)',
     PMF = 'Product-market fit (PMF)',
     ErrorTracking = 'Capture exceptions',
+    TrafficAttribution = 'Traffic attribution',
+    FeatureRequest = 'Feature request',
+    OnboardingFeedback = 'Onboarding feedback',
+    BetaFeedback = 'Beta feedback',
 }
 
-type SurveyTemplate = Partial<Survey> & {
+export type SurveyTemplate = Partial<Survey> & {
     templateType: SurveyTemplateType
+    tagType?: 'success' | 'primary' | 'completion' | 'default'
+    category?: 'Metrics' | 'Product' | 'Business' | 'General'
 }
 
 export const defaultSurveyTemplates: SurveyTemplate[] = [
@@ -243,6 +249,81 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             },
         ],
         description: "Let your users share what's on their mind.",
+        tagType: 'default',
+        category: 'General',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.NPS,
+        questions: [
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How likely are you to recommend us to a friend?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                display: 'number',
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
+                lowerBoundLabel: 'Unlikely',
+                upperBoundLabel: 'Very likely',
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What else can we do to improve your experience?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+        ],
+        description: 'Get an industry-recognized benchmark.',
+        tagType: 'success',
+        category: 'Metrics',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.PMF,
+        questions: [
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'How often do you use our product?',
+                choices: ['Every day', 'A few times a week', 'A few times a month', 'A few times a year', 'Never'],
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'How would you feel if you could no longer our product?',
+                choices: ['Not disappointed', 'Somewhat disappointed', 'Very disappointed'],
+                skipSubmitButton: true,
+            },
+        ],
+        description: "40% 'very disappointed' signals product-market fit.",
+        tagType: 'success',
+        category: 'Metrics',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.CSAT,
+        questions: [
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How satisfied are you with PostHog surveys?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                display: 'emoji',
+                scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                lowerBoundLabel: 'Very dissatisfied',
+                upperBoundLabel: 'Very satisfied',
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'Please help us do better! Can you tell us more about the ratings you gave us?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+        ],
+        description: 'Works best after a checkout or support flow.',
+        tagType: 'success',
+        category: 'Metrics',
     },
     {
         type: SurveyType.Popover,
@@ -261,52 +342,8 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             thankYouMessageHeader: 'Looking forward to chatting with you!',
         },
         description: 'Send users straight to your calendar.',
-    },
-    {
-        type: SurveyType.Popover,
-        templateType: SurveyTemplateType.NPS,
-        questions: [
-            {
-                type: SurveyQuestionType.Rating,
-                question: 'How likely are you to recommend us to a friend?',
-                description: '',
-                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
-                display: 'number',
-                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
-                lowerBoundLabel: 'Unlikely',
-                upperBoundLabel: 'Very likely',
-            },
-        ],
-        description: 'Get an industry-recognized benchmark.',
-    },
-    {
-        type: SurveyType.Popover,
-        templateType: SurveyTemplateType.PMF,
-        questions: [
-            {
-                type: SurveyQuestionType.SingleChoice,
-                question: 'How would you feel if you could no longer use PostHog?',
-                choices: ['Not disappointed', 'Somewhat disappointed', 'Very disappointed'],
-            },
-        ],
-        description: "40% 'very disappointed' signals product-market fit.",
-    },
-    {
-        type: SurveyType.Popover,
-        templateType: SurveyTemplateType.CSAT,
-        questions: [
-            {
-                type: SurveyQuestionType.Rating,
-                question: 'How satisfied are you with PostHog surveys?',
-                description: '',
-                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
-                display: 'emoji',
-                scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
-                lowerBoundLabel: 'Very dissatisfied',
-                upperBoundLabel: 'Very satisfied',
-            },
-        ],
-        description: 'Works best after a checkout or support flow.',
+        tagType: 'completion',
+        category: 'Business',
     },
     {
         type: SurveyType.Popover,
@@ -321,9 +358,12 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 scale: SURVEY_RATING_SCALE.LIKERT_7_POINT,
                 lowerBoundLabel: 'Strongly disagree',
                 upperBoundLabel: 'Strongly agree',
+                skipSubmitButton: true,
             },
         ],
         description: 'Works well with churn surveys.',
+        tagType: 'success',
+        category: 'Metrics',
     },
     {
         type: SurveyType.Popover,
@@ -338,34 +378,171 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                     'I found the product too difficult to use',
                     'Other',
                 ],
+                skipSubmitButton: true,
+                hasOpenChoice: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What could we have done better?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
         description: 'Find out if it was something you said.',
+        tagType: 'completion',
+        category: 'Business',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.TrafficAttribution,
+        questions: [
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'Where did you hear about us?',
+                choices: [
+                    'Search engine (Google, Bing, etc)',
+                    'AI assistant (like ChatGPT)',
+                    'Social media (X, LinkedIn, YouTube, etc)',
+                    'Referral from a friend or colleague',
+                    'Other',
+                ],
+                hasOpenChoice: true,
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What made you decide to visit our page?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+        ],
+        description: 'Find out where your traffic is coming from.',
+        tagType: 'completion',
+        category: 'Business',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.ErrorTracking,
+        questions: [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'Looks like something went wrong',
+                description: "We've captured the basics, but please tell us more to help us fix it!",
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+        ],
+        conditions: {
+            url: '',
+            seenSurveyWaitPeriodInDays: 14,
+            actions: null,
+            events: { repeatedActivation: true, values: [{ name: '$exception' }] },
+        },
+        appearance: {
+            surveyPopupDelaySeconds: 2,
+        },
+        description: 'Ask users for context when they hit an exception.',
+        tagType: 'default',
+        category: 'General',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.FeatureRequest,
+        questions: [
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'What feature would you like to see next?',
+                choices: [
+                    'Better analytics dashboard',
+                    'Mobile app',
+                    'API improvements',
+                    'Integration with more tools',
+                    'Other',
+                ],
+                hasOpenChoice: true,
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'Tell us more about how this feature would help you.',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+        ],
+        description: 'Let users vote on your roadmap priorities.',
+        tagType: 'primary',
+        category: 'Product',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.OnboardingFeedback,
+        questions: [
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How was your onboarding experience?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                display: 'emoji',
+                scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                lowerBoundLabel: 'Terrible',
+                upperBoundLabel: 'Amazing',
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What was the most confusing part of getting started?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+        ],
+        conditions: {
+            url: '',
+            seenSurveyWaitPeriodInDays: 1,
+            actions: null,
+            events: null,
+        },
+        description: "Capture first impressions while they're fresh.",
+        tagType: 'primary',
+        category: 'Product',
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.BetaFeedback,
+        questions: [
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How would you rate this new feature?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                display: 'number',
+                scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                lowerBoundLabel: 'Needs work',
+                upperBoundLabel: 'Love it',
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.MultipleChoice,
+                question: 'What aspects need improvement?',
+                choices: [
+                    'Performance/speed',
+                    'User interface',
+                    'Functionality',
+                    'Documentation',
+                    "Nothing, it's great!",
+                ],
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'Any other feedback on this beta feature?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+        ],
+        description: 'Get targeted feedback on new features and betas.',
+        tagType: 'primary',
+        category: 'Product',
     },
 ]
-
-export const errorTrackingSurvey: SurveyTemplate = {
-    type: SurveyType.Popover,
-    templateType: SurveyTemplateType.ErrorTracking,
-    questions: [
-        {
-            type: SurveyQuestionType.Open,
-            question: 'Looks like something went wrong',
-            description: "We've captured the basics, but please tell us more to help us fix it!",
-            descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
-        },
-    ],
-    conditions: {
-        url: '',
-        seenSurveyWaitPeriodInDays: 14,
-        actions: null,
-        events: { repeatedActivation: true, values: [{ name: '$exception' }] },
-    },
-    appearance: {
-        surveyPopupDelaySeconds: 2,
-    },
-    description: 'Ask users for context when they hit an exception.',
-}
 
 export const WEB_SAFE_FONTS = [
     { value: 'inherit', label: 'inherit (uses your website font)' },

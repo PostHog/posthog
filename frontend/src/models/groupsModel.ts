@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -33,6 +33,12 @@ export const groupsModel = kea<groupsModelType>([
                             `/api/projects/${values.currentProjectId}/groups_types/update_metadata`,
                             payload
                         )
+                    }
+                    return []
+                },
+                deleteGroupType: async (groupTypeIndex: number) => {
+                    if (values.groupsEnabled) {
+                        await api.delete(`/api/projects/${values.currentProjectId}/groups_types/${groupTypeIndex}`)
                     }
                     return []
                 },
@@ -135,6 +141,11 @@ export const groupsModel = kea<groupsModelType>([
             if (!values.groupTypesLoading && enabled) {
                 groupsModel.actions.loadAllGroupTypes()
             }
+        },
+    })),
+    listeners(({ actions }) => ({
+        deleteGroupTypeSuccess: () => {
+            actions.loadAllGroupTypes()
         },
     })),
     afterMount(({ actions }) => {

@@ -2,6 +2,18 @@ import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client'
 
 import { InternalPerson } from '~/types'
 
+export const personPropertiesSizeViolationCounter = new Counter({
+    name: 'person_properties_size_violations_total',
+    help: 'Number of person properties size violations',
+    labelNames: ['violation_type'],
+})
+
+export const oversizedPersonPropertiesTrimmedCounter = new Counter({
+    name: 'oversized_person_properties_trimmed',
+    help: 'Number of oversized person properties trimmed',
+    labelNames: ['result'],
+})
+
 export const personMethodCallsPerBatchHistogram = new Histogram({
     name: 'person_method_calls_per_batch',
     help: 'Number of calls to each person store method per distinct ID per batch',

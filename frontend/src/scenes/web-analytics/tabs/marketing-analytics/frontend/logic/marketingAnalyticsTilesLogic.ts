@@ -6,6 +6,7 @@ import {
     DataTableNode,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsHelperForColumnNames,
+    CompareFilter,
 } from '~/queries/schema/schema-general'
 import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
 
@@ -137,13 +138,14 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.query, s.dateFilter, s.draftConversionGoal, s.defaultColumns],
+            (s) => [s.loading, s.query, s.dateFilter, s.draftConversionGoal, s.defaultColumns, s.compareFilter],
             (
                 loading: boolean,
                 query: DataTableNode,
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
-                defaultColumns: string[]
+                defaultColumns: string[],
+                compareFilter: CompareFilter
             ): DataTableNode | null => {
                 if (loading) {
                     return null
@@ -180,6 +182,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         orderBy,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         select: orderedColumns,
+                        compareFilter: compareFilter,
                     },
                     full: true,
                     embedded: false,

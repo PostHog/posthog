@@ -22,7 +22,7 @@ from deltalake import DeltaTable
 from django.conf import settings
 from structlog.types import FilteringBoundLogger
 
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, tag_queries, Product
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
@@ -177,7 +177,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     failed = set()
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     await logger.adebug(f"DAG size = {len(inputs.dag)}")
 
@@ -866,7 +866,7 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
 
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
     async with Heartbeater():
         selector_paths: SelectorPaths = {}
 
@@ -1122,8 +1122,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Create/attach tables and persist their row-count."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
-
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     for model in inputs.models:
         try:

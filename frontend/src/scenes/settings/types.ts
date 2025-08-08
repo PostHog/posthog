@@ -27,6 +27,7 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-error-tracking'
     | 'environment-csp-reporting'
+    | 'environment-crm'
     | 'environment-max'
     | 'environment-integrations'
     | 'environment-access-control'

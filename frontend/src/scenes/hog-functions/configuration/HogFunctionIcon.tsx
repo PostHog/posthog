@@ -48,7 +48,10 @@ export function HogFunctionIconEditable({
     const { setShowPopover, setSearchTerm } = useActions(hogFunctionIconLogic(props))
 
     const content = (
-        <span className="cursor-pointer" onClick={() => setShowPopover(!showPopover)}>
+        <span
+            className="p-1 -m-1 rounded-sm transition-colors cursor-pointer hover:bg-fill-button-tertiary-hover"
+            onClick={() => setShowPopover(!showPopover)}
+        >
             <HogFunctionIcon size={size} src={props.src} />
         </span>
     )

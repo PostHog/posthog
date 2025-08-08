@@ -149,7 +149,6 @@ impl Job {
                 let user_facing_error_message = get_user_message(&e);
                 // If we fail to fetch and parse, we need to pause the job (assuming manual intervention is required) and
                 // return an Ok(None) - this pod can continue to process other jobs, it just can't work on this one
-                error!("Failed to fetch and parse chunk: {:?}", e);
 
                 let current_date_range = {
                     let state = self.state.lock().await;
@@ -174,6 +173,7 @@ impl Job {
                 } else {
                     user_facing_error_message.to_string()
                 };
+                error!(job_id = %model.id, error = ?e, "Pausing job due to error: {}", error_message);
                 model
                     .pause(self.context.clone(), error_message, Some(display_message))
                     .await?;
@@ -332,7 +332,11 @@ impl Job {
 
     async fn successfully_complete(self) -> Result<(), Error> {
         let mut model = self.model.lock().await;
-        model.complete(&self.context.db).await
+        let result = model.complete(&self.context.db).await;
+        if result.is_ok() {
+            info!(job_id = %model.id, "Batch import job complete");
+        }
+        result
     }
 
     // Writes the new partstate to the DB, and sets the job status to paused, such that if there's an issue with the sink commit, the job

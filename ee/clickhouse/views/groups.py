@@ -44,12 +44,15 @@ class GroupTypeSerializer(serializers.ModelSerializer):
         read_only_fields = ["group_type", "group_type_index"]
 
 
-class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class GroupsTypesViewSet(
+    TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
+):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
     sharing_enabled_actions = ["list"]
+    lookup_field = "group_type_index"
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):

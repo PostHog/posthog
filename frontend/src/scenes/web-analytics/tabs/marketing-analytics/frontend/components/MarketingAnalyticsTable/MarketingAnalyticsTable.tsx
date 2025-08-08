@@ -1,17 +1,18 @@
 import { useActions } from 'kea'
 import { Query } from '~/queries/Query/Query'
-import { QueryContext } from '~/queries/types'
+import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
 import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode, MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconGear } from '@posthog/icons'
 import './MarketingAnalyticsTableStyleOverride.scss'
+import { MarketingAnalyticsCell } from '../../shared'
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
@@ -27,6 +28,16 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         ...webAnalyticsDataTableQueryContext,
         insightProps,
         columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
+        columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
+            (acc, column) => {
+                acc[column] = {
+                    title: column,
+                    render: MarketingAnalyticsCell,
+                }
+                return acc
+            },
+            {} as Record<string, QueryContextColumn>
+        ),
     }
 
     return (

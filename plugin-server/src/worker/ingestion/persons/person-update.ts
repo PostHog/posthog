@@ -3,9 +3,9 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { cloneObject } from '~/utils/utils'
 
 import { InternalPerson } from '../../../types'
-import { eventToPersonProperties, initialEventToPersonProperties } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { personPropertyKeyUpdateCounter } from './metrics'
+import { eventToPersonProperties, initialEventToPersonProperties } from './person-property-utils'
 
 export interface PropertyUpdates {
     toSet: Properties

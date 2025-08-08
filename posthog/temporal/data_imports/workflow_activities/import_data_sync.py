@@ -7,6 +7,7 @@ from django.db.models import Prefetch
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import bind_contextvars, get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -59,6 +60,7 @@ def _trim_source_job_inputs(source: ExternalDataSource) -> None:
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
 
     with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
         close_old_connections()

@@ -80,7 +80,6 @@ export async function createTopics(kafkaConfig: any, topics: string[]): Promise<
                             reject(error)
                         }
                     } else {
-                        console.log(`Created topic: ${topic}`)
                         resolve()
                     }
                 }
@@ -127,8 +126,6 @@ export async function deleteAllTopics(kafkaConfig: any): Promise<void> {
         return
     }
 
-    console.log('Deleting topics:', topicsToDelete)
-
     // Use AdminClient to delete topics
     const adminClient = AdminClient.create(kafkaConfig)
     const timeout = 10000
@@ -141,7 +138,6 @@ export async function deleteAllTopics(kafkaConfig: any): Promise<void> {
                     console.error(`Failed to delete topic ${topic}:`, error)
                     reject(error)
                 } else {
-                    console.log(`Deleted topic: ${topic}`)
                     resolve()
                 }
             })

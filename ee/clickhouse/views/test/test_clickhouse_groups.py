@@ -1447,3 +1447,29 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
         return uuid
+
+
+class GroupsTypesViewSetTestCase(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/groups_types"
+
+    def test_delete(self):
+        group_type_data = {
+            "team": self.team,
+            "project": self.project,
+            "group_type": "organization",
+            "group_type_index": 0,
+        }
+        group_type = GroupTypeMapping.objects.create(**group_type_data)
+        delete_url = self.url + f"/{group_type.group_type_index}"
+
+        delete_response = self.client.delete(delete_url)
+
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(GroupTypeMapping.objects.filter(**group_type_data).exists())
+
+        list_response = self.client.get(self.url)
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.json()), 0)

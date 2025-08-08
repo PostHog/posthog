@@ -233,11 +233,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
                 const parsedBatch = await this._parseKafkaBatch(messages)
 
                 // Process the batch (aggregate and write to postgres)
-                const backgroundTask = this.processBatch(parsedBatch).catch((error) => {
-                    throw new Error(`Failed to process aggregation batch: ${error.message}`)
-                })
-
-                return { backgroundTask }
+                await this.processBatch(parsedBatch)
             })
         })
     }
