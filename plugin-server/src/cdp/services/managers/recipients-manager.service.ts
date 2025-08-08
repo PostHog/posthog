@@ -88,7 +88,7 @@ export class RecipientsManagerService {
             .join(' OR ')
 
         const queryString = `SELECT
-                uuid,
+                id,
                 team_id,
                 identifier,
                 preferences,
