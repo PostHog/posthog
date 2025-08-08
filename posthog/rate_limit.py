@@ -1,6 +1,7 @@
 import hashlib
 import re
 import time
+from contextlib import suppress
 from functools import lru_cache
 from typing import Optional
 from django.conf import settings
@@ -77,14 +78,47 @@ def is_decide_rate_limit_enabled() -> bool:
     return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)
 
 
-path_by_env_pattern = re.compile(r"/api/environments/(\d+)/")
-path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
-path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
+path_by_env_pattern = re.compile(r"^/api/environments/(\d+)/")
+path_by_team_pattern = re.compile(r"^/api/projects/(\d+)/")
+path_by_org_pattern = re.compile(r"^/api/organizations/(.+?)/")  # .+? is non-greedy match, bit faster here
 
 
 @patchable
 def patchable_resolve(path: str):
     return resolve(path)
+
+
+def replace_with_param_names(string, pattern):
+    """
+    Replace matched groups in string with their parameter names from the regex pattern.
+
+    Args:
+        string: The input string to process
+        pattern: The regex pattern with named groups
+
+    Returns:
+        String with matched parts replaced by parameter names
+    """
+    # First, extract the named groups from the pattern
+    compiled_pattern = re.compile(pattern)
+
+    def replacement_func(match):
+        # Get the group dictionary (named groups)
+        groups = match.groupdict()
+        if groups:
+            # Return the first named group's name in uppercase
+            return next(iter(groups.keys())).upper()
+        else:
+            # If no named groups, return the matched text as-is
+            return match.group(0)
+
+    return compiled_pattern.sub(replacement_func, string)
+
+
+def fix_prefix(path):
+    route_id = path_by_env_pattern.sub("/api/environments/TEAM_ID/", path)
+    route_id = path_by_team_pattern.sub("/api/projects/TEAM_ID/", route_id)
+    return path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
 
 
 def get_route_from_path(path: str) -> str:
@@ -94,23 +128,28 @@ def get_route_from_path(path: str) -> str:
     and normalizes parameter names for use as metric labels.
     """
     if not path:
-        return "unknown"
+        return ""
 
-    try:
-        resolved = resolve(path)
+    param_names = re.compile(r"/(?:\(.*?<(?:\w+:)?(\w+)>.*?\)|<(?:\w+:)?(\w+)>)(?:/|$)")
+    with suppress(Exception):
+        resolved = patchable_resolve(path)
         route_pattern = resolved.route
         if route_pattern:
             # Convert Django URL parameter syntax to a label-friendly format
-            # e.g., "<team_id>" becomes "TEAM_ID"
-            return re.sub(r"<(?:\w+:)?(\w+)>", lambda m: m.group(1).upper(), route_pattern)
-        else:
-            return "unknown"
-    except Exception:
-        # Fallback to the existing path normalization patterns
-        route_id = path_by_env_pattern.sub("/api/environments/TEAM_ID/", path)
-        route_id = path_by_team_pattern.sub("/api/projects/TEAM_ID/", route_id)
-        route_id = path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
-        return route_id
+            # e.g., "<team_id>" becomes "TEAM_ID
+            # return replace_with_param_names(route_id, route_pattern)
+            if route_pattern.startswith("^"):
+                route_pattern = route_pattern[1:]
+            if route_pattern.endswith("$"):
+                route_pattern = route_pattern[:-1]
+            if route_pattern.endswith("?"):
+                route_pattern = route_pattern[:-1]
+
+            return param_names.sub(
+                lambda m: "/" + (m.group(1) if m.group(1) else m.group(2)).upper() + "/", route_pattern
+            )
+
+    return fix_prefix(path)
 
 
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
