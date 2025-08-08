@@ -62,7 +62,7 @@ export function InlineEditableField({ value, onChange, className, multiline }: I
                             value={editingValue}
                             onChange={(val) => setEditingValue(val)}
                             autoFocus
-                            className="border-none"
+                            className="border-none w-120"
                             onPressEnter={save}
                             autoWidth
                         />

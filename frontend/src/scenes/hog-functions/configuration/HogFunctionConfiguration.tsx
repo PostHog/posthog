@@ -221,13 +221,26 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
 
                                     <div className="flex flex-row gap-2 items-center h-10">
                                         {template && <HogFunctionStatusTag status={template.status} />}
-                                        <HogFunctionStatusIndicator hogFunction={hogFunction} />
+                                        {hogFunction ? (
+                                            <HogFunctionStatusIndicator hogFunction={hogFunction} />
+                                        ) : (
+                                            <LemonTag type={configuration.enabled ? 'success' : 'default'}>
+                                                {configuration.enabled ? 'Start enabled' : 'Start paused'}
+                                            </LemonTag>
+                                        )}
                                         <LemonField name="enabled">
                                             {({ value, onChange }) => (
                                                 <LemonSwitch
                                                     onChange={() => onChange(!value)}
                                                     checked={value}
                                                     disabled={loading}
+                                                    tooltip={
+                                                        <>
+                                                            {value
+                                                                ? 'Enabled. Events will be processed.'
+                                                                : 'Disabled. Events will not be processed.'}
+                                                        </>
+                                                    }
                                                 />
                                             )}
                                         </LemonField>
