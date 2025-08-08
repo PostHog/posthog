@@ -502,7 +502,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
-        if not before_update or before_update.query != updated_insight.query:
+        if not before_update or before_update.query != updated_insight.query or updated_insight.query_metadata is None:
             query_meta_task = extract_insight_query_metadata.apply_async(
                 kwargs={"insight_id": updated_insight.id},
                 countdown=10 * 60,  # 10 minutes
