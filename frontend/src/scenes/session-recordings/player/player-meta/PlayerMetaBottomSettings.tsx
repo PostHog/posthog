@@ -25,6 +25,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { ExporterFormat } from '~/types'
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -93,12 +94,24 @@ function Screenshot(): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
-        <SettingsButton
-            title="Take a screenshot of the current frame"
-            label="Screenshot"
-            data-attr="screenshot"
-            onClick={takeScreenshot}
+        <SettingsMenu
             icon={<IconLlmPromptEvaluation />}
+            data-attr="screenshot"
+            items={[
+                {
+                    label: <div className="flex w-full deprecated-space-x-2 justify-between">PNG</div>,
+                    onClick: () => takeScreenshot(ExporterFormat.PNG),
+                },
+                {
+                    label: <div className="flex w-full deprecated-space-x-2 justify-between">GIF (5 sec)</div>,
+                    onClick: () => takeScreenshot(ExporterFormat.GIF),
+                },
+                {
+                    label: <div className="flex w-full deprecated-space-x-2 justify-between">MP4 (5 sec)</div>,
+                    onClick: () => takeScreenshot(ExporterFormat.MP4),
+                },
+            ]}
+            label="Screenshot"
         />
     )
 }
