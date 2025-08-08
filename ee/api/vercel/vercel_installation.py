@@ -222,11 +222,11 @@ class VercelInstallationViewSet(
             installation_id=installation_id,
             organization=organization,
             upsert_data=serializer.validated_data,
-            billing_plan_id="free",  # TODO: Make this dynamic
+            # If the provider is using installation-level billing plans,
+            # a default plan must be assigned in provider systems (default "free")
+            billing_plan_id="free",
         )
 
-        # If the provider is using installation-level billing plans,
-        # a default plan must be assigned in provider systems (default "free")
         return Response(status=204)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -234,7 +234,6 @@ class VercelInstallationViewSet(
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#get-installation
         """
 
-        # Get installation_id from kwargs
         installation_id = self.kwargs.get("installation_id")
 
         installation = VercelInstallation.objects.get(installation_id=installation_id)
@@ -262,6 +261,8 @@ class VercelInstallationViewSet(
             installation = VercelInstallation.objects.get(installation_id=installation_id)
         except VercelInstallation.DoesNotExist:
             raise exceptions.NotFound("Installation not found")
+
+        # TODO: Handle billing plan updates
 
         installation.upsert_data = serializer.validated_data
         installation.save(update_fields=["upsert_data"])
