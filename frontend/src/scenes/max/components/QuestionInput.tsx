@@ -271,83 +271,112 @@ const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomAc
         : []
 
     return (
-        <div ref={toolsContainerRef} className="flex items-center w-full gap-1 justify-center cursor-help">
-            <Tooltip
-                placement="bottom-end"
-                arrowOffset={8 /* 8px from right edge to align with the info icon */}
-                title={
-                    <>
-                        <div className="mb-2">
-                            <div className="font-semibold mb-0.5">Max can:</div>
-                            <ul className="space-y-0.5 text-sm">
-                                {MAX_CAN.map((item, index) => (
-                                    <li key={index} className="flex items-center">
-                                        <IconCheck className="text-base text-success shrink-0 ml-1 mr-2" />
-                                        <span>{item}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                        <div>
-                            <div className="font-semibold mb-0.5">Max can't (yet):</div>
-                            <ul className="space-y-0.5 text-sm">
-                                {MAX_CANNOT.map((item, index) => (
-                                    <li key={index} className="flex items-center">
-                                        <IconX className="text-base text-danger shrink-0 ml-1 mr-2" />
-                                        <span>{item}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </>
-                }
+        <div ref={toolsContainerRef} className="flex items-center w-full justify-center cursor-default">
+            <div
+                className={clsx(
+                    'relative flex items-center text-xs font-medium justify-between gap-1 pl-1',
+                    !isFloating
+                        ? 'w-[calc(100%-1rem)] py-0.75 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        : `w-full pb-1`
+                )}
             >
-                <div
-                    className={clsx(
-                        'relative flex items-center text-xs font-medium justify-between gap-1 px-1',
-                        !isFloating
-                            ? 'w-[calc(100%-1rem)] py-0.75 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                            : `w-full pb-1`
-                    )}
-                >
-                    <div className="w-full flex items-center gap-1">
-                        <span className="shrink-0">Tools available:</span>
-                        {toolsInReverse.map((tool, index) => (
-                            <React.Fragment key={tool.name}>
-                                <span
-                                    ref={(e) => e && (toolsRef.current[index] = e)}
-                                    className="relative flex-shrink-0"
-                                >
-                                    <ToolPill tool={tool} hidden={toolsHidden.includes(tool.name)} />
-                                    {tool.name === firstToolOverflowing && (
-                                        <span className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center gap-1">
+                <div className="w-full flex items-center gap-1">
+                    <span className="shrink-0">Tools available:</span>
+                    {toolsInReverse.map((tool, index) => (
+                        <React.Fragment key={tool.name}>
+                            <span ref={(e) => e && (toolsRef.current[index] = e)} className="relative flex-shrink-0">
+                                {/* We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
+                                or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct */}
+                                <ToolPill
+                                    tool={tool}
+                                    hidden={toolsHidden.includes(tool.name)}
+                                    className="border-[var(--color-posthog-3000-300)]"
+                                />
+                                {tool.name === firstToolOverflowing && (
+                                    <Tooltip
+                                        title={
+                                            <div className="flex items-center gap-1 flex-wrap">
+                                                {tools
+                                                    .filter((t) => toolsHidden.includes(t.name))
+                                                    .map((t) => (
+                                                        <ToolPill
+                                                            key={t.name}
+                                                            tool={t}
+                                                            className="border-[var(--color-neutral-500)]"
+                                                        />
+                                                    ))}
+                                            </div>
+                                        }
+                                    >
+                                        <span className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center gap-1 cursor-help">
                                             + {toolsHidden.length} more
                                         </span>
-                                    )}
-                                </span>
-                            </React.Fragment>
-                        ))}
-                    </div>
-                    <IconInfo className="text-sm" />
+                                    </Tooltip>
+                                )}
+                            </span>
+                        </React.Fragment>
+                    ))}
                 </div>
-            </Tooltip>
+                <Tooltip
+                    placement="bottom-end"
+                    arrowOffset={6 /* 6px from right edge to align with the info icon */}
+                    delayMs={50}
+                    title={
+                        <>
+                            <div className="mb-2">
+                                <div className="font-semibold mb-0.5">Max can:</div>
+                                <ul className="space-y-0.5 text-sm">
+                                    {MAX_CAN.map((item, index) => (
+                                        <li key={index} className="flex items-center">
+                                            <IconCheck className="text-base text-success shrink-0 ml-1 mr-2" />
+                                            <span>{item}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <div>
+                                <div className="font-semibold mb-0.5">Max can't (yet):</div>
+                                <ul className="space-y-0.5 text-sm">
+                                    {MAX_CANNOT.map((item, index) => (
+                                        <li key={index} className="flex items-center">
+                                            <IconX className="text-base text-danger shrink-0 ml-1 mr-2" />
+                                            <span>{item}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </>
+                    }
+                >
+                    <IconInfo className="text-sm p-1 box-content z-10" />
+                </Tooltip>
+            </div>
             {bottomActions && <div className="ml-auto">{bottomActions}</div>}
         </div>
     )
 }
 
-function ToolPill({ tool, hidden }: { tool: ToolDefinition; hidden: boolean }): JSX.Element {
+function ToolPill({
+    tool,
+    hidden,
+    className,
+}: {
+    tool: ToolDefinition
+    hidden?: boolean
+    className?: string
+}): JSX.Element {
     return (
-        <em
-            className={clsx(
-                // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
-                // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
-                'relative inline-flex items-center gap-1 border border-[var(--color-posthog-3000-300)] border-dashed rounded-sm pl-0.5 pr-1',
-                hidden && 'invisible'
-            )}
-        >
-            <span className="text-sm">{tool.icon || <IconWrench />}</span>
-            {tool.displayName}
-        </em>
+        <Tooltip key={tool.name} title={tool.description}>
+            <em
+                className={clsx(
+                    'relative inline-flex items-center gap-1 border border-dashed rounded-sm pl-0.5 pr-1 cursor-help',
+                    hidden && 'invisible',
+                    className
+                )}
+            >
+                <span className="text-sm">{tool.icon || <IconWrench />}</span>
+                {tool.displayName}
+            </em>
+        </Tooltip>
     )
 }
