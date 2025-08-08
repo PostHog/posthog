@@ -261,8 +261,8 @@ class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[Max
         super().__init__(
             team,
             user,
-            loop_node_class=MyLoopNode,
-            tools_node_class=MyToolsNode,
+            loop_node_class=LoopNode,
+            tools_node_class=ToolsNode,
             toolkit_class=YourToolkit,
         )
 ```
