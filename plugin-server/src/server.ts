@@ -9,6 +9,7 @@ import express from 'ultimate-express'
 import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
+import { CdpAggregationWriterConsumer } from './cdp/consumers/cdp-aggregation-writer.consumer'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
@@ -269,6 +270,13 @@ export class PluginServer {
             if (capabilities.cdpBehaviouralEvents) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpBehaviouralEventsConsumer(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+            if (capabilities.cdpAggregationWriter) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpAggregationWriterConsumer(hub)
                     await worker.start()
                     return worker.service
                 })
