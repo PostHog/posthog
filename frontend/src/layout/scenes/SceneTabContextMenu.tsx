@@ -3,14 +3,13 @@ import { useActions, useValues } from 'kea'
 import { sceneLogic, SceneTab } from '~/scenes/sceneLogic'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { IconCopy, IconX, IconChevronRight, IconChevronLeft, IconExternal } from '@posthog/icons' // swap for whatever icons you prefer
+import { IconCopy, IconX, IconChevronRight, IconChevronLeft, IconExternal } from '@posthog/icons'
 
 export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children: React.ReactElement }): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { setTabs, removeTab, cloneTab } = useActions(sceneLogic)
 
     const duplicateTab = (): void => {
-        // If you added cloneTab in sceneLogic, prefer:
         cloneTab(tab)
     }
 
