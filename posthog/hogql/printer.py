@@ -1468,6 +1468,12 @@ class _Printer(Visitor[str]):
                 else:
                     field_sql = "person_props"
             else:
+                # Handle temporal group key fields specially
+                from posthog.hogql.database.models import TemporalGroupKeyDatabaseField
+
+                if isinstance(resolved_field, TemporalGroupKeyDatabaseField):
+                    return self._handle_temporal_group_field(resolved_field)
+
                 # this errors because resolved_field is of type ast.Alias and not a field - what's the best way to solve?
                 field_sql = self._print_identifier(resolved_field.name)
                 if self.context.within_non_hogql_query and type_with_name_in_scope == type:
@@ -1499,6 +1505,33 @@ class _Printer(Visitor[str]):
             raise ImpossibleASTError(error)
 
         return field_sql
+
+    def _handle_temporal_group_field(self, resolved_field) -> str:
+        """
+        Handle temporal group key fields by generating conditional logic.
+        Returns: if(event.timestamp < groupTypeMapping.created_at, '', $group_N)
+        """
+        from posthog.models.group_type_mapping import GroupTypeMapping
+
+        group_index = resolved_field.group_index
+        team = self.context.team
+
+        # Try to get the GroupTypeMapping for this index
+        try:
+            group_mapping = GroupTypeMapping.objects.get(team=team, group_type_index=group_index)
+            if group_mapping.created_at is None:
+                # If no created_at, just return the regular field access
+                return self._print_identifier(f"$group_{group_index}")
+
+            # Format the created_at timestamp for SQL
+            created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Generate the conditional SQL
+            return f"if(events.timestamp < '{created_at_str}', '', {self._print_identifier(f'$group_{group_index}')})"
+
+        except GroupTypeMapping.DoesNotExist:
+            # If no mapping exists, always return empty string
+            return "''"
 
     def __get_materialized_property_source_for_property_type(
         self, type: ast.PropertyType

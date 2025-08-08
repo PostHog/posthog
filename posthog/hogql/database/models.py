@@ -79,6 +79,19 @@ class StringJSONDatabaseField(DatabaseField):
         return StringType(nullable=self.is_nullable())
 
 
+class TemporalGroupKeyDatabaseField(StringDatabaseField):
+    """
+    A database field that applies temporal filtering for group fields based on GroupTypeMapping.created_at.
+    For $group_N fields, this returns:
+    - Empty string if no GroupTypeMapping exists for that index
+    - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    group_index: int
+
+
 class StringArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringType
