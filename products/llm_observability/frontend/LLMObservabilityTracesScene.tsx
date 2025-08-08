@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonTag } from '@posthog/lemon-ui'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
@@ -11,6 +12,7 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
 import { formatLLMCost, formatLLMUsage, removeMilliseconds } from './utils'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export function LLMObservabilityTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } =
@@ -35,6 +37,14 @@ export function LLMObservabilityTraces(): JSX.Element {
                     id: {
                         title: 'ID',
                         render: IDColumn,
+                    },
+                    inputState: {
+                        title: 'Input message',
+                        render: InputMessageColumn,
+                    },
+                    outputState: {
+                        title: 'Output message',
+                        render: OutputMessageColumn,
                     },
                     timestamp: {
                         title: 'Time',
@@ -126,3 +136,61 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 CostColumn.displayName = 'CostColumn'
+
+const extractLastMessage = (state: any): string | null => {
+    if (!state) {
+        return null
+    }
+    if (typeof state === 'string') {
+        try {
+            state = JSON.parse(state)
+        } catch {
+            return null
+        }
+    }
+    const primary =
+        (typeof state?.message === 'string' && state.message) ||
+        (Array.isArray(state?.messages) && state.messages.length > 0 ? state.messages[state.messages.length - 1] : null)
+    const text = typeof primary === 'string' ? primary : (primary?.content ?? primary?.message ?? primary?.text ?? null)
+    return typeof text === 'string' ? text : null
+}
+
+const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const text = extractLastMessage(row.inputState)
+    if (!text) {
+        return null
+    }
+    return (
+        <LemonTag className="whitespace-normal">
+            <LemonMarkdown>{text}</LemonMarkdown>
+        </LemonTag>
+    )
+}
+InputMessageColumn.displayName = 'InputMessageColumn'
+
+const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+
+    const errorEventFound = Array.isArray(row.events)
+        ? row.events.find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
+        : false
+    if (errorEventFound) {
+        return (
+            <LemonTag type="danger" className="whitespace-normal">
+                {errorEventFound.properties?.$ai_error || 'Error'}
+            </LemonTag>
+        )
+    }
+
+    const text = extractLastMessage(row.outputState)
+    if (!text) {
+        return null
+    }
+    return (
+        <LemonTag className="whitespace-normal">
+            <LemonMarkdown>{text}</LemonMarkdown>
+        </LemonTag>
+    )
+}
+OutputMessageColumn.displayName = 'OutputMessageColumn'

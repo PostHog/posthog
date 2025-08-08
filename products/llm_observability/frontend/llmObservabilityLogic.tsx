@@ -542,7 +542,17 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
                 },
-                columns: ['id', 'traceName', 'person', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
+                columns: [
+                    'id',
+                    'traceName',
+                    'inputState',
+                    'outputState',
+                    'person',
+                    'totalLatency',
+                    'usage',
+                    'totalCost',
+                    'timestamp',
+                ],
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,
@@ -584,6 +594,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     select: generationsColumns || [
                         'uuid',
                         'properties.$ai_trace_id',
+                        // Include input/output payloads early so columns appear first
+                        'properties.$ai_input',
+                        'properties.$ai_output',
                         'person',
                         "f'{properties.$ai_model}' -- Model",
                         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
