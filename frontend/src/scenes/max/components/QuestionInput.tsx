@@ -23,13 +23,24 @@ import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messa
 
 export const MAX_CAN = [
     'Query your analytics data and data warehouse',
-    'Edit insights',
-    'Navigate to relevant places in PostHog',
     'Answer questions from PostHog docs',
-    'In "SQL editor": Write and tweak HogQL queries',
-    'In "Session replay": Search session recordings',
-    'In "Surveys": Create surveys',
-    'In "Data pipelines": Set up pipeline transformations and filters (using Hog)',
+    'Navigate to relevant places in PostHog',
+    'Read and analyze attached context like dashboards, insights, and more',
+    <>
+        <em>In Insights:</em> Edit the currently-viewed insight
+    </>,
+    <>
+        <em>In SQL editor:</em> Write and tweak HogQL queries
+    </>,
+    <>
+        <em>In Session replay:</em> Search session recordings
+    </>,
+    <>
+        <em>In Surveys:</em> Create surveys
+    </>,
+    <>
+        <em>In Data pipelines:</em> Set up pipeline transformations and filters, using Hog
+    </>,
 ] as const
 
 export const MAX_CANNOT = [
@@ -37,6 +48,7 @@ export const MAX_CANNOT = [
     'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
     'Guarantee correctness of the queries created',
+    'Order tungsten cubes',
 ] as const
 
 interface QuestionInputProps {
@@ -102,30 +114,30 @@ const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomAc
                 placement="bottom-end"
                 arrowOffset={8 /* 8px from right edge to align with the info icon */}
                 title={
-                    <div className="max-w-[28rem] text-left">
+                    <>
                         <div className="mb-2">
-                            <div className="font-semibold mb-1">Max can:</div>
+                            <div className="font-semibold mb-0.5">Max can:</div>
                             <ul className="space-y-0.5 text-sm">
-                                {MAX_CAN.map((item) => (
-                                    <li key={item} className="flex items-center">
-                                        <IconCheck className="text-base text-success shrink-0 mx-2" />
+                                {MAX_CAN.map((item, index) => (
+                                    <li key={index} className="flex items-center">
+                                        <IconCheck className="text-base text-success shrink-0 ml-1 mr-2" />
                                         <span>{item}</span>
                                     </li>
                                 ))}
                             </ul>
                         </div>
                         <div>
-                            <div className="font-semibold mb-1">Max can't (yet):</div>
+                            <div className="font-semibold mb-0.5">Max can't yet:</div>
                             <ul className="space-y-0.5 text-sm">
-                                {MAX_CANNOT.map((item) => (
-                                    <li key={item} className="flex items-center">
-                                        <IconX className="text-base text-danger shrink-0 mx-2" />
+                                {MAX_CANNOT.map((item, index) => (
+                                    <li key={index} className="flex items-center">
+                                        <IconX className="text-base text-danger shrink-0 ml-1 mr-2" />
                                         <span>{item}</span>
                                     </li>
                                 ))}
                             </ul>
                         </div>
-                    </div>
+                    </>
                 }
             >
                 <div
