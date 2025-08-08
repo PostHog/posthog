@@ -1,13 +1,10 @@
-"""
-Simplified S3 Query Cache Manager tests focusing on S3-specific functionality.
-"""
-
 from datetime import datetime, UTC, timedelta
 from unittest.mock import patch, MagicMock
 
 from posthog.test.base import APIBaseTest
 from posthog.hogql_queries.query_cache_s3 import S3QueryCacheManager
 from posthog.cache_utils import OrjsonJsonSerializer
+import zstd
 
 
 class TestS3QueryCacheManagerSimple(APIBaseTest):
@@ -45,8 +42,6 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
 
     def test_get_cache_data_success(self):
         """Test successful cache data retrieval."""
-        import zstd
-
         manager = self._create_cache_manager()
         test_data = {"result": "test", "count": 42}
         compressed_data = zstd.compress(OrjsonJsonSerializer({}).dumps(test_data))
