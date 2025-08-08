@@ -164,7 +164,7 @@ class SessionSummarizationNode(AssistantNode):
         summary = None
         async for update in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=self._user.pk,
+            user_id=self._user.id,
             team=self._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
