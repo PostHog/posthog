@@ -1,14 +1,14 @@
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled, IconCheck, IconX } from '@posthog/icons'
+import { IconArrowRight, IconStopFilled, IconCheck, IconX, IconWrench, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useState, useEffect } from 'react'
+import { ReactNode, useState, useEffect, useRef } from 'react'
 import React from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-// import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
+import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
@@ -19,18 +19,17 @@ import posthog from 'posthog-js'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
 import { ToolDefinition } from '../maxGlobalLogic'
 import './QuestionInput.scss'
+import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 
 export const MAX_CAN = [
-    'Query data',
-    'Generate and fix HogQL queries',
-    'Search session recordings',
-    'Analyze user interviews',
-    'Create surveys',
+    'Query your analytics data and data warehouse',
+    'Edit insights',
     'Navigate to relevant places in PostHog',
-    'Search error tracking issues',
-    'Summarize experiment results',
-    'Author Hog functions (transformations, filters, inputs)',
     'Answer questions from PostHog docs',
+    'In "SQL editor": Write and tweak HogQL queries',
+    'In "Session replay": Search session recordings',
+    'In "Surveys": Create surveys',
+    'In "Data pipelines": Set up pipeline transformations and filters (using Hog)',
 ] as const
 
 export const MAX_CANNOT = [
@@ -60,15 +59,52 @@ interface ToolsDisplayProps {
     bottomActions?: ReactNode
 }
 
-const ToolsMarquee: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomActions }) => {
+const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomActions }) => {
+    const toolsContainerRef = useRef<HTMLDivElement>(null)
+    const toolsRef = useRef<HTMLElement[]>([])
+    const [firstToolOverflowing, setFirstToolOverflowing] = useState<AssistantContextualTool | null>(null)
+
+    useResizeObserver({
+        ref: toolsContainerRef,
+        onResize: () => {
+            let foundOverflow = false
+            for (let i = 0; i < toolsRef.current.length; i++) {
+                const toolEl = toolsRef.current[i]
+                if (toolEl) {
+                    const rightOverflow =
+                        toolEl.getBoundingClientRect().right - toolEl.parentElement!.getBoundingClientRect().right
+                    // Items other than the last one need 60px free space to the right to safely show "+ n more"
+                    const freeSpaceRequirementPx = i < toolsRef.current.length - 1 ? 60 : 0
+                    if (rightOverflow > -freeSpaceRequirementPx) {
+                        setFirstToolOverflowing(tools[tools.length - i - 1].name)
+                        foundOverflow = true
+                        break
+                    }
+                }
+            }
+            if (!foundOverflow) {
+                setFirstToolOverflowing(null)
+            }
+        },
+    })
+
+    // We show the tools reversed, so the ones registered last (scene-specific) are shown first
+    const toolsInReverse = tools.toReversed()
+    const toolsHidden = firstToolOverflowing
+        ? toolsInReverse
+              .slice(toolsInReverse.findIndex((tool) => tool.name === firstToolOverflowing))
+              .map((tool) => tool.name)
+        : []
+
     return (
-        <div className="flex items-center w-full gap-1 justify-center">
+        <div ref={toolsContainerRef} className="flex items-center w-full gap-1 justify-center cursor-help">
             <Tooltip
-                placement="bottom"
+                placement="bottom-end"
+                arrowOffset={8 /* 8px from right edge to align with the info icon */}
                 title={
                     <div className="max-w-[28rem] text-left">
                         <div className="mb-2">
-                            <div className="font-semibold mb-1">What Max can do</div>
+                            <div className="font-semibold mb-1">Max can:</div>
                             <ul className="space-y-0.5 text-sm">
                                 {MAX_CAN.map((item) => (
                                     <li key={item} className="flex items-center">
@@ -79,7 +115,7 @@ const ToolsMarquee: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomAc
                             </ul>
                         </div>
                         <div>
-                            <div className="font-semibold mb-1">What Max can't do</div>
+                            <div className="font-semibold mb-1">Max can't (yet):</div>
                             <ul className="space-y-0.5 text-sm">
                                 {MAX_CANNOT.map((item) => (
                                     <li key={item} className="flex items-center">
@@ -94,49 +130,41 @@ const ToolsMarquee: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomAc
             >
                 <div
                     className={clsx(
-                        'relative flex items-center text-xs font-medium cursor-help',
+                        'relative flex items-center text-xs font-medium justify-between gap-1 px-1',
                         !isFloating
-                            ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                            ? 'w-[calc(100%-1rem)] py-0.75 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                             : `w-full pb-1`
                     )}
                 >
-                    <div className="relative flex-1 overflow-hidden">
-                        <div className="QuestionInput__ToolsMarquee__track">
-                            <div className="QuestionInput__ToolsMarquee__content">
-                                <span className="shrink-0">Tools available:</span>
-                                {tools.map((tool) => (
-                                    <em key={`a-${tool.name}`} className="inline-flex items-center gap-1">
-                                        {tool.icon && <span className="flex items-center text-sm">{tool.icon}</span>}
+                    <div className="w-full flex items-center gap-1">
+                        <span className="shrink-0">Tools available:</span>
+                        {toolsInReverse.map((tool, index) => (
+                            <React.Fragment key={tool.name}>
+                                <span
+                                    ref={(e) => e && (toolsRef.current[index] = e)}
+                                    className="relative flex-shrink-0"
+                                >
+                                    <em
+                                        className={clsx(
+                                            // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
+                                            // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
+                                            'relative inline-flex items-center gap-1 border border-[var(--color-posthog-3000-300)] border-dashed rounded-sm pl-0.5 pr-1',
+                                            toolsHidden.includes(tool.name) && 'invisible'
+                                        )}
+                                    >
+                                        <span className="text-sm">{tool.icon || <IconWrench />}</span>
                                         {tool.displayName}
                                     </em>
-                                ))}
-                            </div>
-                            <div className="QuestionInput__ToolsMarquee__content" aria-hidden>
-                                <span className="shrink-0">Tools available:</span>
-                                {tools.map((tool) => (
-                                    <em key={`b-${tool.name}`} className="inline-flex items-center gap-1">
-                                        {tool.icon && <span className="flex items-center text-sm">{tool.icon}</span>}
-                                        {tool.displayName}
-                                    </em>
-                                ))}
-                            </div>
-                        </div>
-                        {/* Edge fades */}
-                        <span
-                            aria-hidden
-                            className={clsx(
-                                'pointer-events-none absolute left-0 top-0 h-full w-6',
-                                'bg-gradient-to-r from-[var(--glass-bg-3000)] to-transparent'
-                            )}
-                        />
-                        <span
-                            aria-hidden
-                            className={clsx(
-                                'pointer-events-none absolute right-0 top-0 h-full w-6',
-                                'bg-gradient-to-l from-[var(--glass-bg-3000)] to-transparent'
-                            )}
-                        />
+                                    {tool.name === firstToolOverflowing && (
+                                        <span className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center gap-1">
+                                            + {toolsHidden.length} more
+                                        </span>
+                                    )}
+                                </span>
+                            </React.Fragment>
+                        ))}
                     </div>
+                    <IconInfo className="text-sm" />
                 </div>
             </Tooltip>
             {bottomActions && <div className="ml-auto">{bottomActions}</div>}
@@ -300,7 +328,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <ToolsMarquee isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
+                <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
             </div>
         </div>
     )

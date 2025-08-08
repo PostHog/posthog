@@ -32,47 +32,6 @@
     animation-delay: calc(var(--index) * 25ms);
 }
 
-.QuestionInput__ToolsMarquee__track {
-    display: inline-flex;
-    gap: 0.25rem;
-    align-items: center;
-    width: max-content;
-    white-space: nowrap;
-    animation: QuestionInput__ToolsMarquee var(--marquee-duration, 24s) linear infinite;
-    will-change: transform;
-}
-.QuestionInput__ToolsMarquee__track:hover {
-    animation-play-state: paused;
-}
-
-.QuestionInput__ToolsMarquee__content {
-    display: inline-flex;
-    gap: 0.25rem;
-    align-items: center;
-}
-
-.QuestionInput__ToolsMarquee__content::after {
-    display: inline-block;
-    margin-right: 0.125rem;
-    margin-left: 0.25rem;
-    content: '•';
-}
-
-@keyframes QuestionInput__ToolsMarquee {
-    0% {
-        transform: translateX(0.5rem);
-    }
-    100% {
-        transform: translateX(calc(0.5rem - 50%));
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .QuestionInput__ToolsMarquee__track {
-        animation: none;
-    }
-}
-
 @keyframes QuestionInput__QuestionSuggestion__slide-in-fade-down {
     from {
         opacity: 0;
