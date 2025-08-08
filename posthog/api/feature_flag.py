@@ -24,10 +24,7 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.api.cohort import CohortSerializer
 from posthog.models.experiment import Experiment
-from posthog.models.feature_flag.local_evaluation import (
-    DATABASE_FOR_LOCAL_EVALUATION,
-    get_flags_response_for_local_evaluation,
-)
+from posthog.models.feature_flag.local_evaluation import get_flags_response_for_local_evaluation
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -80,7 +77,6 @@ from posthog.queries.base import (
 from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
-from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import model_activity_signal
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
 
