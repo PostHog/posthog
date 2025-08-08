@@ -1,23 +1,11 @@
-from decimal import Decimal
-from unittest.mock import patch
 
-from parameterized import parameterized
-from django.test import RequestFactory
-from inline_snapshot import snapshot
-import pytest
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.surveys.survey import Survey
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
 from posthog.models.feature_flag.local_evaluation import FeatureFlagLocalEvaluationCache
 from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
-from django.core.cache import cache
-from django.utils import timezone
 
 CONFIG_REFRESH_QUERY_COUNT = 5
 
