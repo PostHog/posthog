@@ -169,15 +169,15 @@ class TestHyperCacheIntegration(HyperCacheTestBase):
         assert source == "db"
 
         # Verify Redis cache was set
-        cached_data = hc.get_from_cache(self.team_id)
+        cached_data, source = hc.get_from_cache_with_source(self.team_id)
         assert cached_data == self.sample_data
         assert source == "redis"
 
         # Get data again (should hit Redis)
-        result2, source2 = hc.get_from_cache_with_source(self.team_id)
+        result, source = hc.get_from_cache_with_source(self.team_id)
 
-        assert result2 == self.sample_data
-        assert source2 == "redis"
+        assert result == self.sample_data
+        assert source == "redis"
 
     def test_s3_fallback_and_cache_population(self):
         """Test S3 fallback and subsequent Redis cache population"""
@@ -242,12 +242,7 @@ class TestHyperCacheEdgeCases(HyperCacheTestBase):
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
 
         # Clear both Redis and S3
-        key = hc.get_cache_key(self.team_id)
-        cache.delete(key)
-        try:
-            object_storage.delete(key)
-        except ObjectStorageError:
-            pass  # Key might not exist
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         result, source = hc.get_from_cache_with_source(self.team_id)
 
