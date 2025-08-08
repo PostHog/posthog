@@ -63,7 +63,7 @@ const createTooltipContent = (
     )
 }
 
-export const renderMarketingAnalyticsCell = (value: any): JSX.Element | null => {
+export const MarketingAnalyticsCell = ({ value }: any): JSX.Element | null => {
     if (!value) {
         return <span>-</span>
     }

@@ -12,7 +12,7 @@ import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconGear } from '@posthog/icons'
 import './MarketingAnalyticsTableStyleOverride.scss'
-import { renderMarketingAnalyticsCell } from '../../shared'
+import { MarketingAnalyticsCell } from '../../shared'
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
@@ -32,7 +32,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             (acc, column) => {
                 acc[column] = {
                     title: column,
-                    render: (props) => renderMarketingAnalyticsCell(props.value),
+                    render: MarketingAnalyticsCell,
                 }
                 return acc
             },
