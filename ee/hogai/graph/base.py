@@ -3,7 +3,6 @@ from typing import Any, Generic
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
-
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
@@ -13,7 +12,6 @@ from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext, MaxBillingContext
 from posthog.sync import database_sync_to_async
 
-from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 from ..utils.types import (
     AssistantMessageUnion,
     AssistantState,
@@ -91,4 +89,3 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]
-FilterOptionsBaseNode = BaseAssistantNode[FilterOptionsState, PartialFilterOptionsState]

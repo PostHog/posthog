@@ -19,17 +19,7 @@ const displayMap: Record<HogWatcherState, DisplayOptions> = {
             </>
         ),
     },
-    [HogWatcherState.disabledForPeriod]: {
-        tagType: 'danger',
-        display: 'Disabled temporarily',
-        description: (
-            <>
-                The function has been disabled temporarily due to enough slow or failed requests. It will be re-enabled
-                soon.
-            </>
-        ),
-    },
-    [HogWatcherState.disabledIndefinitely]: {
+    [HogWatcherState.disabled]: {
         tagType: 'danger',
         display: 'Disabled',
         description: (
@@ -38,6 +28,21 @@ const displayMap: Record<HogWatcherState, DisplayOptions> = {
                 config. Updating your function will re-enable it.
             </>
         ),
+    },
+    [HogWatcherState.forcefully_degraded]: {
+        tagType: 'caution',
+        display: 'Degraded',
+        description: (
+            <>
+                The function has been forcefully marked as degraded by a PostHog admin. This means it is moved to a
+                separate processing queue and may experience delays or increased failures.
+            </>
+        ),
+    },
+    [HogWatcherState.forcefully_disabled]: {
+        tagType: 'danger',
+        display: 'Disabled',
+        description: <>The function has been forcefully disabled by a PostHog admin. Please contact support.</>,
     },
 }
 

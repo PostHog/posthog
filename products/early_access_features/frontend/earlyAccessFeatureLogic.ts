@@ -25,6 +25,9 @@ import {
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
@@ -43,7 +46,14 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            earlyAccessFeaturesLogic,
+            ['earlyAccessFeatures'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     actions({
         setEarlyAccessFeatureMissing: true,
@@ -163,7 +173,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors(({ values, actions }) => ({
         breadcrumbs: [
             (s) => [s.earlyAccessFeature, s.isEditingFeature],
             (earlyAccessFeature: EarlyAccessFeatureType, isEditingFeature: boolean): Breadcrumb[] => [
@@ -176,9 +186,10 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     key: ['EarlyAccessFeature', earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
                     forceEditMode: isEditingFeature,
-                    onRename: isEditingFeature
-                        ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
-                        : undefined,
+                    onRename:
+                        isEditingFeature || !!values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                            ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
+                            : undefined,
                 },
             ],
         ],

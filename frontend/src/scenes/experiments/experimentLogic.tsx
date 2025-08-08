@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -886,9 +886,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
-                    // Check if the new Bayesian stats method feature flag is enabled
-                    const useNewBayesianStatsMethod = values.featureFlags[FEATURE_FLAGS.NEW_BAYESIAN_STATS_METHOD]
-
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -905,14 +902,6 @@ export const experimentLogic = kea<experimentLogicType>([
                                       minimum_detectable_effect: minimumDetectableEffect,
                                   }
                                 : values.experiment?.parameters,
-                        // Set stats_config based on the feature flag if no existing stats_config
-                        ...(useNewBayesianStatsMethod &&
-                            !values.experiment.stats_config && {
-                                stats_config: {
-                                    method: ExperimentStatsMethod.Bayesian,
-                                    use_new_bayesian_method: true,
-                                },
-                            }),
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                     })

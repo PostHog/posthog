@@ -66,7 +66,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                     <CopyToClipboardInline
                         description={urlToUse}
                         explicitValue={urlToUse}
-                        iconStyle={{ color: 'var(--text-secondary)' }}
+                        iconStyle={{ color: 'var(--color-text-secondary)' }}
                         selectable={true}
                     />
                 </span>
