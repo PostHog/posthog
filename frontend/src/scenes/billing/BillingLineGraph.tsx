@@ -369,8 +369,8 @@ export function BillingLineGraph({
                             '--billing-markers-chart-area-left': `${chartAreaLeft}px`,
                             '--billing-markers-chart-area-top': `${chartAreaTop}px`,
                             '--billing-marker-text-color': axisLabelColor,
-                            '--billing-marker-bg-color': isDarkModeOn ? 'var(--bg-light)' : 'white',
-                            '--billing-marker-border-color': 'rgba(0, 0, 0, 0.1)',
+                            '--billing-marker-bg-color': 'var(--color-bg-surface-primary)',
+                            '--billing-marker-border-color': 'var(--color-border-primary)',
                         } as React.CSSProperties & Record<string, string>
                     }
                 >
