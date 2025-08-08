@@ -1,12 +1,14 @@
-import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconEye, IconMarkdown, IconMarkdownFilled, IconCode } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { XMLViewer } from './XMLViewer'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
+import { looksLikeXml } from '../utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
@@ -91,7 +93,7 @@ export function ConversationMessagesDisplay({
         ) : undefined
 
     const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--color-bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
                 <JSONViewer src={output} collapsed={4} />
@@ -123,7 +125,7 @@ export function ConversationMessagesDisplay({
             />
         ))
     ) : (
-        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
+        <div className="rounded border text-default p-2 italic bg-[var(--color-bg-fill-error-tertiary)]">No output</div>
     )
 
     const inputDisplay =
@@ -185,13 +187,16 @@ export const LLMMessageDisplay = React.memo(
         onToggle?: () => void
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
-        const { toggleMarkdownRendering } = useActions(llmObservabilityTraceLogic)
+        const { isRenderingMarkdown, isRenderingXml } = useValues(llmObservabilityTraceLogic)
+        const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmObservabilityTraceLogic)
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
         const isMarkdownCandidate =
             content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s|_|\*|~~)/.test(content) : false
+
+        // Compute whether the content looks like XML
+        const isXmlCandidate = looksLikeXml(content)
 
         // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
@@ -210,10 +215,48 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage
+            content: string | { type: string; content: string } | VercelSDKImageMessage | object[]
         ): JSX.Element | null => {
             if (!content) {
                 return null
+            }
+
+            // Handle array-based content
+            if (Array.isArray(content)) {
+                return (
+                    <>
+                        {content.map((item, index) => (
+                            <React.Fragment key={index}>
+                                {typeof item === 'string' ? (
+                                    <span className="whitespace-pre-wrap">{item}</span>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'text' &&
+                                  'text' in item ? (
+                                    <span className="whitespace-pre-wrap">{item.text}</span>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'image' &&
+                                  'image' in item &&
+                                  typeof item.image === 'string' ? (
+                                    <ImageMessageDisplay
+                                        message={{
+                                            content: {
+                                                type: 'image',
+                                                image: item.image,
+                                            },
+                                        }}
+                                    />
+                                ) : (
+                                    <JSONViewer src={item} name={null} collapsed={5} />
+                                )}
+                                {index < content.length - 1 && <div className="border-t my-2" />}
+                            </React.Fragment>
+                        ))}
+                    </>
+                )
             }
             const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
 
@@ -237,12 +280,23 @@ export const LLMMessageDisplay = React.memo(
                         }
                         return <ImageMessageDisplay message={message} />
                     }
+                    if (parsed.type === 'output_text' && parsed.text) {
+                        return <span className="whitespace-pre-wrap">{parsed.text}</span>
+                    }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return <JSONViewer src={parsed} name={null} collapsed={5} />
                     }
                 } catch {
                     // Not valid JSON. Fall through to Markdown/plain text handling.
                 }
+            }
+
+            // If the content appears to be XML, render based on the toggle.
+            if (isXmlCandidate && typeof content === 'string') {
+                if (isRenderingXml) {
+                    return <XMLViewer collapsed={3}>{content}</XMLViewer>
+                }
+                return <span className="font-mono whitespace-pre-wrap">{content}</span>
             }
 
             // If the content appears to be Markdown, render based on the toggle.
@@ -280,11 +334,11 @@ export const LLMMessageDisplay = React.memo(
                 className={clsx(
                     'rounded border text-default',
                     isOutput
-                        ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
+                        ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                          ? 'bg-[var(--bg-fill-tertiary)]'
+                          ? 'bg-[var(--color-bg-fill-tertiary)]'
                           : role === 'assistant'
-                            ? 'bg-[var(--bg-fill-info-tertiary)]'
+                            ? 'bg-[var(--color-bg-fill-info-tertiary)]'
                             : null
                 )}
             >
@@ -306,6 +360,16 @@ export const LLMMessageDisplay = React.memo(
                                     icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                                     tooltip="Toggle markdown rendering"
                                     onClick={toggleMarkdownRendering}
+                                />
+                            )}
+                            {isXmlCandidate && role !== 'tool' && role !== 'tools' && (
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={<IconCode />}
+                                    tooltip="Toggle XML syntax highlighting"
+                                    onClick={toggleXmlRendering}
+                                    active={isRenderingXml}
                                 />
                             )}
                             <CopyToClipboardInline

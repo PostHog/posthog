@@ -8,7 +8,7 @@
         "kea-router": "^3.4.0",
         "kea-subscriptions": "^3.0.1",
         "lodash.throttle": "^4.1.1",
-        "posthog-js": "1.258.5"
+        "posthog-js": "1.258.6"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",

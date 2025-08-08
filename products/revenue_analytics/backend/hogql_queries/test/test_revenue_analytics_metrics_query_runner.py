@@ -3,6 +3,7 @@ from pathlib import Path
 from decimal import Decimal
 from unittest.mock import ANY
 
+from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
     RevenueAnalyticsMetricsQueryRunner,
 )
@@ -20,6 +21,8 @@ from posthog.schema import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_event,
+    _create_person,
     snapshot_clickhouse_queries,
     NaN,
 )
@@ -89,6 +92,37 @@ LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
+
+    def _create_purchase_events(self, data):
+        person_result = []
+        for distinct_id, timestamps in data:
+            with freeze_time(timestamps[0][0]):
+                person = _create_person(
+                    team_id=self.team.pk,
+                    distinct_ids=[distinct_id],
+                    properties={
+                        "name": distinct_id,
+                        **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
+                    },
+                )
+            event_ids: list[str] = []
+            for timestamp, session_id, revenue, currency, extra_properties in timestamps:
+                event_ids.append(
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=distinct_id,
+                        timestamp=timestamp,
+                        properties={
+                            "$session_id": session_id,
+                            "revenue": revenue,
+                            "currency": currency,
+                            **extra_properties,
+                        },
+                    )
+                )
+            person_result.append((person, event_ids))
+        return person_result
 
     def setUp(self):
         super().setUp()
@@ -359,7 +393,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "label": "LTV | stripe.posthog_test",
                     "days": ALL_MONTHS_DAYS,
                     "labels": ALL_MONTHS_LABELS,
-                    "data": [0.0, 0.0, NaN, NaN, NaN, NaN, NaN, 4.0846249999, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "data": [0, 0, NaN, NaN, NaN, NaN, NaN, 4.0846249999, 0, 0, 0, 0, 0, 0, 0],
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "LTV | stripe.posthog_test",
@@ -772,5 +806,78 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("79.9988749999"),
                 ],  # ARPU
                 [0, 0, NaN, NaN, NaN, NaN, NaN],  # LTV
+            ],
+        )
+
+    def test_with_events_data(self):
+        s1 = str(uuid7("2024-12-02"))
+        s2 = str(uuid7("2025-01-03"))
+        s3 = str(uuid7("2025-02-04"))
+        s4 = str(uuid7("2025-03-06"))
+        self._create_purchase_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2024-12-02", s1, 42, "USD", {"subscription": "sub1"}),
+                        ("2024-12-02", s1, 35456, "ARS", {"subscription": "sub2"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2025-01-01", s2, 43, "BRL", {"subscription": "sub3"}),
+                        ("2025-02-04", s3, 87, "BRL", {"subscription": "sub3"}),
+                        ("2025-03-06", s4, 126, "BRL", {"subscription": "sub3"}),
+                    ],
+                ),  # 3 events, 1 customer
+            ]
+        )
+
+        # Ignore events in ARS because they're considered tests
+        self.team.test_account_filters = [
+            {
+                "key": "currency",
+                "operator": "not_icontains",
+                "value": "ARS",
+                "type": "event",
+            }
+        ]
+        self.team.save()
+
+        # Make sure Revenue Analytics is configured to filter test accounts out
+        self.team.revenue_analytics_config.filter_test_accounts = True
+        self.team.revenue_analytics_config.save()
+
+        results = self._run_revenue_analytics_metrics_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.events.purchase"],
+                )
+            ],
+        ).results
+
+        self.assertEqual(len(results), 8)
+        self.assertEqual(
+            [result["data"] for result in results],
+            [
+                [0, 1, 1, 1, 1, 0, 0],  # Subscription Count
+                [0, 1, 1, 0, 0, 0, 0],  # New Subscription Count
+                [0, 1, 0, 0, 1, 0, 0],  # Churned Subscription Count
+                [0, 1, 1, 1, 1, 0, 0],  # Customer Count
+                [0, 1, 1, 0, 0, 0, 0],  # New Customer Count
+                [0, 1, 0, 0, 1, 0, 0],  # Churned Customer Count
+                [
+                    0,
+                    Decimal("33.0414"),
+                    Decimal("5.5629321819"),
+                    Decimal("11.2552348796"),
+                    Decimal("16.3006849981"),
+                    0,
+                    0,
+                ],  # ARPU
+                [0, 33.0414, NaN, NaN, 16.3006849981, 0, 0],  # LTV
             ],
         )

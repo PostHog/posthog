@@ -184,18 +184,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Analytics'],
     },
     {
-        name: 'Google Analytics',
-        id: 'coming-soon-google-analytics',
-        icon_url: '/static/coming-soon-destinations/Google_Analytics.svg',
-        category: ['Analytics'],
-    },
-    {
-        name: 'Google Analytics 360',
-        id: 'coming-soon-google-analytics-360',
-        icon_url: '/static/coming-soon-destinations/Google_Analytics_360.svg',
-        category: ['Analytics'],
-    },
-    {
         name: 'Google Analytics 4',
         id: 'coming-soon-google-analytics-4',
         icon_url: '/static/coming-soon-destinations/Google_Analytics_4.svg',
