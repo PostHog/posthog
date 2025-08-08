@@ -1,7 +1,7 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch, LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -89,6 +89,7 @@ export function SharingModalContent({
         embedCode,
         iframeProperties,
         shareLink,
+        sharingAllowed, // <-- add this to sharingLogic if not already present
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -134,36 +135,40 @@ export function SharingModalContent({
                 ) : (
                     <>
                         <h3>Sharing</h3>
-                        <AccessControlAction
-                            resourceType={
-                                dashboardId
-                                    ? AccessControlResourceType.Dashboard
-                                    : insightShortId
-                                      ? AccessControlResourceType.Insight
-                                      : AccessControlResourceType.Project
-                            }
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={userAccessLevel}
-                        >
-                            {({ disabled, disabledReason }) => (
-                                <div>
-                                    <LemonSwitch
-                                        id="sharing-switch"
-                                        label={`Share ${resource} publicly`}
-                                        checked={sharingConfiguration.enabled}
-                                        data-attr="sharing-switch"
-                                        onChange={(active) => !disabled && setIsEnabled(active)}
-                                        disabled={disabled}
-                                        bordered
-                                        fullWidth
-                                        tooltip={disabledReason}
-                                    />
-                                    {disabled && disabledReason && (
-                                        <div className="text-muted text-xs mt-1">{disabledReason}</div>
-                                    )}
-                                </div>
-                            )}
-                        </AccessControlAction>
+                        {!sharingAllowed ? (
+                            <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
+                        ) : (
+                            <AccessControlAction
+                                resourceType={
+                                    dashboardId
+                                        ? AccessControlResourceType.Dashboard
+                                        : insightShortId
+                                          ? AccessControlResourceType.Insight
+                                          : AccessControlResourceType.Project
+                                }
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={userAccessLevel}
+                            >
+                                {({ disabled, disabledReason }) => (
+                                    <>
+                                        {disabled && disabledReason && (
+                                            <LemonBanner type="warning">{disabledReason}</LemonBanner>
+                                        )}
+                                        <LemonSwitch
+                                            id="sharing-switch"
+                                            label={`Share ${resource} publicly`}
+                                            checked={sharingConfiguration.enabled}
+                                            data-attr="sharing-switch"
+                                            onChange={(active) => !disabled && setIsEnabled(active)}
+                                            disabled={disabled || !sharingAllowed}
+                                            bordered
+                                            fullWidth
+                                            tooltip={disabledReason}
+                                        />
+                                    </>
+                                )}
+                            </AccessControlAction>
+                        )}
 
                         {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
