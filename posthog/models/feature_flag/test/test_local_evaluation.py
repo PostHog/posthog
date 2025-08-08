@@ -181,7 +181,7 @@ class TestLocalEvaluationCache(BaseTest):
     def test_get_flags_cold(self):
         clear_flag_caches(self.team, kinds=["redis", "s3"])
         response, source = flags_hypercache.get_from_cache_with_source(self.team)
-        assert source == "postgres"
+        assert source == "db"
         self._assert_payload_valid_with_cohorts(response)
 
         # second request should be cached in redis
