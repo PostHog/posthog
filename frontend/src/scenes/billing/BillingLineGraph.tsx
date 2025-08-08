@@ -208,7 +208,9 @@ export function BillingLineGraph({
                                 .map((point) => {
                                     // Add checks for dataset existence
                                     const dataset =
-                                        point.datasetIndex < series.length ? series[point.datasetIndex] : null
+                                        point.datasetIndex < visibleSeries.length
+                                            ? visibleSeries[point.datasetIndex]
+                                            : null
                                     if (!dataset) {
                                         return null
                                     } // Skip if dataset index is out of bounds
