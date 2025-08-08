@@ -181,6 +181,7 @@ describe('SourceWebhooksConsumer', () => {
                 const call = mockExecuteSpy.mock.calls[0][0]
                 expect(call.state.globals.request).toEqual({
                     body: {},
+                    stringBody: '',
                     headers: {
                         'accept-encoding': 'gzip, deflate',
                         connection: 'close',
@@ -208,11 +209,8 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toMatchInlineSnapshot(`{}`)
                 expect(mockExecuteSpy).not.toHaveBeenCalled()
                 expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledWith([
-                    expect.objectContaining({
-                        functionId: hogFunction.id,
-                    }),
-                ])
+                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                expect(call.queue).toEqual('hog_overflow')
             })
 
             it('should return a disabled response if the function is disabled', async () => {

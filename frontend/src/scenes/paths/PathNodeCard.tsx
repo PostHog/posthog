@@ -71,7 +71,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                         border: `1px solid ${
                             isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
                                 ? 'purple'
-                                : 'var(--border-primary)'
+                                : 'var(--color-border-primary)'
                         }`,
                     }}
                     data-attr="path-node-card-button"

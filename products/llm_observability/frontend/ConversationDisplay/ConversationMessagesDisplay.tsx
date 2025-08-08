@@ -1,12 +1,14 @@
-import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconEye, IconMarkdown, IconMarkdownFilled, IconCode } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { XMLViewer } from './XMLViewer'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
+import { looksLikeXml } from '../utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
@@ -71,25 +73,51 @@ export function ConversationMessagesDisplay({
         initializeMessageStates,
     ])
 
+    const allInputsExpanded = inputMessageShowStates.every(Boolean)
+    const allInputsCollapsed = inputMessageShowStates.every((state: boolean) => !state)
+
     const inputButtons =
         inputNormalized.length > 0 ? (
             <div className="flex items-center gap-1">
-                <LemonButton size="xsmall" onClick={() => showAllMessages('input')} icon={<IconEye />}>
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => showAllMessages('input')}
+                    icon={<IconEye />}
+                    disabledReason={allInputsExpanded ? 'All inputs are already expanded' : undefined}
+                >
                     Expand all
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={() => hideAllMessages('input')} icon={<IconEyeHidden />}>
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => hideAllMessages('input')}
+                    icon={<IconEyeHidden />}
+                    disabledReason={allInputsCollapsed ? 'All inputs are already collapsed' : undefined}
+                >
                     Collapse all
                 </LemonButton>
             </div>
         ) : undefined
 
+    const allOutputsExpanded = outputMessageShowStates.every(Boolean)
+    const allOutputsCollapsed = outputMessageShowStates.every((state: boolean) => !state)
+
     const outputButtons =
         outputNormalized.length > 0 ? (
             <div className="flex items-center gap-1">
-                <LemonButton size="xsmall" onClick={() => showAllMessages('output')} icon={<IconEye />}>
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => showAllMessages('output')}
+                    icon={<IconEye />}
+                    disabledReason={allOutputsExpanded ? 'All outputs are already expanded' : undefined}
+                >
                     Expand all
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={() => hideAllMessages('output')} icon={<IconEyeHidden />}>
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => hideAllMessages('output')}
+                    icon={<IconEyeHidden />}
+                    disabledReason={allOutputsCollapsed ? 'All outputs are already collapsed' : undefined}
+                >
                     Collapse all
                 </LemonButton>
             </div>
@@ -214,13 +242,16 @@ export const LLMMessageDisplay = React.memo(
         searchQuery?: string
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
-        const { toggleMarkdownRendering } = useActions(llmObservabilityTraceLogic)
+        const { isRenderingMarkdown, isRenderingXml } = useValues(llmObservabilityTraceLogic)
+        const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmObservabilityTraceLogic)
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
         const isMarkdownCandidate =
             content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s|_|\*|~~)/.test(content) : false
+
+        // Compute whether the content looks like XML
+        const isXmlCandidate = looksLikeXml(content)
 
         // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
@@ -326,6 +357,9 @@ export const LLMMessageDisplay = React.memo(
                         }
                         return <ImageMessageDisplay message={message} />
                     }
+                    if (parsed.type === 'output_text' && parsed.text) {
+                        return <span className="whitespace-pre-wrap">{parsed.text}</span>
+                    }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return (
                             <HighlightedJSONViewer src={parsed} name={null} collapsed={5} searchQuery={searchQuery} />
@@ -334,6 +368,14 @@ export const LLMMessageDisplay = React.memo(
                 } catch {
                     // Not valid JSON. Fall through to Markdown/plain text handling.
                 }
+            }
+
+            // If the content appears to be XML, render based on the toggle.
+            if (isXmlCandidate && typeof content === 'string') {
+                if (isRenderingXml) {
+                    return <XMLViewer collapsed={3}>{content}</XMLViewer>
+                }
+                return <span className="font-mono whitespace-pre-wrap">{content}</span>
             }
 
             // If the content appears to be Markdown, render based on the toggle.
@@ -384,11 +426,11 @@ export const LLMMessageDisplay = React.memo(
                 className={clsx(
                     'rounded border text-default',
                     isOutput
-                        ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
+                        ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                          ? 'bg-[var(--bg-fill-tertiary)]'
+                          ? 'bg-[var(--color-bg-fill-tertiary)]'
                           : role === 'assistant'
-                            ? 'bg-[var(--bg-fill-info-tertiary)]'
+                            ? 'bg-[var(--color-bg-fill-info-tertiary)]'
                             : null
                 )}
             >
@@ -410,6 +452,16 @@ export const LLMMessageDisplay = React.memo(
                                     icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                                     tooltip="Toggle markdown rendering"
                                     onClick={toggleMarkdownRendering}
+                                />
+                            )}
+                            {isXmlCandidate && role !== 'tool' && role !== 'tools' && (
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={<IconCode />}
+                                    tooltip="Toggle XML syntax highlighting"
+                                    onClick={toggleXmlRendering}
+                                    active={isRenderingXml}
                                 />
                             )}
                             <CopyToClipboardInline

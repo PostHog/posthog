@@ -49,6 +49,8 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
+        setIsRenderingXml: (isRenderingXml: boolean) => ({ isRenderingXml }),
+        toggleXmlRendering: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         initializeMessageStates: (inputCount: number, outputCount: number) => ({ inputCount, outputCount }),
         toggleMessage: (type: 'input' | 'output', index: number) => ({ type, index }),
@@ -70,6 +72,13 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             {
                 setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
                 toggleMarkdownRendering: (state) => !state,
+            },
+        ],
+        isRenderingXml: [
+            false as boolean,
+            {
+                setIsRenderingXml: (_, { isRenderingXml }) => isRenderingXml,
+                toggleXmlRendering: (state) => !state,
             },
         ],
         // Single source of truth for message visibility
@@ -194,6 +203,15 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         setIsRenderingMarkdown: ({ isRenderingMarkdown }) => {
             localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(isRenderingMarkdown))
         },
+        toggleMarkdownRendering: () => {
+            localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(values.isRenderingMarkdown))
+        },
+        setIsRenderingXml: ({ isRenderingXml }) => {
+            localStorage.setItem('llm-observability-xml-rendering', JSON.stringify(isRenderingXml))
+        },
+        toggleXmlRendering: () => {
+            localStorage.setItem('llm-observability-xml-rendering', JSON.stringify(values.isRenderingXml))
+        },
         setDisplayOption: ({ displayOption }) => {
             localStorage.setItem('llm-observability-display-option', JSON.stringify(displayOption))
         },
@@ -247,6 +265,16 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             try {
                 const isRenderingMarkdown = JSON.parse(savedMarkdownState)
                 actions.setIsRenderingMarkdown(isRenderingMarkdown)
+            } catch {
+                // If parsing fails, keep the default value
+            }
+        }
+
+        const savedXmlState = localStorage.getItem('llm-observability-xml-rendering')
+        if (savedXmlState !== null) {
+            try {
+                const isRenderingXml = JSON.parse(savedXmlState)
+                actions.setIsRenderingXml(isRenderingXml)
             } catch {
                 // If parsing fails, keep the default value
             }

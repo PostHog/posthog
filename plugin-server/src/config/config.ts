@@ -8,7 +8,6 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-    KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
     KAFKA_LOG_ENTRIES,
 } from './kafka-topics'
 
@@ -26,6 +25,11 @@ export function getDefaultConfig(): PluginsServerConfig {
               : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
+        COUNTERS_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_counters'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/counters'
+              : '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
@@ -38,13 +42,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        CASSANDRA_HOST: 'localhost',
-        CASSANDRA_PORT: 9042,
-        CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
-        CASSANDRA_LOCAL_DATACENTER: 'datacenter1',
-        CASSANDRA_USER: null,
-        CASSANDRA_PASSWORD: null,
-        WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
+        POSTGRES_COUNTERS_HOST: 'localhost',
+        POSTGRES_COUNTERS_USER: 'postgres',
+        POSTGRES_COUNTERS_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -100,7 +100,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -196,6 +195,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: isProdEnv() ? false : true, // For prod we primarily use overflow and some more manual control
+        CDP_AGGREGATION_WRITER_ENABLED: false,
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -246,7 +246,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
-        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '',
+        // in both the PostHog cloud environment and development
+        // we want this metadata switchover to be in blob ingestion v2 mode
+        // hobby installs will set this metadata value to a datetime
+        // since they may be running v1 and being upgraded
+        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '*',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -317,6 +321,17 @@ export function overrideWithEnv(
         const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
         const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
+    }
+
+    if (
+        !newConfig.COUNTERS_DATABASE_URL &&
+        newConfig.POSTGRES_COUNTERS_HOST &&
+        newConfig.POSTGRES_COUNTERS_USER &&
+        newConfig.POSTGRES_COUNTERS_PASSWORD
+    ) {
+        const encodedUser = encodeURIComponent(newConfig.POSTGRES_COUNTERS_USER)
+        const encodedPassword = encodeURIComponent(newConfig.POSTGRES_COUNTERS_PASSWORD)
+        newConfig.COUNTERS_DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTGRES_COUNTERS_HOST}:5432/counters`
     }
 
     if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {

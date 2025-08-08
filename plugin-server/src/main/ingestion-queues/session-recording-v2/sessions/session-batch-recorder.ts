@@ -1,5 +1,7 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
@@ -63,7 +65,7 @@ export class SessionBatchRecorder {
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
-        private readonly metadataSwitchoverDate: Date | null
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {
         this.batchId = uuidv7()
         logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })

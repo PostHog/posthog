@@ -29,6 +29,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuth
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 from rest_framework.parsers import JSONParser
+from rest_framework.exceptions import AuthenticationFailed
 
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
@@ -1034,6 +1035,44 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
 
         self.assertIsNone(result)
 
+    def test_authenticate_with_matching_project_api_key_in_body(self):
+        # Test that when project API key in body matches the secret key's team, it passes
+        wsgi_request = self.factory.post(
+            "/",
+            data=f'{{"project_api_key": "{self.team.api_token}"}}',
+            content_type="application/json",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        assert result is not None
+        user, _ = result
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
+
+    def test_authenticate_with_no_project_api_key_in_body_passes(self):
+        # Test that when there's no project API key in body, it still works normally
+        wsgi_request = self.factory.post(
+            "/",
+            data='{"some_other_field": "value"}',
+            content_type="application/json",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        assert result is not None
+        user, _ = result
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
+
 
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def setUp(self):
@@ -1105,7 +1144,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("Access token has expired", str(context.exception))
@@ -1122,7 +1161,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("User associated with access token is disabled", str(context.exception))
@@ -1199,7 +1238,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("Access token is not associated with a valid application", str(context.exception))
@@ -1224,7 +1263,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("User associated with access token not found", str(context.exception))

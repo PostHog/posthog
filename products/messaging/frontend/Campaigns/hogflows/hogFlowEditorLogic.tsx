@@ -214,7 +214,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         position: { x: 0, y: 0 },
                         handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
                         deletable: !['trigger', 'exit'].includes(action.type),
-                        selectable: true,
+                        selectable: !['exit'].includes(action.type),
                         draggable: false,
                         connectable: false,
                     }

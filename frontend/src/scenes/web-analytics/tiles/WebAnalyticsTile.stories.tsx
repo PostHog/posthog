@@ -13,7 +13,7 @@ import referringDomainMock from './__mocks__/ReferringDomain.json'
 import retentionMock from './__mocks__/Retention.json'
 import worldMapMock from './__mocks__/WorldMap.json'
 import { webAnalyticsDataTableQueryContext } from './WebAnalyticsTile'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 type Story = StoryObj<typeof Query>
 const meta: Meta<typeof Query> = {
@@ -51,7 +51,7 @@ export default meta
 
 const Template: StoryFn<typeof Query> = (args) => {
     const { setTablesOrderBy } = useActions(webAnalyticsLogic)
-    useOnMountEffect(() => setTablesOrderBy('Views' as WebAnalyticsOrderByFields, 'DESC'))
+    useDelayedOnMountEffect(() => setTablesOrderBy('Views' as WebAnalyticsOrderByFields, 'DESC'))
 
     return <Query {...args} context={{ ...webAnalyticsDataTableQueryContext }} readOnly />
 }

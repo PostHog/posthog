@@ -3127,7 +3127,15 @@
                             "description": "Control who can access and modify data and features within your organization.",
                             "unit": null,
                             "limit": null,
-                            "note": "Project-based only"
+                            "note": null
+                        },
+                        {
+                            "key": "access_control",
+                            "name": "Access control",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
                         },
                         {
                             "key": "audit_logs",
@@ -3324,6 +3332,14 @@
                             "note": null
                         },
                         {
+                            "key": "access_control",
+                            "name": "Access control",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
                             "key": "audit_logs",
                             "name": "Audit logs",
                             "description": "See who in your organization has accessed or modified entities within PostHog.",
@@ -3497,6 +3513,14 @@
                 {
                     "key": "advanced_permissions",
                     "name": "Advanced permissions",
+                    "description": "Control who can access and modify data and features within your organization.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "access_control",
+                    "name": "Access control",
                     "description": "Control who can access and modify data and features within your organization.",
                     "images": null,
                     "icon_key": null,

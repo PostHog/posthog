@@ -448,7 +448,7 @@ function EventContentDisplay({
     return (
         <LLMInputOutput
             inputDisplay={
-                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-secondary)]">
+                <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
                     {isObject(input) ? (
                         <JSONViewer src={input} collapsed={4} />
                     ) : (
@@ -460,7 +460,9 @@ function EventContentDisplay({
                 <div
                     className={cn(
                         'p-2 text-xs border rounded',
-                        !raisedError ? 'bg-[var(--bg-fill-success-tertiary)]' : 'bg-[var(--bg-fill-error-tertiary)]'
+                        !raisedError
+                            ? 'bg-[var(--color-bg-fill-success-tertiary)]'
+                            : 'bg-[var(--color-bg-fill-error-tertiary)]'
                     )}
                 >
                     {isObject(output) ? (
@@ -519,14 +521,16 @@ const EventContent = React.memo(
 
             let model: string | undefined = undefined
             let input: any = undefined
+            let tools: any = undefined
 
             if (isLLMTraceEvent(event)) {
                 model = event.properties.$ai_model
                 // Prefer $ai_input if available, otherwise fallback to $ai_input_state
                 input = event.properties.$ai_input ?? event.properties.$ai_input_state
+                tools = event.properties.$ai_tools
             }
 
-            setupPlaygroundFromEvent({ model, input })
+            setupPlaygroundFromEvent({ model, input, tools })
         }
 
         return (

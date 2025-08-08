@@ -84,8 +84,8 @@ export class CdpApi {
         const router = express.Router()
 
         const asyncHandler =
-            (fn: (req: express.Request, res: express.Response) => Promise<void>) =>
-            (req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> =>
+            (fn: (req: ModifiedRequest, res: express.Response) => Promise<void>) =>
+            (req: ModifiedRequest, res: express.Response, next: express.NextFunction): Promise<void> =>
                 fn(req, res).catch(next)
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
@@ -101,13 +101,13 @@ export class CdpApi {
         return router
     }
 
-    private getHogFunctionTemplates = (req: express.Request, res: express.Response): void => {
+    private getHogFunctionTemplates = (req: ModifiedRequest, res: express.Response): void => {
         res.json(HOG_FUNCTION_TEMPLATES)
     }
 
     private getFunctionStatus =
         () =>
-        async (req: express.Request, res: express.Response): Promise<void> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
             const summary = await this.hogWatcher.getPersistedState(id)
 
@@ -116,7 +116,7 @@ export class CdpApi {
 
     private patchFunctionStatus =
         () =>
-        async (req: express.Request, res: express.Response): Promise<void> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
             const { state } = req.body
 
@@ -148,7 +148,7 @@ export class CdpApi {
 
     private getFunctionStates =
         () =>
-        async (req: express.Request, res: express.Response): Promise<void> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             try {
                 const allStates = await this.hogWatcher.getAllFunctionStates()
 
@@ -184,7 +184,7 @@ export class CdpApi {
             }
         }
 
-    private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
+    private postFunctionInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
@@ -383,7 +383,7 @@ export class CdpApi {
         }
     }
 
-    private postHogflowInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
+    private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id } = req.body
@@ -468,7 +468,7 @@ export class CdpApi {
 
     private postWebhook =
         () =>
-        async (req: express.Request, res: express.Response): Promise<any> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             // TODO: Source handler service that takes care of finding the relevant function,
             // running it (maybe) and scheduling the job if it gets suspended
 
@@ -512,7 +512,7 @@ export class CdpApi {
 
     private getWebhook =
         () =>
-        async (req: express.Request, res: express.Response): Promise<any> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
 
             const webhook = await this.cdpSourceWebhooksConsumer.getWebhook(webhook_id)
