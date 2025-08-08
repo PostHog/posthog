@@ -75,6 +75,7 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
+import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
@@ -676,6 +677,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-proxy',
                 title: 'Managed reverse proxies',
                 component: <ManagedReverseProxy />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-security',
+        title: 'Security settings',
+        settings: [
+            {
+                id: 'organization-security',
+                title: 'Security settings',
+                component: <OrganizationSecuritySettings />,
             },
         ],
     },

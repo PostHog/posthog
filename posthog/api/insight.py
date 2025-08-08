@@ -3,7 +3,10 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
+from django.db.models.signals import post_save
+
 from posthog.api.insight_variable import map_stale_to_latest
+from posthog.models.signals import mutable_receiver
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics
@@ -426,15 +429,6 @@ class InsightSerializer(InsightBasicSerializer):
             created_by=created_by,
             last_modified_by=request.user,
             **validated_data,
-        )
-
-        # schedule the insight query metadata extraction
-        query_meta_task = extract_insight_query_metadata.delay(insight_id=insight.id)
-        logger.warn(
-            "scheduled extract_insight_query_metadata",
-            insight_id=insight.id,
-            task_id=query_meta_task.id,
-            trigger="create_insight",
         )
 
         if dashboards is not None:
@@ -1304,3 +1298,15 @@ When set, the specified dashboard's filters and date range override will be appl
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+@mutable_receiver(post_save, sender=Insight)
+def schedule_query_metadata_extract(sender, instance: Insight, created: bool, **kwargs):
+    if created:
+        query_meta_task = extract_insight_query_metadata.delay(insight_id=instance.pk)
+        logger.warn(
+            "scheduled extract_insight_query_metadata",
+            insight_id=instance.id,
+            task_id=query_meta_task.id,
+            trigger="create_insight",
+        )

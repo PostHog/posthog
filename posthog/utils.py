@@ -422,6 +422,10 @@ def render_template(
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            posthog_app_context["effective_resource_access_control"] = {
+                resource: user_access_control.effective_access_level_for_resource(resource)
+                for resource in ACCESS_CONTROL_RESOURCES
+            }
             posthog_app_context["resource_access_control"] = {
                 resource: user_access_control.access_level_for_resource(resource)
                 for resource in ACCESS_CONTROL_RESOURCES

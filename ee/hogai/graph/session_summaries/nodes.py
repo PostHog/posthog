@@ -56,20 +56,9 @@ class SessionSummarizationNode(AssistantNode):
 
     async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
         """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
-        from ee.hogai.graph.filter_options.prompts import PRODUCT_DESCRIPTION_PROMPT
-        from products.replay.backend.prompts import SESSION_REPLAY_RESPONSE_FORMATS_PROMPT
-        from products.replay.backend.prompts import SESSION_REPLAY_EXAMPLES_PROMPT
-        from products.replay.backend.prompts import MULTIPLE_FILTERS_PROMPT
-        from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
+        from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 
-        # Create the graph with injected prompts
-        injected_prompts = {
-            "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
-            "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-            "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
-            "multiple_filters_prompt": MULTIPLE_FILTERS_PROMPT,
-        }
-        graph = FilterOptionsGraph(self._team, self._user, injected_prompts=injected_prompts).compile_full_graph()
+        graph = SessionReplayFilterOptionsGraph(self._team, self._user).compile_full_graph()
         # Call with your query
         result = await graph.ainvoke(
             {
@@ -80,8 +69,7 @@ class SessionSummarizationNode(AssistantNode):
         if (
             not result
             or not isinstance(result, dict)
-            or not result.get("generated_filter_options")
-            or not result["generated_filter_options"].get("data")
+            or not result.get("output")
         ):
             self.logger.error(
                 f"Invalid result from filter options graph: {result}",
@@ -93,7 +81,7 @@ class SessionSummarizationNode(AssistantNode):
             )
             return None
         # Extract the generated filters
-        filters_data = result["generated_filter_options"]["data"]
+        filters_data = result["output"]
         if not filters_data:
             return None
         max_filters = cast(MaxRecordingUniversalFilters, filters_data)

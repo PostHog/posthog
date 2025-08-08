@@ -62,6 +62,14 @@ def check_can_edit_sharing_configuration(
     if sharing.dashboard and not view.user_permissions.dashboard(sharing.dashboard).can_edit:
         raise PermissionDenied("You don't have edit permissions for this dashboard.")
 
+    # Check if organization allows publicly shared resources
+    if (
+        request.data.get("enabled")
+        and sharing.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not sharing.team.organization.allow_publicly_shared_resources
+    ):
+        raise PermissionDenied("Public sharing is disabled for this organization.")
+
     return True
 
 
@@ -313,6 +321,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             resource = None
 
         if not resource:
+            return custom_404_response(self.request)
+
+        # Check if organization allows publicly shared resources
+        if (
+            isinstance(resource, SharingConfiguration)
+            and resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+            and not resource.team.organization.allow_publicly_shared_resources
+        ):
             return custom_404_response(self.request)
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path

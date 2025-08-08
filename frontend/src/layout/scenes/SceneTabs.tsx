@@ -4,7 +4,7 @@ import { cn } from 'lib/utils/css-classes'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { SceneTab, sceneTabsLogic } from '~/layout/scenes/sceneTabsLogic'
+import { SceneTab, sceneLogic } from '~/scenes/sceneLogic'
 
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
@@ -17,8 +17,8 @@ export interface SceneTabsProps {
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs } = useValues(sceneTabsLogic)
-    const { newTab, reorderTabs } = useActions(sceneTabsLogic)
+    const { tabs } = useValues(sceneLogic)
+    const { newTab, reorderTabs } = useActions(sceneLogic)
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -97,7 +97,7 @@ interface SceneTabProps {
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const canRemoveTab = true
-    const { clickOnTab, removeTab } = useActions(sceneTabsLogic)
+    const { clickOnTab, removeTab } = useActions(sceneLogic)
     return (
         <Link
             onClick={(e) => {
