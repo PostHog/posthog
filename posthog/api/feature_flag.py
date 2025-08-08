@@ -1283,9 +1283,7 @@ class FeatureFlagViewSet(
                     "has_send_cohorts": include_cohorts,
                 },
             )
-            response_data = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation(
-                self.team, include_cohorts
-            )
+            response_data = get_flags_response_for_local_evaluation(self.team, include_cohorts)
 
             flag_keys = [flag["id"] for flag in response_data["flags"]]
 
