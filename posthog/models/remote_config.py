@@ -321,6 +321,8 @@ class RemoteConfig(UUIDModel):
     @classmethod
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls.get_hypercache().get_from_cache(token)
+        if config is None:
+            raise RemoteConfig.DoesNotExist()
         config = sanitize_config_for_public_cdn(config, request=request)
 
         return config
@@ -328,6 +330,8 @@ class RemoteConfig(UUIDModel):
     @classmethod
     def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         config = cls.get_hypercache().get_from_cache(token)
+        if config is None:
+            raise RemoteConfig.DoesNotExist()
         # Get the site apps JS so we can render it in the JS
         site_apps_js = config.pop("siteAppsJS", None)
         # We don't want to include the minimal site apps content as we have the JS now
