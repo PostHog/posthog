@@ -28,7 +28,7 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
 
     detail_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
 
-    created_at = models.DateTimeField(null=True, blank=True, default=None)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     class Meta:
         indexes = [
