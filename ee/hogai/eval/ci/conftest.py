@@ -3,6 +3,7 @@ import os
 from collections.abc import Generator
 from io import BytesIO
 from typing import TYPE_CHECKING, TypedDict, TypeVar
+from unittest.mock import MagicMock, patch
 
 import aioboto3
 import aioboto3.s3
@@ -14,16 +15,28 @@ from fastavro import reader
 from pydantic_avro import AvroBase
 
 from ee.hogai.eval.schema import (
+    ActorsPropertyTaxonomySchema,
     DataWarehouseTableSchema,
     EvalsDockerImageConfig,
     GroupTypeMappingSchema,
     ProjectSnapshot,
     PropertyDefinitionSchema,
+    PropertyTaxonomySchema,
     TeamSchema,
+    TeamTaxonomyItemSchema,
 )
 from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
 from posthog.schema import TeamTaxonomyItem
 from posthog.warehouse.models.table import DataWarehouseTable
+
+from .query_patches import (
+    ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,
+    EVENT_TAXONOMY_QUERY_DATA_SOURCE,
+    TEAM_TAXONOMY_QUERY_DATA_SOURCE,
+    PatchedActorsPropertyTaxonomyQueryRunner,
+    PatchedEventTaxonomyQueryRunner,
+    PatchedTeamTaxonomyQueryRunner,
+)
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -40,6 +53,7 @@ class SnapshotLoader:
     def __init__(self, context: PipesContext):
         self.context = context
         self.config = EvalsDockerImageConfig.model_validate(context.extras)
+        self.patches: list[MagicMock] = []
 
     async def load_snapshots(self) -> tuple[Organization, User]:
         self.organization = await Organization.objects.acreate(name="PostHog")
@@ -60,6 +74,7 @@ class SnapshotLoader:
                 data_warehouse_tables_snapshot_bytes,
                 event_taxonomy_snapshot_bytes,
                 properties_taxonomy_snapshot_bytes,
+                actors_property_taxonomy_snapshot_bytes,
             ) = await self._get_all_snapshots(snapshot)
 
             team = await self._load_project_snapshot(project, snapshot.project, project_snapshot_bytes)
@@ -68,7 +83,17 @@ class SnapshotLoader:
                 self._load_group_type_mappings(team, group_type_mappings_snapshot_bytes),
                 self._load_data_warehouse_tables(team, data_warehouse_tables_snapshot_bytes),
             )
+            self._load_event_taxonomy(team, event_taxonomy_snapshot_bytes)
+            self._load_properties_taxonomy(team, properties_taxonomy_snapshot_bytes)
+            self._load_actors_property_taxonomy(team, actors_property_taxonomy_snapshot_bytes)
+
+        self._patch_query_runners()
+
         return self.organization, self.user
+
+    def cleanup(self):
+        for mock in self.patches:
+            mock.stop()
 
     @backoff.on_exception(backoff.expo, Exception, max_tries=3)
     async def _get_all_snapshots(self, snapshot: ProjectSnapshot):
@@ -85,6 +110,7 @@ class SnapshotLoader:
                 self._get_snapshot_from_s3(client, snapshot.postgres.data_warehouse_tables),
                 self._get_snapshot_from_s3(client, snapshot.clickhouse.event_taxonomy),
                 self._get_snapshot_from_s3(client, snapshot.clickhouse.properties_taxonomy),
+                self._get_snapshot_from_s3(client, snapshot.clickhouse.actors_property_taxonomy),
             )
             return loaded_snapshots
 
@@ -121,6 +147,34 @@ class SnapshotLoader:
         data_warehouse_tables = DataWarehouseTableSchema.deserialize_for_project(team.id, snapshot)
         return await DataWarehouseTable.objects.abulk_create(data_warehouse_tables, batch_size=500)
 
+    def _load_event_taxonomy(self, team: Team, buffer: BytesIO):
+        snapshot = next(self._parse_snapshot_to_schema(TeamTaxonomyItemSchema, buffer))
+        TEAM_TAXONOMY_QUERY_DATA_SOURCE[team.id] = snapshot.results
+
+    def _load_properties_taxonomy(self, team: Team, buffer: BytesIO):
+        for item in self._parse_snapshot_to_schema(PropertyTaxonomySchema, buffer):
+            EVENT_TAXONOMY_QUERY_DATA_SOURCE[team.id][item.event] = item.results
+
+    def _load_actors_property_taxonomy(self, team: Team, buffer: BytesIO):
+        for item in self._parse_snapshot_to_schema(ActorsPropertyTaxonomySchema, buffer):
+            ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id][item.group_type_index or "person"] = item.results
+
+    def _patch_query_runners(self):
+        self.patches = [
+            patch(
+                "posthog.hogql_queries.ai.team_taxonomy_query_runner.TeamTaxonomyQueryRunner",
+                new=PatchedTeamTaxonomyQueryRunner,
+            ).start(),
+            patch(
+                "posthog.hogql_queries.ai.event_taxonomy_query_runner.EventTaxonomyQueryRunner",
+                new=PatchedEventTaxonomyQueryRunner,
+            ).start(),
+            patch(
+                "posthog.hogql_queries.ai.actors_property_taxonomy_query_runner.ActorsPropertyTaxonomyQueryRunner",
+                new=PatchedActorsPropertyTaxonomyQueryRunner,
+            ).start(),
+        ]
+
 
 @pytest.fixture(scope="package")
 def dagster_context() -> Generator[PipesContext, None, None]:
@@ -142,6 +196,7 @@ def restore_postgres_snapshot(
         loader = SnapshotLoader(dagster_context)
         org, user = async_to_sync(loader.load_snapshots)()
         yield org, user
+        loader.cleanup()
 
         with open("eval_results.jsonl") as f:
             lines = f.readlines()

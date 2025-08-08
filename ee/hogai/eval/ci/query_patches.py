@@ -1,9 +1,9 @@
-from typing import TYPE_CHECKING
+from collections import defaultdict
+from typing import Literal
 
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.models import GroupTypeMapping
 from posthog.schema import (
     ActorsPropertyTaxonomyQueryResponse,
     ActorsPropertyTaxonomyResponse,
@@ -12,17 +12,6 @@ from posthog.schema import (
     TeamTaxonomyItem,
     TeamTaxonomyQueryResponse,
 )
-
-from .synthesizers import property_value_oracle
-
-try:
-    from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-except ImportError:
-    CORE_FILTER_DEFINITIONS_BY_GROUP = {}
-
-if TYPE_CHECKING:
-    pass
-
 
 # This is a global state that is used to store the patched results for the team taxonomy query.
 TEAM_TAXONOMY_QUERY_DATA_SOURCE: dict[int, list[TeamTaxonomyItem]] = {}
@@ -37,7 +26,7 @@ class PatchedTeamTaxonomyQueryRunner(TeamTaxonomyQueryRunner):
 
 
 # This is a global state that is used to store the patched results for the event taxonomy query.
-EVENT_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[str | int, list[EventTaxonomyItem]]] = {}
+EVENT_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[str, list[EventTaxonomyItem]]] = defaultdict(dict)
 
 
 class PatchedEventTaxonomyQueryRunner(EventTaxonomyQueryRunner):
@@ -51,29 +40,17 @@ class PatchedEventTaxonomyQueryRunner(EventTaxonomyQueryRunner):
         return EventTaxonomyQueryResponse(results=results, modifiers=self.modifiers)
 
 
-ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[str | int, list[EventTaxonomyItem]]] = {}
+# This is a global state that is used to store the patched results for the actors property taxonomy query.
+ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE: dict[int, dict[int | Literal["person"], ActorsPropertyTaxonomyResponse]] = (
+    defaultdict(dict)
+)
 
 
 class PatchedActorsPropertyTaxonomyQueryRunner(ActorsPropertyTaxonomyQueryRunner):
     def calculate(self):
-        if isinstance(self.query.group_type_index, int):
-            try:
-                group_type_name = GroupTypeMapping.objects.get(
-                    team=self.team, group_type_index=self.query.group_type_index
-                ).group_type
-                synthesized_values = property_value_oracle.synthesize_group(
-                    group_type_name, self.query.property, self.query.property_type
-                )
-                result = ActorsPropertyTaxonomyResponse(
-                    sample_values=synthesized_values, sample_count=len(synthesized_values)
-                )
-            except GroupTypeMapping.DoesNotExist:
-                result = ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)
+        key = self.query.group_type_index or "person"
+        if snapshotted_query := ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.get(self.team.id, {}).get(key):
+            result = snapshotted_query
         else:
-            synthesized_values = property_value_oracle.synthesize_event(
-                self.query.event or "No event name provided", self.query.property, self.query.property_type
-            )
-            result = ActorsPropertyTaxonomyResponse(
-                sample_values=synthesized_values, sample_count=len(synthesized_values)
-            )
+            result = ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)
         return ActorsPropertyTaxonomyQueryResponse(results=result, modifiers=self.modifiers)
