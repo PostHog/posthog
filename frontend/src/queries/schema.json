@@ -852,7 +852,8 @@
                 "navigate",
                 "search_error_tracking_issues",
                 "experiment_results_summary",
-                "create_survey"
+                "create_survey",
+                "lookup_feature_flag"
             ],
             "type": "string"
         },
