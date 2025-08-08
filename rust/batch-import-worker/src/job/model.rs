@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, sync::Arc, time::Duration as StdDuration};
 
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
@@ -58,6 +58,8 @@ pub struct JobState {
     // Parts are sorted, and we iterate through them in order, to let us import
     // from oldest to newest
     pub parts: Vec<PartState>,
+    #[serde(default)]
+    pub backoff_attempt: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +157,65 @@ impl JobModel {
                 Ok(None)
             }
         }
+    }
+
+    /// Schedule the job for a future retry by pushing leased_until forward and updating messages.
+    /// Keeps status as 'running' so the main loop can pick it up when the lease expires.
+    pub async fn schedule_backoff(
+        &mut self,
+        pool: &PgPool,
+        delay: StdDuration,
+        status_message: String,
+        display_message: Option<String>,
+    ) -> Result<(), Error> {
+        let Some(current_lease) = self.lease_id.as_ref() else {
+            anyhow::bail!("Cannot schedule backoff on a job with no lease")
+        };
+
+        let until = Utc::now()
+            + chrono::Duration::from_std(delay)
+                .map_err(|_| anyhow::Error::msg("Invalid backoff duration"))?;
+
+        // Increment and persist backoff attempt in state JSON as a temporary persistence mechanism
+        if let Some(state) = &mut self.state {
+            state.backoff_attempt = state.backoff_attempt.saturating_add(1);
+        } else {
+            self.state = Some(JobState { parts: vec![], backoff_attempt: 1 });
+        }
+
+        let state_json = serde_json::to_value(&self.state)?;
+
+        let res = sqlx::query(
+            r#"
+            UPDATE posthog_batchimport
+            SET
+                status = 'running',
+                status_message = $3,
+                display_status_message = $4,
+                updated_at = now(),
+                leased_until = $2,
+                state = $5
+            WHERE id = $1 AND lease_id = $6
+            "#,
+        )
+        .bind(self.id)
+        .bind(until)
+        .bind(&status_message)
+        .bind(&display_message)
+        .bind(state_json)
+        .bind(current_lease)
+        .execute(pool)
+        .await?;
+
+        throw_if_no_rows(res)?;
+
+        // Update in-memory representation
+        self.status = JobStatus::Running;
+        self.status_message = Some(status_message);
+        self.display_status_message = display_message;
+        self.leased_until = Some(until);
+
+        Ok(())
     }
 
     pub async fn flush(&mut self, pool: &PgPool, extend_lease: bool) -> Result<(), Error> {
@@ -273,7 +334,7 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
         let (row, keys, lease_id) = input;
         let state = match row.state {
             Some(s) => serde_json::from_value(s).context("Parsing state")?,
-            None => JobState { parts: vec![] },
+            None => JobState { parts: vec![], backoff_attempt: 0 },
         };
 
         let import_config = serde_json::from_value(row.import_config).context("Parsing config")?;

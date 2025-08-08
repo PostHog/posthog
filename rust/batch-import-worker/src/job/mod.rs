@@ -10,7 +10,8 @@ use tracing::{debug, error, info, warn};
 use crate::{
     context::AppContext,
     emit::Emitter,
-    error::get_user_message,
+    error::{get_user_message, is_rate_limited_error},
+    job::backoff::{format_backoff_messages, next_attempt_and_delay},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
     spawn_liveness_loop,
@@ -19,6 +20,54 @@ use crate::{
 pub mod config;
 pub mod model;
 pub mod backoff;
+
+// Small, testable decision function to avoid mocking DB in unit tests
+#[derive(Debug, PartialEq)]
+enum ErrorHandlingDecision {
+    Backoff {
+        delay: std::time::Duration,
+        status_msg: String,
+        display_msg: String,
+    },
+    Pause {
+        error_msg: String,
+        display_msg: String,
+    },
+}
+
+fn decide_on_error(
+    err: &anyhow::Error,
+    current_date_range: Option<&str>,
+    policy: crate::job::backoff::BackoffPolicy,
+    current_attempt: u32,
+    user_message: &str,
+) -> ErrorHandlingDecision {
+    if is_rate_limited_error(err) {
+        let (_next_attempt, delay) = next_attempt_and_delay(current_attempt, policy);
+        let (status_msg, display_msg) = format_backoff_messages(current_date_range, delay);
+        ErrorHandlingDecision::Backoff {
+            delay,
+            status_msg,
+            display_msg,
+        }
+    } else {
+        let error_msg = match current_date_range {
+            Some(dr) => format!(
+                "Failed to fetch and parse chunk for date range {}: {:?}",
+                dr, err
+            ),
+            None => format!("Failed to fetch and parse chunk: {:?}", err),
+        };
+        let display_msg = match current_date_range {
+            Some(dr) => format!("{} (Date range: {})", user_message, dr),
+            None => user_message.to_string(),
+        };
+        ErrorHandlingDecision::Pause {
+            error_msg,
+            display_msg,
+        }
+    }
+}
 
 pub struct Job {
     pub context: Arc<AppContext>,
@@ -81,7 +130,7 @@ impl Job {
             .state
             .as_ref()
             .cloned()
-            .unwrap_or_else(|| JobState { parts: vec![] });
+            .unwrap_or_else(|| JobState { parts: vec![], backoff_attempt: 0 });
 
         if state.parts.is_empty() {
             info!("Found job with no parts, initializing parts list");
@@ -148,10 +197,7 @@ impl Job {
                     warn!("Failed to cleanup after job: {:?}", e);
                 }
                 let user_facing_error_message = get_user_message(&e);
-                // If we fail to fetch and parse, we need to pause the job (assuming manual intervention is required) and
-                // return an Ok(None) - this pod can continue to process other jobs, it just can't work on this one
-                error!("Failed to fetch and parse chunk: {:?}", e);
-
+                // Compute current date range once for reuse in both branches
                 let current_date_range = {
                     let state = self.state.lock().await;
                     state
@@ -161,24 +207,35 @@ impl Job {
                         .and_then(|p| self.source.get_date_range_for_key(&p.key))
                 };
 
-                let mut model = self.model.lock().await;
-                let error_message = if let Some(date_range) = &current_date_range {
-                    format!(
-                        "Failed to fetch and parse chunk for date range {}: {:?}",
-                        date_range, e
-                    )
-                } else {
-                    format!("Failed to fetch and parse chunk: {:?}", e)
+                let policy = self.context.config.backoff_policy();
+                let current_attempt = {
+                    let model = self.model.lock().await;
+                    model.backoff_attempt.max(0) as u32
                 };
-                let display_message = if let Some(date_range) = &current_date_range {
-                    format!("{} (Date range: {})", user_facing_error_message, date_range)
-                } else {
-                    user_facing_error_message.to_string()
-                };
-                model
-                    .pause(self.context.clone(), error_message, Some(display_message))
-                    .await?;
-                return Ok(None);
+                match decide_on_error(
+                    &e,
+                    current_date_range.as_deref(),
+                    policy,
+                    current_attempt,
+                    user_facing_error_message,
+                ) {
+                    ErrorHandlingDecision::Backoff { delay, status_msg, display_msg } => {
+                        error!("Rate limited (429): scheduling retry in {:?}", delay);
+                        let mut model = self.model.lock().await;
+                        model
+                            .schedule_backoff(&self.context.db, delay, status_msg, Some(display_msg))
+                            .await?;
+                        return Ok(None);
+                    }
+                    ErrorHandlingDecision::Pause { error_msg, display_msg } => {
+                        error!("Failed to fetch and parse chunk: {:?}", e);
+                        let mut model = self.model.lock().await;
+                        model
+                            .pause(self.context.clone(), error_msg, Some(display_msg))
+                            .await?;
+                        return Ok(None);
+                    }
+                }
             }
         };
 
@@ -389,6 +446,8 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use std::collections::HashMap;
+    use httpmock::MockServer;
+    use reqwest::Client;
 
     struct MockDataSource {
         keys: Vec<String>,
@@ -482,6 +541,81 @@ mod tests {
             error_message,
             "Failed to fetch and parse chunk for date range 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC: Mock error"
         );
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_backoff_for_429() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(429);
+        });
+
+        let resp = Client::new()
+            .get(server.url("/export"))
+            .send()
+            .await
+            .unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+
+        let decision = decide_on_error(
+            &err,
+            Some("2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC"),
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "Rate limit exceeded",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Backoff { delay, status_msg, display_msg } => {
+                assert_eq!(delay.as_secs(), 60);
+                assert!(status_msg.contains("retry"));
+                assert!(display_msg.contains("Date range"));
+            }
+            _ => panic!("expected backoff"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_pause_for_non_429() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(500);
+        });
+
+        let resp = Client::new()
+            .get(server.url("/export"))
+            .send()
+            .await
+            .unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+
+        let decision = decide_on_error(
+            &err,
+            None,
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            2,
+            "Remote server error",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Pause { error_msg, display_msg } => {
+                assert!(error_msg.contains("Failed to fetch and parse chunk"));
+                assert_eq!(display_msg, "Remote server error");
+            }
+            _ => panic!("expected pause"),
+        }
     }
 
     #[test]

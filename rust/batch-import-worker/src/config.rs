@@ -52,6 +52,10 @@ pub struct Config {
 
     #[envconfig(from = "BACKOFF_MULTIPLIER", default = "2.0")]
     pub backoff_multiplier: f64,
+
+    // When true, worker will attempt to read/write DB backoff columns (requires DB migration)
+    #[envconfig(from = "BACKOFF_DB_COLUMNS_ENABLED", default = "false")]
+    pub backoff_db_columns_enabled: bool,
 }
 
 impl Config {
@@ -103,6 +107,7 @@ mod tests {
             backoff_initial_seconds: 60,
             backoff_max_seconds: 3600,
             backoff_multiplier: 2.0,
+            backoff_db_columns_enabled: false,
         }
     }
 
