@@ -32,7 +32,6 @@ from .prompts import (
     SEARCH_ERROR_INSTRUCTIONS,
     EMPTY_DATABASE_ERROR_MESSAGE,
 )
-from .utils import convert_filters_to_query, get_insight_type_from_filters
 
 from posthog.models import Insight
 from django.db.models import Max
@@ -354,9 +353,7 @@ Current Results: {insight_info['results']}"""
         description = insight.description or ""
 
         insight_type = "Unknown"
-        if insight.filters:
-            insight_type = get_insight_type_from_filters(insight.filters) or "Unknown"
-        elif insight.query:
+        if insight.query:
             try:
                 query_dict = json.loads(insight.query) if isinstance(insight.query, str) else insight.query
                 query_kind = query_dict.get("kind", "Unknown")
@@ -373,7 +370,7 @@ Current Results: {insight_info['results']}"""
                 insight_type = "Unknown"
 
         # Check if insight can be visualized
-        can_viz = bool(insight.query or (insight.filters and convert_filters_to_query(insight.filters)))
+        can_viz = bool(insight.query)
         viz_status = "✓ Executable" if can_viz else "✗ Not executable"
 
         # Get basic query info without executing
@@ -397,14 +394,12 @@ Current Results: {insight_info['results']}"""
         try:
             query_dict = None
 
-            # Parse query or convert from filters
+            # Parse query
             if insight.query:
                 if isinstance(insight.query, str):
                     query_dict = json.loads(insight.query)
                 elif isinstance(insight.query, dict):
                     query_dict = insight.query
-            elif insight.filters:
-                query_dict = convert_filters_to_query(insight.filters)
 
             if not query_dict:
                 return None
@@ -461,12 +456,6 @@ Current Results: {insight_info['results']}"""
                 elif isinstance(insight.query, dict):
                     query_dict = insight.query
 
-                if query_dict:
-                    query_kind = query_dict.get("kind")
-
-            # If no query but we have filters, convert filters to query
-            elif insight.filters:
-                query_dict = convert_filters_to_query(insight.filters)
                 if query_dict:
                     query_kind = query_dict.get("kind")
 
@@ -527,12 +516,6 @@ Current Results: {insight_info['results']}"""
                 elif isinstance(insight.query, dict):
                     query_dict = insight.query
 
-                if query_dict:
-                    query_kind = query_dict.get("kind")
-
-            # If no query but we have filters, convert filters to query
-            elif insight.filters:
-                query_dict = convert_filters_to_query(insight.filters)
                 if query_dict:
                     query_kind = query_dict.get("kind")
 
