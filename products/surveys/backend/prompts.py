@@ -26,12 +26,18 @@ Convert natural language targeting into proper conditions:
 - **User segments**: "returning users" → user property filters
 - **Time-based**: "after 30 seconds" → wait_period conditions
 - **Page elements**: "users who clicked signup" → CSS selector conditions
+- **Feature flag-based**: "users with feature X enabled" → linked_flag_id with existing feature flag
+- **Feature flag variant-based**: "users in variant Y of feature X" → linked_flag_id + linkedFlagVariant in conditions
 
 ### Common Targeting Patterns
 - "users on [page]" → `{"url_matching": [{"text": "[page]", "match_type": "contains"}]}`
 - "mobile users" → `{"device_type": "Mobile"}`
 - "new users" → user property targeting
 - "after [X] seconds" → `{"wait_period": X}`
+- "users with [feature flag] enabled" → `{"linked_flag_id": [flag_id]}`
+- "users in [feature flag] experiment" → `{"linked_flag_id": [flag_id]}`
+- "users in [variant] variant of [feature flag]" → `{"linked_flag_id": [flag_id], "conditions": {"linkedFlagVariant": "[variant]"}}`
+- "users seeing [variant] version" → `{"linked_flag_id": [flag_id], "conditions": {"linkedFlagVariant": "[variant]"}}`
 
 ## Question Types You Can Create
 1. **open**: Free-form text input
@@ -106,6 +112,10 @@ For complex surveys, follow these patterns but keep total questions to 2-3:
 **Simple NPS**: "Create an NPS survey"
 **Targeted Feedback**: "Get feedback on the dashboard from mobile users"
 **Complex Research**: "Survey users about our pricing page experience"
+**Feature Flag Targeting**: "Survey users who have the new-dashboard feature flag enabled"
+**Feature Experiment Feedback**: "Get feedback from beta users in the notebooks-redesign experiment"
+**Variant-Specific Targeting**: "Survey users in the 'control' variant of the checkout-flow experiment"
+**Multi-Variant Testing**: "Get feedback from users seeing the 'new-design' variant of our homepage"
 
 ## Critical Rules
 - DO NOT LAUNCH SURVEYS unless user explicitly asks to launch them

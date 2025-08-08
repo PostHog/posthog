@@ -783,17 +783,23 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           null
                                                                                       )
                                                                                       // Reset variant selection when flag changes
+                                                                                      const {
+                                                                                          linkedFlagVariant,
+                                                                                          ...conditions
+                                                                                      } = survey.conditions
                                                                                       setSurveyValue('conditions', {
-                                                                                          ...survey.conditions,
-                                                                                          linkedFlagVariant: null,
+                                                                                          ...conditions,
                                                                                       })
                                                                                   })
                                                                           } else {
                                                                               setSurveyValue('linked_flag', flag)
                                                                               // Reset variant selection when flag changes
+                                                                              const {
+                                                                                  linkedFlagVariant,
+                                                                                  ...conditions
+                                                                              } = survey.conditions
                                                                               setSurveyValue('conditions', {
-                                                                                  ...survey.conditions,
-                                                                                  linkedFlagVariant: null,
+                                                                                  ...conditions,
                                                                               })
                                                                           }
                                                                       }}
@@ -806,9 +812,12 @@ export default function SurveyEdit(): JSX.Element {
                                                                           onClick={() => {
                                                                               onChange(null)
                                                                               setSurveyValue('linked_flag', null)
+                                                                              const {
+                                                                                  linkedFlagVariant,
+                                                                                  ...conditions
+                                                                              } = survey.conditions
                                                                               setSurveyValue('conditions', {
-                                                                                  ...survey.conditions,
-                                                                                  linkedFlagVariant: null,
+                                                                                  ...conditions,
                                                                               })
                                                                           }}
                                                                           aria-label="close"
