@@ -247,7 +247,7 @@ class LoopNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxToolT
         return ChatPromptTemplate([("system", m) for m in system], template_format="mustache")
 
 
-class ToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[YourTaxonomyOutput]]):
+class ToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
     """
     This is the tool node where the tool call flow and the tool execution is handled.
     You can override the methods to your needs, although in most cases you shall not need to do so.
@@ -256,7 +256,7 @@ class ToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[Yo
         super().__init__(team, user, toolkit_class=toolkit_class)
 
 
-class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[YourTaxonomyOutput]]):
+class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
     def __init__(self, team: Team, user: User):
         super().__init__(
             team,
@@ -282,12 +282,12 @@ graph_context = {
 result = await graph.compile_full_graph().ainvoke(graph_context)
 
 # Currently we support Pydantic objects or str as an output type
-if isinstance(result["output"], YourTaxonomyOutput):
+if isinstance(result["output"], MaxToolTaxonomyOutput):
     content = "✅ Updated taxonomy selection"
     payload = result["output"]
 else:
     content = "❌ Need more info to proceed"
-    payload = YourTaxonomyOutput.model_validate(result["output"])
+    payload = MaxToolTaxonomyOutput.model_validate(result["output"])
 ```
 
 See `products/replay/backend/max_tools.py` for a full real-world example wiring a taxonomy agent into a `MaxTool`.
