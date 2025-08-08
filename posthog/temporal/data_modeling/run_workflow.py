@@ -173,7 +173,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     failed = set()
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature="data-modeling")
 
     await logger.adebug(f"DAG size = {len(inputs.dag)}")
 
@@ -861,7 +861,7 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     logger = await bind_temporal_worker_logger(inputs.team_id)
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature="data-modeling")
     async with Heartbeater():
         selector_paths: SelectorPaths = {}
 
@@ -1111,7 +1111,7 @@ class CreateTableActivityInputs:
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Create/attach tables and persist their row-count."""
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature="data-modeling")
     logger = await bind_temporal_worker_logger(inputs.team_id)
 
     for model in inputs.models:
