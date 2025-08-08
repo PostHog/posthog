@@ -3,7 +3,7 @@ use std::{fmt::Display, sync::Arc, time::Duration as StdDuration};
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgQueryResult, PgPool};
+use sqlx::{postgres::PgQueryResult, PgPool, Row};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -128,7 +128,28 @@ impl JobModel {
             .try_into()
             .context("Failed to parse job row")
         {
-            Ok(model) => Ok(Some(model)),
+            Ok(mut model) => {
+                // Optionally load DB backoff columns if enabled (requires migration)
+                if context.config.backoff_db_columns_enabled {
+                    // Best-effort: if columns not present yet in test/dev, ignore errors
+                    if let Ok(rec) = sqlx::query(
+                        r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,
+                    )
+                    .bind(id)
+                    .fetch_one(&context.db)
+                    .await
+                    {
+                        // Annotate types for clarity
+                        let attempt: Result<i32, _> = rec.try_get("backoff_attempt");
+                        if let Ok(a) = attempt { model.backoff_attempt = a; }
+
+                        let until: Result<Option<DateTime<Utc>>, _> = rec.try_get("backoff_until");
+                        if let Ok(u) = until { model.backoff_until = u; }
+                    }
+                }
+
+                Ok(Some(model))
+            }
             Err(e) => {
                 // If we failed to parse a job, we pause it and leave it for manual intervention
                 sqlx::query!(
