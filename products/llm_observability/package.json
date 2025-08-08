@@ -17,6 +17,7 @@
         "prettier": "*",
         "react": "*",
         "stylelint": "*",
-        "typescript": "*"
+        "typescript": "*",
+        "use-debounce": "*"
     }
 }

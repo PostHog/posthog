@@ -65,7 +65,6 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         dateFrom: [null as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
         searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => searchQuery }],
-        lastSearchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => searchQuery }],
         isRenderingMarkdown: [
             true as boolean,
             {

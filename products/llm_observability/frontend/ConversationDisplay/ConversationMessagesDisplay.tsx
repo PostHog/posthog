@@ -154,7 +154,6 @@ export function ConversationMessagesDisplay({
                         </div>
                     </h4>
                     <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
-                        <IconExclamation className="text-base" />
                         {isObject(errorData) ? (
                             <HighlightedJSONViewer src={errorData} collapsed={4} searchQuery={searchQuery} />
                         ) : (

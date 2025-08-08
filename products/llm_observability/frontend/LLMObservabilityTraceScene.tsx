@@ -26,10 +26,10 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { SearchHighlight } from './SearchHighlight'
-import { DataTableNode, LLMTrace, LLMTraceEvent, NodeKind } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
@@ -186,19 +186,20 @@ function TraceSidebar({
     const { searchQuery } = useValues(llmObservabilityTraceLogic)
     const { setSearchQuery, setEventId } = useActions(llmObservabilityTraceLogic)
 
-    // Use debounced query for search input - need to create a dummy Node to satisfy the type
-    const dummyQuery = {
-        kind: NodeKind.DataTableNode,
-        source: { kind: NodeKind.TracesQuery },
-        search: searchQuery,
-    } as unknown as DataTableNode
-    const { value: searchValue, onChange: onSearchChange } = useDebouncedQuery(
-        dummyQuery,
-        (query: DataTableNode) => setSearchQuery((query as any).search || ''),
-        (query: DataTableNode) => (query as any).search || '',
-        (query: any, value: string) => ({ ...query, search: value }),
-        300
-    )
+    const [searchValue, setSearchValue] = useState(searchQuery)
+
+    useEffect(() => {
+        setSearchValue(searchQuery)
+    }, [searchQuery])
+
+    const debouncedSetSearchQuery = useDebouncedCallback((value: string) => {
+        setSearchQuery(value)
+    }, 300)
+
+    const onSearchChange = (value: string): void => {
+        setSearchValue(value)
+        debouncedSetSearchQuery(value)
+    }
 
     useEffect(() => {
         if (eventId && ref.current) {
