@@ -1,6 +1,7 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 
+import { ValidRetentionPeriods } from '../constants'
 import { SessionBatchMetrics } from './metrics'
 import { S3SessionBatchFileStorage } from './s3-session-batch-writer'
 
@@ -56,7 +57,7 @@ describe('S3SessionBatchFileStorage', () => {
 
     describe('writeSession', () => {
         it('should write session data and return bytes written with URL', async () => {
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data')
             const result = await writer.writeSession(testData)
 
@@ -75,11 +76,11 @@ describe('S3SessionBatchFileStorage', () => {
 
             expect(uploadedData.toString()).toBe(testData.toString())
             expect(result.bytesWritten).toBe(testData.length)
-            expect(result.url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/\d+-[a-z0-9]+\?range=bytes=0-\d+$/)
+            expect(result.url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/30d\/\d+-[a-z0-9]+\?range=bytes=0-\d+$/)
         })
 
         it('should handle successful upload completion', async () => {
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data\nmore test data\n')
 
             const result = await writer.writeSession(testData)
@@ -88,7 +89,7 @@ describe('S3SessionBatchFileStorage', () => {
             expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUploadDone).toHaveBeenCalled()
             expect(uploadedData.toString()).toBe(testData.toString())
-            expect(result.url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/\d+-[a-z0-9]+\?range=bytes=0-\d+$/)
+            expect(result.url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/30d\/\d+-[a-z0-9]+\?range=bytes=0-\d+$/)
         })
 
         it('should handle upload errors', async () => {
@@ -107,14 +108,14 @@ describe('S3SessionBatchFileStorage', () => {
                 }
             })
 
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
 
             const testData = Buffer.from('test data')
             await expect(writer.writeSession(testData)).rejects.toThrow(testError)
         })
 
         it('should handle writing large amounts of data', async () => {
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const chunk = Buffer.alloc(1024 * 1024 * 100, 'x') // 100MB
 
             const result = await writer.writeSession(chunk)
@@ -125,11 +126,11 @@ describe('S3SessionBatchFileStorage', () => {
             expect(uploadedData.length).toBe(1024 * 1024 * 100)
             // toEqual is slow for large buffers, so we use Buffer.compare instead
             expect(Buffer.compare(uploadedData as any, chunk as any)).toBe(0)
-            expect(result.url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/\d+-[a-z0-9]+\?range=bytes=0-\d+$/)
+            expect(result.url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/30d\/\d+-[a-z0-9]+\?range=bytes=0-\d+$/)
         })
 
         it('should handle multiple writes before stream end', async () => {
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const lines = ['line1\n', 'line2\n', 'line3\n']
 
             for (const line of lines) {
@@ -146,7 +147,7 @@ describe('S3SessionBatchFileStorage', () => {
             const iterations = 100
 
             for (let i = 0; i < iterations; i++) {
-                storage.newBatch()
+                storage.newBatch('30d')
                 const uploadCall = mockUpload.mock.calls[i][0]
                 const key = uploadCall.params.Key
                 keys.add(key)
@@ -154,20 +155,51 @@ describe('S3SessionBatchFileStorage', () => {
 
             expect(keys.size).toBe(iterations)
             for (const key of keys) {
-                expect(key).toMatch(/^test-prefix\/\d+-[a-z0-9]+$/)
+                expect(key).toMatch(/^test-prefix\/30d\/\d+-[a-z0-9]+$/)
+            }
+        })
+
+        it('should write to different prefixes for different retention periods', async () => {
+            for (const retentionPeriod of ValidRetentionPeriods) {
+                const writer = storage.newBatch(retentionPeriod)
+                const testData = Buffer.from('test data')
+                const result = await writer.writeSession(testData)
+
+                expect(mockUpload).toHaveBeenCalledTimes(1)
+                expect(mockUpload).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        client: mockS3Client,
+                        params: expect.objectContaining({
+                            Bucket: 'test-bucket',
+                            ContentType: 'application/octet-stream',
+                        }),
+                    })
+                )
+
+                await writer.finish()
+
+                expect(uploadedData.toString()).toBe(testData.toString())
+                expect(result.bytesWritten).toBe(testData.length)
+                expect(result.url).toMatch(
+                    new RegExp(`s3://test-bucket/test-prefix/${retentionPeriod}/\\d+-[a-z0-9]+\\?range=bytes=0-\\d+$`)
+                )
+
+                // Reset mocks before next iteration
+                jest.clearAllMocks()
+                uploadedData = Buffer.alloc(0)
             }
         })
     })
 
     describe('metrics', () => {
         it('should increment batches started when creating a new batch', () => {
-            storage.newBatch()
+            storage.newBatch('30d')
 
             expect(SessionBatchMetrics.incrementS3BatchesStarted).toHaveBeenCalledTimes(1)
         })
 
         it('should increment batches uploaded and observe metrics on successful finish', async () => {
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data')
 
             await writer.writeSession(testData)
@@ -194,7 +226,7 @@ describe('S3SessionBatchFileStorage', () => {
                 }
             })
 
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data')
 
             await expect(writer.writeSession(testData)).rejects.toThrow(testError)
@@ -205,7 +237,7 @@ describe('S3SessionBatchFileStorage', () => {
         it('should observe correct latency and bytes written for successful upload', async () => {
             jest.useFakeTimers()
 
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data')
 
             await writer.writeSession(testData)
@@ -226,8 +258,8 @@ describe('S3SessionBatchFileStorage', () => {
         })
 
         it('should track multiple batches correctly', () => {
-            storage.newBatch()
-            storage.newBatch()
+            storage.newBatch('30d')
+            storage.newBatch('30d')
 
             expect(SessionBatchMetrics.incrementS3BatchesStarted).toHaveBeenCalledTimes(2)
         })
@@ -254,7 +286,7 @@ describe('S3SessionBatchFileStorage', () => {
             })
             jest.mocked(Upload).mockImplementation(mockUpload)
 
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data')
             await writer.writeSession(testData)
 
@@ -272,7 +304,7 @@ describe('S3SessionBatchFileStorage', () => {
                 done: () => new Promise(() => {}),
             }))
 
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data')
             await writer.writeSession(testData)
 
@@ -286,7 +318,7 @@ describe('S3SessionBatchFileStorage', () => {
         })
 
         it('should clear timeout on successful upload', async () => {
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data')
             await writer.writeSession(testData)
             await writer.finish()
@@ -303,7 +335,7 @@ describe('S3SessionBatchFileStorage', () => {
 
             const customTimeout = 2000
             storage = new S3SessionBatchFileStorage(mockS3Client, 'test-bucket', 'test-prefix', customTimeout)
-            const writer = storage.newBatch()
+            const writer = storage.newBatch('30d')
             const testData = Buffer.from('test data')
             await writer.writeSession(testData)
 
