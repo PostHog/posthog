@@ -127,7 +127,7 @@ const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomAc
                             </ul>
                         </div>
                         <div>
-                            <div className="font-semibold mb-0.5">Max can't yet:</div>
+                            <div className="font-semibold mb-0.5">Max can't (yet):</div>
                             <ul className="space-y-0.5 text-sm">
                                 {MAX_CANNOT.map((item, index) => (
                                     <li key={index} className="flex items-center">
