@@ -2304,6 +2304,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     }),
 
     urlToAction(({ actions, values }) => {
+        const safeJsonParse = (maybeJson: string): any | null => {
+            try {
+                return JSON.parse(maybeJson)
+            } catch {
+                return null
+            }
+        }
         const toAction = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
@@ -2390,12 +2397,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
-            if (
-                compare_filter &&
-                isCompareFilter(compare_filter) &&
-                !objectsEqual(compare_filter, values.compareFilter)
-            ) {
-                actions.setCompareFilter(compare_filter)
+            if (compare_filter) {
+                const parsedCompareFilter =
+                    typeof compare_filter === 'string' ? safeJsonParse(compare_filter) : compare_filter
+                if (parsedCompareFilter && isCompareFilter(parsedCompareFilter)) {
+                    if (!objectsEqual(parsedCompareFilter, values.compareFilter)) {
+                        actions.setCompareFilter(parsedCompareFilter)
+                    }
+                }
             }
             if (productTab && productTab !== values.productTab) {
                 actions.setProductTab(productTab)

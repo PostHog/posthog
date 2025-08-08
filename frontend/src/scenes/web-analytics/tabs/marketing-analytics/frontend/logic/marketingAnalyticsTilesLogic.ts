@@ -13,6 +13,7 @@ import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
 import { isDraftConversionGoalColumn, getSortedColumnsByArray, orderArrayByPreference, getOrderBy } from './utils'
 import { isNotNil } from 'lib/utils'
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
@@ -25,14 +26,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
     connect(() => ({
         values: [
             marketingAnalyticsLogic,
-            [
-                'compareFilter',
-                'dateFilter',
-                'createMarketingDataWarehouseNodes',
-                'loading',
-                'draftConversionGoal',
-                'chartDisplayType',
-            ],
+            ['createMarketingDataWarehouseNodes', 'loading', 'draftConversionGoal', 'chartDisplayType'],
+            webAnalyticsLogic,
+            ['compareFilter', 'dateFilter'],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
         ],

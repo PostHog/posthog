@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { BindLogic } from 'kea'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const MarketingAnalyticsFilters = (): JSX.Element => {
-    const { compareFilter, dateFilter } = useValues(marketingAnalyticsLogic)
-    const { setCompareFilter, setDates } = useActions(marketingAnalyticsLogic)
+    const { compareFilter, dateFilter } = useValues(webAnalyticsLogic)
+    const { setCompareFilter, setDates } = useActions(webAnalyticsLogic)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
