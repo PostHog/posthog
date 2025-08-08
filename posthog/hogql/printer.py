@@ -1520,17 +1520,14 @@ class _Printer(Visitor[str]):
 
         team = self.context.team
 
-        # Try to get the GroupTypeMapping for this index
         try:
             group_mapping = GroupTypeMapping.objects.get(team=team, group_type_index=group_index)
             if group_mapping.created_at is None:
                 # If no created_at, just return the regular field access
                 return self._print_identifier(f"$group_{group_index}")
 
-            # Format the created_at timestamp for SQL
             created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
 
-            # Generate the conditional SQL
             return f"if(events.timestamp < '{created_at_str}', '', {self._print_identifier(f'$group_{group_index}')})"
 
         except GroupTypeMapping.DoesNotExist:
