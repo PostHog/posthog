@@ -55,14 +55,20 @@ def update_resource_experimentation_item(sender, instance: FeatureFlag, created,
     on the related resource in Vercel.
     """
 
-    client = VercelAPIClient(bearer_token="mock_token")  # TODO: Get actual token from configuration/settings
-    if not client:
-        logger.error("vercel_client_unavailable", feature_flag_id=instance.pk)
-        return
-
     resource = _get_vercel_resource_for_feature_flag(instance)
     if not resource:
         logger.debug("vercel_resource_not_found", feature_flag_id=instance.pk)
+        return
+
+    access_token = resource.installation.upsert_data.get("credentials", {}).get("access_token")
+    if not access_token:
+        logger.error("vercel_access_token_unavailable", feature_flag_id=instance.pk)
+        return
+
+    try:
+        client = VercelAPIClient(bearer_token=access_token)
+    except ValueError:
+        logger.exception("vercel_client_initialization_failed", feature_flag_id=instance.pk)
         return
 
     vercel_item = _convert_feature_flag_to_vercel_item(instance)
@@ -111,14 +117,20 @@ def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs
     from the related resource in Vercel.
     """
 
-    client = VercelAPIClient(bearer_token="mock_token")  # TODO: Get actual token from configuration/settings
-    if not client:
-        logger.error("vercel_client_unavailable", feature_flag_id=instance.pk)
-        return
-
     resource = _get_vercel_resource_for_feature_flag(instance)
     if not resource:
         logger.debug("vercel_resource_not_found", feature_flag_id=instance.pk)
+        return
+
+    access_token = resource.installation.upsert_data.get("credentials", {}).get("access_token")
+    if not access_token:
+        logger.error("vercel_access_token_unavailable", feature_flag_id=instance.pk)
+        return
+
+    try:
+        client = VercelAPIClient(bearer_token=access_token)
+    except ValueError:
+        logger.exception("vercel_client_initialization_failed", feature_flag_id=instance.pk)
         return
 
     integration_config_id = resource.installation.installation_id

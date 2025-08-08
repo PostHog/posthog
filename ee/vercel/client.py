@@ -6,21 +6,26 @@ logger = structlog.get_logger(__name__)
 
 
 class VercelAPIClient:
-    """Client for making requests to Vercel API"""
-
     BASE_URL = "https://api.vercel.com/v1"
 
-    def __init__(self, bearer_token: str = "mock_token"):
+    def __init__(self, bearer_token: str):
+        """
+        Initialize Vercel API client.
+
+        Args:
+            bearer_token: The access token provided in the credentials field of the request body
+                         of the Upsert Installation call. It is stored in the VercelInstallation model.
+        """
+        if not bearer_token:
+            raise ValueError("Bearer token is required")
+
         self.bearer_token = bearer_token
         self.session = requests.Session()
-        self.session.headers.update({"Authorization": f"Bearer {bearer_token}", "Content-Type": "application/json"})
+        self.session.headers.update({"Content-Type": "application/json", "Authorization": f"Bearer {bearer_token}"})
 
     def create_experimentation_items(
         self, integration_config_id: str, resource_id: str, items: list[dict[str, Any]]
     ) -> bool:
-        """
-        Create one or multiple experimentation items
-        """
         url = f"{self.BASE_URL}/installations/{integration_config_id}/resources/{resource_id}/experimentation/items"
 
         try:
@@ -54,9 +59,6 @@ class VercelAPIClient:
     def update_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str, data: dict[str, Any]
     ) -> bool:
-        """
-        Update an existing experimentation item
-        """
         url = f"{self.BASE_URL}/installations/{integration_config_id}/resources/{resource_id}/experimentation/items/{item_id}"
 
         try:
@@ -90,7 +92,6 @@ class VercelAPIClient:
             return False
 
     def delete_experimentation_item(self, integration_config_id: str, resource_id: str, item_id: str) -> bool:
-        """Delete an existing experimentation item"""
         url = f"{self.BASE_URL}/installations/{integration_config_id}/resources/{resource_id}/experimentation/items/{item_id}"
 
         try:
@@ -132,9 +133,6 @@ class VercelAPIClient:
         redirect_uri: str | None = None,
         grant_type: str = "authorization_code",
     ) -> dict[str, Any] | None:
-        """
-        Exchange authorization code for OIDC token during SSO flow
-        """
         url = f"{self.BASE_URL}/integrations/sso/token"
 
         data = {
@@ -150,7 +148,6 @@ class VercelAPIClient:
             data["redirect_uri"] = redirect_uri
 
         try:
-            # Use form-encoded content type for token exchange
             headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
             response = self.session.post(url, data=data, headers=headers)
 

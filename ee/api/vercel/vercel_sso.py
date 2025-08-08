@@ -38,8 +38,8 @@ class VercelSSOViewSet(ViewSet):
         state = serializer.validated_data.get("state")
         logger.info("vercel_sso_redirect_received", has_state=state is not None)
 
-        client_id = getattr(settings, "VERCEL_CLIENT_ID", "")
-        client_secret = getattr(settings, "VERCEL_CLIENT_SECRET", "")
+        client_id = settings.VERCEL_CLIENT_ID
+        client_secret = settings.VERCEL_CLIENT_SECRET
 
         token_response = self._exchange_token(code, client_id, client_secret, state)
         if not token_response:
@@ -69,7 +69,7 @@ class VercelSSOViewSet(ViewSet):
 
     def _exchange_token(self, code, client_id, client_secret, state):
         try:
-            vercel_client = VercelAPIClient()
+            vercel_client = VercelAPIClient(bearer_token="dummy_token_for_sso")
             return vercel_client.sso_token_exchange(
                 code=code, client_id=client_id, client_secret=client_secret, state=state
             )
