@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { AssistantContextualTool, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { routes } from 'scenes/scenes'
-import { IconCompass } from '@posthog/icons'
+import { IconBook, IconCompass, IconLineGraph } from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { SidePanelTab } from '~/types'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
@@ -71,6 +71,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     reducers({
         toolMap: [
             {
+                create_and_query_insight: {
+                    name: 'create_and_query_insight' as const,
+                    displayName: 'Create and query insight',
+                    description: 'Max can create and query insights',
+                    icon: <IconLineGraph />,
+                    context: {},
+                    callback: () => {},
+                },
                 // The navigation tool is available everywhere
                 navigate: {
                     name: 'navigate' as const,
@@ -101,6 +109,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                             checkPathname()
                         })
                     },
+                },
+                search_docs: {
+                    name: 'search_docs' as const,
+                    displayName: 'Search docs',
+                    description: 'Max can search the PostHog docs',
+                    icon: <IconBook />,
+                    context: {},
+                    callback: () => {},
                 },
             } as Record<string, ToolDefinition>,
             {
