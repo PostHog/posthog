@@ -76,4 +76,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                 records.find((record) => record.type === 'frame' && record.raw_id === frameRawId),
         ],
     }),
+    selectors({
+        uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
+    }),
 ])

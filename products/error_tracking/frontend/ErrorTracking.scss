@@ -7,3 +7,15 @@
         background-color: inherit;
     }
 }
+
+body[theme='light'] .ErrorTrackingIssue {
+    --gray-1: var(--color-neutral-50);
+    --gray-2: var(--color-neutral-100);
+    --gray-3: var(--color-neutral-150);
+}
+
+body[theme='dark'] .ErrorTrackingIssue {
+    --gray-1: var(--color-neutral-cool-850);
+    --gray-2: var(--color-neutral-cool-800);
+    --gray-3: var(--color-neutral-cool-750);
+}

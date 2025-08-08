@@ -13,7 +13,7 @@ export interface ErrorTrackingException {
     }
 }
 
-export type ErrorTrackingRuntime = 'web' | 'python' | 'node' | 'unknown'
+export type ErrorTrackingRuntime = 'web' | 'python' | 'node' | 'go' | 'rust' | 'php' | 'dotnet' | 'unknown'
 
 interface ErrorTrackingRawStackTrace {
     type: 'raw'

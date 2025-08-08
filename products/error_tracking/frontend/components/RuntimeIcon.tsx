@@ -1,12 +1,28 @@
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
-import { IconJavascript, IconNodeJS, IconPython, LemonIconProps } from 'lib/lemon-ui/icons'
-import React from 'react'
+import {
+    IconCSharp,
+    IconGolang,
+    IconJavascript,
+    IconNodeJS,
+    IconPHP,
+    IconPython,
+    IconRuby,
+    IconRust,
+    LemonIconProps,
+} from 'lib/lemon-ui/icons'
+import { IconLogomark } from '@posthog/icons'
 
 const RuntimeIconMap = {
     python: IconPython,
     web: IconJavascript,
     node: IconNodeJS,
-    unknown: React.Fragment,
+    ruby: IconRuby,
+    go: IconGolang,
+    rust: IconRust,
+    dotnet: IconCSharp,
+    php: IconPHP,
+
+    unknown: IconLogomark,
 }
 
 export function RuntimeIcon({ runtime, ...props }: { runtime: ErrorTrackingRuntime } & LemonIconProps): JSX.Element {
