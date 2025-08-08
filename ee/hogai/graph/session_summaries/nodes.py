@@ -285,5 +285,5 @@ class SessionSummarizationNode(AssistantNode):
     def _base_error_instructions(self) -> str:
         return "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the session and suggest they try again with a different question."
 
-    def router(self, _: AssistantState) -> Literal["end", "root"]:
+    def router(self, _: AssistantState) -> Literal["root"]:
         return "root"
