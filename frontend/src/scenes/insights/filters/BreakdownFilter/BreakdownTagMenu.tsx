@@ -3,6 +3,7 @@ import './BreakdownTagMenu.scss'
 import { IconInfo, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
@@ -27,6 +28,16 @@ export const BreakdownTagMenu = (): JSX.Element => {
     const { setBreakdownBins } = useActions(taxonomicBreakdownFilterLogic)
 
     const { isMultipleBreakdownsEnabled } = useValues(taxonomicBreakdownFilterLogic)
+
+    // Local draft state to avoid triggering queries on every keystroke
+    const [draftBins, setDraftBins] = useState<BreakdownBin[] | undefined>(undefined)
+
+    // Reset drafts whenever the server/logic value changes externally
+    useEffect(() => {
+        setDraftBins(breakdownBins || undefined)
+    }, [breakdownBins])
+
+    const isSaveable = draftBins && JSON.stringify(draftBins) !== JSON.stringify(breakdownBins)
 
     return (
         <>
@@ -112,7 +123,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     {!!breakdownBins?.length && (
                         <div className="p-2">
                             <div className="space-y-2">
-                                {breakdownBins.map((bin: BreakdownBin, index: number) => (
+                                {(draftBins || []).map((bin: BreakdownBin, index: number) => (
                                     <div key={index} className="flex items-center gap-2">
                                         <LemonInput
                                             type="number"
@@ -120,10 +131,8 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                             value={bin.low ?? undefined}
                                             onChange={(lowNum) => {
                                                 const low = lowNum !== undefined ? lowNum : null
-                                                setBreakdownBins(
-                                                    breakdown,
-                                                    breakdownType,
-                                                    breakdownBins.map((b: BreakdownBin, i: number) =>
+                                                setDraftBins(
+                                                    (draftBins || []).map((b: BreakdownBin, i: number) =>
                                                         i === index ? { ...b, low } : b
                                                     )
                                                 )
@@ -137,10 +146,8 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                             value={bin.high ?? undefined}
                                             onChange={(highNum) => {
                                                 const high = highNum !== undefined ? highNum : null
-                                                setBreakdownBins(
-                                                    breakdown,
-                                                    breakdownType,
-                                                    breakdownBins.map((b: BreakdownBin, i: number) =>
+                                                setDraftBins(
+                                                    (draftBins || []).map((b: BreakdownBin, i: number) =>
                                                         i === index ? { ...b, high } : b
                                                     )
                                                 )
@@ -150,13 +157,13 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                         <LemonButton
                                             size="small"
                                             status="danger"
-                                            onClick={() =>
-                                                setBreakdownBins(
-                                                    breakdown,
-                                                    breakdownType,
-                                                    breakdownBins.filter((_: BreakdownBin, i: number) => i !== index)
+                                            onClick={() => {
+                                                setDraftBins(
+                                                    (draftBins || []).filter(
+                                                        (_: BreakdownBin, i: number) => i !== index
+                                                    )
                                                 )
-                                            }
+                                            }}
                                             icon={<IconTrash />}
                                         />
                                     </div>
@@ -166,14 +173,29 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                 className="mt-2"
                                 fullWidth
                                 onClick={() =>
-                                    setBreakdownBins(breakdown, breakdownType, [
-                                        ...(breakdownBins || []),
-                                        { low: null, high: null } as BreakdownBin,
-                                    ])
+                                    setDraftBins([...(draftBins || []), { low: null, high: null } as BreakdownBin])
                                 }
                             >
                                 Add bin
                             </LemonButton>
+                            <div className="flex items-center gap-2 mt-2">
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => setDraftBins(breakdownBins)}
+                                    disabled={!isSaveable}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    onClick={() => setBreakdownBins(breakdown, breakdownType, draftBins || [])}
+                                    disabled={!isSaveable}
+                                >
+                                    Save bins
+                                </LemonButton>
+                            </div>
                         </div>
                     )}
                 </>
