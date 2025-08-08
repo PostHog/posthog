@@ -127,6 +127,7 @@ class PropertyValueSynthesizer:
 
         return response
 
+    @lru_cache(maxsize=1024)
     def synthesize_group(self, group_type_name: str, prop: str, prop_type: str):
         prompt = self._format_prompt(GROUP_SYNTHESIZER_SYSTEM_PROMPT, GROUP_SYNTHESIZER_USER_PROMPT)
         taxonomy_metadata = self._find_group_metadata_in_taxonomy(group_type_name)
