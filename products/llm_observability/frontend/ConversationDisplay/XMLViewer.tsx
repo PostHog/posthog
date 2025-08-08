@@ -1,6 +1,5 @@
-import {} from '@posthog/icons'
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 interface XMLNode {
     type: 'element' | 'text' | 'attribute'

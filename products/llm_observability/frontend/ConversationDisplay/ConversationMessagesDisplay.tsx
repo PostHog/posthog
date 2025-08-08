@@ -369,7 +369,7 @@ export const LLMMessageDisplay = React.memo(
                                     icon={<IconCode />}
                                     tooltip="Toggle XML syntax highlighting"
                                     onClick={toggleXmlRendering}
-                                    pressed={isRenderingXml}
+                                    active={isRenderingXml}
                                 />
                             )}
                             <CopyToClipboardInline
