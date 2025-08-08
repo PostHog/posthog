@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS person_performed_events (
     team_id INTEGER NOT NULL,
     person_id UUID NOT NULL,
     event_name TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     PRIMARY KEY (team_id, person_id, event_name)
 );
 
@@ -29,8 +28,6 @@ CREATE TABLE IF NOT EXISTS behavioural_filter_matched_events (
     filter_hash TEXT NOT NULL,
     date DATE NOT NULL,
     counter INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     PRIMARY KEY (team_id, person_id, filter_hash, date)
 );
 

@@ -28,7 +28,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         COUNTERS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_counters'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@counters_db:5432/counters'
+              ? 'postgres://posthog:posthog@localhost:5432/counters'
               : '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
