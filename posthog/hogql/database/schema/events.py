@@ -1,7 +1,7 @@
 from posthog.hogql.database.models import (
     VirtualTable,
     StringDatabaseField,
-    TemporalGroupKeyDatabaseField,
+    GroupKeyDatabaseField,
     DateTimeDatabaseField,
     StringJSONDatabaseField,
     StringArrayDatabaseField,
@@ -81,31 +81,31 @@ class EventsTable(Table):
         # These are swapped out if the user has PoE enabled
         "person": FieldTraverser(chain=["pdi", "person"]),
         "person_id": FieldTraverser(chain=["pdi", "person_id"]),
-        "$group_0": TemporalGroupKeyDatabaseField(name="$group_0", nullable=False, group_index=0),
+        "$group_0": GroupKeyDatabaseField(name="$group_0", nullable=False, group_index=0),
         "group_0": LazyJoin(
             from_field=["$group_0"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(0),
         ),
-        "$group_1": TemporalGroupKeyDatabaseField(name="$group_1", nullable=False, group_index=1),
+        "$group_1": GroupKeyDatabaseField(name="$group_1", nullable=False, group_index=1),
         "group_1": LazyJoin(
             from_field=["$group_1"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(1),
         ),
-        "$group_2": TemporalGroupKeyDatabaseField(name="$group_2", nullable=False, group_index=2),
+        "$group_2": GroupKeyDatabaseField(name="$group_2", nullable=False, group_index=2),
         "group_2": LazyJoin(
             from_field=["$group_2"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(2),
         ),
-        "$group_3": TemporalGroupKeyDatabaseField(name="$group_3", nullable=False, group_index=3),
+        "$group_3": GroupKeyDatabaseField(name="$group_3", nullable=False, group_index=3),
         "group_3": LazyJoin(
             from_field=["$group_3"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(3),
         ),
-        "$group_4": TemporalGroupKeyDatabaseField(name="$group_4", nullable=False, group_index=4),
+        "$group_4": GroupKeyDatabaseField(name="$group_4", nullable=False, group_index=4),
         "group_4": LazyJoin(
             from_field=["$group_4"],
             join_table=GroupsTable(),

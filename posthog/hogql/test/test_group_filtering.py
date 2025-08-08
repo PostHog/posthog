@@ -1,5 +1,5 @@
 """
-Tests for temporal filtering of group fields based on GroupTypeMapping creation time.
+Tests for created_at filtering of group fields based on GroupTypeMapping creation time.
 """
 
 from datetime import datetime, UTC
@@ -12,8 +12,8 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest
 
 
-class TestGroupTemporalFiltering(APIBaseTest):
-    """Test that $group_N fields are temporally filtered based on GroupTypeMapping.created_at"""
+class TestGroupKeyFiltering(APIBaseTest):
+    """Test that $group_N fields are filtered based on GroupTypeMapping.created_at"""
 
     def setUp(self):
         super().setUp()
@@ -21,7 +21,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
         self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
     def test_group_field_with_mapping_and_created_at(self):
-        """Test that $group_0 gets temporal filtering when GroupTypeMapping exists with created_at"""
+        """Test that $group_0 gets filtering when GroupTypeMapping exists with created_at"""
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
@@ -65,7 +65,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
         self.assertIn("`$group_0` AS `$group_0`", sql)
 
     def test_multiple_group_fields(self):
-        """Test temporal filtering with multiple group type mappings"""
+        """Test filtering with multiple group type mappings"""
         # Create mappings for groups 0 and 1
         GroupTypeMapping.objects.create(
             team=self.team,
@@ -94,7 +94,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
         self.assertIn("'' AS `$group_2`", sql)
 
     def test_group_field_in_where_clause(self):
-        """Test that group temporal filtering works in WHERE clauses"""
+        """Test that group filtering works in WHERE clauses"""
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
@@ -111,7 +111,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
         self.assertIn("equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`), %(hogql_val_0)s)", sql)
 
     def test_group_join_with_temporal_filtering(self):
-        """Test that group_1.properties access includes temporal filtering for $group_1"""
+        """Test that group_1.properties access includes filtering for $group_1"""
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
@@ -128,7 +128,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
         self.assertIn("ON equals(if(events.timestamp < '2023-02-01 10:00:00', '', `$group_1`)", sql)
 
     def test_multiple_group_joins_with_mixed_mappings(self):
-        """Test joins to multiple groups with some having temporal filtering and others not"""
+        """Test joins to multiple groups with some having filtering and others not"""
         # Create mapping only for group_0
         GroupTypeMapping.objects.create(
             team=self.team,
@@ -148,7 +148,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
         self.assertIn("ON equals('', events__group_1.key)", sql)
 
     def test_non_clickhouse_dialect_no_temporal_filtering(self):
-        """Test that non-ClickHouse dialects don't get temporal filtering"""
+        """Test that non-ClickHouse dialects don't get filtering"""
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
@@ -166,7 +166,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
         self.assertNotIn("if(", sql.lower())
 
     def test_group_alias_with_temporal_filtering(self):
-        """Test that group aliases (e.g., 'company' for $group_0) work with temporal filtering"""
+        """Test that group aliases (e.g., 'company' for $group_0) work with filtering"""
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
@@ -185,7 +185,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
         self.assertIn("ON equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`)", sql)
 
     def test_group_alias_in_where_clause(self):
-        """Test that group aliases work with temporal filtering in WHERE clauses"""
+        """Test that group aliases work with filtering in WHERE clauses"""
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,

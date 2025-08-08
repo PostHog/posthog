@@ -79,9 +79,9 @@ class StringJSONDatabaseField(DatabaseField):
         return StringType(nullable=self.is_nullable())
 
 
-class TemporalGroupKeyDatabaseField(StringDatabaseField):
+class GroupKeyDatabaseField(StringDatabaseField):
     """
-    A database field that applies temporal filtering for group fields based on GroupTypeMapping.created_at.
+    This field allows us to delete group_types by returning '' for all group_keys that were written before the group_type was created.
     For $group_N fields, this returns:
     - Empty string if no GroupTypeMapping exists for that index
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists

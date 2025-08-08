@@ -23,7 +23,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
-from posthog.hogql.database.models import TemporalGroupKeyDatabaseField
+from posthog.hogql.database.models import GroupKeyDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.query_log import RawQueryLogTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
@@ -1470,9 +1470,8 @@ class _Printer(Visitor[str]):
                 else:
                     field_sql = "person_props"
             else:
-                # Handle temporal group key fields specially
-                if isinstance(resolved_field, TemporalGroupKeyDatabaseField):
-                    return self._handle_temporal_group_field(resolved_field)
+                if isinstance(resolved_field, GroupKeyDatabaseField):
+                    return self._handle_group_key_field(resolved_field)
 
                 # this errors because resolved_field is of type ast.Alias and not a field - what's the best way to solve?
                 field_sql = self._print_identifier(resolved_field.name)
@@ -1506,15 +1505,15 @@ class _Printer(Visitor[str]):
 
         return field_sql
 
-    def _handle_temporal_group_field(self, resolved_field) -> str:
+    def _handle_group_key_field(self, resolved_field) -> str:
         """
-        Handle temporal group key fields by generating conditional logic.
+        Handle group key fields by generating conditional logic.
         Returns: if(event.timestamp < groupTypeMapping.created_at, '', $group_N)
         Only applies special logic for ClickHouse dialect, otherwise returns normal field access.
         """
         group_index = resolved_field.group_index
 
-        # Only apply temporal filtering logic for ClickHouse dialect
+        # Only apply filtering logic for ClickHouse dialect
         if self.dialect != "clickhouse":
             return self._print_identifier(f"$group_{group_index}")
 
