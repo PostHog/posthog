@@ -136,7 +136,7 @@ async def producer(event_loop):
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def configure(configure_logger_auto, log_capture, queue, producer):
+async def configure_logger_auto(log_capture, queue, producer, event_loop):
     """Configure StructLog logging for testing.
 
     The extra parameters configured for testing are:
@@ -144,7 +144,7 @@ async def configure(configure_logger_auto, log_capture, queue, producer):
     * Set the queue and producer to capture messages sent.
     * Do not cache logger to ensure each test starts clean.
 
-    This fixture explicitly requests the `configure_logger_auto` fixture so
+    This fixture shadows the `configure_logger_auto` fixture so
     that we override the usual configuration with the specific parameters
     we need in these tests.
     """
@@ -156,7 +156,7 @@ async def configure(configure_logger_auto, log_capture, queue, producer):
             queue=queue,
             producer=producer,
             cache_logger_on_first_use=False,
-            loop=asyncio.get_running_loop(),
+            loop=event_loop,
         )
 
     yield
@@ -313,6 +313,9 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
 
     await activity_environment.run(log_activity)
 
+    # Run another loop iteration so messages have a chance to be inserted
+    await asyncio.sleep(0)
+
     assert len(queue.entries) == 1
     message_dict = json.loads(queue.entries[0].decode("utf-8"))
 
@@ -383,6 +386,9 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
 
     with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
         await activity_environment.run(log_activity)
+
+    # Run another loop iteration so messages have a chance to be inserted
+    await asyncio.sleep(0)
 
     assert len(queue.entries) == 1
 
