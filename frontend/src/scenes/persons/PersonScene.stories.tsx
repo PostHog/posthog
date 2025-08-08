@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -134,19 +134,19 @@ const meta: Meta = {
 export default meta
 
 export const PersonNotFound: StoryFn = () => {
-    useOnMountEffect(() => router.actions.push(urls.personByUUID('not-found')))
+    useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('not-found')))
 
     return <App />
 }
 
 export const Person: StoryFn = () => {
-    useOnMountEffect(() => router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')))
+    useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')))
 
     return <App />
 }
 
 export const PersonRecordingTab: StoryFn = () => {
-    useOnMountEffect(() =>
+    useDelayedOnMountEffect(() =>
         router.actions.push(`${urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')}#activeTab=sessionRecordings`)
     )
 

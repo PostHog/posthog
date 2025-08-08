@@ -47,6 +47,7 @@ from posthog.warehouse.models import (
     get_s3_client,
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from posthog.warehouse.s3 import ensure_bucket_exists
 from posthog.sync import database_sync_to_async
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
@@ -779,6 +780,24 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
 
 
 def _get_credentials():
+    if settings.USE_LOCAL_SETUP:
+        ensure_bucket_exists(
+            settings.BUCKET_URL,
+            settings.AIRBYTE_BUCKET_KEY,
+            settings.AIRBYTE_BUCKET_SECRET,
+            settings.OBJECT_STORAGE_ENDPOINT,
+        )
+
+        return {
+            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     if TEST:
         return {
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,

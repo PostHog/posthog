@@ -2,6 +2,7 @@ import { actions, connect, kea, path, reducers, selectors, listeners, afterMount
 import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import React from 'react'
 
 export type SceneLayoutContainerRef = React.RefObject<HTMLElement> | null
@@ -16,9 +17,9 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
         setScenePanelIsPresent: (active: boolean) => ({ active }),
         setScenePanelOpen: (open: boolean) => ({ open }),
-        setSceneWidth: (width: number) => ({ width }),
         setForceScenePanelClosedWhenRelative: (closed: boolean) => ({ closed }),
         setSceneContainerRef: (ref: SceneLayoutContainerRef) => ({ ref }),
+        setSceneContainerRect: (rect: DOMRect) => ({ rect }),
     }),
     reducers({
         scenePanelElement: [
@@ -39,12 +40,6 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
                 setScenePanelOpen: (_, { open }) => open,
             },
         ],
-        sceneWidth: [
-            0,
-            {
-                setSceneWidth: (_, { width }) => width,
-            },
-        ],
         forceScenePanelClosedWhenRelative: [
             false,
             { persist: true },
@@ -58,12 +53,20 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
                 setSceneContainerRef: (_, { ref }) => ref,
             },
         ],
+        // Rect might not be the best for our use case right now, but this will be helpful in the future
+        sceneContainerRect: [
+            null as DOMRect | null,
+            {
+                setSceneContainerRect: (_, { rect }) => rect,
+            },
+        ],
     }),
     selectors({
         useSceneTabs: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.SCENE_TABS]],
         scenePanelIsRelative: [
-            (s) => [s.sceneWidth],
-            (sceneWidth) => sceneWidth >= SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN,
+            (s) => [s.sceneContainerRect],
+            (sceneContainerRect) =>
+                sceneContainerRect && sceneContainerRect.width >= SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN,
         ],
         scenePanelOpen: [
             (s) => [s.scenePanelIsRelative, s.forceScenePanelClosedWhenRelative, s.scenePanelOpenManual],
@@ -71,13 +74,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
                 scenePanelIsRelative ? !forceScenePanelClosedWhenRelative : scenePanelOpenManual,
         ],
     }),
-    listeners(({ actions, values }) => ({
-        updateSceneWidth: () => {
-            const containerRef = values.sceneContainerRef
-            if (containerRef?.current) {
-                actions.setSceneWidth(containerRef.current.offsetWidth)
-            }
-        },
+    listeners(({ actions, values, cache }) => ({
         setScenePanelOpen: ({ open }) => {
             // When trying to open a relative panel that's force closed, reset the force closed state
             if (open && values.scenePanelIsRelative && values.forceScenePanelClosedWhenRelative) {
@@ -85,9 +82,25 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             }
         },
         setSceneContainerRef: ({ ref }) => {
+            // Clean up old ResizeObserver
+            if (cache.resizeObserver) {
+                cache.resizeObserver.disconnect()
+                cache.resizeObserver = null
+            }
+
             // Measure width immediately when container ref is set
             if (ref?.current) {
-                actions.setSceneWidth(ref.current.offsetWidth)
+                actions.setSceneContainerRect(ref.current.getBoundingClientRect())
+
+                // Set up new ResizeObserver for the new container
+                if (typeof ResizeObserver !== 'undefined') {
+                    cache.resizeObserver = new ResizeObserver(() => {
+                        if (ref?.current) {
+                            actions.setSceneContainerRect(ref.current.getBoundingClientRect())
+                        }
+                    })
+                    cache.resizeObserver.observe(ref.current)
+                }
             }
         },
     })),
@@ -95,11 +108,12 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         const handleResize = (): void => {
             const containerRef = values.sceneContainerRef
             if (containerRef?.current) {
-                actions.setSceneWidth(containerRef.current.offsetWidth)
+                actions.setSceneContainerRect(containerRef.current.getBoundingClientRect())
             }
         }
         cache.handleResize = handleResize
 
+        // Watch for window resize
         if (typeof window !== 'undefined') {
             window.addEventListener('resize', handleResize)
         }
@@ -107,6 +121,9 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     beforeUnmount(({ cache }) => {
         if (typeof window !== 'undefined' && cache.handleResize) {
             window.removeEventListener('resize', cache.handleResize)
+        }
+        if (cache.resizeObserver) {
+            cache.resizeObserver.disconnect()
         }
     }),
 ])
