@@ -18,7 +18,16 @@ class FlagDefinitionsCache:
 
     # Cache configuration
     CACHE_VERSION = "v1"
-    CACHE_TTL = int(os.getenv("FLAG_DEFINITIONS_CACHE_TTL", 3600))  # Default: 1 hour
+    CACHE_DEFAULT_TTL = 3600
+    try:
+        _cache_ttl_env = os.getenv("FLAG_DEFINITIONS_CACHE_TTL", str(CACHE_DEFAULT_TTL))
+        CACHE_TTL = int(_cache_ttl_env)
+    except (ValueError, TypeError):
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"Invalid FLAG_DEFINITIONS_CACHE_TTL value: '{os.getenv('FLAG_DEFINITIONS_CACHE_TTL')}'. Using default of {CACHE_DEFAULT_TTL} seconds."
+        )
+        CACHE_TTL = CACHE_DEFAULT_TTL
 
     @classmethod
     def get_cache_key(cls, project_id: int, include_cohorts: bool = False) -> str:
