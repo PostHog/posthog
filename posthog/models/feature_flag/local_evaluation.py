@@ -172,6 +172,7 @@ def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) 
 
 
 @receiver(post_save, sender=FeatureFlag)
+@receiver(post_delete, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
     from posthog.tasks.feature_flags import update_team_flags_cache
 
@@ -179,6 +180,7 @@ def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
 
 
 @receiver(post_save, sender=Cohort)
+@receiver(post_delete, sender=Cohort)
 def cohort_saved(sender, instance: "Cohort", created, **kwargs):
     from posthog.tasks.feature_flags import update_team_flags_cache
 
