@@ -195,8 +195,6 @@ class FeatureFlagLocalEvaluationCache:
         logger.info(f"Syncing flags cache for team {team.id}")
 
         try:
-            CELERY_TASK_FLAGS_CACHE_SYNC.labels(result="success").inc()
-
             res_without_cohorts = json.dumps(cls.get_flags_response_for_local_evaluation(team, include_cohorts=False))
             res_with_cohorts = json.dumps(cls.get_flags_response_for_local_evaluation(team, include_cohorts=True))
             # Write files to S3
