@@ -1,13 +1,6 @@
--- Create the counters database and tables
--- This file is used to set up the counters database and structure
-
--- Create the database (will be ignored if it already exists)
-SELECT 'CREATE DATABASE counters'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'counters')\gexec
-
--- Create the test database (will be ignored if it already exists)
-SELECT 'CREATE DATABASE test_counters'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'test_counters')\gexec
+-- Create the counters database tables
+-- This file is used to set up the counters database structure
+-- Database creation is handled by the setup script
 
 -- Table for person performed events
 CREATE TABLE IF NOT EXISTS person_performed_events (
