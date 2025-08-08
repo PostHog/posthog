@@ -51,7 +51,7 @@ class TestQueryCacheComparison(APIBaseTest):
             # Store data in memory for consistent testing
             memory_storage: dict[str, str] = {}
 
-            def mock_read(bucket, key):
+            def mock_read_bytes(bucket, key):
                 return memory_storage.get(key)
 
             def mock_write(bucket, key, content, extras=None):
@@ -63,7 +63,7 @@ class TestQueryCacheComparison(APIBaseTest):
             def mock_list_objects(bucket, prefix):
                 return [k for k in memory_storage.keys() if k.startswith(prefix)]
 
-            manager.storage_client.read.side_effect = mock_read
+            manager.storage_client.read_bytes.side_effect = mock_read_bytes
             manager.storage_client.write.side_effect = mock_write
             manager.storage_client.delete.side_effect = mock_delete
             manager.storage_client.list_objects.side_effect = mock_list_objects
@@ -176,7 +176,7 @@ class TestQueryCacheComparison(APIBaseTest):
             django_cache_result = django_cache_manager.get_cache_data()
 
         # Mock S3 to raise an exception
-        s3_manager.storage_client.read.side_effect = Exception("S3 error")  # type: ignore
+        s3_manager.storage_client.read_bytes.side_effect = Exception("S3 error")  # type: ignore
         s3_result = s3_manager.get_cache_data()
 
         # Both should handle errors gracefully and return None

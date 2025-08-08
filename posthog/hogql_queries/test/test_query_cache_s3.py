@@ -43,36 +43,27 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
         expected_key = f"query_cache/{self.team_id}/{self.cache_key}"
         self.assertEqual(manager._cache_object_key(), expected_key)
 
-    def test_ttl_days_calculation(self):
-        """Test TTL calculation from seconds to days."""
-        manager = self._create_cache_manager()
-
-        # Test various TTL values
-        self.assertEqual(manager._calculate_ttl_days(86400), 1)  # 1 day
-        self.assertEqual(manager._calculate_ttl_days(43200), 1)  # 0.5 days -> rounds up to 1
-        self.assertEqual(manager._calculate_ttl_days(172800), 2)  # 2 days
-        self.assertEqual(manager._calculate_ttl_days(259200), 3)  # 3 days
-        self.assertEqual(manager._calculate_ttl_days(1), 1)  # Minimum 1 day
-
     def test_get_cache_data_success(self):
         """Test successful cache data retrieval."""
+        import zstd
+
         manager = self._create_cache_manager()
         test_data = {"result": "test", "count": 42}
-        serialized_data = OrjsonJsonSerializer({}).dumps(test_data).decode("utf-8")
+        compressed_data = zstd.compress(OrjsonJsonSerializer({}).dumps(test_data))
 
-        self.mock_storage_client.read.return_value = serialized_data
+        self.mock_storage_client.read_bytes.return_value = compressed_data
 
         result = manager.get_cache_data()
 
         self.assertEqual(result, test_data)
-        self.mock_storage_client.read.assert_called_once_with(
+        self.mock_storage_client.read_bytes.assert_called_once_with(
             bucket=manager.bucket, key=f"query_cache/{self.team_id}/{self.cache_key}"
         )
 
     def test_get_cache_data_not_found(self):
         """Test cache data retrieval when object doesn't exist."""
         manager = self._create_cache_manager()
-        self.mock_storage_client.read.return_value = None
+        self.mock_storage_client.read_bytes.return_value = None
 
         result = manager.get_cache_data()
 
@@ -81,7 +72,7 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
     def test_get_cache_data_error_handling(self):
         """Test cache data retrieval with storage errors."""
         manager = self._create_cache_manager()
-        self.mock_storage_client.read.side_effect = Exception("S3 error")
+        self.mock_storage_client.read_bytes.side_effect = Exception("S3 error")
 
         result = manager.get_cache_data()
 
@@ -90,9 +81,8 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
     @patch("posthog.hogql_queries.query_cache_s3.settings")
     def test_set_cache_data_success(self, mock_settings):
         """Test successful cache data storage."""
-        mock_settings.CACHED_RESULTS_TTL = 86400  # 1 day
-        mock_settings.QUERY_CACHE_S3_BUCKET = "test-bucket"
-        mock_settings.OBJECT_STORAGE_BUCKET = "fallback-bucket"
+        mock_settings.CACHED_RESULTS_TTL_DAYS = 1
+        mock_settings.OBJECT_STORAGE_BUCKET = "test-bucket"
 
         manager = self._create_cache_manager()
         test_data = {"result": "test", "count": 42}
