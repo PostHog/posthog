@@ -25,49 +25,31 @@ const formatValue = (value: number | null | undefined, mode: 'full' | 'short'): 
     return value.toString()
 }
 
-const calculatePercentageChange = (current: number, previous: number): { sign: boolean; percentage: string } => {
-    if (previous === 0) {
-        if (current > 0) {
-            return { sign: true, percentage: '+∞%' }
-        }
-        if (current < 0) {
-            return { sign: false, percentage: '-∞%' }
-        }
-        return { sign: true, percentage: '0%' }
-    }
-
-    const change = ((current - previous) / previous) * 100
-    const sign = change >= 0
-    const prefix = sign ? '+' : ''
-    return { sign, percentage: `${prefix}${change.toFixed(1)}%` }
-}
-
 const getChangeDirectionIcon = (current: number | null, previous: number | null): JSX.Element | null => {
-    if (current === null || current === undefined || previous === null || previous === undefined) {
-        return null
-    }
-
     if (current === previous) {
         return null
     }
-
-    return current > previous ? <IconArrowUp /> : <IconArrowDown />
+    return (current ?? 0) > (previous ?? 0) ? <IconArrowUp /> : <IconArrowDown />
 }
 
-const createTooltipContent = (current: number | null, previous: number | null): React.ReactNode => {
+const createTooltipContent = (
+    current: number | null,
+    previous: number | null,
+    changePerc: number | null
+): React.ReactNode => {
     const currentValue = formatValue(current, 'full')
     const previousValue = formatValue(previous, 'full')
 
     let changeInfo: React.ReactNode
-    if (current === null || previous === null) {
+    if (previous === null) {
         changeInfo = <div>Change: No data</div>
+    } else if (changePerc === null) {
+        changeInfo = <div>Change: {current}</div>
     } else {
-        const { sign, percentage } = calculatePercentageChange(current, previous)
-        const icon = sign ? <IconArrowUp /> : <IconArrowDown />
+        const icon = changePerc > 0 ? <IconArrowUp /> : <IconArrowDown />
         changeInfo = (
             <div>
-                Change: {icon}
-                {percentage}
+                Change: {changePerc.toFixed(2)}% {icon}
             </div>
         )
     }
@@ -101,9 +83,10 @@ export const renderMarketingAnalyticsCell = (value: any): JSX.Element | null => 
     }
 
     const currentFormatted = formatValue(current, 'short')
-    const previousFormatted = formatValue(previous, 'short')
     const changeIcon = getChangeDirectionIcon(current, previous)
-    const tooltipContent = createTooltipContent(current, previous)
+    const changePerc = previous === 0 ? null : (((current ?? 0) - previous) / previous) * 100
+    const changePercFormatted = changePerc ? `${changePerc.toFixed(2)}%` : null
+    const tooltipContent = createTooltipContent(current, previous, changePerc)
 
     return (
         <Tooltip title={tooltipContent} delayMs={300}>
@@ -111,7 +94,7 @@ export const renderMarketingAnalyticsCell = (value: any): JSX.Element | null => 
                 <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                     {currentFormatted} {changeIcon}
                 </div>
-                <div className="w-full text-muted">{previousFormatted}</div>
+                <div className="w-full text-muted">{changePercFormatted}</div>
             </div>
         </Tooltip>
     )
