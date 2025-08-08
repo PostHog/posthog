@@ -120,7 +120,7 @@ class FlagDefinitionsCache:
 
             logger = logging.getLogger(__name__)
             logger.info(
-                "Cached flag definitions",
+                "Cached flag definitions for local evaluation",
                 extra={"cache_key": cache_key, "project_id": project_id},
             )
         except Exception as e:
@@ -156,11 +156,16 @@ class FlagDefinitionsCache:
                 statsd.incr("flag_definitions_cache_hit", tags=tags)
                 logger = logging.getLogger(__name__)
                 logger.info(
-                    "Cache hit for flag definitions",
+                    "Cache hit for local evaluation",
                     extra={"cache_key": cache_key, "project_id": project_id},
                 )
             else:
                 statsd.incr("flag_definitions_cache_miss", tags=tags)
+                logger = logging.getLogger(__name__)
+                logger.info(
+                    "Cache miss for local evaluation",
+                    extra={"cache_key": cache_key, "project_id": project_id},
+                )
 
             return cached_data
         except Exception as e:

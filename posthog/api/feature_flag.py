@@ -1234,20 +1234,16 @@ class FeatureFlagViewSet(
 
             # Check cache first
             should_send_cohorts = "send_cohorts" in request.GET
-            cache_key = FlagDefinitionsCache.get_cache_key(self.project_id, should_send_cohorts)
 
             try:
                 cached_response = FlagDefinitionsCache.get_cache(self.project_id, should_send_cohorts)
                 if cached_response is not None:
-                    logger.info("Cache hit for local evaluation", extra={"cache_key": cache_key})
                     # Still increment request count for analytics
                     if cached_response.get("flags") and not all(
                         flag.get("key", "").startswith("survey-targeting-") for flag in cached_response["flags"]
                     ):
                         increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
                     return Response(cached_response)
-                else:
-                    logger.info("Cache miss for local evaluation", extra={"cache_key": cache_key})
             except Exception as e:
                 logger.warning("Cache error in local evaluation, proceeding without cache", extra={"error": str(e)})
 
