@@ -6,7 +6,6 @@ from typing import Union, cast
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
@@ -101,7 +100,7 @@ class Breakdown:
             return False
 
         for breakdown in cast(list[BreakdownSchema], breakdown_filter.breakdowns):
-            if breakdown.breakdown_bins is not None:
+            if breakdown.breakdown_bins:
                 return True
 
         return False
@@ -126,13 +125,12 @@ class Breakdown:
             return ast.Tuple(exprs=expressions)
 
         # for single breakdowns, we return a single expression
-        property_expression = property_to_expr(
-            get_properties_chain(
-                breakdown_type=self._breakdown_filter.breakdown_type,
-                breakdown_field=str(self._breakdown_filter.breakdown),
+        property_expression = self._get_breakdown_property_expr(
+            BreakdownSchema(
+                type=self._breakdown_filter.breakdown_type,
+                property=self._breakdown_filter.breakdown,
                 group_type_index=self._breakdown_filter.breakdown_group_type_index,
-            ),
-            self.team,
+            )
         )
         return ast.Tuple(exprs=[property_expression])
 
@@ -142,7 +140,7 @@ class Breakdown:
 
         expressions = []
         for breakdown in self._breakdown_filter.breakdowns:
-            if breakdown.breakdown_bins is not None:
+            if breakdown.breakdown_bins:
                 property_to_break_down = self._get_breakdown_property_expr(breakdown)
 
                 multi_if_args = []
@@ -224,7 +222,7 @@ class Breakdown:
 
     @cached_property
     def column_exprs(self) -> list[ast.Alias]:
-        # Cohort special-case (unchanged)
+        # This handles the cohort case first.
         if (
             not self.is_multiple_breakdown
             and isinstance(self._breakdown_filter.breakdown, list)
@@ -237,22 +235,18 @@ class Breakdown:
                 )
             ]
 
-        breakdown_exprs = self.get_breakdown_expr().exprs
-
-        # Multiple breakdowns: mix of histogram/custom/standard per item
         if self.is_multiple_breakdown:
-            assert self._breakdown_filter.breakdowns is not None
-            aliases = self.multiple_breakdowns_aliases
-
             aliased_exprs: list[ast.Alias] = []
+            aliases = self.multiple_breakdowns_aliases
+            assert self._breakdown_filter.breakdowns is not None
+            breakdown_exprs = self.get_breakdown_expr().exprs
             for idx, breakdown_schema in enumerate(self._breakdown_filter.breakdowns):
-                alias = aliases[idx]
-
-                # If histogram is configured for this breakdown, ensure numeric casting for min/max math later
-                if breakdown_schema.histogram_bin_count is not None and breakdown_schema.breakdown_bins is None:
+                if breakdown_schema.breakdown_bins is not None:
+                    aliased_exprs.append(ast.Alias(alias=aliases[idx], expr=breakdown_exprs[idx]))
+                else:
                     aliased_exprs.append(
                         self._get_breakdown_col_expr(
-                            alias=alias,
+                            alias=aliases[idx],
                             value=cast(str | int, breakdown_schema.property),
                             breakdown_type=breakdown_schema.type,
                             normalize_url=breakdown_schema.normalize_url,
@@ -260,15 +254,11 @@ class Breakdown:
                             group_type_index=breakdown_schema.group_type_index,
                         )
                     )
-                else:
-                    # For custom bins or standard breakdowns, use the group-by expression (labels for custom bins)
-                    aliased_exprs.append(ast.Alias(alias=alias, expr=breakdown_exprs[idx]))
-
             return aliased_exprs
+        else:
+            if self.is_custom_bins_breakdown:
+                return [ast.Alias(alias=self.breakdown_alias, expr=self.get_breakdown_expr().exprs[0])]
 
-        # Single breakdown
-        # If histogram is configured, use numeric casting, otherwise mirror the group-by expression
-        if self._breakdown_filter.breakdown_histogram_bin_count is not None:
             return [
                 self._get_breakdown_col_expr(
                     alias=self.breakdown_alias,
@@ -279,8 +269,6 @@ class Breakdown:
                     group_type_index=self._breakdown_filter.breakdown_group_type_index,
                 )
             ]
-
-        return [ast.Alias(alias=self.breakdown_alias, expr=breakdown_exprs[0])]
 
     @property
     def is_cohort_breakdown(self):
