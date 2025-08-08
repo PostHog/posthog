@@ -9,6 +9,7 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(
             team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="created"
         ).first()
+        assert log is not None
         self.assertIsNotNone(log)
         self.assertIsNotNone(log.detail)
 
@@ -20,5 +21,7 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         update_log = ActivityLog.objects.filter(
             team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="updated"
         ).first()
+
+        assert update_log is not None
         self.assertIsNotNone(update_log)
         self.assertIsNotNone(update_log.detail)
