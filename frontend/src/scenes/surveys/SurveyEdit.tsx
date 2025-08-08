@@ -786,7 +786,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       const {
                                                                                           linkedFlagVariant,
                                                                                           ...conditions
-                                                                                      } = survey.conditions
+                                                                                      } = survey.conditions || {}
                                                                                       setSurveyValue('conditions', {
                                                                                           ...conditions,
                                                                                       })
@@ -797,7 +797,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                               const {
                                                                                   linkedFlagVariant,
                                                                                   ...conditions
-                                                                              } = survey.conditions
+                                                                              } = survey.conditions || {}
                                                                               setSurveyValue('conditions', {
                                                                                   ...conditions,
                                                                               })
@@ -815,7 +815,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                               const {
                                                                                   linkedFlagVariant,
                                                                                   ...conditions
-                                                                              } = survey.conditions
+                                                                              } = survey.conditions || {}
                                                                               setSurveyValue('conditions', {
                                                                                   ...conditions,
                                                                               })
