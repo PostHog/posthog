@@ -8,13 +8,23 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { BreakdownBin } from '~/queries/schema/schema-general'
 
 export const BreakdownTagMenu = (): JSX.Element => {
-    const { isHistogramable, isNormalizeable, histogramBinCount, normalizeBreakdownURL, histogramBinsUsed } =
-        useValues(breakdownTagLogic)
+    const {
+        isHistogramable,
+        isNormalizeable,
+        histogramBinCount,
+        normalizeBreakdownURL,
+        histogramBinsUsed,
+        breakdownBins,
+        breakdown,
+        breakdownType,
+    } = useValues(breakdownTagLogic)
 
     const { removeBreakdown, setHistogramBinCount, setHistogramBinsUsed, setNormalizeBreakdownURL } =
         useActions(breakdownTagLogic)
+    const { setBreakdownBins } = useActions(taxonomicBreakdownFilterLogic)
 
     const { isMultipleBreakdownsEnabled } = useValues(taxonomicBreakdownFilterLogic)
 
@@ -58,7 +68,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         onClick={() => {
                             setHistogramBinsUsed(true)
                         }}
-                        active={histogramBinsUsed}
+                        active={histogramBinsUsed && !breakdownBins}
                         fullWidth
                     >
                         Use{' '}
@@ -80,12 +90,90 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         onClick={() => {
                             setHistogramBinsUsed(false)
                         }}
-                        active={!histogramBinsUsed}
+                        active={!histogramBinsUsed && !breakdownBins}
                         className="mt-2"
                         fullWidth
                     >
                         Do not bin numeric values
                     </LemonButton>
+                    <LemonButton
+                        onClick={() => {
+                            setBreakdownBins(
+                                breakdown,
+                                breakdownType,
+                                !breakdownBins ? [{ low: null, high: null }] : []
+                            )
+                        }}
+                        active={!!breakdownBins}
+                        className="mt-2"
+                        fullWidth
+                    >
+                        Custom bins
+                    </LemonButton>
+                    {!!breakdownBins && (
+                        <div className="p-2">
+                            {breakdownBins.map((bin: BreakdownBin, index: number) => (
+                                <div key={index} className="flex items-center gap-2">
+                                    <LemonInput
+                                        type="number"
+                                        value={bin.low ?? undefined}
+                                        onChange={(lowNum) => {
+                                            const low = lowNum !== undefined ? lowNum : null
+                                            setBreakdownBins(
+                                                breakdown,
+                                                breakdownType,
+                                                breakdownBins.map((b: BreakdownBin, i: number) =>
+                                                    i === index ? { ...b, low } : b
+                                                )
+                                            )
+                                        }}
+                                        placeholder="Min"
+                                    />
+                                    <span>-</span>
+                                    <LemonInput
+                                        type="number"
+                                        value={bin.high ?? undefined}
+                                        onChange={(highNum) => {
+                                            const high = highNum !== undefined ? highNum : null
+                                            setBreakdownBins(
+                                                breakdown,
+                                                breakdownType,
+                                                breakdownBins.map((b: BreakdownBin, i: number) =>
+                                                    i === index ? { ...b, high } : b
+                                                )
+                                            )
+                                        }}
+                                        placeholder="Max"
+                                    />
+                                    <LemonButton
+                                        size="small"
+                                        status="danger"
+                                        onClick={() =>
+                                            setBreakdownBins(
+                                                breakdown,
+                                                breakdownType,
+                                                breakdownBins.filter((_: BreakdownBin, i: number) => i !== index)
+                                            )
+                                        }
+                                    >
+                                        Remove
+                                    </LemonButton>
+                                </div>
+                            ))}
+                            <LemonButton
+                                className="mt-2"
+                                fullWidth
+                                onClick={() =>
+                                    setBreakdownBins(breakdown, breakdownType, [
+                                        ...(breakdownBins || []),
+                                        { low: null, high: null } as BreakdownBin,
+                                    ])
+                                }
+                            >
+                                Add bin
+                            </LemonButton>
+                        </div>
+                    )}
                 </>
             ) : (
                 !isMultipleBreakdownsEnabled && <GlobalBreakdownOptionsMenu />

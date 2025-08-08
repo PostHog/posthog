@@ -62,6 +62,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         setNormalizeBreakdownURL: (normalizeURL: boolean) => ({
             normalizeURL,
         }),
+        setBreakdownBins: (bins: any) => ({ bins }),
     })),
     reducers({
         localHistogramBinCount: [
@@ -120,6 +121,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 return globalBinCount
             },
         ],
+        breakdownBins: [(s) => [s.multipleBreakdown], (multipleBreakdown) => multipleBreakdown?.breakdown_bins],
         normalizeBreakdownURL: [
             (s) => [
                 s.isMultipleBreakdownsEnabled,
@@ -176,6 +178,12 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 binsUsed,
                 values.histogramBinCount
             )
+        },
+        setBreakdownBins: ({ bins }) => {
+            const taxonomicActions = taxonomicBreakdownFilterLogic.findMounted()?.actions
+            if (taxonomicActions) {
+                taxonomicActions.setBreakdownBins(values.breakdown, values.breakdownType, bins)
+            }
         },
     })),
 ])

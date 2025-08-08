@@ -2894,6 +2894,7 @@ export interface Breakdown {
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin
+    breakdown_bins?: BreakdownBin[] | null
 }
 
 export interface BreakdownFilter {
@@ -2910,6 +2911,11 @@ export interface BreakdownFilter {
     breakdown_group_type_index?: integer | null
     breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
+}
+
+export interface BreakdownBin {
+    high: number | null
+    low: number | null
 }
 
 // TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`

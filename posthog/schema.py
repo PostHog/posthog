@@ -457,6 +457,14 @@ class BreakdownAttributionType(StrEnum):
     STEP = "step"
 
 
+class BreakdownBin(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    high: Optional[float] = None
+    low: Optional[float] = None
+
+
 class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
@@ -3303,6 +3311,7 @@ class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown_bins: Optional[list[BreakdownBin]] = None
     group_type_index: Optional[int] = None
     histogram_bin_count: Optional[int] = None
     normalize_url: Optional[bool] = None

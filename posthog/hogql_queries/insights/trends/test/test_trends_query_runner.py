@@ -38,6 +38,7 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownItem,
     BreakdownType,
+    BreakdownBin,
     ChartDisplayType,
     CompareFilter,
     CompareItem,
@@ -5757,3 +5758,133 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(response)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)
+
+    def test_trends_breakdowns_custom_bins(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        type="event",
+                        property="prop",
+                        breakdown_bins=[
+                            BreakdownBin(low=0, high=15),
+                            BreakdownBin(low=15, high=25),
+                            BreakdownBin(low=25),
+                        ],
+                    )
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        self.assertEqual(len(response.results), 3)  # Only 3 because "Other" bin has no data
+        self.assertEqual(
+            breakdown_labels,
+            [["0 - 15"], ["15 - 25"], [">= 25"]],
+        )
+
+        self.assertEqual(response.results[0]["label"], "0 - 15")
+        self.assertEqual(response.results[1]["label"], "15 - 25")
+        self.assertEqual(response.results[2]["label"], ">= 25")
+
+        self.assertEqual(response.results[0]["count"], 6)
+        self.assertEqual(response.results[1]["count"], 2)
+        self.assertEqual(response.results[2]["count"], 2)
+
+    def test_trends_multiple_breakdowns_with_custom_bins(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        type="event",
+                        property="prop",
+                        breakdown_bins=[
+                            BreakdownBin(low=0, high=20),
+                            BreakdownBin(low=20, high=30),
+                        ],
+                    ),
+                    Breakdown(type="event", property="$browser"),
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+        self.assertEqual(len(response.results), 4)
+        self.assertEqual(
+            breakdown_labels,
+            [["0 - 20", "Chrome"], ["20 - 30", "Firefox"], ["Other", "Edge"], ["Other", "Safari"]],
+        )
+
+    def test_to_actors_query_options_breakdowns_custom_bins(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        type="event",
+                        property="prop",
+                        breakdown_bins=[
+                            BreakdownBin(low=10, high=15),  # p1: prop=10
+                            BreakdownBin(low=15, high=25),  # p2: prop=20
+                        ],
+                    )
+                ]
+            ),
+        )
+
+        # First, check the options
+        options = runner.to_actors_query_options()
+        assert options.breakdowns is not None
+        self.assertEqual(
+            options.breakdowns[0].values,
+            [
+                BreakdownItem(label="10 - 15", value="10 - 15"),
+                BreakdownItem(label="15 - 25", value="15 - 25"),
+                BreakdownItem(label="Other", value="Other"),
+            ],
+        )
+
+        # Check actors for "10-15" bin
+        actors_query_10_15 = runner.to_actors_query(
+            time_frame="2020-01-12", series_index=0, breakdown_value=["10 - 15"]
+        )
+        actors_response_10_15 = execute_hogql_query(query=actors_query_10_15, team=self.team)
+        self.assertEqual(len(actors_response_10_15.results), 1)
+        self.assertEqual(actors_response_10_15.results[0][2][0], "p1")  # p1 has prop=10
+
+        # Check actors for "15-25" bin
+        actors_query_15_25 = runner.to_actors_query(
+            time_frame="2020-01-12", series_index=0, breakdown_value=["15 - 25"]
+        )
+        actors_response_15_25 = execute_hogql_query(query=actors_query_15_25, team=self.team)
+        self.assertEqual(len(actors_response_15_25.results), 1)
+        self.assertEqual(actors_response_15_25.results[0][2][0], "p2")  # p2 has prop=20
+
+        # Check actors for "Other" bin
+        actors_query_other = runner.to_actors_query(time_frame="2020-01-12", series_index=0, breakdown_value=["Other"])
+        actors_response_other = execute_hogql_query(query=actors_query_other, team=self.team)
+        # Only p3 has events on 2020-01-12 with prop=30 (p4 has events on 2020-01-15)
+        self.assertEqual(len(actors_response_other.results), 1)
+        self.assertEqual(actors_response_other.results[0][2][0], "p3")
