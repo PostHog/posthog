@@ -1,6 +1,8 @@
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { isDevEnv } from '~/utils/env-utils'
 import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
@@ -22,6 +24,69 @@ export class EmailService {
         if (!integration.config.mailjet_verified) {
             throw new Error('The selected email integration domain is not verified')
         }
+    }
+
+    // Send email to local maildev instance for testing (DEBUG=1 only)
+    private async executeSendEmailMaildev({
+        params,
+        addLog,
+    }: {
+        params: Omit<CyclotronInvocationQueueParametersEmailType, 'integrationId'>
+        addLog: (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => void
+    }) {
+        const email = {
+            to: params.to.email,
+            toName: params.to.name,
+            from: params.from.email,
+            fromName: params.from.name,
+            subject: params.subject,
+            text: params.text,
+            html: params.html,
+        }
+
+        const maildevHost = process.env.MAILDEV_HOST || 'localhost'
+        const maildevPort = process.env.MAILDEV_PORT || '1025'
+        const maildevWebPort = process.env.MAILDEV_WEB_PORT || '1080'
+        const maildevWebUrl = `http://${maildevHost}:${maildevWebPort}`
+        const maildevUrl = `http://${maildevHost}:${maildevPort}`
+
+        const requiredFields = ['to', 'from', 'subject', 'text', 'html'] as const
+        for (const field of requiredFields) {
+            if (!(field in email) || !email[field]) {
+                if (!email[field]) {
+                    throw new Error(`Missing required email field: ${field}`)
+                }
+            }
+        }
+
+        const emailData = {
+            from: email.fromName ? `"${email.fromName}" <${email.from}>` : email.from,
+            to: email.toName ? `"${email.toName}" <${email.to}>` : email.to,
+            subject: email.subject,
+            text: email.text,
+            html: email.html,
+        }
+        const maildevRequest = {
+            url: `${maildevUrl}/email`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+            },
+            body: emailData,
+        }
+
+        const response = await fetch(maildevRequest.url, {
+            method: maildevRequest.method,
+            headers: maildevRequest.headers,
+            body: JSON.stringify(maildevRequest.body),
+        })
+
+        if (response.status >= 400) {
+            throw new Error(`Failed to send email to maildev with status ${response.status}`)
+        }
+
+        addLog('debug', `Email sent to your local maildev server: ${maildevWebUrl}`)
     }
 
     // Send email
@@ -52,6 +117,10 @@ export class EmailService {
             }
 
             this.validateEmailDomain(integration, params.from.email)
+
+            if (isDevEnv()) {
+                await this.executeSendEmailMaildev({ params, addLog })
+            }
 
             // First we need to lookup the email sending domain of the given team
             const response = await fetch('https://api.mailjet.com/v3.1/send', {

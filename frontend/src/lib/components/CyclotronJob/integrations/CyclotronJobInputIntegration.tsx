@@ -5,6 +5,7 @@ import { IntegrationChoice, IntegrationConfigureProps } from './IntegrationChoic
 export type CyclotronJobInputIntegrationProps = IntegrationConfigureProps & {
     schema: CyclotronJobInputSchemaType
     persistForUnload?: () => void
+    className?: string
 }
 
 export function CyclotronJobInputIntegration({
