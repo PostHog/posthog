@@ -535,10 +535,18 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.propertyDefinitionEdit(':id')]: [Scene.PropertyDefinitionEdit, 'propertyDefinitionEdit'],
     [urls.propertyDefinitions()]: [Scene.DataManagement, 'propertyDefinitions'],
     [urls.replay()]: [Scene.Replay, 'replay'],
+    // One entry for every available tab
+    ...Object.values(ReplayTabs).reduce(
+        (acc, tab) => {
+            acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
+            return acc
+        },
+        {} as Record<string, [Scene, string]>
+    ),
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
+    [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
     [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
-    [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
@@ -562,13 +570,5 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
-    // One entry for every available tab
-    ...Object.values(ReplayTabs).reduce(
-        (acc, tab) => {
-            acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
-            return acc
-        },
-        {} as Record<string, [Scene, string]>
-    ),
     ...productRoutes,
 }
