@@ -68,9 +68,14 @@ def check_can_edit_sharing_configuration(
     ):
         raise PermissionDenied("Public sharing is disabled for this organization.")
 
-    user_access_control = UserAccessControl(user=request.user, team=view.team)
+    user_access_control = UserAccessControl(cast(User, request.user), team=view.team)
 
     if sharing.dashboard:
+        # Legacy check, remove after migrating users to the new access control
+        user_permissions = UserPermissions(cast(User, request.user), view.team)
+        if not user_permissions.dashboard(sharing.dashboard).can_edit:
+            raise PermissionDenied("You don't have edit permissions for this dashboard.")
+
         access_level = user_access_control.get_user_access_level(sharing.dashboard)
         if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, "editor"):
             raise PermissionDenied("You don't have edit permissions for this dashboard.")
