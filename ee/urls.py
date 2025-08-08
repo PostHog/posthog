@@ -117,6 +117,6 @@ urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
-    path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),  # Vercel SSO login endpoint
+    path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     *admin_urlpatterns,
 ]
