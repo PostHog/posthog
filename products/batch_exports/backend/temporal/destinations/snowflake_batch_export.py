@@ -854,46 +854,42 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
 
         # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
-        self.current_buffer = bytearray()
-        self._finalized = False
+        self.current_buffer = NamedBytesIO(
+            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.jsonl"
+        )
 
     async def consume_chunk(self, data: bytes):
-        """Consume a chunk of data by buffering it."""
-        if self._finalized:
-            raise RuntimeError("Consumer already finalized")
-
-        self.current_buffer.extend(data)
+        """Consume a chunk of data by writing it to the current buffer."""
+        self.current_buffer.write(data)
 
     async def finalize_file(self):
         """Finalize the current file and start a new one."""
         await self._upload_current_buffer()
-        self._start_new_file()
 
     def _start_new_file(self):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
-        self.current_buffer.clear()
+        self.current_buffer = NamedBytesIO(
+            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.jsonl"
+        )
 
     async def _upload_current_buffer(self):
-        """Upload the current buffer to Snowflake using an in-memory buffer."""
-        if len(self.current_buffer) == 0:
+        """Upload the current buffer to Snowflake, then start a new one."""
+        buffer_size = self.current_buffer.tell()
+        if buffer_size == 0:
             return  # Nothing to upload
 
         self.logger.debug(
             "Uploading file %d with %d bytes to Snowflake table '%s'",
             self.current_file_index,
-            len(self.current_buffer),
+            buffer_size,
             self.snowflake_table,
         )
 
-        # Use in-memory buffer instead of temporary file to avoid disk I/O (not sure the actual name is used)
-        buffer = NamedBytesIO(
-            self.current_buffer, name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.jsonl"
-        )
+        self.current_buffer.seek(0)
 
-        # Upload to Snowflake
         await self.snowflake_client.put_file_to_snowflake_table(
-            file=buffer,
+            file=self.current_buffer,
             table_stage_prefix=self.snowflake_table_stage_prefix,
             table_name=self.snowflake_table,
         )
@@ -901,21 +897,15 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         self.external_logger.info(
             "File %d with %d bytes uploaded to Snowflake table '%s'",
             self.current_file_index,
-            len(self.current_buffer),
+            buffer_size,
             self.snowflake_table,
         )
 
+        self._start_new_file()
+
     async def finalize(self):
         """Finalize by uploading any remaining data."""
-        if self._finalized:
-            return
-
-        try:
-            # Upload any remaining data
-            await self._upload_current_buffer()
-        finally:
-            self._finalized = True
-            self.current_buffer.clear()
+        await self._upload_current_buffer()
 
 
 def get_snowflake_fields_from_record_schema(
@@ -1164,6 +1154,10 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         destination="Snowflake",
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
+        batch_export_id=inputs.batch_export_id,
+        database=inputs.database,
+        schema=inputs.schema,
+        table_name=inputs.table_name,
     )
     external_logger = EXTERNAL_LOGGER.bind()
 
@@ -1177,9 +1171,11 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
     )
 
     async with Heartbeater():
-        model, _, _, _, _, _ = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
-        )
+        model: BatchExportModel | BatchExportSchema | None = None
+        if inputs.batch_export_schema is None:
+            model = inputs.batch_export_model
+        else:
+            model = inputs.batch_export_schema
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
