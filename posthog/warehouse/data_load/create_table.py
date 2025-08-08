@@ -90,7 +90,7 @@ async def create_table_from_saved_query(
 
         try:
             if saved_query:
-                table_size = calculate_table_size(saved_query, team_id)
+                table_size = await calculate_table_size(saved_query, team_id)
 
                 await logger.adebug(f"Total size in MiB = {table_size:.2f}")
 
