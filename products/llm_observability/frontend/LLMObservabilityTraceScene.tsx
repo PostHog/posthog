@@ -333,6 +333,7 @@ const TreeNode = React.memo(function TraceNode({
                 to={urls.llmObservabilityTrace(topLevelTrace.id, {
                     event: item.id,
                     timestamp: removeMilliseconds(topLevelTrace.createdAt),
+                    ...(searchQuery?.trim() && { search: searchQuery }),
                 })}
                 className={classNames(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',

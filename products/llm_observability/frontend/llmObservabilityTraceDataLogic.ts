@@ -206,6 +206,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                         // Check for tools in the input (displayed as "available tools")
                         if (event.properties.$ai_tools) {
                             const toolsStr = JSON.stringify(event.properties.$ai_tools)
+
                             findOccurrences(toolsStr, 'tools', {
                                 type: 'message',
                                 eventId: event.id,
@@ -224,6 +225,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                         normalizedInput.forEach((msg, msgIndex) => {
                             // Content
                             const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+
                             findOccurrences(content, 'content', {
                                 type: 'message',
                                 eventId: event.id,
@@ -237,6 +239,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                             // Search in additional kwargs if present
                             if (Object.keys(additionalKwargs).length > 0) {
                                 const additionalStr = JSON.stringify(additionalKwargs)
+
                                 findOccurrences(additionalStr, 'additionalKwargs', {
                                     type: 'message',
                                     eventId: event.id,
@@ -253,6 +256,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                                 // Content
                                 const content =
                                     typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+
                                 findOccurrences(content, 'content', {
                                     type: 'message',
                                     eventId: event.id,
@@ -265,13 +269,14 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
 
                     // THIRD: Output messages - normalize them the same way the display does
                     if (event.event === '$ai_generation') {
-                        const outputToNormalize = event.properties.$ai_is_error
-                            ? event.properties.$ai_error
-                            : (event.properties.$ai_output_choices ?? event.properties.$ai_output)
+                        const outputToNormalize = event.properties.$ai_output_choices ?? event.properties.$ai_output
+
                         const normalizedOutput = normalizeMessages(outputToNormalize, 'assistant')
+
                         normalizedOutput.forEach((msg, msgIndex) => {
                             // Content
                             const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+
                             findOccurrences(content, 'content', {
                                 type: 'message',
                                 eventId: event.id,
@@ -286,6 +291,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                             // Search in additional kwargs if present
                             if (Object.keys(additionalKwargs).length > 0) {
                                 const additionalStr = JSON.stringify(additionalKwargs)
+
                                 findOccurrences(additionalStr, 'additionalKwargs', {
                                     type: 'message',
                                     eventId: event.id,
@@ -297,11 +303,13 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                     } else {
                         // Fallback for non-generation events
                         const outputMessages = event.properties.$ai_output_choices || event.properties.$ai_output
+
                         if (Array.isArray(outputMessages)) {
                             outputMessages.forEach((msg, msgIndex) => {
                                 // Content
                                 const content =
                                     typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+
                                 findOccurrences(content, 'content', {
                                     type: 'message',
                                     eventId: event.id,
@@ -315,6 +323,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                                 // Search in additional kwargs if present
                                 if (Object.keys(additionalKwargs).length > 0) {
                                     const additionalStr = JSON.stringify(additionalKwargs)
+
                                     findOccurrences(additionalStr, 'additionalKwargs', {
                                         type: 'message',
                                         eventId: event.id,
@@ -329,6 +338,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                     // FOURTH: Error messages (if any)
                     if (event.properties.$ai_error) {
                         const error = JSON.stringify(event.properties.$ai_error)
+
                         findOccurrences(error, 'error', {
                             type: 'message',
                             eventId: event.id,
