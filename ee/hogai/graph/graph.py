@@ -397,18 +397,9 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
 
     def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
-        path_map = {
-            "end": end_node,
-            "root": AssistantNodeName.ROOT,
-        }
-
         session_summarization_node = SessionSummarizationNode(self._team, self._user)
         builder.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
-        builder.add_conditional_edges(
-            AssistantNodeName.SESSION_SUMMARIZATION,
-            session_summarization_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
-        )
+        builder.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
         return self
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):

@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import cast, Literal, Any
+from typing import cast, Any
 from uuid import uuid4
 from langgraph.types import StreamWriter
 import structlog
@@ -284,6 +284,3 @@ class SessionSummarizationNode(AssistantNode):
     @property
     def _base_error_instructions(self) -> str:
         return "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the session and suggest they try again with a different question."
-
-    def router(self, _: AssistantState) -> Literal["root"]:
-        return "root"
