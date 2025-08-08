@@ -27,7 +27,7 @@ export function findSearchMatches(text: string, searchQuery: string): SearchMatc
             length: query.length,
         })
 
-        searchIndex = foundIndex + 1
+        searchIndex = foundIndex + query.length
     }
 
     return matches
@@ -42,22 +42,6 @@ export function containsSearchQuery(text: string, searchQuery: string): boolean 
     }
 
     return text.toLowerCase().includes(searchQuery.toLowerCase().trim())
-}
-
-/**
- * Count occurrences of a substring in a text (case-insensitive)
- */
-export function countOccurrences(text: string, substring: string): number {
-    if (!substring) {
-        return 0
-    }
-    let count = 0
-    let index = 0
-    while ((index = text.indexOf(substring, index)) !== -1) {
-        count++
-        index += substring.length
-    }
-    return count
 }
 
 /**
