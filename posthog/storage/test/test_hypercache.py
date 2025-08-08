@@ -242,7 +242,7 @@ class TestHyperCacheClearCache(HyperCacheTestBase):
         # S3 should be cleared
         try:
             object_storage.read(key)
-            assert False, "S3 data should have been deleted"
+            raise AssertionError("S3 data should have been deleted")
         except ObjectStorageError:
             pass  # Expected
 
@@ -259,7 +259,7 @@ class TestHyperCacheClearCache(HyperCacheTestBase):
         assert cache.get(key) is None
         try:
             object_storage.read(key)
-            assert False, "S3 data should have been deleted"
+            raise AssertionError("S3 data should have been deleted")
         except ObjectStorageError:
             pass  # Expected
 
@@ -276,7 +276,7 @@ class TestHyperCacheClearCache(HyperCacheTestBase):
         assert cache.get(key) is None
         try:
             object_storage.read(key)
-            assert False, "S3 data should have been deleted"
+            raise AssertionError("S3 data should have been deleted")
         except ObjectStorageError:
             pass  # Expected
 
