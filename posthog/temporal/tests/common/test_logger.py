@@ -27,7 +27,7 @@ from posthog.temporal.common.logger import (
     BACKGROUND_LOGGER_TASKS,
     bind_contextvars,
     configure_logger,
-    get_external_logger,
+    get_log_entries_logger,
     get_logger,
 )
 
@@ -52,7 +52,7 @@ def log_capture():
     return LogCapture()
 
 
-class QueueCapture(asyncio.Queue):
+class QueueCapture(asyncio.Queue[bytes]):
     """A test asyncio.Queue that captures items that we put into it."""
 
     def __init__(self, *args, **kwargs):
@@ -168,7 +168,7 @@ async def configure_logger_auto(log_capture, queue, producer, event_loop):
     await asyncio.wait(BACKGROUND_LOGGER_TASKS)
 
 
-async def test_batch_exports_logger_binds_context(log_capture):
+async def test_logger_binds_context(log_capture):
     """Test whether we can bind context variables."""
     bind_contextvars(team_id=1, destination="Somewhere")
     logger = structlog.get_logger()
@@ -188,7 +188,7 @@ async def test_batch_exports_logger_binds_context(log_capture):
     assert error_dict["destination"] == "Somewhere"
 
 
-async def test_batch_exports_logger_formats_positional_args(log_capture):
+async def test_logger_formats_positional_args(log_capture):
     """Test whether positional arguments are formatted in the message."""
     bind_contextvars(team_id=1, destination="Somewhere")
     logger = structlog.get_logger()
@@ -223,87 +223,115 @@ def activity_environment(request):
     return env
 
 
-BATCH_EXPORT_ID = str(uuid.uuid4())
+ID = str(uuid.uuid4())
+
+# Mocking information for different workflows
+ACTIVITY_INFOS = [
+    # Batch exports
+    ActivityInfo(
+        workflow_id=f"{ID}-{dt.datetime.now(dt.UTC)}",
+        workflow_type="s3-export",
+        workflow_run_id=str(uuid.uuid4()),
+        attempt=random.randint(1, 10000),
+    ),
+    ActivityInfo(
+        workflow_id=f"{ID}-Backfill-{dt.datetime.now(dt.UTC)}",
+        workflow_type="backfill-batch-export",
+        workflow_run_id=str(uuid.uuid4()),
+        attempt=random.randint(1, 10000),
+    ),
+    # Data warehouse
+    ActivityInfo(
+        workflow_id=f"{ID}-{dt.datetime.now(dt.UTC)}",
+        workflow_type="external-data-job",
+        workflow_run_id=str(uuid.uuid4()),
+        attempt=random.randint(1, 10000),
+    ),
+    ActivityInfo(
+        workflow_id=f"{ID}-compaction",
+        workflow_type="deltalake-compaction-job",
+        workflow_run_id=str(uuid.uuid4()),
+        attempt=random.randint(1, 10000),
+    ),
+    ActivityInfo(
+        workflow_id=f"{ID}-{dt.datetime.now(dt.UTC)}",
+        workflow_type="data-modeling-run",
+        workflow_run_id=str(uuid.uuid4()),
+        attempt=random.randint(1, 10000),
+    ),
+]
+
+
+def assert_log_source(log_source: str, workflow_type: str) -> None:
+    """Assert the correct log source for given workflow type."""
+    if workflow_type == "backfill-batch-export":
+        assert log_source == "batch_exports_backfill"
+    elif workflow_type == "external-data-job":
+        assert log_source == "external_data_jobs"
+    elif workflow_type == "deltalake-compaction-job":
+        assert log_source == "deltalake_compaction_job"
+    elif workflow_type == "data-modeling-run":
+        assert log_source == "data_modeling_run"
+    else:
+        assert log_source == "batch_exports"
 
 
 @pytest.mark.parametrize(
     "activity_environment",
-    [
-        ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
-            workflow_type="s3-export",
-            workflow_run_id=str(uuid.uuid4()),
-            attempt=random.randint(1, 10000),
-        ),
-        ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
-            workflow_type="backfill-batch-export",
-            workflow_run_id=str(uuid.uuid4()),
-            attempt=random.randint(1, 10000),
-        ),
-    ],
+    ACTIVITY_INFOS,
     indirect=True,
 )
-async def test_batch_exports_logger_binds_activity_context(
+async def test_logger_binds_activity_context(
     log_capture,
     activity_environment,
 ):
     """Test whether our logger binds variables from a Temporal Activity."""
 
-    @temporalio.activity.defn
-    async def log_activity():
-        """A simple temporal activity that just logs."""
+    def log_sync():
+        """A simple function that just logs."""
         bind_contextvars(team_id=1, destination="Somewhere")
         logger = structlog.get_logger()
         logger.setLevel("INFO")
         logger.info("Hi! This is an %s log from an activity", "info")
 
-    await activity_environment.run(log_activity)
+    async def log():
+        """Async version that calls the simple function"""
+        log_sync()
 
-    assert len(log_capture.entries) == 1
+    activities = map(temporalio.activity.defn, (log, log_sync))
 
-    info_dict = json.loads(log_capture.entries[0])
-    assert info_dict["team_id"] == 1
-    assert info_dict["destination"] == "Somewhere"
-    assert info_dict["workflow_id"] == activity_environment.info.workflow_id
-    assert info_dict["workflow_type"] == activity_environment.info.workflow_type
-    assert info_dict["log_source_id"] == BATCH_EXPORT_ID
-    assert info_dict["workflow_run_id"] == activity_environment.info.workflow_run_id
-    assert info_dict["attempt"] == activity_environment.info.attempt
+    for activity in activities:
+        if fut := activity_environment.run(activity):
+            await fut
 
-    if activity_environment.info.workflow_type == "backfill-batch-export":
-        assert info_dict["log_source"] == "batch_exports_backfill"
-    else:
-        assert info_dict["log_source"] == "batch_exports"
+        assert len(log_capture.entries) == 1
+
+        info_dict = json.loads(log_capture.entries[0])
+        assert info_dict["team_id"] == 1
+        assert info_dict["destination"] == "Somewhere"
+        assert info_dict["workflow_id"] == activity_environment.info.workflow_id
+        assert info_dict["workflow_type"] == activity_environment.info.workflow_type
+        assert info_dict["log_source_id"] == ID
+        assert info_dict["workflow_run_id"] == activity_environment.info.workflow_run_id
+        assert info_dict["attempt"] == activity_environment.info.attempt
+        assert_log_source(info_dict["log_source"], activity_environment.info.workflow_type)
+
+        log_capture.entries = []
 
 
 @freezegun.freeze_time("2023-11-02 10:00:00.123123")
 @pytest.mark.parametrize(
     "activity_environment",
-    [
-        ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
-            workflow_type="s3-export",
-            workflow_run_id=str(uuid.uuid4()),
-            attempt=random.randint(1, 10000),
-        ),
-        ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
-            workflow_type="backfill-batch-export",
-            workflow_run_id=str(uuid.uuid4()),
-            attempt=random.randint(1, 10000),
-        ),
-    ],
+    ACTIVITY_INFOS,
     indirect=True,
 )
-async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
+async def test_logger_puts_in_queue(activity_environment, queue):
     """Test whether our logger puts entries into a queue for async processing."""
     LOGGER = get_logger("test")
-    EXTERNAL_LOGGER = get_external_logger()
+    EXTERNAL_LOGGER = get_log_entries_logger()
 
-    @temporalio.activity.defn
-    async def log_activity():
-        """A simple temporal activity that just logs."""
+    def log_sync():
+        """A simple function that just logs."""
         bind_contextvars(team_id=2, destination="Somewhere")
         logger = LOGGER.bind()
         external_logger = EXTERNAL_LOGGER.bind()
@@ -311,26 +339,30 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
         external_logger.info("Hi! This is an external %s log from an activity", "info")
         logger.info("Hi! This is an internal %s log from an activity", "info")
 
-    await activity_environment.run(log_activity)
+    async def log():
+        """Async version that calls the simple function"""
+        log_sync()
 
-    # Run another loop iteration so messages have a chance to be inserted
-    await asyncio.sleep(0)
+    activities = map(temporalio.activity.defn, (log, log_sync))
 
-    assert len(queue.entries) == 1
-    message_dict = json.loads(queue.entries[0].decode("utf-8"))
+    for activity in activities:
+        if fut := activity_environment.run(activity):
+            await fut
 
-    assert message_dict["instance_id"] == activity_environment.info.workflow_run_id
-    assert message_dict["level"] == "info"
+        while not queue.entries:
+            # Let the loop run so messages have a chance to be inserted
+            await asyncio.sleep(0)
 
-    if activity_environment.info.workflow_type == "backfill-batch-export":
-        assert message_dict["log_source"] == "batch_exports_backfill"
-    else:
-        assert message_dict["log_source"] == "batch_exports"
+        assert len(queue.entries) == 1
+        message_dict = json.loads(queue.entries[0].decode("utf-8"))
 
-    assert message_dict["log_source_id"] == BATCH_EXPORT_ID
-    assert message_dict["message"] == "Hi! This is an external info log from an activity"
-    assert message_dict["team_id"] == 2
-    assert message_dict["timestamp"] == "2023-11-02 10:00:00.123123"
+        assert message_dict["instance_id"] == activity_environment.info.workflow_run_id
+        assert message_dict["level"] == "info"
+        assert message_dict["log_source_id"] == ID
+        assert message_dict["message"] == "Hi! This is an external info log from an activity"
+        assert message_dict["team_id"] == 2
+        assert message_dict["timestamp"] == "2023-11-02 10:00:00.123123"
+        assert_log_source(message_dict["log_source"], activity_environment.info.workflow_type)
 
 
 @pytest.fixture
@@ -350,33 +382,19 @@ def log_entries_table():
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "activity_environment",
-    [
-        ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.UTC)}",
-            workflow_type="s3-export",
-            workflow_run_id=str(uuid.uuid4()),
-            attempt=random.randint(1, 10000),
-        ),
-        ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.UTC)}",
-            workflow_type="backfill-batch-export",
-            workflow_run_id=str(uuid.uuid4()),
-            attempt=random.randint(1, 10000),
-        ),
-    ],
+    ACTIVITY_INFOS,
     indirect=True,
 )
-async def test_batch_exports_logger_produces_to_kafka(activity_environment, producer, queue, log_entries_table):
-    """Test whether our external logger produces messages to Kafka.
+async def test_logger_produces_to_kafka(activity_environment, producer, queue, log_entries_table):
+    """Test whether our log entries logger produces messages to Kafka.
 
     We also check if those messages are ingested into ClickHouse.
     """
     LOGGER = get_logger("test")
-    EXTERNAL_LOGGER = get_external_logger()
+    EXTERNAL_LOGGER = get_log_entries_logger()
 
-    @temporalio.activity.defn
-    async def log_activity():
-        """A simple temporal activity that just logs."""
+    def log_sync():
+        """A simple function that just logs."""
         bind_contextvars(team_id=3)
         logger = LOGGER.bind()
         external_logger = EXTERNAL_LOGGER.bind()
@@ -384,66 +402,66 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         external_logger.info("Hi! This is an external %s log from an activity", "info")
         logger.info("Hi! This is an internal %s log from an activity", "info")
 
-    with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
-        await activity_environment.run(log_activity)
+    async def log():
+        """Async version that calls the simple function"""
+        log_sync()
 
-    # Run another loop iteration so messages have a chance to be inserted
-    await asyncio.sleep(0)
+    activities = map(temporalio.activity.defn, (log, log_sync))
 
-    assert len(queue.entries) == 1
+    for activity in activities:
+        with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
+            if fut := activity_environment.run(activity):
+                await fut
 
-    await queue.join()
+        while not queue.entries:
+            # Let the loop run so messages have a chance to be inserted
+            await asyncio.sleep(0)
 
-    if activity_environment.info.workflow_type == "backfill-batch-export":
-        expected_log_source = "batch_exports_backfill"
-    else:
-        expected_log_source = "batch_exports"
+        assert len(queue.entries) == 1
 
-    expected_dict = {
-        "instance_id": activity_environment.info.workflow_run_id,
-        "level": "info",
-        "log_source": expected_log_source,
-        "log_source_id": BATCH_EXPORT_ID,
-        "message": "Hi! This is an external info log from an activity",
-        "team_id": 3,
-        "timestamp": "2023-11-03 10:00:00.123123",
-    }
+        await queue.join()
 
-    assert len(producer.entries) == 1
-    assert producer.entries[0] == {
-        "topic": KAFKA_LOG_ENTRIES,
-        "value": json.dumps(expected_dict).encode("utf-8"),
-        "key": None,
-        "partition": None,
-        "timestamp_ms": None,
-        "headers": None,
-    }
+        assert len(producer.entries) == 1
+        assert producer.entries[0]["topic"] == KAFKA_LOG_ENTRIES
+        assert producer.entries[0]["key"] is None
+        assert producer.entries[0]["partition"] is None
+        assert producer.entries[0]["timestamp_ms"] is None
+        assert producer.entries[0]["headers"] is None
 
-    await producer.flush()
+        log_dict = json.loads(producer.entries[0]["value"].decode("utf-8"))
+        assert log_dict["instance_id"] == activity_environment.info.workflow_run_id
+        assert log_dict["level"] == "info"
+        assert log_dict["log_source_id"] == ID
+        assert log_dict["message"] == "Hi! This is an external info log from an activity"
+        assert log_dict["team_id"] == 3
+        assert log_dict["timestamp"] == "2023-11-03 10:00:00.123123"
+        assert_log_source(log_dict["log_source"], activity_environment.info.workflow_type)
 
-    results = sync_execute(
-        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}'"
-    )
+        await producer.flush()
 
-    iterations = 0
-    while not results:
-        # It may take a bit for CH to ingest.
-        await asyncio.sleep(1)
         results = sync_execute(
             f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}'"
         )
 
-        iterations += 1
-        if iterations > 10:
-            raise TimeoutError("Timedout waiting for logs")
+        iterations = 0
+        while not results:
+            # It may take a bit for CH to ingest.
+            await asyncio.sleep(1)
+            results = sync_execute(
+                f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}'"
+            )
 
-    assert len(results) == 1
+            iterations += 1
+            if iterations > 10:
+                raise TimeoutError("Timedout waiting for logs")
 
-    row = results[0]
-    assert row[0] == activity_environment.info.workflow_run_id
-    assert row[1] == "info"
-    assert row[2] == expected_log_source
-    assert row[3] == BATCH_EXPORT_ID
-    assert row[4] == "Hi! This is an external info log from an activity"
-    assert row[5] == 3
-    assert row[6].isoformat() == "2023-11-03T10:00:00.123123+00:00"
+        assert len(results) == 1
+
+        row = results[0]
+        assert row[0] == activity_environment.info.workflow_run_id
+        assert row[1] == "info"
+        assert row[3] == ID
+        assert row[4] == "Hi! This is an external info log from an activity"
+        assert row[5] == 3
+        assert row[6].isoformat() == "2023-11-03T10:00:00.123123+00:00"
+        assert_log_source(row[2], activity_environment.info.workflow_type)
