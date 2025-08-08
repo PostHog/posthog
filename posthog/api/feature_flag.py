@@ -83,12 +83,6 @@ from django.dispatch import receiver
 from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import model_activity_signal
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
-from posthog.api.services.flag_definitions_cache import (
-    FlagDefinitionsCache,
-    invalidate_cache_for_feature_flag_change,
-    invalidate_cache_for_cohort_change,
-    invalidate_cache_for_group_type_mapping_change,
-)
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
@@ -1501,23 +1495,6 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
             trigger=trigger,
         ),
     )
-
-    # Invalidate flag definitions cache when feature flags change
-    invalidate_cache_for_feature_flag_change(after_update, activity)
-
-
-@receiver(post_save, sender=Cohort)
-@receiver(post_delete, sender=Cohort)
-def handle_cohort_change(sender, instance, **kwargs):
-    """Invalidate flag definitions cache when cohorts change."""
-    invalidate_cache_for_cohort_change(instance)
-
-
-@receiver(post_save, sender=GroupTypeMapping)
-@receiver(post_delete, sender=GroupTypeMapping)
-def handle_group_type_mapping_change(sender, instance, **kwargs):
-    """Invalidate flag definitions cache when group type mappings change."""
-    invalidate_cache_for_group_type_mapping_change(instance)
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
