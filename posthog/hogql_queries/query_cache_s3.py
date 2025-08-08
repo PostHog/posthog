@@ -2,6 +2,7 @@ import structlog
 from datetime import datetime
 from typing import Optional
 
+import zstd
 from django.conf import settings
 
 from posthog.cache_utils import OrjsonJsonSerializer
@@ -49,7 +50,8 @@ class S3QueryCacheManager(QueryCacheManagerBase):
         """Store query results in S3 with lifecycle-based TTL."""
         try:
             object_key = self._cache_object_key()
-            content = OrjsonJsonSerializer({}).dumps(response).decode("utf-8")
+            content = OrjsonJsonSerializer({}).dumps(response)
+            payload = zstd.compress(content)
 
             # Calculate TTL in days for S3 lifecycle rules
             ttl_days = settings.CACHED_RESULTS_TTL_DAYS
@@ -57,7 +59,7 @@ class S3QueryCacheManager(QueryCacheManagerBase):
             # Add S3 object tags for lifecycle management
             extras = {"Tagging": f"ttl_days={ttl_days}&cache_type=query_data&team_id={self.team_id}"}
 
-            self.storage_client.write(bucket=self.bucket, key=object_key, content=content, extras=extras)
+            self.storage_client.write(bucket=self.bucket, key=object_key, content=payload, extras=extras)
 
             logger.debug(
                 "s3_query_cache.set_success",
@@ -81,9 +83,9 @@ class S3QueryCacheManager(QueryCacheManagerBase):
         """Retrieve query results from S3."""
         try:
             object_key = self._cache_object_key()
-            content = self.storage_client.read(bucket=self.bucket, key=object_key)
+            payload = self.storage_client.read_bytes(bucket=self.bucket, key=object_key)
 
-            if not content:
+            if not payload:
                 logger.debug(
                     "s3_query_cache.get_miss",
                     team_id=self.team_id,
@@ -92,7 +94,32 @@ class S3QueryCacheManager(QueryCacheManagerBase):
                 )
                 return None
 
-            result = OrjsonJsonSerializer({}).loads(content.encode("utf-8"))
+            try:
+                decompressed = zstd.decompress(payload)
+            except zstd.ZstdError as decomp_error:
+                logger.warning(
+                    "s3_query_cache.decompression_failed",
+                    team_id=self.team_id,
+                    cache_key=self.cache_key,
+                    object_key=object_key,
+                    error=str(decomp_error),
+                )
+                capture_exception(decomp_error)
+                return None
+
+            try:
+                result = OrjsonJsonSerializer({}).loads(decompressed)
+            except (ValueError, TypeError) as json_error:
+                logger.warning(
+                    "s3_query_cache.json_parsing_failed",
+                    team_id=self.team_id,
+                    cache_key=self.cache_key,
+                    object_key=object_key,
+                    error=str(json_error),
+                )
+                capture_exception(json_error)
+                return None
+
             logger.debug(
                 "s3_query_cache.get_hit",
                 team_id=self.team_id,
