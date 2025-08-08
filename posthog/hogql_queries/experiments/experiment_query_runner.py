@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentQueryResponse,
     ExperimentDataWarehouseNode,
+    ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
@@ -352,12 +353,37 @@ class ExperimentQueryRunner(QueryRunner):
         Columns: variant, num_users, total_sum, total_sum_of_squares
         For ratio metrics, also includes: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
         """
+
         select_fields = [
             ast.Field(chain=["metric_events", "variant"]),
             parse_expr("count(metric_events.entity_id) as num_users"),
-            parse_expr("sum(metric_events.value) as total_sum"),
-            parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
         ]
+
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            # For funnel metrics, value is the highest step reached (0-indexed)
+            # total_sum should count only users who completed all steps
+            num_steps = len(self.metric.series)
+            select_fields.extend(
+                [
+                    parse_expr(f"countIf(metric_events.value = {num_steps - 1}) as total_sum"),
+                    parse_expr(f"countIf(metric_events.value = {num_steps - 1}) as total_sum_of_squares"),
+                ]
+            )
+
+            # Add step counts - how many users reached each step
+            step_count_exprs = []
+            for i in range(num_steps):
+                step_count_exprs.append(f"countIf(metric_events.value >= {i})")
+            step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
+            select_fields.append(parse_expr(step_counts_expr))
+        else:
+            # For non-funnel metrics, use the original logic
+            select_fields.extend(
+                [
+                    parse_expr("sum(metric_events.value) as total_sum"),
+                    parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
+                ]
+            )
 
         # For ratio metrics, add additional aggregations
         if self.is_ratio_metric:

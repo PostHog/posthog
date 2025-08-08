@@ -49,34 +49,32 @@ def split_baseline_and_test_variants(
 
 
 def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
-    # Handle both regular metrics (4 values) and ratio metrics (7 values)
+    # Handle both mean metrics (4 values), funnel metrics (5 values) and ratio metrics (7 values)
     variant_results = []
     for result in sorted_results:
-        if len(result) == 4:
-            # Regular metric
-            variant_results.append(
-                ExperimentStatsBase(
-                    key=result[0],
-                    number_of_samples=result[1],
-                    sum=result[2],
-                    sum_squares=result[3],
-                )
-            )
+        # All metrics have this
+        base_stats = {
+            "key": result[0],
+            "number_of_samples": result[1],
+            "sum": result[2],
+            "sum_squares": result[3],
+        }
+
+        # Funnel metrics
+        if len(result) == 5:
+            base_stats["step_counts"] = result[4]
+
+        # Ratio metrics
         elif len(result) == 7:
             # Ratio metric
-            variant_results.append(
-                ExperimentStatsBase(
-                    key=result[0],
-                    number_of_samples=result[1],
-                    sum=result[2],
-                    sum_squares=result[3],
-                    denominator_sum=result[4],
-                    denominator_sum_squares=result[5],
-                    numerator_denominator_sum_product=result[6],
-                )
-            )
+            base_stats["denominator_sum"] = result[4]
+            base_stats["denominator_sum_squares"] = result[5]
+            base_stats["numerator_denominator_sum_product"] = result[6]
         else:
             raise ValueError(f"Unexpected result format with {len(result)} values")
+
+        variant_results.append(ExperimentStatsBase(**base_stats))
+
     return variant_results
 
 
@@ -175,6 +173,7 @@ def get_frequentist_experiment_result(
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
+            step_counts=test_variant_validated.step_counts,
             validation_failures=test_variant_validated.validation_failures,
         )
 
@@ -242,6 +241,7 @@ def get_bayesian_experiment_result(
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
+            step_counts=test_variant_validated.step_counts,
             validation_failures=test_variant_validated.validation_failures,
         )
 
