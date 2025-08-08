@@ -13,6 +13,8 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from ee.hogai.graph.deep_research.graph import DeepResearchGraph
+from posthog.exceptions_capture import capture_exception
 from pydantic import BaseModel
 
 from ee.hogai.graph import (
@@ -47,6 +49,7 @@ from ee.hogai.utils.state import (
     validate_value_update,
 )
 from ee.hogai.utils.types import (
+    AgentSubgraphState,
     AssistantMessageOrStatusUnion,
     AssistantMessageUnion,
     AssistantMode,
@@ -57,7 +60,6 @@ from ee.hogai.utils.types import (
 )
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Action, Team, User
 from posthog.schema import (
     AssistantEventType,
@@ -93,6 +95,7 @@ STREAMING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
     FilterOptionsNodeName.FILTER_OPTIONS,
+    AssistantNodeName.AGENT_SUBGRAPH_EXECUTOR,
 }
 """Nodes that can stream messages to the client."""
 
@@ -122,7 +125,7 @@ class Assistant:
     _conversation: Conversation
     _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
-    _state: Optional[AssistantState]
+    _state: Optional[AssistantState | AgentSubgraphState]
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _custom_update_ids: set[str]
@@ -156,6 +159,9 @@ class Assistant:
         self._is_new_conversation = is_new_conversation
         self._mode = mode
         match mode:
+            # TODO: Just for testing - remove deep research mode
+            case AssistantMode.DEEP_RESEARCH:
+                self._graph = DeepResearchGraph(team, user).compile_full_graph()
             case AssistantMode.ASSISTANT:
                 self._graph = AssistantGraph(team, user).compile_full_graph()
             case AssistantMode.INSIGHTS_TOOL:
@@ -349,8 +355,31 @@ class Assistant:
                 graph_status=None,
                 rag_context=None,
             )
+        # TODO: Just for testing - remove deep research state initialization
+        elif self._latest_message and self._mode == AssistantMode.DEEP_RESEARCH:
+            # For deep research mode, create a research step from the user's message
+            from ee.hogai.utils.types import DeepResearchPlanStep, AgentSubgraphState
+            import uuid
+
+            research_step = DeepResearchPlanStep(
+                id=f"user_request_{uuid.uuid4().hex[:8]}",
+                title="User Research Request",
+                description=self._latest_message.content,
+                status="pending",
+            )
+
+            initial_state = AgentSubgraphState(
+                messages=[self._latest_message],
+                current_step=research_step,
+            )
         else:
-            initial_state = AssistantState(messages=[])
+            # TODO: Just for testing - remove deep research fallback state
+            if self._mode == AssistantMode.DEEP_RESEARCH:
+                from ee.hogai.utils.types import AgentSubgraphState
+
+                initial_state = AgentSubgraphState(messages=[])
+            else:
+                initial_state = AssistantState(messages=[])
 
         if self._tool_call_partial_state:
             for key, value in self._tool_call_partial_state.model_dump().items():
@@ -499,6 +528,7 @@ class Assistant:
 
         # Check for reasoning content first (for all nodes that support it)
         if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+            logger.info(f"*** REASONING: {reasoning} ***")
             if reasoning_headline := self._chunk_reasoning_headline(reasoning):
                 return ReasoningMessage(content=reasoning_headline)
 
@@ -546,15 +576,10 @@ class Assistant:
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
         try:
-            if summary := reasoning.get("summary"):
-                summary_text_chunk = summary[0]["text"]
-            else:
-                self._reasoning_headline_chunk = None  # Reset as we don't have any summary yet
-                return None
-        except Exception as e:
-            logger.exception("Error in chunk_reasoning_headline", error=e)
-            capture_exception(e)  # not expected, so let's capture
-            self._reasoning_headline_chunk = None
+            summary_text_chunk = reasoning["summary"][0]["text"]
+        except (KeyError, IndexError) as e:
+            capture_exception(e)
+            self._reasoning_headline_chunk = None  # not expected, so let's just reset
             return None
 
         bold_marker_index = summary_text_chunk.find("**")

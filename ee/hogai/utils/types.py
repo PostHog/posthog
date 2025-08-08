@@ -103,19 +103,48 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
+class DeepResearchPlanStep(BaseModel):
+    """A single todo item in the research plan."""
+
+    id: str = Field(description="Unique identifier for this step")
+    title: str = Field(description="Brief title of the research step")
+    description: str = Field(description="Detailed description of what needs to be researched")
+    type: str = Field(default="single_task", description="Type of step: single_task, parallel_tasks")
+    status: str = Field(default="pending", description="Status: pending, in_progress, completed, failed")
+    result_summary: str | None = Field(default=None, description="Summary of results when completed")
+    visualization_messages: Sequence[str] = Field(
+        default=[], description="IDs of visualization messages from this step"
+    )
+
+
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
+
+    @staticmethod
+    def _get_ignored_reset_fields() -> set[str]:
+        """
+        Fields to ignore during state resets due to race conditions.
+        """
+        return set()
 
     @classmethod
     def get_reset_state(cls) -> Self:
         """Returns a new instance with all fields reset to their default values."""
-        return cls(**{k: v.default for k, v in cls.model_fields.items()})
+        ignored_fields = cls._get_ignored_reset_fields()
+        return cls(**{k: v.default for k, v in cls.model_fields.items() if k not in ignored_fields})
 
 
 class _SharedAssistantState(BaseState):
     """
     The state of the root node.
     """
+
+    @staticmethod
+    def _get_ignored_reset_fields() -> set[str]:
+        """
+        Fields to ignore during state resets due to race conditions.
+        """
+        return {"memory_collection_messages"}
 
     start_id: Optional[str] = Field(default=None)
     """
@@ -197,6 +226,47 @@ class PartialAssistantState(_SharedAssistantState):
     """
 
 
+class AgentSubgraphState(BaseState):
+    """Simplified state for agent subgraph execution."""
+
+    @staticmethod
+    def _get_ignored_reset_fields() -> set[str]:
+        return {"messages", "visualization_messages", "subgraph_messages"}
+
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
+    """Messages exposed to the user."""
+
+    # Current step being executed
+    current_step: DeepResearchPlanStep | None = Field(default=None)
+    """The step currently being executed"""
+
+    # Execution phase
+    subgraph_messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
+    """Messages from the currently executing subgraph"""
+
+    visualization_messages: Sequence[str] = Field(default=[])
+    """IDs of visualization messages to include in final report"""
+
+    # Control flow
+    subgraph_retry_count: int = Field(default=0)
+    """Number of times current subgraph has been retried"""
+
+    # Results
+    step_result: str | None = Field(default=None)
+    """Result summary from the completed step"""
+
+
+class PartialAgentSubgraphState(BaseState):
+    """Partial state for agent subgraph updates."""
+
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
+    current_step: DeepResearchPlanStep | None = Field(default=None)
+    subgraph_messages: Sequence[AssistantMessageUnion] = Field(default=[])
+    visualization_messages: Sequence[str] = Field(default=[])
+    subgraph_retry_count: int | None = Field(default=None)
+    step_result: str | None = Field(default=None)
+
+
 class AssistantNodeName(StrEnum):
     START = START
     END = END
@@ -227,8 +297,48 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
+    # TODO: Just for testing - remove these deep research nodes
+    DEEP_RESEARCH = "deep_research"
+    AGENT_SUBGRAPH_EXECUTOR = "agent_subgraph_executor"
+    TASK_EXECUTOR = "task_executor"
 
 
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
     INSIGHTS_TOOL = "insights_tool"
+    # TODO: Just for testing - remove this deep research mode
+    DEEP_RESEARCH = "deep_research"
+
+
+# TODO: Just for testing - remove these deep research task types
+class TaskDefinition(BaseModel):
+    """A single task to be executed by a subagent."""
+
+    description: str = Field(description="One line to explain the task, this will be shown to the user")
+    instructions: str = Field(description="The instructions to the assistant")
+    artifact_short_ids: Optional[list[str]] = Field(
+        default=None, description="The short IDs of the artifacts that the task will use"
+    )
+
+
+class ArtifactResult(BaseModel):
+    """Result of artifact creation."""
+
+    short_id: str = Field(description="Unique short identifier for the artifact")
+    description: str = Field(description="A short description of the artifact")
+    artifact_type: str = Field(description="Type of artifact (e.g., 'InsightArtifact')")
+    data: Any = Field(description="Artifact data")
+
+
+class TaskResult(BaseModel):
+    """Result of a single task execution."""
+
+    description: str = Field(description="The description given to the task")
+    result: str = Field(description="The result of the task as a markdown document")
+    artifacts: list[ArtifactResult] = Field(default=[], description="Artifacts created by this task")
+
+
+class ExecuteTasksResult(BaseModel):
+    """Aggregated results of executed tasks."""
+
+    tool_results: list[TaskResult] = Field(description="Results from all executed tasks")

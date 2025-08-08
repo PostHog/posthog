@@ -406,3 +406,38 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_insights_search()
             .compile(checkpointer=checkpointer)
         )
+
+
+class DeepResearchAssistantGraph(BaseAssistantGraph[AssistantState]):
+    """Graph for deep research assistant that can execute complex research plans."""
+
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user, AssistantState)
+
+    def add_deep_research_planner(self, next_node: AssistantNodeName = AssistantNodeName.AGENT_SUBGRAPH_EXECUTOR):
+        """Add the deep research planner node (to be implemented)."""
+
+        # TODO: Replace with actual DeepResearchPlannerNode when implemented by Em
+        # builder = self._graph
+        # self._has_start_node = True
+        # builder.add_edge(AssistantNodeName.START, AssistantNodeName.DEEP_RESEARCH)
+        # builder.add_edge(AssistantNodeName.DEEP_RESEARCH, next_node)
+
+        return self
+
+    def add_agent_subgraph_executor(self, next_node: AssistantNodeName = AssistantNodeName.END):
+        """Add the agent subgraph executor node that executes research steps."""
+        from ee.hogai.graph.deep_research.agent_subgraph.graph import AgentSubgraph
+
+        builder = self._graph
+
+        agent_subgraph = AgentSubgraph(self._team, self._user)
+        compiled_subgraph = agent_subgraph.compile_full_graph()
+        builder.add_node(AssistantNodeName.AGENT_SUBGRAPH_EXECUTOR, compiled_subgraph)
+        builder.add_edge(AssistantNodeName.AGENT_SUBGRAPH_EXECUTOR, next_node)
+
+        return self
+
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+        """Compile the full deep research graph."""
+        return self.add_deep_research_planner().add_agent_subgraph_executor().compile(checkpointer=checkpointer)
