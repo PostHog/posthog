@@ -233,8 +233,7 @@ class VercelResourceViewSet(
         resource: VercelResource = VercelResource.objects.create(
             team=team,
             installation=installation,
-            resource_id=str(team.pk),  # TODO: Drop this field.
-            config=validated_data,  # TODO: Drop this field.
+            config=validated_data,
         )
 
         return Response(self._build_resource_response(resource), status=200)

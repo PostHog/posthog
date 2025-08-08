@@ -42,7 +42,6 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                ("resource_id", models.CharField(max_length=255, unique=True)),
                 ("config", models.JSONField(default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
