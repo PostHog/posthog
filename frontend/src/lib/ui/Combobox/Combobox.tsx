@@ -211,21 +211,17 @@ interface ContentProps {
 
 const Content = ({ className, children }: ContentProps): JSX.Element => {
     return (
-        <div
+        <ScrollableShadows
+            direction="vertical"
+            styledScrollbars
             className={cn(
-                'max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] h-full max-w-none border-transparent',
+                'max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] h-full max-w-none border-transparent overflow-y-auto',
                 className
             )}
+            innerClassName="flex flex-col gap-px p-1"
         >
-            <ScrollableShadows
-                direction="vertical"
-                styledScrollbars
-                className="h-full"
-                innerClassName="flex flex-col gap-px p-1"
-            >
-                {children}
-            </ScrollableShadows>
-        </div>
+            {children}
+        </ScrollableShadows>
     )
 }
 
