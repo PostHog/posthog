@@ -67,15 +67,15 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         ):
             results.append(update)
         if not results:
-            raise exceptions.APIException(
-                "No summaries were generated for the provided sessions (session ids: {})".format(session_ids)
-            )
+            error_message = f"No summaries were generated for the provided sessions (session ids: {session_ids})"
+            logger.exception(error_message)
+            raise exceptions.APIException(error_message)
         # The last item in the result should be the summary, if not - raise an exception
         summary = results[-1]
         if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-            raise exceptions.APIException(
-                f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {session_ids}): {results}"
-            )
+            error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {session_ids}): {results}"
+            logger.exception(error_message)
+            raise exceptions.APIException(error_message)
         return summary
 
     @extend_schema(
