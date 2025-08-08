@@ -13,7 +13,6 @@ from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 from posthog.test.base import BaseTest
-from django.core.cache import cache
 from django.utils import timezone
 
 CONFIG_REFRESH_QUERY_COUNT = 5
