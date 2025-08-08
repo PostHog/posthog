@@ -410,13 +410,17 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
 
 class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
     source: str | None = None
+    # these are defined in init in the SimpleRateThrottle
+    # but we define them here to avoid mypy errors
+    num_requests: int | None = None
+    duration: int | None = None
 
-    def get_rate(self):
-        num_requests, duration = self.parse_rate(self.get_rate())
+    def _get_rate(self):
+        num_requests, duration = self.parse_rate(self.rate)
 
         divisors = {
-            "realtime": 256,
-            "blob": 128,
+            "realtime": 64,
+            "blob": 4,
             "blob_v2": 1,
         }
 
@@ -424,7 +428,15 @@ class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
         return None if num_requests is None else num_requests / divisor, duration
 
     def allow_request(self, request, view):
+        """
+        num_requests is set on __init__ of the parent and not checked again
+        so we need to override it on every request
+        """
         self.source = request.GET.get("source", None)
+        rates = self._get_rate()
+        self.num_requests = rates[0] if rates else self.num_requests
+        self.duration = rates[1] if rates else self.duration
+
         return super().allow_request(request, view)
 
 
@@ -1000,11 +1012,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
             is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
+
             message = (
                 "ClickHouse over capacity. Please retry"
                 if is_ch_error
                 else "An unexpected error has occurred. Please try again later."
             )
+
             response_status = (
                 status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
             )
