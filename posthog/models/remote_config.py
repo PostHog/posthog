@@ -394,7 +394,11 @@ class RemoteConfig(UUIDModel):
             self.synced_at = timezone.now()
             self.save()
 
-            hypercache.update_cache(self.team)
+            try:
+                hypercache.update_cache(self.team)
+            except Exception as e:
+                logger.exception(f"Failed to update hypercache for team {self.team_id}")
+                capture_exception(e)
 
             # Update the redis cache key for the config
             cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
