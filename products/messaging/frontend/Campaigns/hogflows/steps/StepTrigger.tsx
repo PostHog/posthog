@@ -12,7 +12,8 @@ export const StepTrigger: HogFlowStep<'trigger'> = {
     type: 'trigger',
     name: 'Trigger',
     description: 'Trigger the campaign.',
-    icon: <IconBolt />,
+    icon: <IconBolt className="text-[#1E88E5]" />,
+    color: '#1E88E5',
     renderNode: (props) => <StepTriggerNode {...props} />,
     renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
     create: () => {

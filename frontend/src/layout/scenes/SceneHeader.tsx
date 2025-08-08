@@ -92,18 +92,18 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                                 }
                                 icon={<IconInfo className="text-primary" />}
                                 tooltip={
-                                    scenePanelIsRelative
-                                        ? 'Force close info panel'
-                                        : scenePanelOpen
-                                          ? 'Close info panel'
-                                          : 'Open info panel'
+                                    !scenePanelOpen
+                                        ? 'Open info panel'
+                                        : scenePanelIsRelative
+                                          ? 'Force close info panel'
+                                          : 'Close info panel'
                                 }
                                 aria-label={
-                                    scenePanelIsRelative
-                                        ? 'Force close info panel'
-                                        : scenePanelOpen
-                                          ? 'Close info panel'
-                                          : 'Open info panel'
+                                    !scenePanelOpen
+                                        ? 'Open info panel'
+                                        : scenePanelIsRelative
+                                          ? 'Force close info panel'
+                                          : 'Close info panel'
                                 }
                                 active={scenePanelOpen}
                                 size="small"

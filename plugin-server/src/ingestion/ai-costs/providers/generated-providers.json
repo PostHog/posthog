@@ -560,13 +560,6 @@
         }
     },
     {
-        "model": "fimbulvetr-11b-v2",
-        "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 0.0000012
-        }
-    },
-    {
         "model": "gemini-2.0-flash-001",
         "cost": {
             "prompt_token": 1e-7,
@@ -783,8 +776,8 @@
     {
         "model": "glm-4.5",
         "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 2e-7
+            "prompt_token": 1.999188e-7,
+            "completion_token": 8.00064e-7
         }
     },
     {
@@ -972,17 +965,56 @@
         }
     },
     {
+        "model": "gpt-5",
+        "cost": {
+            "prompt_token": 0.00000125,
+            "completion_token": 0.00001,
+            "cache_read_token": 1.25e-7
+        }
+    },
+    {
+        "model": "gpt-5-chat",
+        "cost": {
+            "prompt_token": 0.00000125,
+            "completion_token": 0.00001,
+            "cache_read_token": 1.25e-7
+        }
+    },
+    {
+        "model": "gpt-5-mini",
+        "cost": {
+            "prompt_token": 2.5e-7,
+            "completion_token": 0.000002,
+            "cache_read_token": 2.5e-8
+        }
+    },
+    {
+        "model": "gpt-5-nano",
+        "cost": {
+            "prompt_token": 5e-8,
+            "completion_token": 4e-7,
+            "cache_read_token": 5e-9
+        }
+    },
+    {
         "model": "gpt-oss-120b",
         "cost": {
-            "prompt_token": 1.5e-7,
-            "completion_token": 6e-7
+            "prompt_token": 9e-8,
+            "completion_token": 4.5e-7
         }
     },
     {
         "model": "gpt-oss-20b",
         "cost": {
-            "prompt_token": 5e-8,
-            "completion_token": 2e-7
+            "prompt_token": 4e-8,
+            "completion_token": 1.6e-7
+        }
+    },
+    {
+        "model": "gpt-oss-20b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
@@ -1068,13 +1100,6 @@
         }
     },
     {
-        "model": "horizon-beta",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
         "model": "hunyuan-a13b-instruct",
         "cost": {
             "prompt_token": 3e-8,
@@ -1104,20 +1129,6 @@
     },
     {
         "model": "internvl3-14b",
-        "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 4e-7
-        }
-    },
-    {
-        "model": "jamba-1.6-large",
-        "cost": {
-            "prompt_token": 0.000002,
-            "completion_token": 0.000008
-        }
-    },
-    {
-        "model": "jamba-1.6-mini",
         "cost": {
             "prompt_token": 2e-7,
             "completion_token": 4e-7
@@ -2075,8 +2086,8 @@
     {
         "model": "qwen3-coder",
         "cost": {
-            "prompt_token": 3e-7,
-            "completion_token": 0.0000012
+            "prompt_token": 1.999188e-7,
+            "completion_token": 8.00064e-7
         }
     },
     {
@@ -2238,13 +2249,6 @@
         "cost": {
             "prompt_token": 1.8e-7,
             "completion_token": 1.8e-7
-        }
-    },
-    {
-        "model": "toppy-m-7b",
-        "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 0.0000012
         }
     },
     {

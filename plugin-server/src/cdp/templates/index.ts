@@ -1,6 +1,7 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
+import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
@@ -12,6 +13,7 @@ import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/sn
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
+import { template as stripeWebhookTemplate } from './_sources/stripe/stripe_webhook.template'
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
@@ -37,6 +39,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     twilioTemplate,
     googleSheetsTemplate,
     googleTagManagerTemplate,
+    clickupTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
@@ -69,7 +72,7 @@ export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [n
     ],
 }))
 
-export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
+export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate, stripeWebhookTemplate]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(
     (x) => x.template
