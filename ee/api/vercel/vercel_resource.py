@@ -145,20 +145,6 @@ class ResourcePayloadSerializer(serializers.Serializer):
     )
 
 
-# class VercelResourceResponseSerializer(serializers.Serializer):
-#     """Response serializer for provisioned resources according to Vercel OpenAPI spec"""
-
-#     id = serializers.CharField(help_text="The partner-specific ID of the resource")
-#     productId = serializers.CharField(help_text="The partner-specific ID/slug of the product")
-#     protocolSettings = VercelProtocolSettingsSerializer(required=False)
-#     billingPlan = VercelBillingPlanSerializer(required=False)
-#     name = serializers.CharField(help_text="User-inputted name for the resource")
-#     metadata = serializers.DictField(child=serializers.JSONField())
-#     status = serializers.ChoiceField(choices=["ready", "pending", "suspended", "resumed", "uninstalled", "error"])
-#     notification = VercelNotificationSerializer(required=False)
-#     secrets = serializers.ListField(child=VercelSecretSerializer(), min_length=1)
-
-
 class VercelResourceViewSet(
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
@@ -202,12 +188,13 @@ class VercelResourceViewSet(
         ProductIntent.objects.create(
             team=team,
             product_type="feature_flags",
-            contexts={"vercel flags integration": 1},
+            contexts={"vercel native integration": 1},
         )
+
         ProductIntent.objects.create(
             team=team,
             product_type="experiments",
-            contexts={"vercel flags integration": 1},
+            contexts={"vercel native integration": 1},
         )
 
         resource: VercelResource = VercelResource.objects.create(

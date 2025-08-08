@@ -83,7 +83,10 @@ class VercelInstallationPermission(BasePermission):
         return True
 
     def _get_supported_auth_types(self, view) -> list[str]:
-        """Get supported auth types for the current action from the viewset"""
+        """
+        Get supported auth types for the current action from the viewset.
+        Supported auth type is specified by the marketplace API spec.
+        """
         return getattr(view, "supported_auth_types", {}).get(view.action, ["User", "System"])
 
     def _validate_auth_type_allowed(self, request: Request, view) -> None:
@@ -105,7 +108,8 @@ class VercelInstallationPermission(BasePermission):
         """Validate that JWT installation_id matches URL parameter"""
         jwt_payload = self._get_jwt_payload(request)
 
-        # Bit hacky, but using the current routing, it can be either installation_id or parent_lookup_installation_id
+        # installation_id when going through vercel_installation ViewSet,
+        # or parent_lookup_installation_id when going through vercel_resource
         installation_id = view.kwargs.get("installation_id") or view.kwargs.get("parent_lookup_installation_id")
 
         if jwt_payload.get("installation_id") != installation_id:
@@ -166,11 +170,11 @@ class VercelInstallationViewSet(
     permission_classes = [VercelInstallationPermission]
 
     supported_auth_types = {
-        "destroy": ["User"],
-        "retrieve": ["User", "System"],
-        "update": ["User", "System"],
-        "partial_update": ["User", "System"],
-        "plans": ["User", "System"],
+        "update": ["User"],
+        "partial_update": ["User"],
+        "destroy": ["User", "System"],
+        "retrieve": ["System"],
+        "plans": ["System"],
     }
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -183,19 +187,10 @@ class VercelInstallationViewSet(
 
         installation_id = self.kwargs["installation_id"]
 
-        # Create Organization, Team, and User
-        # This user will still be able to reset their password to sign directly into PostHog,
-        # however the expectation is that they'll log in via Vercel SSO.
         try:
-            # Note we'll also create a "Default Project here."
             # TODO: Not sure if this is the best move because users might be confused
-            # by the default project and their "Resource" project.
-            # Maybe we leave create_team empty and defer it to later?
+            # by the default project created here and their "Resource" project.
             organization, _, user = User.objects.bootstrap(
-                # create_team=lambda organization, user: Team.objects.create_with_data(
-                #     initiating_user=user,
-                #     organization=organization,
-                # ),
                 is_staff=False,
                 is_email_verified=True,
                 role_at_organization="admin",
@@ -204,7 +199,7 @@ class VercelInstallationViewSet(
                 organization_name=serializer.validated_data["account"].get(
                     "name", f"Vercel Installation {installation_id}"
                 ),
-                password=None,  # SSO instead of password
+                password=None,  # SSO instead of password. Users will still be able to reset their password.
             )
         except IntegrityError:
             raise exceptions.ValidationError(
@@ -260,18 +255,12 @@ class VercelInstallationViewSet(
         if not serializer.is_valid():
             raise exceptions.ValidationError(detail=serializer.errors)
 
-        # Fail if not found, otherwise update the installation
-
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-installation
         """
-        # Delete VercelInstallation
-        # Delete team
-        # Delete organization
-        # Delete user
         return super().destroy(request, *args, **kwargs)
 
     @decorators.action(detail=True, methods=["get"])
