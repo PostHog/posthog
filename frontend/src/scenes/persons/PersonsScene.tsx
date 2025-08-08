@@ -1,17 +1,23 @@
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { personsSceneLogic } from 'scenes/persons-management/tabs/personsSceneLogic'
+import { personsSceneLogic } from './personsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { ProductKey, OnboardingStepKey } from '~/types'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { SceneExport } from 'scenes/sceneTypes'
 
-export function Persons(): JSX.Element {
+export const scene: SceneExport = {
+    component: PersonsScene,
+    logic: personsSceneLogic,
+}
+
+export function PersonsScene(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
@@ -19,7 +25,8 @@ export function Persons(): JSX.Element {
 
     return (
         <>
-            <PageHeader
+            <PersonsManagementSceneTabs
+                tabKey="persons"
                 buttons={
                     <LemonMenu
                         items={[
