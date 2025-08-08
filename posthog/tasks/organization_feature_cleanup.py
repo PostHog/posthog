@@ -12,7 +12,9 @@ logger = get_logger(__name__)
 def organization_feature_cleanup(organization_id: int, added_features: list[str], removed_features: list[str]) -> None:
     from posthog.models import Organization, OrganizationDomain
 
-    organization = Organization.objects.get(id=organization_id)
+    organization = Organization.objects.filter(id=organization_id).first()
+    if not organization:
+        return
 
     def is_feature_removed(feature: AvailableFeature) -> bool:
         """Checks if feature was removed at task dispatch time AND is still removed during execution"""
