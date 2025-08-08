@@ -525,7 +525,9 @@ class ExperimentTimeseries:
         timeseries = []
 
         # Group db results by date
-        grouped_by_date: dict[str, list[tuple[str, int, int, int]]] = {}
+        grouped_by_date: dict[
+            str, list[Union[tuple[str, int, int, int], tuple[str, int, int, int, tuple[int, ...]]]]
+        ] = {}
         for variant, date, num_users, total_sum, total_sum_of_squares in response.results:
             date_key = date.date().isoformat()  # e.g. '2024-01-01'
             if date_key not in grouped_by_date:
