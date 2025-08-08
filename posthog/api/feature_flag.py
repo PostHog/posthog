@@ -1189,6 +1189,9 @@ class FeatureFlagViewSet(
         return Response(response_data)
 
     def _local_evaluation_via_cache(self, request: request.Request) -> dict:
+        """ "
+        Once we have are secure in this approach this method replaces the normal one
+        """
         start_time = time.time()
         logger = logging.getLogger(__name__)
 
