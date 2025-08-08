@@ -1131,10 +1131,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 if sources:
                     sources = sorted(sources, key=lambda x: x.get("start_timestamp", None))
 
-                if might_have_realtime and not is_v2_enabled:
-                    oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                    newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
-                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
+                    if might_have_realtime and not is_v2_enabled:
+                        oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+                        newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+                        might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
 
                     # if the oldest timestamp is more than 24 hours ago, we don't expect realtime snapshots
                     if might_have_realtime:
