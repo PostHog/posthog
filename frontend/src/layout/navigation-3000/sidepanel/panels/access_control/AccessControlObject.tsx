@@ -69,7 +69,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 
                         <AccessControlObjectUsers />
 
-                        {/* Put this inside of Advanced Permissions so two aren't shown at once */}
+                        {/* Put this inside of Advanced Permissions (access control) so two aren't shown at once */}
                         <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                             <AccessControlObjectRoles />
                         </PayGateMini>

@@ -42,6 +42,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     formatNumbers?: boolean
     /** Custom column features to pass down to the DataTable */
     columnFeatures?: ColumnFeature[]
+    /** Key to be used in dataNodeLogic so that we can find the dataNodeLogic */
+    dataNodeLogicKey?: string
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

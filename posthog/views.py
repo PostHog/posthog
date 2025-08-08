@@ -2,7 +2,6 @@ from datetime import timedelta
 import os
 from functools import partial, wraps
 from typing import Union
-import uuid
 
 from posthog.exceptions_capture import capture_exception
 from django.apps import apps
@@ -39,7 +38,11 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
-from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
+from posthog.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
+)
 from posthog.models.message_category import MessageCategory
 from posthog.models.personal_api_key import (
     PersonalAPIKey,
@@ -376,11 +379,29 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
 
     try:
         preferences = request.POST.getlist("preferences[]")
-        # Convert to dict of category_id: opted_in
+        # Convert to dict of category_id: status
+        preferences_dict = {}
+        all_opted_out = True
+
         for pref in preferences:
             category_id, opted_in = pref.split(":")
+
+            if opted_in not in ["true", "false"]:
+                return JsonResponse({"error": "Preference values must be 'true' or 'false'"}, status=400)
+
             status = PreferenceStatus.OPTED_IN if opted_in == "true" else PreferenceStatus.OPTED_OUT
-            recipient.set_preference(uuid.UUID(category_id), status)
+            preferences_dict[category_id] = status.value
+
+            if status == PreferenceStatus.OPTED_IN:
+                all_opted_out = False
+
+        # If all preferences are opted out, add the "$all" preference
+        if all_opted_out and preferences_dict:
+            preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+
+        # Update all preferences with a single DB write
+        recipient.preferences = preferences_dict
+        recipient.save(update_fields=["preferences", "updated_at"])
 
         return JsonResponse({"success": True})
 
