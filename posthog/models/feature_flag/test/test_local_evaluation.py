@@ -8,6 +8,7 @@ import pytest
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
@@ -22,11 +23,25 @@ CONFIG_REFRESH_QUERY_COUNT = 5
 
 
 class TestLocalEvaluationCache(BaseTest):
-    def _create_flags_with_cohorts(self, team: Team):
+    def setUp(self):
+        super().setUp()
+        project, team = Project.objects.create_with_team(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Test project",
+        )
+        self.team = team
+        self._create_examples(self.team)
+
+    def _create_examples(self, team: Team):
         FeatureFlag.objects.all().delete()
 
         cohorts = []
         flags = []
+
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         cohort_valid_for_ff = Cohort.objects.create(
             team=self.team,
@@ -140,11 +155,63 @@ class TestLocalEvaluationCache(BaseTest):
 
         return flags, cohorts
 
-    def test_generates_correct_local_evaluation_cache(self):
-        team = Team.objects.create(api_token="phc_12345")
-        flags, cohorts = self._create_flags_with_cohorts(team)
-        response = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation(team, include_cohorts=True)
-        assert response["flags"] == {}
+    def _assert_payload_valid_with_cohorts(self, response: dict):
+        assert len(response.get("flags", [])) == 2
+        assert response.get("group_type_mapping", {}) == {"0": "organization"}
+        assert len(response.get("cohorts", {})) == 2
+
+    def test_generates_correct_local_evaluation_response_with_cohorts(self):
+        response = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation(
+            self.team, include_cohorts=True
+        )
+
+        assert len(response.get("flags", [])) == 2
+        assert response.get("group_type_mapping", {}) == {"0": "organization"}
+        assert len(response.get("cohorts", {})) == 2
+
+    def test_generates_correct_local_evaluation_response_without_cohorts(self):
+        response = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation(
+            self.team, include_cohorts=False
+        )
+
+        assert len(response.get("flags", [])) == 2
+        assert response.get("group_type_mapping", {}) == {"0": "organization"}
+        assert len(response.get("cohorts", {})) == 0
+
+    def test_get_flags_cache_hot(self):
+        FeatureFlagLocalEvaluationCache.update_cache(self.team)
+        response, source = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation_from_cache(
+            self.team, include_cohorts=True
+        )
+        assert source == "redis"
+        self._assert_payload_valid_with_cohorts(response)
+
+    def test_get_flags_cache_warm(self):
+        FeatureFlagLocalEvaluationCache.update_cache(self.team)
+        FeatureFlagLocalEvaluationCache.clear_cache(self.team, kinds=["redis"])
+        response, source = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation_from_cache(
+            self.team, include_cohorts=True
+        )
+        assert source == "s3"
+        self._assert_payload_valid_with_cohorts(response)
+
+    def test_get_flags_cold(self):
+        FeatureFlagLocalEvaluationCache.clear_cache(self.team, kinds=["redis", "s3"])
+        response, source = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation_from_cache(
+            self.team, include_cohorts=True
+        )
+
+        assert source == "postgres"
+        self._assert_payload_valid_with_cohorts(response)
+
+        # second request should be cached in redis
+
+        response, source = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation_from_cache(
+            self.team, include_cohorts=True
+        )
+
+        assert source == "redis"
+        self._assert_payload_valid_with_cohorts(response)
 
 
 # class TestFeatureFlagLocalEvaluationCache(BaseTest):

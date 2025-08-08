@@ -1,4 +1,6 @@
 import json
+from typing import Optional
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -8,7 +10,6 @@ import structlog
 
 from django.db.models import Q
 
-from posthog.api.feature_flag import DATABASE_FOR_LOCAL_EVALUATION
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -17,6 +18,13 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
+
+DATABASE_FOR_LOCAL_EVALUATION = (
+    "default"
+    if ("local_evaluation" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES)  # noqa: F821
+    else "replica"
+)
+
 
 CACHE_MISS_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 CACHE_TIMEOUT = 60 * 60 * 24 * 30  # 30 days
@@ -35,8 +43,12 @@ FLAGS_CACHE_COUNTER = Counter(
 )
 
 
-def cache_key(team_token: str, key: str) -> str:
-    return f"feature_flags/local_evaluation/{team_token}/{key}"
+def cache_key_flags_with_cohorts(team_id: int) -> str:
+    return f"cache/teams/{team_id}/feature_flags/flags.json"
+
+
+def cache_key_flags_without_cohorts(team_id: int) -> str:
+    return f"cache/teams/{team_id}/feature_flags/flags_without_cohorts.json"
 
 
 class FeatureFlagLocalEvaluationCacheDoesNotExist(Exception):
@@ -138,7 +150,7 @@ class FeatureFlagLocalEvaluationCache:
     def get_flags_response_for_local_evaluation(cls, team: Team, include_cohorts: bool) -> dict:
         from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
-        cohorts = {}
+        cohorts: dict[str, dict] = {}
         if include_cohorts:
             flags, cohorts = cls.get_flags_with_cohorts_for_local_evaluation(team)
         else:
@@ -157,8 +169,8 @@ class FeatureFlagLocalEvaluationCache:
         return response_data
 
     @classmethod
-    def get_flags_response_for_local_evaluation_from_cache(cls, team: Team, include_cohorts: bool) -> dict:
-        key = cache_key(team.api_token, "without_cohorts" if not include_cohorts else "with_cohorts")
+    def get_flags_response_for_local_evaluation_from_cache(cls, team: Team, include_cohorts: bool) -> tuple[dict, str]:
+        key = cache_key_flags_with_cohorts(team.id) if include_cohorts else cache_key_flags_without_cohorts(team.id)
 
         data = cache.get(key)
         if data == "404":
@@ -167,14 +179,15 @@ class FeatureFlagLocalEvaluationCache:
 
         if data:
             FLAGS_CACHE_COUNTER.labels(result="hit_redis").inc()
-            return json.loads(data)
+            return json.loads(data), "redis"
 
         # Fallback to s3
         try:
             data = object_storage.read(key)
             if data:
                 FLAGS_CACHE_COUNTER.labels(result="hit_s3").inc()
-                return json.loads(data)
+                cache.set(key, data, timeout=CACHE_TIMEOUT)
+                return json.loads(data), "s3"
         except ObjectStorageError:
             pass
 
@@ -183,7 +196,7 @@ class FeatureFlagLocalEvaluationCache:
             data = cls.get_flags_response_for_local_evaluation(team, include_cohorts)
             cache.set(key, json.dumps(data), timeout=CACHE_TIMEOUT)
             FLAGS_CACHE_COUNTER.labels(result="miss_but_success").inc()
-            return data
+            return data, "postgres"
         except FeatureFlagLocalEvaluationCacheDoesNotExist:
             cache.set(key, "404", timeout=CACHE_MISS_TIMEOUT)
             FLAGS_CACHE_COUNTER.labels(result="miss_but_missing").inc()
@@ -200,18 +213,18 @@ class FeatureFlagLocalEvaluationCache:
             res_with_cohorts = json.dumps(cls.get_flags_response_for_local_evaluation(team, include_cohorts=True))
             # Write files to S3
             object_storage.write(
-                cache_key(team.api_token, "without_cohorts"),
+                cache_key_flags_without_cohorts(team.id),
                 res_without_cohorts,
             )
 
-            cache.set(cache_key(team.api_token, "without_cohorts"), res_without_cohorts, timeout=CACHE_TIMEOUT)
+            cache.set(cache_key_flags_without_cohorts(team.id), res_without_cohorts, timeout=CACHE_TIMEOUT)
 
             object_storage.write(
-                cache_key(team.api_token, "with_cohorts"),
+                cache_key_flags_with_cohorts(team.id),
                 res_with_cohorts,
             )
 
-            cache.set(cache_key(team.api_token, "with_cohorts"), res_with_cohorts, timeout=CACHE_TIMEOUT)
+            cache.set(cache_key_flags_with_cohorts(team.id), res_with_cohorts, timeout=CACHE_TIMEOUT)
 
             CELERY_TASK_FLAGS_CACHE_SYNC.labels(result="success").inc()
         except Exception as e:
@@ -219,6 +232,20 @@ class FeatureFlagLocalEvaluationCache:
             logger.exception(f"Failed to sync flags cache for team {team.id}", exception=str(e))
             CELERY_TASK_FLAGS_CACHE_SYNC.labels(result="failure").inc()
             raise
+
+    @classmethod
+    def clear_cache(cls, team: Team, kinds: Optional[list[str]] = None):
+        """
+        Only meant for use in tests
+        """
+
+        kinds = kinds or ["redis", "s3"]
+        if "redis" in kinds:
+            cache.delete(cache_key_flags_without_cohorts(team.id))
+            cache.delete(cache_key_flags_with_cohorts(team.id))
+        if "s3" in kinds:
+            object_storage.delete(cache_key_flags_without_cohorts(team.id))
+            object_storage.delete(cache_key_flags_with_cohorts(team.id))
 
         # FOLLOWUP: Also write to redis if we wan't django to be in charge of the hot cache.
 

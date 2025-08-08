@@ -24,7 +24,7 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.api.cohort import CohortSerializer
 from posthog.models.experiment import Experiment
-from posthog.models.feature_flag.local_evaluation import FeatureFlagLocalEvaluationCache
+from posthog.models.feature_flag.local_evaluation import DATABASE_FOR_LOCAL_EVALUATION, FeatureFlagLocalEvaluationCache
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -81,11 +81,6 @@ from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
 
-DATABASE_FOR_LOCAL_EVALUATION = (
-    "default"
-    if ("local_evaluation" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES)
-    else "replica"
-)
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
