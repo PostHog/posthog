@@ -69,6 +69,14 @@ fn decide_on_error(
     }
 }
 
+fn reset_backoff_after_success(state: &mut JobState, model: &mut JobModel) {
+    state.backoff_attempt = 0;
+    model.backoff_attempt = 0;
+    if let Some(model_state) = &mut model.state {
+        model_state.backoff_attempt = 0;
+    }
+}
+
 pub struct Job {
     pub context: Arc<AppContext>,
 
@@ -287,7 +295,7 @@ impl Job {
                     );
                     next_part.current_offset = actual_size;
                     return Ok(Some((
-                        next_part.key.clone(),
+                        key.clone(),
                         Parsed {
                             consumed: 0,
                             data: vec![],
@@ -339,8 +347,16 @@ impl Job {
 
         // Update the in-memory part state (the read will be committed to the DB once the write is done)
         next_part.current_offset += parsed.consumed as u64;
+        // Drop the mutable borrow of next_part before touching state/model again
+        let ret_key = key.clone();
 
-        Ok(Some((next_part.key.clone(), parsed)))
+        // Successful fetch/parse: reset backoff state
+        {
+            let mut model = self.model.lock().await;
+            reset_backoff_after_success(&mut state, &mut model);
+        }
+
+        Ok(Some((ret_key, parsed)))
     }
 
     async fn do_commit(&self) -> Result<(), Error> {
@@ -616,6 +632,39 @@ mod tests {
             }
             _ => panic!("expected pause"),
         }
+    }
+
+    #[test]
+    fn test_reset_backoff_after_success() {
+        let mut state = JobState { parts: vec![], backoff_attempt: 3 };
+        let mut model = JobModel {
+            // Minimal dummy values; only fields we need in this function
+            id: uuid::Uuid::now_v7(),
+            team_id: 1,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            lease_id: None,
+            leased_until: None,
+            status: super::model::JobStatus::Running,
+            status_message: None,
+            display_status_message: None,
+            state: Some(JobState { parts: vec![], backoff_attempt: 3 }),
+            import_config: super::config::JobConfig {
+                // Construct a trivially valid config that won't be used by this test
+                source: super::config::SourceConfig::Folder(super::config::FolderSourceConfig { path: "/tmp".to_string() }),
+                data_format: crate::parse::format::FormatConfig::JsonLines { skip_blanks: true, content: crate::parse::content::ContentType::Captured },
+                sink: super::config::SinkConfig::NoOp,
+            },
+            secrets: super::config::JobSecrets { secrets: std::collections::HashMap::new() },
+            was_leased: false,
+            backoff_attempt: 5,
+            backoff_until: None,
+        };
+
+        reset_backoff_after_success(&mut state, &mut model);
+        assert_eq!(state.backoff_attempt, 0);
+        assert_eq!(model.backoff_attempt, 0);
+        assert_eq!(model.state.as_ref().unwrap().backoff_attempt, 0);
     }
 
     #[test]
