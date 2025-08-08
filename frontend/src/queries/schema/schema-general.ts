@@ -2520,6 +2520,7 @@ export interface ExperimentStatsBase {
     number_of_samples: integer
     sum: number
     sum_squares: number
+    step_counts?: integer[]
 }
 
 export enum ExperimentStatsValidationFailure {
