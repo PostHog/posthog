@@ -7,7 +7,7 @@ https://vercel.com/docs/integrations/create-integration/marketplace-api
 
 from typing import Any
 
-from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -159,6 +159,44 @@ class VercelResourceViewSet(
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelInstallationPermission]
 
+    def _get_installation_and_billing_plan(self):
+        """Get installation and current billing plan"""
+        installation_id = self.kwargs.get("parent_lookup_installation_id")
+        installation = VercelInstallation.objects.get(installation_id=installation_id)
+
+        billing_plans = get_vercel_plans()
+        current_plan_id = installation.billing_plan_id
+        current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
+
+        return installation, current_plan
+
+    def _build_secrets(self, team: Team) -> list[dict[str, str]]:
+        """Build the secrets array for the resource response"""
+        return [
+            {
+                "name": "POSTHOG_PROJECT_API_KEY",
+                "value": team.api_token,
+            },
+            {
+                "name": "POSTHOG_HOST",
+                "value": "https://app.posthog.com",
+            },
+        ]
+
+    def _build_resource_response(self, resource: VercelResource) -> dict[str, Any]:
+        """Build the standard resource response data"""
+        _, current_plan = self._get_installation_and_billing_plan()
+
+        return {
+            "id": str(resource.pk),
+            "productId": resource.config.get("productId", ""),
+            "name": resource.config.get("name", resource.team.name),
+            "metadata": resource.config.get("metadata", {}),
+            "status": "ready",
+            "secrets": self._build_secrets(resource.team),
+            "billingPlan": current_plan,
+        }
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Used to provision a resource via POST.
@@ -168,13 +206,7 @@ class VercelResourceViewSet(
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
 
-        installation_id = self.kwargs.get("parent_lookup_installation_id")
-
-        try:
-            installation = VercelInstallation.objects.get(installation_id=installation_id)
-        except VercelInstallation.DoesNotExist:
-            raise exceptions.NotFound("Installation not found")
-
+        installation, _ = self._get_installation_and_billing_plan()
         organization: Organization = installation.organization
 
         team = Team.objects.create_with_data(
@@ -205,72 +237,31 @@ class VercelResourceViewSet(
             config=validated_data,  # TODO: Drop this field.
         )
 
-        secrets = [
-            {
-                "name": "POSTHOG_PROJECT_API_KEY",
-                "value": team.api_token,
-            },
-            {
-                "name": "POSTHOG_HOST",
-                "value": "https://app.posthog.com",
-            },
-        ]
-
-        response_data = {
-            "id": str(resource.pk),
-            "productId": validated_data["productId"],
-            "name": validated_data["name"],
-            "metadata": validated_data["metadata"],
-            "status": "ready",
-            "secrets": secrets,
-        }
-
-        return Response(response_data, status=200)
+        return Response(self._build_resource_response(resource), status=200)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#get-resource
         """
         resource = self.get_object()
-        team = resource.team
-
-        # Get installation_id from kwargs
-        installation_id = self.kwargs.get("parent_lookup_installation_id")
-
-        installation = VercelInstallation.objects.get(installation_id=installation_id)
-
-        billing_plans = get_vercel_plans()
-        current_plan_id = installation.billing_plan_id
-
-        current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
-
-        response_data = {
-            "id": str(resource.pk),
-            "productId": resource.config.get("productId", ""),
-            "name": resource.config.get("name", team.name),
-            "metadata": resource.config.get("metadata", {}),
-            "status": "ready",
-            "secrets": [
-                {
-                    "name": "POSTHOG_PROJECT_API_KEY",
-                    "value": team.api_token,
-                },
-                {
-                    "name": "POSTHOG_HOST",
-                    "value": "https://app.posthog.com",
-                },
-            ],
-            "billingPlan": current_plan,
-        }
-
-        return Response(response_data, status=200)
+        return Response(self._build_resource_response(resource), status=200)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#update-resource
         """
-        # TODO: Implement resource update logic
-        raise serializers.MethodNotAllowed("PATCH")
+        serializer = ResourcePayloadSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
+
+        resource = self.get_object()
+
+        updated_config = resource.config.copy()
+        updated_config.update(validated_data)
+        resource.config = updated_config
+        resource.save(update_fields=["config"])
+
+        return Response(self._build_resource_response(resource), status=200)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
