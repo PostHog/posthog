@@ -203,13 +203,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTGRES_COUNTERS_HOST: string
     POSTGRES_COUNTERS_USER: string
     POSTGRES_COUNTERS_PASSWORD: string
-    CASSANDRA_HOST: string
-    CASSANDRA_PORT: number
-    CASSANDRA_KEYSPACE: string
-    CASSANDRA_LOCAL_DATACENTER: string
-    CASSANDRA_USER: string | null
-    CASSANDRA_PASSWORD: string | null
-    WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted

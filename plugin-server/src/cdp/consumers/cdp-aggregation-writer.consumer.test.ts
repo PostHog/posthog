@@ -1,8 +1,10 @@
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { PostgresUse } from '~/utils/db/postgres'
+
+import { defaultConfig } from '../../config/config'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { AggregatedBehaviouralEvent, CdpAggregationWriterConsumer } from './cdp-aggregation-writer.consumer'
-import { CohortFilterPayload, PersonEventPayload, ProducedEvent } from './cdp-behavioural-events.consumer'
+import { PersonEventPayload, ProducedEvent } from './cdp-behavioural-events.consumer'
 
 jest.setTimeout(20_000)
 
@@ -11,108 +13,115 @@ describe('CdpAggregationWriterConsumer', () => {
     let hub: Hub
     let team: Team
 
+    // Helper to reset counters database
+    const resetCountersDatabase = async () => {
+        await hub.postgres.query(
+            PostgresUse.COUNTERS_RW,
+            'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
+            undefined,
+            'reset-counters-db'
+        )
+    }
+
     beforeEach(async () => {
-        await resetTestDatabase()
-        hub = await createHub()
-        team = await getFirstTeam(hub)
+        // Create hub with explicit test counters database URL
+        hub = await createHub({
+            ...defaultConfig,
+            COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_counters',
+        })
+
+        // Create a minimal team object for testing - we only need id and basic fields
+        team = {
+            id: 1,
+            project_id: 1 as any,
+            uuid: 'test-team-uuid',
+            organization_id: 'test-org',
+            name: 'Test Team',
+        } as unknown as Team
+
+        await resetCountersDatabase()
         processor = new CdpAggregationWriterConsumer(hub)
     })
 
     afterEach(async () => {
+        await resetCountersDatabase()
         await closeHub(hub)
     })
 
-    describe('Message Parsing', () => {
-        it('should parse and separate person-performed-events and behavioural-filter-match-events', async () => {
-            const personEvent: ProducedEvent = {
-                key: `${team.id}:person1:event1`,
-                payload: {
-                    type: 'person-performed-event',
-                    personId: 'person1',
-                    eventName: 'event1',
-                    teamId: team.id,
-                },
-            }
+    describe('CdpAggregationWriterConsumer', () => {
+        it('should parse, deduplicate, aggregate, and write mixed events to database', async () => {
+            const person1Id = '550e8400-e29b-41d4-a716-446655440000'
+            const person2Id = '550e8400-e29b-41d4-a716-446655440001'
 
-            const filterEvent: ProducedEvent = {
-                key: `${team.id}:person1:hash123:2023-01-01`,
-                payload: {
-                    type: 'behavioural-filter-match-event',
-                    teamId: team.id,
-                    personId: 'person1',
-                    filterHash: 'hash123',
-                    date: '2023-01-01',
-                },
-            }
-
-            const messages = [
-                {
-                    value: Buffer.from(JSON.stringify(personEvent)),
-                } as any,
-                {
-                    value: Buffer.from(JSON.stringify(filterEvent)),
-                } as any,
-            ]
-
-            const parsedBatch = await processor._parseKafkaBatch(messages)
-
-            expect(parsedBatch.personPerformedEvents).toHaveLength(1)
-            expect(parsedBatch.behaviouralFilterMatchedEvents).toHaveLength(1)
-
-            expect(parsedBatch.personPerformedEvents[0]).toEqual({
-                type: 'person-performed-event',
-                personId: 'person1',
-                eventName: 'event1',
-                teamId: team.id,
-            })
-
-            expect(parsedBatch.behaviouralFilterMatchedEvents[0]).toEqual({
-                type: 'behavioural-filter-match-event',
-                teamId: team.id,
-                personId: 'person1',
-                filterHash: 'hash123',
-                date: '2023-01-01',
-            })
-        })
-
-        it('should handle multiple events of each type', async () => {
+            // Create kafka messages with duplicates to test deduplication and aggregation
             const events: ProducedEvent[] = [
+                // Person events with duplicates
                 {
-                    key: '1:person1:event1',
+                    key: `${team.id}:${person1Id}:pageview`,
                     payload: {
                         type: 'person-performed-event',
-                        personId: 'person1',
-                        eventName: 'event1',
-                        teamId: 1,
+                        personId: person1Id,
+                        eventName: 'pageview',
+                        teamId: team.id,
                     },
                 },
                 {
-                    key: '1:person1:hash1:2023-01-01',
-                    payload: {
-                        type: 'behavioural-filter-match-event',
-                        teamId: 1,
-                        personId: 'person1',
-                        filterHash: 'hash1',
-                        date: '2023-01-01',
-                    },
-                },
-                {
-                    key: '2:person2:event2',
+                    key: `${team.id}:${person1Id}:pageview`,
                     payload: {
                         type: 'person-performed-event',
-                        personId: 'person2',
-                        eventName: 'event2',
-                        teamId: 2,
+                        personId: person1Id,
+                        eventName: 'pageview',
+                        teamId: team.id,
+                    },
+                }, // Duplicate - should be deduplicated
+                {
+                    key: `${team.id}:${person1Id}:click`,
+                    payload: {
+                        type: 'person-performed-event',
+                        personId: person1Id,
+                        eventName: 'click',
+                        teamId: team.id,
+                    },
+                },
+                // Behavioural events with duplicates
+                {
+                    key: `${team.id}:${person1Id}:hash123:2023-06-15`,
+                    payload: {
+                        type: 'behavioural-filter-match-event',
+                        teamId: team.id,
+                        personId: person1Id,
+                        filterHash: 'hash123',
+                        date: '2023-06-15',
                     },
                 },
                 {
-                    key: '2:person2:hash2:2023-01-02',
+                    key: `${team.id}:${person1Id}:hash123:2023-06-15`,
                     payload: {
                         type: 'behavioural-filter-match-event',
-                        teamId: 2,
-                        personId: 'person2',
-                        filterHash: 'hash2',
-                        date: '2023-01-02',
+                        teamId: team.id,
+                        personId: person1Id,
+                        filterHash: 'hash123',
+                        date: '2023-06-15',
+                    },
+                }, // Duplicate - should be aggregated
+                {
+                    key: `${team.id}:${person1Id}:hash123:2023-06-15`,
+                    payload: {
+                        type: 'behavioural-filter-match-event',
+                        teamId: team.id,
+                        personId: person1Id,
+                        filterHash: 'hash123',
+                        date: '2023-06-15',
+                    },
+                }, // Another duplicate - should be aggregated
+                {
+                    key: `${team.id}:${person2Id}:hash456:2023-06-15`,
+                    payload: {
+                        type: 'behavioural-filter-match-event',
+                        teamId: team.id,
+                        personId: person2Id,
+                        filterHash: 'hash456',
+                        date: '2023-06-15',
                     },
                 },
             ]
@@ -121,224 +130,154 @@ describe('CdpAggregationWriterConsumer', () => {
                 value: Buffer.from(JSON.stringify(event)),
             })) as any[]
 
+            // Parse the batch (this tests message parsing)
             const parsedBatch = await processor._parseKafkaBatch(messages)
 
-            expect(parsedBatch.personPerformedEvents).toHaveLength(2)
-            expect(parsedBatch.behaviouralFilterMatchedEvents).toHaveLength(2)
+            // Verify parsing worked correctly
+            expect(parsedBatch.personPerformedEvents).toHaveLength(3) // Before deduplication
+            expect(parsedBatch.behaviouralFilterMatchedEvents).toHaveLength(4) // Before aggregation
 
-            // Verify person performed events
-            expect(parsedBatch.personPerformedEvents[0]).toMatchObject({
-                personId: 'person1',
-                eventName: 'event1',
-                teamId: 1,
+            // Process the batch (this tests deduplication, aggregation, and database writes)
+            await processor['processBatch'](parsedBatch)
+
+            // Verify person performed events in database (should be deduplicated)
+            const personResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM person_performed_events WHERE team_id = $1 ORDER BY event_name',
+                [team.id],
+                'test-read-person-events'
+            )
+
+            expect(personResult.rows).toHaveLength(2) // Duplicates removed
+            expect(personResult.rows[0]).toMatchObject({
+                team_id: team.id,
+                person_id: person1Id,
+                event_name: 'click',
             })
-            expect(parsedBatch.personPerformedEvents[1]).toMatchObject({
-                personId: 'person2',
-                eventName: 'event2',
-                teamId: 2,
+            expect(personResult.rows[1]).toMatchObject({
+                team_id: team.id,
+                person_id: person1Id,
+                event_name: 'pageview',
             })
 
-            // Verify behavioural filter matched events
-            expect(parsedBatch.behaviouralFilterMatchedEvents[0]).toMatchObject({
-                personId: 'person1',
-                filterHash: 'hash1',
-                date: '2023-01-01',
-                teamId: 1,
+            // Verify behavioural events in database (should be aggregated)
+            const behaviouralResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1 ORDER BY filter_hash',
+                [team.id],
+                'test-read-behavioural-events'
+            )
+
+            expect(behaviouralResult.rows).toHaveLength(2) // One aggregated, one individual
+
+            // First event (hash123) should have counter = 3 (from 3 duplicate events)
+            expect(behaviouralResult.rows[0]).toMatchObject({
+                team_id: team.id,
+                person_id: person1Id,
+                filter_hash: 'hash123',
+                counter: 3,
             })
-            expect(parsedBatch.behaviouralFilterMatchedEvents[1]).toMatchObject({
-                personId: 'person2',
-                filterHash: 'hash2',
-                date: '2023-01-02',
-                teamId: 2,
+            expect(behaviouralResult.rows[0].date).toBeInstanceOf(Date)
+
+            // Second event (hash456) should have counter = 1 (no duplicates)
+            expect(behaviouralResult.rows[1]).toMatchObject({
+                team_id: team.id,
+                person_id: person2Id,
+                filter_hash: 'hash456',
+                counter: 1,
             })
+            expect(behaviouralResult.rows[1].date).toBeInstanceOf(Date)
         })
 
-        it('should handle empty batch', async () => {
+        it('should handle empty batch gracefully', async () => {
             const parsedBatch = await processor._parseKafkaBatch([])
             expect(parsedBatch.personPerformedEvents).toHaveLength(0)
             expect(parsedBatch.behaviouralFilterMatchedEvents).toHaveLength(0)
+
+            // Should not throw when processing empty batch
+            await processor['processBatch'](parsedBatch)
+
+            // Verify no records were written
+            const personResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT COUNT(*) as count FROM person_performed_events WHERE team_id = $1',
+                [team.id],
+                'test-count-person-events'
+            )
+            expect(personResult.rows[0].count).toBe('0')
+
+            const behaviouralResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT COUNT(*) as count FROM behavioural_filter_matched_events WHERE team_id = $1',
+                [team.id],
+                'test-count-behavioural-events'
+            )
+            expect(behaviouralResult.rows[0].count).toBe('0')
         })
-    })
-
-    describe('Deduplication and Aggregation', () => {
-        describe('deduplicatePersonPerformedEvents', () => {
-            it('should deduplicate identical person performed events', () => {
-                const events: PersonEventPayload[] = [
-                    {
-                        type: 'person-performed-event',
-                        personId: 'person1',
-                        eventName: 'pageview',
-                        teamId: 1,
-                    },
-                    {
-                        type: 'person-performed-event',
-                        personId: 'person1',
-                        eventName: 'pageview',
-                        teamId: 1,
-                    },
-                    {
-                        type: 'person-performed-event',
-                        personId: 'person1',
-                        eventName: 'click',
-                        teamId: 1,
-                    },
-                ]
-
-                const deduplicated = processor['deduplicatePersonPerformedEvents'](events)
-
-                expect(deduplicated).toHaveLength(2)
-                expect(deduplicated).toEqual([
-                    {
-                        type: 'person-performed-event',
-                        personId: 'person1',
-                        eventName: 'pageview',
-                        teamId: 1,
-                    },
-                    {
-                        type: 'person-performed-event',
-                        personId: 'person1',
-                        eventName: 'click',
-                        teamId: 1,
-                    },
-                ])
-            })
-        })
-
-        describe('aggregateBehaviouralFilterMatchedEvents', () => {
-            it('should aggregate identical behavioural filter matched events with counter', () => {
-                const events: CohortFilterPayload[] = [
-                    {
-                        type: 'behavioural-filter-match-event',
-                        teamId: 1,
-                        personId: 'person1',
-                        filterHash: 'hash123',
-                        date: '2023-01-01',
-                    },
-                    {
-                        type: 'behavioural-filter-match-event',
-                        teamId: 1,
-                        personId: 'person1',
-                        filterHash: 'hash123',
-                        date: '2023-01-01',
-                    },
-                    {
-                        type: 'behavioural-filter-match-event',
-                        teamId: 1,
-                        personId: 'person1',
-                        filterHash: 'hash123',
-                        date: '2023-01-01',
-                    },
-                    {
-                        type: 'behavioural-filter-match-event',
-                        teamId: 1,
-                        personId: 'person1',
-                        filterHash: 'hash456',
-                        date: '2023-01-01',
-                    },
-                ]
-
-                const aggregated = processor['aggregateBehaviouralFilterMatchedEvents'](events)
-
-                expect(aggregated).toHaveLength(2)
-
-                const firstEvent = aggregated.find((e) => e.filterHash === 'hash123')
-                const secondEvent = aggregated.find((e) => e.filterHash === 'hash456')
-
-                expect(firstEvent).toEqual({
+        it('should handle upsert conflicts for behavioural events by incrementing counters', async () => {
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const firstBatch: AggregatedBehaviouralEvent[] = [
+                {
                     type: 'behavioural-filter-match-event',
-                    teamId: 1,
-                    personId: 'person1',
+                    teamId: team.id,
+                    personId,
+                    filterHash: 'hash123',
+                    date: '2023-01-01',
+                    counter: 2,
+                },
+            ]
+
+            const secondBatch: AggregatedBehaviouralEvent[] = [
+                {
+                    type: 'behavioural-filter-match-event',
+                    teamId: team.id,
+                    personId,
                     filterHash: 'hash123',
                     date: '2023-01-01',
                     counter: 3,
-                })
+                },
+            ]
 
-                expect(secondEvent).toEqual({
-                    type: 'behavioural-filter-match-event',
-                    teamId: 1,
-                    personId: 'person1',
-                    filterHash: 'hash456',
-                    date: '2023-01-01',
-                    counter: 1,
-                })
-            })
+            // Write first batch
+            await processor['writeToPostgres']([], firstBatch)
+            // Write second batch (should update counter by adding values)
+            await processor['writeToPostgres']([], secondBatch)
+
+            // Verify the counter was incremented correctly
+            const result = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1 AND filter_hash = $2',
+                [team.id, 'hash123'],
+                'test-read-upserted-events'
+            )
+
+            expect(result.rows).toHaveLength(1)
+            expect(result.rows[0].counter).toBe(5) // 2 + 3
         })
 
-        describe('processBatch integration with separate arrays', () => {
-            it('should process events into separate arrays for postgres write', async () => {
-                // Mock writeToPostgres to capture the arguments
-                let capturedPersonEvents: PersonEventPayload[] = []
-                let capturedBehaviouralEvents: AggregatedBehaviouralEvent[] = []
+        it('should handle upsert conflicts for person performed events by ignoring duplicates', async () => {
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const events: PersonEventPayload[] = [
+                {
+                    type: 'person-performed-event',
+                    personId,
+                    eventName: 'pageview',
+                    teamId: team.id,
+                },
+            ]
 
-                processor['writeToPostgres'] = jest
-                    .fn()
-                    .mockImplementation(
-                        async (personEvents: PersonEventPayload[], behaviouralEvents: AggregatedBehaviouralEvent[]) => {
-                            capturedPersonEvents = personEvents
-                            capturedBehaviouralEvents = behaviouralEvents
-                            return Promise.resolve()
-                        }
-                    )
+            // Write same event twice (should not duplicate)
+            await processor['writeToPostgres'](events, [])
+            await processor['writeToPostgres'](events, [])
 
-                const parsedBatch = {
-                    personPerformedEvents: [
-                        { type: 'person-performed-event' as const, teamId: 1, personId: 'person1', eventName: 'click' },
-                        { type: 'person-performed-event' as const, teamId: 1, personId: 'person1', eventName: 'click' }, // duplicate
-                        {
-                            type: 'person-performed-event' as const,
-                            teamId: 1,
-                            personId: 'person1',
-                            eventName: 'pageview',
-                        },
-                    ],
-                    behaviouralFilterMatchedEvents: [
-                        {
-                            type: 'behavioural-filter-match-event' as const,
-                            teamId: 1,
-                            personId: 'person1',
-                            filterHash: 'hash123',
-                            date: '2023-01-01',
-                        },
-                        {
-                            type: 'behavioural-filter-match-event' as const,
-                            teamId: 1,
-                            personId: 'person1',
-                            filterHash: 'hash123',
-                            date: '2023-01-01',
-                        }, // duplicate
-                        {
-                            type: 'behavioural-filter-match-event' as const,
-                            teamId: 1,
-                            personId: 'person1',
-                            filterHash: 'hash123',
-                            date: '2023-01-01',
-                        }, // duplicate
-                    ],
-                }
-
-                await processor['processBatch'](parsedBatch)
-
-                // Verify writeToPostgres was called with separate arrays
-                expect(processor['writeToPostgres']).toHaveBeenCalledWith(expect.any(Array), expect.any(Array))
-
-                // Verify person events were deduplicated (3 -> 2)
-                expect(capturedPersonEvents).toHaveLength(2)
-                expect(capturedPersonEvents).toEqual([
-                    { type: 'person-performed-event', teamId: 1, personId: 'person1', eventName: 'click' },
-                    { type: 'person-performed-event', teamId: 1, personId: 'person1', eventName: 'pageview' },
-                ])
-
-                // Verify behavioural events were aggregated (3 -> 1 with counter: 3)
-                expect(capturedBehaviouralEvents).toHaveLength(1)
-                expect(capturedBehaviouralEvents[0]).toEqual({
-                    type: 'behavioural-filter-match-event',
-                    teamId: 1,
-                    personId: 'person1',
-                    filterHash: 'hash123',
-                    date: '2023-01-01',
-                    counter: 3,
-                })
-            })
+            // Verify only one record exists
+            const result = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM person_performed_events WHERE team_id = $1 AND person_id = $2 AND event_name = $3',
+                [team.id, personId, 'pageview'],
+                'test-read-duplicate-person-events'
+            )
+            expect(result.rows).toHaveLength(1)
         })
     })
 })
