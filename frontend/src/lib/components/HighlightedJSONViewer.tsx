@@ -55,14 +55,17 @@ export function HighlightedJSONViewer({ searchQuery, ...props }: HighlightedJSON
                     if (!node.textContent?.trim()) {
                         return NodeFilter.FILTER_REJECT
                     }
+
                     // Skip nodes that are already highlighted
                     if (node.parentElement?.classList.contains('search-highlight')) {
                         return NodeFilter.FILTER_REJECT
                     }
+
                     // Accept if contains search query
                     if (node.textContent.toLowerCase().includes(query)) {
                         return NodeFilter.FILTER_ACCEPT
                     }
+
                     return NodeFilter.FILTER_REJECT
                 },
             })
@@ -110,7 +113,7 @@ export function HighlightedJSONViewer({ searchQuery, ...props }: HighlightedJSON
                     parts.push(text.substring(lastIndex))
                 }
 
-                if (parts.length > 1) {
+                if (parts.length > 0 && parts.some((part) => typeof part !== 'string')) {
                     const fragment = document.createDocumentFragment()
                     parts.forEach((part) => {
                         if (typeof part === 'string') {
@@ -119,6 +122,7 @@ export function HighlightedJSONViewer({ searchQuery, ...props }: HighlightedJSON
                             fragment.appendChild(part)
                         }
                     })
+
                     parent.replaceChild(fragment, textNode)
                 }
             })
@@ -159,7 +163,9 @@ export function HighlightedJSONViewer({ searchQuery, ...props }: HighlightedJSON
 
         // Apply highlights after ReactJson renders
         const timeoutId = setTimeout(applyHighlights, 50)
-        return () => clearTimeout(timeoutId)
+        return () => {
+            clearTimeout(timeoutId)
+        }
     }, [searchQuery, props.src])
 
     // Always wrap with ref for potential highlighting

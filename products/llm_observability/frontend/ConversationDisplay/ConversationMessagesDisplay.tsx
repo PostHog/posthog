@@ -18,7 +18,7 @@ import { CompatMessage, VercelSDKImageMessage } from '../types'
 export function ConversationMessagesDisplay({
     inputNormalized,
     outputNormalized,
-    output,
+    errorData,
     httpStatus,
     raisedError,
     bordered = false,
@@ -26,7 +26,7 @@ export function ConversationMessagesDisplay({
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
-    output: any
+    errorData: any
     httpStatus?: number
     raisedError?: boolean
     bordered?: boolean
@@ -36,14 +36,15 @@ export function ConversationMessagesDisplay({
         inputMessageShowStates,
         outputMessageShowStates,
         searchQuery: currentSearchQuery,
+        displayOption,
     } = useValues(llmObservabilityTraceLogic)
     const { initializeMessageStates, toggleMessage, showAllMessages, hideAllMessages, applySearchResults } =
         useActions(llmObservabilityTraceLogic)
 
-    // Initialize message states when component mounts or messages change
+    // Initialize message states when component mounts or messages change or display option changes
     React.useEffect(() => {
         initializeMessageStates(inputNormalized.length, outputNormalized.length)
-    }, [inputNormalized.length, outputNormalized.length, initializeMessageStates])
+    }, [inputNormalized.length, outputNormalized.length, displayOption, initializeMessageStates])
 
     // Apply search results when search query changes
     React.useEffect(() => {
@@ -83,7 +84,7 @@ export function ConversationMessagesDisplay({
         ) : undefined
 
     const outputButtons =
-        outputNormalized.length > 0 && !raisedError ? (
+        outputNormalized.length > 0 ? (
             <div className="flex items-center gap-1">
                 <LemonButton size="xsmall" onClick={() => showAllMessages('output')} icon={<IconEye />}>
                     Expand all
@@ -93,43 +94,6 @@ export function ConversationMessagesDisplay({
                 </LemonButton>
             </div>
         ) : undefined
-
-    const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
-            <IconExclamation className="text-base" />
-            {isObject(output) ? (
-                <HighlightedJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
-            ) : (
-                <span className="font-mono">
-                    {(() => {
-                        try {
-                            const parsedJson = JSON.parse(output)
-                            return isObject(parsedJson) ? (
-                                <HighlightedJSONViewer src={parsedJson} collapsed={5} searchQuery={searchQuery} />
-                            ) : (
-                                JSON.stringify(output ?? null)
-                            )
-                        } catch {
-                            return JSON.stringify(output ?? null)
-                        }
-                    })()}
-                </span>
-            )}
-        </div>
-    ) : outputNormalized.length > 0 ? (
-        outputNormalized.map((message, i) => (
-            <LLMMessageDisplay
-                key={i}
-                message={message}
-                show={outputMessageShowStates[i] || false}
-                isOutput
-                onToggle={() => toggleMessage('output', i)}
-                searchQuery={searchQuery}
-            />
-        ))
-    ) : (
-        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
-    )
 
     const inputDisplay =
         inputNormalized.length > 0 ? (
@@ -150,15 +114,73 @@ export function ConversationMessagesDisplay({
             <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
         )
 
+    const showOutputSection = outputNormalized.length > 0 || !raisedError
+
     return (
-        <LLMInputOutput
-            inputDisplay={inputDisplay}
-            outputDisplay={outputDisplay}
-            outputHeading={raisedError ? `Error (${httpStatus})` : 'Output'}
-            bordered={bordered}
-            inputButtons={inputButtons}
-            outputButtons={outputButtons}
-        />
+        <>
+            <LLMInputOutput
+                inputDisplay={inputDisplay}
+                outputDisplay={
+                    showOutputSection ? (
+                        outputNormalized.length > 0 ? (
+                            outputNormalized.map((message, i) => (
+                                <LLMMessageDisplay
+                                    key={i}
+                                    message={message}
+                                    show={outputMessageShowStates[i] || false}
+                                    isOutput
+                                    onToggle={() => toggleMessage('output', i)}
+                                    searchQuery={searchQuery}
+                                />
+                            ))
+                        ) : (
+                            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
+                                No output
+                            </div>
+                        )
+                    ) : null
+                }
+                outputHeading={showOutputSection ? 'Output' : undefined}
+                bordered={bordered}
+                inputButtons={inputButtons}
+                outputButtons={showOutputSection ? outputButtons : undefined}
+            />
+            {raisedError && errorData && (
+                <div className="mt-4">
+                    <h4 className="flex items-center justify-between text-xs font-semibold mb-2">
+                        <div className="flex items-center gap-x-1.5">
+                            <IconExclamation className="text-base text-danger" />
+                            Error {httpStatus ? `(${httpStatus})` : ''}
+                        </div>
+                    </h4>
+                    <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
+                        <IconExclamation className="text-base" />
+                        {isObject(errorData) ? (
+                            <HighlightedJSONViewer src={errorData} collapsed={4} searchQuery={searchQuery} />
+                        ) : (
+                            <span className="font-mono">
+                                {(() => {
+                                    try {
+                                        const parsedJson = JSON.parse(errorData)
+                                        return isObject(parsedJson) ? (
+                                            <HighlightedJSONViewer
+                                                src={parsedJson}
+                                                collapsed={5}
+                                                searchQuery={searchQuery}
+                                            />
+                                        ) : (
+                                            JSON.stringify(errorData ?? null)
+                                        )
+                                    } catch {
+                                        return JSON.stringify(errorData ?? null)
+                                    }
+                                })()}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
+        </>
     )
 }
 
