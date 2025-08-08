@@ -4,6 +4,8 @@ from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.types import ExternalDataSourceType
 
+LOGGER = get_logger(__name__)
+
 
 def database_operations(team_id: int, table_prefix: str) -> None:
     customer_join_exists = (
@@ -54,7 +56,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
 
 
 def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
-    logger = bind_temporal_worker_logger_sync(team_id=team_id)
+    logger = LOGGER.bind(team_id=team_id)
     close_old_connections()
 
     job: ExternalDataJob = ExternalDataJob.objects.get(pk=run_id)

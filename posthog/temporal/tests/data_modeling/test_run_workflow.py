@@ -1,22 +1,23 @@
 import asyncio
 import datetime as dt
 import functools
+import os
 import unittest.mock
 import uuid
-import os
+from unittest.mock import patch
 
 import aioboto3
 import deltalake
+import pyarrow as pa
 import pytest
 import pytest_asyncio
-from asgiref.sync import sync_to_async
 import temporalio.common
 import temporalio.worker
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
 from freezegun.api import freeze_time
-import pyarrow as pa
-from unittest.mock import patch
+from structlog.testing import capture_logs
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -26,6 +27,8 @@ from posthog.models.event.util import bulk_create_events
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
+    CleanupRunningJobsActivityInputs,
+    CreateJobModelInputs,
     CreateTableActivityInputs,
     ModelNode,
     RunDagActivityInputs,
@@ -33,22 +36,20 @@ from posthog.temporal.data_modeling.run_workflow import (
     RunWorkflowInputs,
     Selector,
     build_dag_activity,
+    cleanup_running_jobs_activity,
+    create_job_model_activity,
     create_table_activity,
+    fail_jobs_activity,
     finish_run_activity,
     materialize_model,
     run_dag_activity,
     start_run_activity,
-    create_job_model_activity,
-    fail_jobs_activity,
-    cleanup_running_jobs_activity,
-    CleanupRunningJobsActivityInputs,
-    CreateJobModelInputs,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.sync import database_sync_to_async
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -1219,7 +1220,7 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
         query={"query": "SELECT 1 as id, 'test' as name UNION ALL SELECT 2 as id, 'test2' as name"},
     )
 
-    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+    from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
     credential = await DataWarehouseCredential.objects.acreate(
         team=ateam,
@@ -1268,10 +1269,8 @@ async def test_create_table_activity_invalid_uuid_fails(activity_environment, at
 
     with (
         patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table,
-        patch("posthog.temporal.data_modeling.run_workflow.bind_temporal_worker_logger") as mock_logger,
+        capture_logs() as cap_logs,
     ):
-        mock_logger.return_value.aerror = unittest.mock.AsyncMock()
-
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
 

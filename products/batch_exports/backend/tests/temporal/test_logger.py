@@ -26,7 +26,6 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import (
     BACKGROUND_LOGGER_TASKS,
     bind_contextvars,
-    configure_logger_async,
     get_external_logger,
     get_logger,
 )
@@ -147,7 +146,7 @@ async def configure(configure_logger, log_capture, queue, producer):
     with override_settings(TEST=False, DEBUG=False):
         # We override settings as otherwise we'll get console logs which
         # are not JSON
-        configure_logger_async(
+        configure_logger(
             extra_processors=[log_capture],
             queue=queue,
             producer=producer,

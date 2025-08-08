@@ -6,7 +6,9 @@ import typing
 
 from temporalio import activity
 
-from posthog.temporal.common.logger import get_internal_logger
+from posthog.temporal.common.logger import get_logger
+
+LOGGER = get_logger(__name__)
 
 
 class Heartbeater:
@@ -30,7 +32,7 @@ class Heartbeater:
         self.factor = factor
         self.heartbeat_task: asyncio.Task | None = None
         self.heartbeat_on_shutdown_task: asyncio.Task | None = None
-        self.logger = get_internal_logger()
+        self.logger = LOGGER.bind()
 
     @property
     def details(self) -> tuple[typing.Any, ...]:

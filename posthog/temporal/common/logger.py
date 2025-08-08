@@ -1,20 +1,17 @@
 import asyncio
+import collections.abc
+import functools
 import json
 import logging
-import queue as sync_queue
 import ssl
 import sys
-import threading
-import uuid
-from contextvars import copy_context
+import typing
 
 import aiokafka
 import structlog
 import temporalio.activity
 from django.conf import settings
-from kafka import KafkaProducer
 from structlog.processors import EventRenamer
-from structlog.typing import FilteringBoundLogger
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
@@ -22,22 +19,36 @@ BACKGROUND_LOGGER_TASKS = set()
 EXTERNAL_LOGGER_NAME = "EXTERNAL"
 
 
-def get_internal_logger():
-    """Return a logger for internal use, where logs do not get sent to Kafka.
+def configure_stdlib_logger(logger: logging.Logger) -> None:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(settings.TEMPORAL_LOG_LEVEL)
 
-    We attach the temporal context to the logger for easier debugging (for
-    example, we can track things like the workflow id across log entries).
+    formatter = logging.Formatter("%(message)s")
+    handler.setFormatter(formatter)
+
+    logger.addHandler(handler)
+    logger.setLevel(settings.TEMPORAL_LOG_LEVEL)
+
+    if not settings.TEST:
+        logger.propagate = False
+
+
+def get_logger(name: str | None = None):
+    """Return an internal logger after configuring if necessary.
+
+    This method is intended to be called once at the top level of a module.
+    Afterwards, call `bind()` to bind any variables to this logger, or use
+    `bind_contextvars()` to bind variables directly in the context.
     """
-    logger = structlog.get_logger()
-    temporal_context = get_temporal_context()
+    logger = logging.getLogger(name or __name__)
 
-    return logger.new(**temporal_context)
+    logger.handlers.clear()
+    configure_stdlib_logger(logger)
+
+    return structlog.get_logger(name or __name__)
 
 
-def bind_contextvars(**kwargs):
-    """Bind any variables to the context, including base Temporal variables."""
-    temporal_context = get_temporal_context()
-    structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
+LOGGER = get_logger(__name__)
 
 
 def get_external_logger():
@@ -229,10 +240,10 @@ def configure_logger_sync(
 def configure_logger_async(
     logger_factory=structlog.stdlib.LoggerFactory,
     extra_processors: list[structlog.types.Processor] | None = None,
-    queue: asyncio.Queue | None = None,
+    queue: asyncio.Queue[bytes] | None = None,
     producer: aiokafka.AIOKafkaProducer | None = None,
     cache_logger_on_first_use: bool = True,
-    loop: None | asyncio.AbstractEventLoop = None,
+    loop: asyncio.AbstractEventLoop | None = None,
 ) -> None:
     """Configure a StructLog logger for temporal workflows.
 
@@ -267,7 +278,7 @@ def configure_logger_async(
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
     ]
 
-    log_queue = queue if queue is not None else asyncio.Queue(maxsize=settings.TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE)
+    log_queue = queue if queue is not None else asyncio.Queue(maxsize=0)
     log_producer = None
     log_producer_error = None
 
@@ -281,7 +292,7 @@ def configure_logger_async(
             # We save the error to log it later as the logger hasn't yet been configured at this time.
             log_producer_error = e
         else:
-            put_in_queue = PutInLogQueueProcessor(log_queue)
+            put_in_queue = PutInLogQueueProcessor(log_queue, loop=loop)
             base_processors.append(put_in_queue)
 
     if sys.stderr.isatty() or settings.TEST or settings.DEBUG:
@@ -311,36 +322,39 @@ def configure_logger_async(
             logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
-    listen_task = create_logger_background_task(log_producer.listen(), loop=loop)
+    if loop:
+        listen_task = create_background_task(log_producer.listen(), loop)
 
-    async def worker_shutdown_handler():
-        """Gracefully handle a Temporal Worker shutting down.
+        async def worker_shutdown_handler():
+            """Gracefully handle a Temporal Worker shutting down.
 
-        Graceful handling means:
-        * Waiting until the queue is fully processed to avoid missing log messages.
-        * Cancel task listening on queue.
-        """
-        await temporalio.activity.wait_for_worker_shutdown()
+            Graceful handling means:
+            * Waiting until the queue is fully processed to avoid missing log messages.
+            * Cancel task listening on queue.
+            """
+            await temporalio.activity.wait_for_worker_shutdown()
 
-        await log_queue.join()
-        listen_task.cancel()
+            await log_queue.join()
 
-        await asyncio.wait([listen_task])
+            listen_task.cancel()
 
-    create_logger_background_task(worker_shutdown_handler(), loop=loop)
+            await asyncio.wait([listen_task])
+
+        create_background_task(worker_shutdown_handler(), loop)
 
 
-def create_logger_background_task(task, loop: None | asyncio.AbstractEventLoop = None) -> asyncio.Task:
-    """Create an asyncio.Task and add them to BACKGROUND_LOGGER_TASKS.
+CoroRetType = typing.TypeVar("CoroRetType")
+
+
+def create_background_task(
+    coro: collections.abc.Coroutine[typing.Any, typing.Any, CoroRetType], loop: asyncio.AbstractEventLoop
+) -> asyncio.Task[CoroRetType]:
+    """Wrap coro in a task and add them to BACKGROUND_LOGGER_TASKS.
 
     Adding them to BACKGROUND_LOGGER_TASKS keeps a strong reference to the task, so they won't
     be garbage collected and disappear mid execution.
     """
-    if loop:
-        new_task = loop.create_task(task)
-    else:
-        new_task = asyncio.create_task(task)
-
+    new_task = loop.create_task(coro)
     BACKGROUND_LOGGER_TASKS.add(new_task)
     new_task.add_done_callback(BACKGROUND_LOGGER_TASKS.discard)
 
@@ -348,13 +362,26 @@ def create_logger_background_task(task, loop: None | asyncio.AbstractEventLoop =
 
 
 class PutInLogQueueProcessor:
-    """A StructLog processor that puts event_dict into a queue.
+    """A StructLog processor to dump to a queue as a Kafka message.
 
-    We format event_dict as a message to be sent to Kafka by a queue listener.
+    The queue listener will be receiving events from this queue to send to Kafka.
+    This will be an instance of `KafkaLogProducerFromQueueAsync`.
+
+    The put call is ran in the provided `loop` using
+    `asyncio.run_coroutine_threadsafe`. This `loop` should be the same loop that
+    is running the Kafka producer, the Temporal worker, and all asyncio tasks.
+    We use `asyncio.run_coroutine_threadsafe` as this processor may be running in
+    a different OS thread if the activity is synchronous.
+
+    Attributes:
+        queue: The queue where we will be putting the `event_dict` after dumping
+            and encoding.
+        loop: The asyncio event loop in which we will run asyncio.Queue.put.
     """
 
-    def __init__(self, queue: asyncio.Queue | sync_queue.Queue):
+    def __init__(self, queue: asyncio.Queue[bytes], loop: asyncio.AbstractEventLoop):
         self.queue = queue
+        self.loop = loop
 
     def __call__(
         self, logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
@@ -382,87 +409,11 @@ class PutInLogQueueProcessor:
             # This could be because we are running outside an Activity/Workflow context.
             return event_dict
 
-        self.queue.put_nowait(json.dumps(message_dict).encode("utf-8"))
+        put_partial = functools.partial(self.queue.put, json.dumps(message_dict).encode("utf-8"))
+        # Returns a future, does not block
+        asyncio.run_coroutine_threadsafe(put_partial(), self.loop)
 
         return event_dict
-
-
-def get_temporal_context() -> dict[str, str | int]:
-    """Return context variables from Temporal.
-
-    More specifically, the context variables coming from Temporal are:
-    * attempt: The current attempt number of the Temporal Workflow.
-    * log_source: Either "batch_exports" or "batch_exports_backfill" or "external_data_jobs".
-    * log_source_id: The batch export ID or external data source id.
-    * workflow_id: The ID of the Temporal Workflow running job.
-    * workflow_run_id: The ID of the Temporal Workflow Execution running the workflow.
-    * workflow_type: The name of the Temporal Workflow.
-
-    We attempt to fetch the context from the activity information. If undefined, an empty dict
-    is returned. When running this in an activity, the context will be defined.
-    """
-    activity_info = attempt_to_fetch_activity_info()
-
-    info = activity_info
-
-    if info is None:
-        return {}
-
-    workflow_id, workflow_type, workflow_run_id, attempt = info
-
-    if workflow_type == "backfill-batch-export":
-        # This works because the WorkflowID is made up like f"{batch_export_id}-Backfill-{data_interval_end}"
-        log_source_id = workflow_id.split("-Backfill")[0]
-        log_source = "batch_exports_backfill"
-    elif workflow_type == "external-data-job":
-        # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
-        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
-        log_source = "external_data_jobs"
-    elif workflow_type == "deltalake-compaction-job":
-        # This works because the WorkflowID is made up like f"{external_data_schema_id}-compaction"
-        log_source_id = workflow_id.split("-compaction")[0]
-        log_source = "deltalake_compaction_job"
-    elif workflow_type == "data-modeling-run":
-        # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"
-        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
-        log_source = "data_modeling_run"
-    else:
-        # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
-        # Since 'data_interval_end' is an iso formatted datetime string, it has two '-' to separate the
-        # date. Plus one more leaves us at the end of right at the end of 'batch_export_id'.
-        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
-        log_source = "batch_exports"
-
-    return {
-        "attempt": attempt,
-        "log_source": log_source,
-        "log_source_id": log_source_id,
-        "workflow_id": workflow_id,
-        "workflow_run_id": workflow_run_id,
-        "workflow_type": workflow_type,
-    }
-
-
-Info = tuple[str, str, str, int]
-
-
-def attempt_to_fetch_activity_info() -> Info | None:
-    """Fetch Activity information from Temporal.
-
-    Returns:
-        None if calling outside an Activity, else the relevant Info.
-    """
-    try:
-        activity_info = temporalio.activity.info()
-    except RuntimeError:
-        return None
-    else:
-        workflow_id = activity_info.workflow_id
-        workflow_type = activity_info.workflow_type
-        workflow_run_id = activity_info.workflow_run_id
-        attempt = activity_info.attempt
-
-    return (workflow_id, workflow_type, workflow_run_id, attempt)
 
 
 class KafkaLogProducerFromQueueAsync:
@@ -483,7 +434,7 @@ class KafkaLogProducerFromQueueAsync:
 
     def __init__(
         self,
-        queue: asyncio.Queue,
+        queue: asyncio.Queue[bytes],
         topic: str = KAFKA_LOG_ENTRIES,
         key: str | None = None,
         producer: aiokafka.AIOKafkaProducer | None = None,
@@ -534,61 +485,17 @@ class KafkaLogProducerFromQueueAsync:
         try:
             await fut
         except Exception:
-            await self.logger.aexception("Failed to produce log to Kafka topic %s", self.topic)
-            await self.logger.adebug("Message that couldn't be produced: %s", msg)
+            self.logger.exception("Failed to produce log to Kafka topic %s", self.topic)
+            self.logger.debug("Message that couldn't be produced to Kafka topic %s: %s", self.topic, msg)
 
     async def flush(self):
         try:
             await self.producer.flush()
         except Exception:
-            await self.logger.aexception("Failed to flush producer")
+            self.logger.exception("Failed to flush producer")
 
     def mark_queue_done(self, _=None):
         self.queue.task_done()
-
-
-class KafkaLogProducerFromQueueSync:
-    """Produce log messages to Kafka by getting them from a queue."""
-
-    def __init__(self, queue: sync_queue.Queue, topic: str = KAFKA_LOG_ENTRIES, key: str | None = None, producer=None):
-        self.queue = queue
-        self.topic = topic
-        self.key = key
-        self.producer = producer or KafkaProducer(
-            bootstrap_servers=settings.KAFKA_HOSTS,
-            security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
-            acks="all",
-            api_version=(2, 5, 0),
-            ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
-        )
-        self.logger = structlog.get_logger()
-
-    def listen(self):
-        """Listen to messages in the queue and produce them to Kafka."""
-        try:
-            while True:
-                msg = self.queue.get()
-                if msg is None:  # Stop signal
-                    break
-                self.produce(msg)
-        finally:
-            self.flush()
-
-    def produce(self, msg: bytes):
-        """Produce messages to configured topic and key."""
-        try:
-            self.producer.send(self.topic, value=msg, key=self.key.encode("utf-8") if self.key else None).get(
-                timeout=10
-            )
-        except Exception as e:
-            self.logger.exception(f"Failed to produce log to Kafka topic {self.topic}: {e}")
-
-    def flush(self):
-        """Flush any remaining messages."""
-        try:
-            self.producer.flush()
-        except Exception as e:
-            self.logger.exception(f"Failed to flush producer: {e}")
 
 
 def configure_default_ssl_context():
@@ -599,3 +506,97 @@ def configure_default_ssl_context():
     context.verify_mode = ssl.CERT_OPTIONAL
     context.load_default_certs()
     return context
+
+
+def bind_contextvars(**kwargs):
+    """Bind any variables to the context, including base Temporal variables."""
+    temporal_context = get_temporal_context()
+    structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
+
+
+def get_temporal_context() -> dict[str, str | int]:
+    """Return context variables from Temporal.
+
+    More specifically, the context variables coming from Temporal are:
+    * attempt: The current attempt number of the Temporal Workflow.
+    * log_source: Either "batch_exports" or "batch_exports_backfill" or "external_data_jobs".
+    * log_source_id: The batch export ID or external data source id.
+    * workflow_id: The ID of the Temporal Workflow running job.
+    * workflow_run_id: The ID of the Temporal Workflow Execution running the workflow.
+    * workflow_type: The name of the Temporal Workflow.
+
+    We attempt to fetch the context from the activity information. If undefined, an empty dict
+    is returned. When running this in an activity, the context will be defined.
+    """
+    activity_info = attempt_to_fetch_activity_info()
+
+    info = activity_info
+
+    if info is None:
+        return {}
+
+    workflow_id, workflow_type, workflow_run_id, attempt = info
+
+    ctx = {
+        "attempt": attempt,
+        "workflow_id": workflow_id,
+        "workflow_run_id": workflow_run_id,
+        "workflow_type": workflow_type,
+    }
+
+    if workflow_type == "backfill-batch-export":
+        # This works because the WorkflowID is made up like f"{batch_export_id}-Backfill-{data_interval_end}"
+        log_source_id = workflow_id.split("-Backfill")[0]
+        log_source = "batch_exports_backfill"
+    elif workflow_type == "external-data-job":
+        # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
+        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        log_source = "external_data_jobs"
+    elif workflow_type == "deltalake-compaction-job":
+        # This works because the WorkflowID is made up like f"{external_data_schema_id}-compaction"
+        log_source_id = workflow_id.split("-compaction")[0]
+        log_source = "deltalake_compaction_job"
+    elif workflow_type == "data-modeling-run":
+        # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"
+        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        log_source = "data_modeling_run"
+    elif workflow_type in (
+        "s3-export",
+        "bigquery-export",
+        "snowflake-export",
+        "postgres-export",
+        "http-export",
+        "redshift-export",
+    ):
+        # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
+        # Since 'data_interval_end' is an iso formatted datetime string, it has two '-' to separate the
+        # date. Plus one more leaves us at the end of right at the end of 'batch_export_id'.
+        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        log_source = "batch_exports"
+    else:
+        return ctx
+
+    ctx["log_source"], ctx["log_source_id"] = log_source, log_source_id
+    return ctx
+
+
+Info = tuple[str, str, str, int]
+
+
+def attempt_to_fetch_activity_info() -> Info | None:
+    """Fetch Activity information from Temporal.
+
+    Returns:
+        None if calling outside an Activity, else the relevant Info.
+    """
+    try:
+        activity_info = temporalio.activity.info()
+    except RuntimeError:
+        return None
+    else:
+        workflow_id = activity_info.workflow_id
+        workflow_type = activity_info.workflow_type
+        workflow_run_id = activity_info.workflow_run_id
+        attempt = activity_info.attempt
+
+    return (workflow_id, workflow_type, workflow_run_id, attempt)
