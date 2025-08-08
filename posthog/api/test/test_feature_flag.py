@@ -6503,6 +6503,127 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Both regular and cached should have identical transformed filters",
         )
 
+    def test_local_evaluation_use_cache_invalidation_on_group_type_mapping_change(self):
+        """Test that HyperCache invalidates when GroupTypeMapping changes."""
+        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+
+        # Create a group type mapping
+        group_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project=self.team.project,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+        )
+
+        # Create a feature flag that would use group types
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-groups",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Clear caches to start fresh
+        flags_hypercache.clear_cache(self.team)
+        flags_without_cohorts_hypercache.clear_cache(self.team)
+
+        # Populate both cache variants using use_cache parameter
+        response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true")
+        response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify group type mapping is included in responses
+        data1 = response1.json()
+        data2 = response2.json()
+        self.assertIn("group_type_mapping", data1)
+        self.assertIn("group_type_mapping", data2)
+        self.assertEqual(data1["group_type_mapping"]["0"], "organization")
+        self.assertEqual(data2["group_type_mapping"]["0"], "organization")
+
+        # Verify both caches are populated by checking we get the same data on subsequent calls
+        cached_response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        cached_response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        self.assertEqual(cached_response1.json(), data1)
+        self.assertEqual(cached_response2.json(), data2)
+
+        # Update the group type mapping - this should trigger cache invalidation via our new signal handler
+        group_mapping.group_type = "company"
+        group_mapping.save()
+
+        # Get responses again - they should reflect the change (meaning cache was invalidated)
+        updated_response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        updated_response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+
+        # Verify the group type mapping has been updated in the responses
+        updated_data1 = updated_response1.json()
+        updated_data2 = updated_response2.json()
+        self.assertEqual(updated_data1["group_type_mapping"]["0"], "company")
+        self.assertEqual(updated_data2["group_type_mapping"]["0"], "company")
+
+        # Verify responses changed from the original cached versions
+        self.assertNotEqual(data1["group_type_mapping"], updated_data1["group_type_mapping"])
+        self.assertNotEqual(data2["group_type_mapping"], updated_data2["group_type_mapping"])
+
+    def test_local_evaluation_use_cache_invalidation_on_group_type_mapping_delete(self):
+        """Test that HyperCache invalidates when GroupTypeMapping is deleted."""
+        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+
+        # Create a group type mapping
+        group_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project=self.team.project,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+        )
+
+        # Create a feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-groups",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Clear caches and populate them
+        flags_hypercache.clear_cache(self.team)
+        flags_without_cohorts_hypercache.clear_cache(self.team)
+
+        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("group_type_mapping", data)
+        self.assertEqual(data["group_type_mapping"]["0"], "organization")
+
+        # Delete the group type mapping - this should trigger cache invalidation
+        group_mapping.delete()
+
+        # Get response again - group type mapping should be gone
+        updated_response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        updated_data = updated_response.json()
+
+        # Group type mapping should no longer exist in the response
+        self.assertNotIn("0", updated_data.get("group_type_mapping", {}))
+
+        # Verify response changed from the original cached version
+        self.assertNotEqual(data["group_type_mapping"], updated_data.get("group_type_mapping", {}))
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):

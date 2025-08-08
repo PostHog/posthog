@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 import structlog
 
@@ -183,3 +183,15 @@ def cohort_saved(sender, instance: "Cohort", created, **kwargs):
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     update_team_flags_cache.delay(instance.team_id)
+
+
+@receiver(post_save, sender=GroupTypeMapping)
+@receiver(post_delete, sender=GroupTypeMapping)
+def group_type_mapping_changed(sender, instance: "GroupTypeMapping", created=None, **kwargs):
+    from posthog.tasks.feature_flags import update_team_flags_cache
+    from posthog.models.team import Team
+
+    # GroupTypeMapping uses project_id, so we need to get team_id from it
+    team = Team.objects.filter(project_id=instance.project_id).first()
+    if team:
+        update_team_flags_cache.delay(team.id)
