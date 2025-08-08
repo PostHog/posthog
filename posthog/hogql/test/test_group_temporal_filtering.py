@@ -217,3 +217,25 @@ class TestGroupTemporalFiltering(APIBaseTest):
 
         self.assertIn("if(", sql2.lower())
         self.assertIn("2023-01-15 12:00:00", sql2)
+
+    def test_non_clickhouse_dialect_no_temporal_filtering(self):
+        """Test that non-ClickHouse dialects don't get temporal filtering"""
+        GroupTypeMapping.objects.create(
+            team=self.team,
+            project=self.team.project,
+            group_type="company",
+            group_type_index=0,
+            created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Parse a query that references $group_0
+        query = "SELECT $group_0 FROM events"
+        parsed = parse_select(query)
+
+        # Print the SQL with HogQL dialect (not ClickHouse)
+        sql = print_ast(parsed, context=self.context, dialect="hogql")
+
+        # Should NOT contain temporal filtering for non-ClickHouse dialects
+        self.assertNotIn("if(", sql.lower())
+        self.assertNotIn("2023-01-15 12:00:00", sql)
+        self.assertIn("$group_0", sql)
