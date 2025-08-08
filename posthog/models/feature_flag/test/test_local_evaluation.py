@@ -4,6 +4,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.project import Project
 from posthog.models.feature_flag.local_evaluation import (
     clear_flag_caches,
+    flags_hypercache,
     get_flags_response_for_local_evaluation,
     update_flag_caches,
 )
@@ -152,14 +153,14 @@ class TestLocalEvaluationCache(BaseTest):
 
     def test_generates_correct_local_evaluation_response_with_cohorts(self):
         response = get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
-
+        assert response
         assert len(response.get("flags", [])) == 2
         assert response.get("group_type_mapping", {}) == {"0": "organization"}
         assert len(response.get("cohorts", {})) == 2
 
     def test_generates_correct_local_evaluation_response_without_cohorts(self):
         response = get_flags_response_for_local_evaluation(self.team, include_cohorts=False)
-
+        assert response
         assert len(response.get("flags", [])) == 2
         assert response.get("group_type_mapping", {}) == {"0": "organization"}
         assert len(response.get("cohorts", {})) == 0
@@ -173,20 +174,20 @@ class TestLocalEvaluationCache(BaseTest):
     def test_get_flags_cache_warm(self):
         update_flag_caches(self.team)
         clear_flag_caches(self.team, kinds=["redis"])
-        response, source = get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response, source = flags_hypercache.get_from_cache(self.team)
         assert source == "s3"
         self._assert_payload_valid_with_cohorts(response)
 
     def test_get_flags_cold(self):
         clear_flag_caches(self.team, kinds=["redis", "s3"])
-        response, source = get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response, source = flags_hypercache.get_from_cache(self.team)
 
         assert source == "postgres"
         self._assert_payload_valid_with_cohorts(response)
 
         # second request should be cached in redis
 
-        response, source = get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response, source = flags_hypercache.get_from_cache(self.team)
 
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
