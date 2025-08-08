@@ -41,6 +41,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
@@ -156,15 +157,34 @@ class ExperimentQueryRunner(QueryRunner):
         """
         Aggregates entity metrics into final statistics used for significance calculations
         One row per variant
-        Columns: variant, num_users, total_sum, total_sum_of_squares
+        Columns: variant, num_users, total_sum, total_sum_of_squares, [step_counts for funnel metrics]
         """
-        return ast.SelectQuery(
-            select=[
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            # For funnel metrics, values are step numbers (0-indexed), not binary 0/1
+            num_steps = len(self.metric.series)
+
+            # Generate step count expressions for each step level
+            step_count_exprs = [f"countIf(metric_events.value >= {i})" for i in range(num_steps)]
+            step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
+
+            select_exprs = [
+                ast.Field(chain=["metric_events", "variant"]),
+                parse_expr("count(metric_events.entity_id) as num_users"),
+                parse_expr(f"countIf(metric_events.value = {num_steps - 1}) as total_sum"),
+                parse_expr(f"countIf(metric_events.value = {num_steps - 1}) as total_sum_of_squares"),
+                parse_expr(step_counts_expr),
+            ]
+        else:
+            # For non-funnel metrics, preserve existing behavior
+            select_exprs = [
                 ast.Field(chain=["metric_events", "variant"]),
                 parse_expr("count(metric_events.entity_id) as num_users"),
                 parse_expr("sum(metric_events.value) as total_sum"),
                 parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
-            ],
+            ]
+
+        return ast.SelectQuery(
+            select=select_exprs,
             select_from=ast.JoinExpr(table=metrics_aggregated_per_entity_query, alias="metric_events"),
             group_by=[ast.Field(chain=["metric_events", "variant"])],
         )
