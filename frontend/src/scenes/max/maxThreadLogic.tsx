@@ -303,7 +303,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     // Empty message in askMax effectively means "just resume generation with current context"
-                                    await values.toolMap[toolName]?.callback(toolResult)
+                                    await values.toolMap[toolName]?.callback?.(toolResult)
                                     // The `navigate` tool is the only one doing client-side formatting currently
                                     if (toolName === 'navigate') {
                                         actions.askMax(null) // Continue generation
