@@ -32,6 +32,14 @@ flags_without_cohorts_hypercache = HyperCache(
 )
 
 
+def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict:
+    return (
+        flags_hypercache.get_from_cache(team)
+        if include_cohorts
+        else flags_without_cohorts_hypercache.get_from_cache(team)
+    )
+
+
 def _get_flags_for_local_evaluation(team: Team):
     feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
         ~Q(is_remote_configuration=True),
