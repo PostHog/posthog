@@ -234,6 +234,7 @@ class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
         # Verify we're using the default max_concurrency
         self.assertEqual(rate_limiter.max_concurrency, DEFAULT_APP_ORG_CONCURRENT_QUERIES)
 
+    @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_query_concurrency_feature_limit(self):
         """Test that the QUERY_CONCURRENCY feature limit is used when available"""
         # Set up organization with QUERY_CONCURRENCY feature
@@ -248,25 +249,19 @@ class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
 
         rate_limiter = get_app_org_rate_limiter()
 
-        # Track whether the use method checks for our feature
-        checked_feature = False
-        original_use = rate_limiter.use
+        # Mock Redis to return None (cache miss) so it hits the database
+        with (
+            patch.object(rate_limiter.redis_client, "get", return_value=None),
+            patch.object(rate_limiter.redis_client, "setex") as mock_setex,
+        ):
+            # Use the rate limiter with our org
+            with rate_limiter.run(org_id=self.organization.id, task_id="test-1"):
+                pass
 
-        def patched_use(*args, **kwargs):
-            nonlocal checked_feature
-            org_id = kwargs.get("org_id")
-            if org_id == self.organization.id:
-                checked_feature = True
-            return original_use(*args, **kwargs)
+        # Verify that the org limit was cached
+        mock_setex.assert_called_once()
 
-        rate_limiter.use = patched_use
-
-        # Use the rate limiter with our org
-        with rate_limiter.run(org_id=self.organization.id, task_id="test-1"):
-            pass
-
-        self.assertTrue(checked_feature)
-
+    @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_query_concurrency_multiple_concurrent_requests(self):
         """Test that concurrency limit is enforced based on feature limit"""
         # Set up organization with a low concurrency limit
@@ -281,18 +276,21 @@ class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
 
         rate_limiter = get_app_org_rate_limiter()
 
-        # First two requests should succeed
-        task_key1, task_id1 = rate_limiter.use(org_id=self.organization.id, task_id="test-1")
-        task_key2, task_id2 = rate_limiter.use(org_id=self.organization.id, task_id="test-2")
+        # Mock Redis to return None (cache miss) so it hits the database
+        with patch.object(rate_limiter.redis_client, "get", return_value=None):
+            # First two requests should succeed
+            task_key1, task_id1 = rate_limiter.use(org_id=self.organization.id, task_id="test-1")
+            task_key2, task_id2 = rate_limiter.use(org_id=self.organization.id, task_id="test-2")
 
-        # Third request should fail due to concurrency limit
-        with self.assertRaises(ConcurrencyLimitExceeded):
-            rate_limiter.use(org_id=self.organization.id, task_id="test-3")
+            # Third request should fail due to concurrency limit
+            with self.assertRaises(ConcurrencyLimitExceeded):
+                rate_limiter.use(org_id=self.organization.id, task_id="test-3")
 
-        # Clean up
-        rate_limiter.release(task_key1, task_id1)
-        rate_limiter.release(task_key2, task_id2)
+            # Clean up
+            rate_limiter.release(task_key1, task_id1)
+            rate_limiter.release(task_key2, task_id2)
 
+    @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_query_concurrency_fallback_on_error(self):
         """Test that the default limit is used if there's an error getting the feature"""
         # Create an org ID that doesn't exist
@@ -304,6 +302,7 @@ class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
         with rate_limiter.run(org_id=non_existent_org_id, task_id="test-1"):
             pass
 
+    @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_query_concurrency_with_invalid_limit(self):
         """Test that invalid limit values fall back to default"""
         # Set up organization with invalid limit types
@@ -330,6 +329,7 @@ class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
             with rate_limiter.run(org_id=self.organization.id, task_id=f"test-{feature_config}"):
                 pass
 
+    @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_query_concurrency_not_applicable_to_api_requests(self):
         """Test that QUERY_CONCURRENCY feature doesn't affect API requests"""
         # Set up organization with QUERY_CONCURRENCY feature
@@ -357,3 +357,118 @@ class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
 
         # Should not be applicable when in Celery
         self.assertFalse(rate_limiter.applicable(org_id=self.organization.id))
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_query_concurrency_redis_cache_hit(self):
+        """Test that Redis cache is used when available"""
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 50,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Mock Redis to return a cached value
+        with patch.object(rate_limiter.redis_client, "get", return_value=b"50") as mock_get:
+            # Use the rate limiter with our org
+            with rate_limiter.run(org_id=self.organization.id, task_id="test-1"):
+                pass
+
+        # Verify that Redis get was called with the correct key
+        mock_get.assert_called_once_with(f"org_concurrency_limit:{self.organization.id}")
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_query_concurrency_redis_cache_miss_then_hit(self):
+        """Test that cache miss hits database, then subsequent calls use cache"""
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 50,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # First call: cache miss, should hit database and cache the result
+        with (
+            patch.object(rate_limiter.redis_client, "get", return_value=None),
+            patch.object(rate_limiter.redis_client, "setex") as mock_setex,
+        ):
+            with rate_limiter.run(org_id=self.organization.id, task_id="test-1"):
+                pass
+
+        # Verify that setex was called to cache the result
+        mock_setex.assert_called_once_with(f"org_concurrency_limit:{self.organization.id}", 300, 50)
+
+        # Second call: cache hit, should not hit database
+        with (
+            patch.object(rate_limiter.redis_client, "get", return_value=b"50"),
+            patch.object(rate_limiter.redis_client, "setex") as mock_setex2,
+        ):
+            with rate_limiter.run(org_id=self.organization.id, task_id="test-2"):
+                pass
+
+        # Verify that setex was not called again (cache hit)
+        mock_setex2.assert_not_called()
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_query_concurrency_no_org_limit_returns_none(self):
+        """Test that _get_org_concurrency_limit returns None when no org limit is found"""
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Mock Redis to return None (cache miss)
+        with patch.object(rate_limiter.redis_client, "get", return_value=None):
+            # Call the helper method directly
+            result = rate_limiter._get_org_concurrency_limit(self.organization.id)
+
+            # Should return None since no org-specific limit is configured
+            self.assertIsNone(result)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_query_concurrency_only_sets_max_concurrency_when_limit_found(self):
+        """Test that max_concurrency is only set when a valid org limit is found"""
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 50,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Mock Redis to return None (cache miss) so it hits the database
+        with (
+            patch.object(rate_limiter.redis_client, "get", return_value=None),
+            patch.object(rate_limiter.redis_client, "setex") as mock_setex,
+        ):
+            # Use the rate limiter with our org
+            with rate_limiter.run(org_id=self.organization.id, task_id="test-1"):
+                pass
+
+        # Verify that the org limit was cached
+        mock_setex.assert_called_once_with(f"org_concurrency_limit:{self.organization.id}", 300, 50)
+
+        # Test with no org limit
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with (
+            patch.object(rate_limiter.redis_client, "get", return_value=None),
+            patch.object(rate_limiter.redis_client, "setex") as mock_setex2,
+        ):
+            with rate_limiter.run(org_id=self.organization.id, task_id="test-2"):
+                pass
+
+        # Should not cache anything since no org limit was found
+        mock_setex2.assert_not_called()

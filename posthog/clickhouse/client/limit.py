@@ -111,16 +111,9 @@ class RateLimit:
             # For app_per_org rate limiter, check for QUERY_CONCURRENCY feature
             org_id = kwargs.get("org_id")
             if org_id:
-                try:
-                    from posthog.models.organization import Organization
-
-                    org = Organization.objects.get(id=org_id)
-                    feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
-                    if feature and isinstance(feature.get("limit"), int):
-                        max_concurrency = feature["limit"]
-                except Exception:
-                    # Fall back to default if anything goes wrong
-                    pass
+                org_limit = self._get_org_concurrency_limit(org_id)
+                if org_limit is not None:
+                    max_concurrency = org_limit
 
         # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
@@ -173,6 +166,32 @@ class RateLimit:
             )
 
         return running_tasks_key, task_id
+
+    def _get_org_concurrency_limit(self, org_id: int) -> Optional[int]:
+        """
+        Get organization concurrency limit with Redis caching.
+        Returns None if no org-specific limit is found.
+        """
+        cache_key = f"org_concurrency_limit:{org_id}"
+        cached_limit = self.redis_client.get(cache_key)
+        if cached_limit:
+            return int(cached_limit)
+
+        try:
+            from posthog.models.organization import Organization
+
+            org = Organization.objects.get(id=org_id)
+            feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
+            if feature and isinstance(feature.get("limit"), int):
+                limit = feature["limit"]
+                # Cache for 5 minutes
+                self.redis_client.setex(cache_key, 300, limit)
+                return limit
+        except Exception:
+            # Fall back to default if anything goes wrong
+            pass
+
+        return None
 
     def release(self, running_task_key, task_id):
         """
