@@ -22,7 +22,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpBehaviouralEvents: true,
-                cdpAggregationWriter: true,
+                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
                 cdpApi: true,
             }
 
@@ -36,7 +36,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 // cdpCyclotronWorkerHogFlow: true,
                 cdpBehaviouralEvents: true,
-                cdpAggregationWriter: true,
+                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
                 cdpApi: true,
             }
 
@@ -93,7 +93,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
         case PluginServerMode.cdp_aggregation_writer:
             return {
-                cdpAggregationWriter: true,
+                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {

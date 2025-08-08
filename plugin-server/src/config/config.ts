@@ -195,6 +195,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: isProdEnv() ? false : true, // For prod we primarily use overflow and some more manual control
+        CDP_AGGREGATION_WRITER_ENABLED: true,
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
