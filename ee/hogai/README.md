@@ -186,7 +186,7 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
 ### Taxonomy Agent
 
-Build small, focused ReAct-style agents that browse the product taxonomy (events, entity properties, event properties) and produce a structured answer.
+Build small, focused agentic RAG-style agents that browse the team's taxonomy (events, entity properties, event properties) and produce a structured answer.
 
 #### Quickstart
 
@@ -203,18 +203,29 @@ class MaxToolTaxonomyOutput(BaseModel):
 2. Create a toolkit and add a typed `final_answer` tool (optional: change output formatting to YAML):
 
 ```python
+from pydantic import BaseModel, Field
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from posthog.models import Team
+
+
+class final_answer(base_final_answer[MaxToolTaxonomyOutput]):
+    # Usually the final answer tool will be different for each max_tool based on the expected output.
+    __doc__ = base_final_answer.__doc__ # Inherit from the base final answer or create your own.
+
+class your_custom_tool(BaseModel):
+    """
+    Add a meaningful description here about what this tool is used for.
+    """
+
+    your_field: str = Field(..., description="The field description here.")
 
 class YourToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
     def _get_custom_tools(self) -> list:
-        class final_answer(base_final_answer[MaxToolTaxonomyOutput]):
-            __doc__ = base_final_answer.__doc__ # Inherit from the base final answer or create your own.
-        return [final_answer] # Usually the final answer tool will be different for each max_tool based on the expected output.
+        return [final_answer, your_custom_tool]
 
     # Optional: prefer YAML over XML for property lists, but not a must to override
     # If not overriden XML will be used
