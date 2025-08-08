@@ -5,7 +5,7 @@ import collections.abc
 import pyarrow as pa
 import temporalio.common
 
-from posthog.temporal.common.logger import get_external_logger, get_logger
+from posthog.temporal.common.logger import get_log_entries_logger, get_logger
 from products.batch_exports.backend.temporal.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -24,7 +24,7 @@ from products.batch_exports.backend.temporal.utils import (
 )
 
 LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+EXTERNAL_LOGGER = get_log_entries_logger()
 
 
 class Consumer:

@@ -304,9 +304,9 @@ In our experience, we have identified two types of logs:
 - Logs intended only for our internal monitoring dashboards.
 - Logs that we want to show to users, and/or make available for querying by ClickHouse.
 
-In order to support both types of logs, the `posthog/temporal/common/logger.py` module contains some useful logging functions, respectively `get_logger` and `get_external_logger`, which can be used to obtain a [structlog](https://www.structlog.org/en/stable/) logger.
+In order to support both types of logs, the `posthog/temporal/common/logger.py` module contains some useful logging functions, respectively `get_logger` and `get_log_entries_logger`, which can be used to obtain a [structlog](https://www.structlog.org/en/stable/) logger.
 
-The key difference is that `get_external_logger` will return a logger named `EXTERNAL` and our structlog processors know to put messages from this logger into a pipeline that eventually lands it in the `log_entries` table in ClickHouse. From this table, they can be displayed in PostHog to, for example, give users more details on what failed when an error occurs, or otherwise consumed by anybody who can query ClickHouse. In contrast, `get_logger` skips all of that and will only print to stdout, which then gets picked up and taken to our internal monitoring dashboards.
+The key difference is that `get_log_entries_logger` will return a logger named `EXTERNAL` and our structlog processors know to put messages from this logger into a pipeline that eventually lands it in the `log_entries` table in ClickHouse. From this table, they can be displayed in PostHog to, for example, give users more details on what failed when an error occurs, or otherwise consumed by anybody who can query ClickHouse. In contrast, `get_logger` skips all of that and will only print to stdout, which then gets picked up and taken to our internal monitoring dashboards.
 
 > [!NOTE]
 > External log messages are also printed to stdout and picked up by our internal log consumers, so they will also be available in our monitoring dashboards.
@@ -314,7 +314,7 @@ The key difference is that `get_external_logger` will return a logger named `EXT
 > [!IMPORTANT]
 > The `log_entries` table requires a `log_source` and `log_source_id` to be set. The `get_temporal_context` function from `logger.py` is used to set these variables based on Temporal context variables. Take a look at how we resolve these for other products and add your own logic if required. In general, `log_source` should be your product name, and `log_source_id` should be some uniquely identifiable ID associated with an instance of your product. So, for example, batch exports uses `log_source="batch_exports"` and parses the batch export ID from the workflow ID to obtain a unique `log_source_id` for this batch export.
 
-`get_logger` and `get_external_logger` are meant to be called only **once** at the top of your module. If you are going to be logging several times, call `bind` on the loggers to avoid the global lookup. This method also allows binding variables to the logger itself.
+`get_logger` and `get_log_entries_logger` are meant to be called only **once** at the top of your module. If you are going to be logging several times, call `bind` on the loggers to avoid the global lookup. This method also allows binding variables to the logger itself.
 
 When developing an activity, you will most likely want **all** your logs to have Temporal context variables (like `activity_type`, or `workflow_id`). To achieve this, `logger.py` offers the `bind_contextvars` function to bind any context variables you want, plus include all relevant Temporal variables by default. These context variables will be available to **all** loggers in the same context, so they don't need to be bound again. The context is preserved when spawning tasks and threads, so most of the time you will only be calling `bind_contextvars` once at the beginning of the activity to set the context based on some input.
 
@@ -333,11 +333,11 @@ import dataclasses
 
 from temporalio import activity, workflow
 
-from posthog.temporal.common.logger import get_logger, get_external_logger, bind_contextvars
+from posthog.temporal.common.logger import get_logger, get_log_entries_logger, bind_contextvars
 
 # Loggers are initialized only once in module scope.
 LOGGER = get_logger(__name__)  # Takes a name for the logger, use whatever you want
-EXTERNAL_LOGGER = get_external_logger()
+EXTERNAL_LOGGER = get_log_entries_logger()
 
 
 @dataclasses.dataclass

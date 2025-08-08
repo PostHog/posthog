@@ -30,7 +30,7 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import (
     bind_contextvars,
-    get_external_logger,
+    get_log_entries_logger,
     get_logger,
 )
 from products.batch_exports.backend.temporal.metrics import (
@@ -50,7 +50,7 @@ from products.batch_exports.backend.temporal.sql import (
 )
 
 LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+EXTERNAL_LOGGER = get_log_entries_logger()
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]

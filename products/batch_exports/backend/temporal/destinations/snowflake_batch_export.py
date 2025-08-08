@@ -33,7 +33,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_contextvars,
-    get_external_logger,
+    get_log_entries_logger,
     get_logger,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -79,7 +79,7 @@ from products.batch_exports.backend.temporal.utils import (
 )
 
 LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+EXTERNAL_LOGGER = get_log_entries_logger()
 
 
 class NamedBytesIO(io.BytesIO):

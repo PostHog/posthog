@@ -16,10 +16,18 @@ from structlog.processors import EventRenamer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 BACKGROUND_LOGGER_TASKS = set()
-EXTERNAL_LOGGER_NAME = "EXTERNAL"
+LOG_ENTRIES_LOGGER_NAME = "LOG_ENTRIES"
 
 
 def configure_stdlib_logger(logger: logging.Logger) -> None:
+    """Configure stdlib handlers for loggers in this module.
+
+    We use stdlib logging to multiplex loggers by name. This allows separating
+    logs between those that go to storage (ClickHouse) and those that are only
+    logged to stdout.
+
+    This does not need to be called more than once per logger.
+    """
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(settings.TEMPORAL_LOG_LEVEL)
 
@@ -39,6 +47,14 @@ def get_logger(name: str | None = None):
     This method is intended to be called once at the top level of a module.
     Afterwards, call `bind()` to bind any variables to this logger, or use
     `bind_contextvars()` to bind variables directly in the context.
+
+    Examples:
+        Basic usage after logging is configured by calling `configure_logger`:
+
+        >>> LOGGER = get_logger(__name__)
+        >>> logger = LOGGER.bind(context="variable")
+        >>> logger.warning("Hello, %s!", "World")
+        2025-08-07 15:04:12.770549 [warning  ] Hello, World!                  [__main__] context=variable
     """
     logger = logging.getLogger(name or __name__)
 
@@ -51,14 +67,20 @@ def get_logger(name: str | None = None):
 LOGGER = get_logger(__name__)
 
 
-def get_external_logger():
-    """Return an external logger to log user-facing logs.
+def get_log_entries_logger():
+    """Return a logger that will store logs in `log_entries`.
 
-    This method is intended to be called once at the top level of a module.
-    Afterwards, call `bind()` to bind any variables to this logger, or use
-    `bind_contextvars()` to bind variables directly in the context.
+    This function works the same as `get_logger`, so the documentation in that
+    function applies here too.
+
+    The actual storing of logs doesn't happen here, but rather any logs produced
+    by the logger returned from this function are put into a queue, produced to
+    Kafka, and eventually consumed by ClickHouse into `log_entries`.
+
+    Logs from this logger are also printed to stdout besides being stored in
+    `log_entries`.
     """
-    logger = logging.getLogger(EXTERNAL_LOGGER_NAME)
+    logger = logging.getLogger(LOG_ENTRIES_LOGGER_NAME)
 
     if not logger.hasHandlers() or logger.propagate:
         # We use `logger.propagate` as a roundabout way to see if this has been
@@ -78,7 +100,7 @@ def get_external_logger():
         if not settings.TEST:
             logger.propagate = False
 
-    return structlog.get_logger(EXTERNAL_LOGGER_NAME)
+    return structlog.get_logger(LOG_ENTRIES_LOGGER_NAME)
 
 
 def get_logger(name: str | None = None):
@@ -245,22 +267,31 @@ def configure_logger_async(
     cache_logger_on_first_use: bool = True,
     loop: asyncio.AbstractEventLoop | None = None,
 ) -> None:
-    """Configure a StructLog logger for temporal workflows.
-
-    Keep up to date with the sync version `configure_logger_sync`
+    """Configure a structlog for Temporal workflows.
 
     Configuring the logger involves:
     * Setting up processors.
     * Spawning a task to listen for Kafka logs.
     * Spawning a task to shutdown gracefully on worker shutdown.
 
+    Examples:
+
+        Except for perhaps unit tests, this should be called only once when
+        starting a Temporal worker. The loop running the temporal worker should
+        be passed as the `loop` argument.
+
+        >>> with asyncio.Runner() as runner:
+        ...     loop = runner.get_loop()
+        ...     configure_logger(loop=loop)
+
     Args:
-        logger_factory: Optionally, override the logger_factory.
+        logger_factory: Optionally, override the default `logger_factory`.
         extra_processors: Optionally, add any processors at the end of the chain.
         queue: Optionally, bring your own log queue.
         producer: Optionally, bring your own Kafka producer.
         cache_logger_on_first_use: Set whether to cache logger for performance.
-            Should always be True except in tests.
+            Should always be `True` except in tests.
+        loop: The loop where the aforementioned tasks will run on.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.filter_by_level,
@@ -391,7 +422,7 @@ class PutInLogQueueProcessor:
         Always return event_dict so that processors that come later in the chain can do
         their own thing.
         """
-        if getattr(logger, "name", None) != EXTERNAL_LOGGER_NAME:
+        if getattr(logger, "name", None) != LOG_ENTRIES_LOGGER_NAME:
             return event_dict
 
         try:
