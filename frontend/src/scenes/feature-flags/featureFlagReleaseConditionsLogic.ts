@@ -224,6 +224,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     ...state,
                     [sortKey]: count,
                 }),
+                resetAffectedUsers: () => ({
+                    0: undefined,
+                }),
             },
         ],
         totalUsers: [
