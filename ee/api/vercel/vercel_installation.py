@@ -262,35 +262,8 @@ class VercelInstallationViewSet(
         except VercelInstallation.DoesNotExist:
             raise exceptions.NotFound("Installation not found")
 
-        # Update the installation's upsert_data with new data
         installation.upsert_data = serializer.validated_data
         installation.save(update_fields=["upsert_data"])
-
-        # Update the associated user if email/name changed
-        user = installation.organization.members.filter(organization_membership__level=15).first()  # Get org admin
-        if user:
-            new_email = serializer.validated_data["account"]["contact"]["email"]
-            new_name = serializer.validated_data["account"]["contact"].get("name", "")
-
-            if user.email != new_email:
-                # Check if new email is already taken by another user
-                if User.objects.filter(email=new_email).exclude(id=user.id).exists():
-                    raise exceptions.ValidationError(
-                        {"email": "There is already an account with this email address."},
-                        code="unique",
-                    )
-                user.email = new_email
-
-            if new_name and user.first_name != new_name:
-                user.first_name = new_name
-
-            user.save()
-
-        # Update organization name if changed
-        new_org_name = serializer.validated_data["account"].get("name")
-        if new_org_name and installation.organization.name != new_org_name:
-            installation.organization.name = new_org_name
-            installation.organization.save()
 
         return Response(status=204)
 
