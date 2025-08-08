@@ -40,6 +40,16 @@ def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -
     )
 
 
+def update_flag_caches(team: Team):
+    flags_hypercache.update_cache(team)
+    flags_without_cohorts_hypercache.update_cache(team)
+
+
+def clear_flag_caches(team: Team):
+    flags_hypercache.clear_cache(team)
+    flags_without_cohorts_hypercache.clear_cache(team)
+
+
 def _get_flags_for_local_evaluation(team: Team):
     feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
         ~Q(is_remote_configuration=True),
@@ -145,11 +155,6 @@ def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) 
         "cohorts": cohorts,
     }
     return response_data
-
-
-def update_flag_caches(team: Team):
-    flags_hypercache.update_cache(team)
-    flags_without_cohorts_hypercache.update_cache(team)
 
 
 # NOTE: All models that affect the cache should have a signal to update the cache
