@@ -146,6 +146,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Check that steps_count is populated for funnel metrics
         self.assertIsNotNone(control_variant.steps_count)
+        assert control_variant.steps_count is not None  # Type hint for mypy
         self.assertEqual(len(control_variant.steps_count), 1)  # Single step funnel
         # For single step funnel, step_count equals users who completed that step
         self.assertEqual(control_variant.steps_count[0].step_count, 8)  # Users who completed purchase
@@ -153,6 +154,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.steps_count[0].step_number, 0)
 
         self.assertIsNotNone(test_variant.steps_count)
+        assert test_variant.steps_count is not None  # Type hint for mypy
         self.assertEqual(len(test_variant.steps_count), 1)  # Single step funnel
         self.assertEqual(test_variant.steps_count[0].step_count, 10)  # Users who completed purchase
         self.assertEqual(test_variant.steps_count[0].step_name, "purchase")  # Event name
@@ -1361,6 +1363,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Check that steps_count is populated for 6-step funnel
         self.assertIsNotNone(control_variant.steps_count)
+        assert control_variant.steps_count is not None  # Type hint for mypy
         self.assertEqual(len(control_variant.steps_count), 6)  # Six steps in funnel
         expected_events = [
             "$pageview",
@@ -1383,6 +1386,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 self.assertEqual(step.step_count, 8)  # Steps 4-6: only successful users complete these
 
         self.assertIsNotNone(test_variant.steps_count)
+        assert test_variant.steps_count is not None  # Type hint for mypy
         self.assertEqual(len(test_variant.steps_count), 6)  # Six steps in funnel
 
     @freeze_time("2024-01-01T12:00:00Z")

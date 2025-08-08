@@ -539,7 +539,7 @@ class ExperimentTimeseries:
             if date_key in grouped_by_date:
                 try:
                     variants_tuples = grouped_by_date[date_key]
-                    variants = get_new_variant_results(variants_tuples)
+                    variants = get_new_variant_results(variants_tuples, None)
                     control_variant, test_variants = split_baseline_and_test_variants(variants)
 
                     if self.stats_method == "bayesian":

@@ -60,7 +60,13 @@ def get_new_variant_results(
         has_step_counts = len(result) > 4 and isinstance(result[4], tuple)
 
         if has_step_counts:
-            key, number_of_samples, sum_val, sum_squares, step_counts = result
+            # Safely unpack 5-tuple
+            if len(result) == 5:
+                key, number_of_samples, sum_val, sum_squares, step_counts = result
+            else:
+                # Fallback: treat as 4-tuple even if has_step_counts was True
+                key, number_of_samples, sum_val, sum_squares = result[:4]
+                step_counts = ()
 
             # Extract step names from metric if available, otherwise use default names
             step_names = []
