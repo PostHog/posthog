@@ -88,6 +88,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
@@ -182,6 +183,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -214,6 +216,7 @@ export type QuerySchema =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | ExperimentQuery
@@ -780,6 +783,7 @@ export interface DataTableNode
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
                     | ErrorTrackingQuery
+                    | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
@@ -812,6 +816,7 @@ export interface DataTableNode
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
         | ErrorTrackingQuery
+        | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
@@ -2062,6 +2067,21 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     offset?: integer
 }
 
+export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
+    kind: NodeKind.ErrorTrackingIssueCorrelationQuery
+    events: string[]
+}
+
+export interface ErrorTrackingIssueCorrelationQueryResponse
+    extends AnalyticsQueryResponseBase<ErrorTrackingCorrelatedIssue[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedErrorTrackingIssueCorrelationQueryResponse =
+    CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
+
 export interface ErrorTrackingSceneToolOutput
     extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
     newFilters?: AnyPropertyFilter[]
@@ -2117,6 +2137,17 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     }
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
+}
+
+export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    event: string
+    odds_ratio: number
+    population: {
+        both: number
+        success_only: number
+        exception_only: number
+        neither: number
+    }
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -3305,6 +3336,12 @@ export interface RevenueAnalyticsEventItem {
      * Useful when trying to break revenue down by a specific coupon
      */
     couponProperty?: string
+
+    /**
+     * Property used to identify what subscription the revenue event refers to
+     * Useful when trying to detect churn/LTV/ARPU/etc.
+     */
+    subscriptionProperty?: string
 
     /**
      * TODO: In the future, this should probably be renamed to

@@ -79,7 +79,7 @@ function PreviewCard({ feature, title, description, actions, children }: Preview
         <BasicCard
             className="pl-4 pr-2 pt-2 pb-3 gap-1 @container"
             id={`${feature.flagKey}`}
-            backgroundColor="var(--bg-surface-primary)"
+            backgroundColor="var(--color-bg-surface-primary)"
         >
             <div className="flex flex-col justify-between gap-2">
                 <div className="flex flex-col gap-1">
@@ -123,7 +123,7 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                         disabledReason={
                             enabled && "You have already expressed your interest. We'll contact you when it's ready"
                         }
-                        onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true)}
+                        onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true, feature.stage)}
                         size="small"
                         sideIcon={enabled ? <IconCheck /> : <IconBell />}
                         className="w-fit"
@@ -159,7 +159,9 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     <Label className="flex items-center gap-2 cursor-pointer" htmlFor={`${feature.flagKey}-switch`}>
                         <LemonSwitch
                             checked={enabled}
-                            onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked)}
+                            onChange={(newChecked) =>
+                                updateEarlyAccessFeatureEnrollment(flagKey, newChecked, feature.stage)
+                            }
                             id={`${feature.flagKey}-switch`}
                         />
                         <h4 className="font-bold mb-0">{name}</h4>
@@ -202,7 +204,9 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                         onChange={(value) => setFeedback(value)}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && e.metaKey) {
-                                updateEarlyAccessFeatureEnrollment(flagKey, enabled)
+                                void submitEarlyAccessFeatureFeedback(feedback).then(() => {
+                                    setFeedback('')
+                                })
                             } else if (e.key === 'Escape') {
                                 cancelEarlyAccessFeatureFeedback()
                                 setFeedback('')
