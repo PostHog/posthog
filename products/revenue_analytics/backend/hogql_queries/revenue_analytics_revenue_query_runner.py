@@ -17,7 +17,7 @@ from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from .revenue_analytics_query_runner import (
     RevenueAnalyticsQueryRunner,
 )
-from products.revenue_analytics.backend.views import RevenueAnalyticsInvoiceItemView, RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.views import RevenueAnalyticsInvoiceItemView, RevenueAnalyticsChargeView, RevenueAnalyticsBaseView
 
 LOOKBACK_PERIOD_DAYS = 30
 LOOKBACK_PERIOD = timedelta(days=LOOKBACK_PERIOD_DAYS)
