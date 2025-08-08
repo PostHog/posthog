@@ -22,7 +22,6 @@ class TestGroupTemporalFiltering(APIBaseTest):
 
     def test_group_field_with_mapping_and_created_at(self):
         """Test that $group_0 gets temporal filtering when GroupTypeMapping exists with created_at"""
-        # Create a GroupTypeMapping with created_at
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
@@ -31,36 +30,25 @@ class TestGroupTemporalFiltering(APIBaseTest):
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Parse a query that references $group_0
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
 
-        # Print the SQL to see the temporal filtering
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # Should contain an if statement checking timestamp against created_at
-        self.assertIn("if(", sql.lower())
-        self.assertIn("timestamp", sql.lower())
-        self.assertIn("2023-01-15 12:00:00", sql)
+        self.assertIn("if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`) AS `$group_0`", sql)
 
     def test_group_field_without_mapping(self):
         """Test that $group_0 returns empty string when no GroupTypeMapping exists"""
-        # No GroupTypeMapping created for index 0
 
-        # Parse a query that references $group_0
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
 
-        # Print the SQL
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # Should just be empty string since no mapping exists
-        self.assertIn("SELECT ''", sql)
-        self.assertNotIn("if(", sql.lower())
+        self.assertIn("'' AS `$group_0`", sql)
 
     def test_group_field_with_mapping_no_created_at(self):
         """Test that $group_0 works normally when GroupTypeMapping exists but has no created_at"""
-        # Create a GroupTypeMapping without created_at (None)
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
@@ -69,16 +57,12 @@ class TestGroupTemporalFiltering(APIBaseTest):
             created_at=None,
         )
 
-        # Parse a query that references $group_0
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
 
-        # Print the SQL
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # Should work normally without temporal filtering (no if statement)
-        self.assertNotIn("if(", sql.lower())
-        self.assertIn("`$group_0`", sql)
+        self.assertIn("`$group_0` AS `$group_0`", sql)
 
     def test_multiple_group_fields(self):
         """Test temporal filtering with multiple group type mappings"""
@@ -105,11 +89,9 @@ class TestGroupTemporalFiltering(APIBaseTest):
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
         # Should have conditional logic for groups 0 and 1
-        self.assertIn("2023-01-15 12:00:00", sql)  # group_0
-        self.assertIn("2023-02-01 10:00:00", sql)  # group_1
-
-        # Group 2 should just be empty string (no mapping)
-        self.assertIn("''", sql)
+        self.assertIn("if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`) AS `$group_0`", sql)
+        self.assertIn("if(events.timestamp < '2023-02-01 10:00:00', '', `$group_1`) AS `$group_1`", sql)
+        self.assertIn("'' AS `$group_2`", sql)
 
     def test_group_field_in_where_clause(self):
         """Test that group temporal filtering works in WHERE clauses"""
@@ -121,16 +103,12 @@ class TestGroupTemporalFiltering(APIBaseTest):
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Parse a query with $group_0 in WHERE clause
         query = "SELECT event FROM events WHERE $group_0 = 'acme'"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # The WHERE clause should also have temporal filtering
-        self.assertIn("if(", sql.lower())
-        self.assertIn("timestamp", sql.lower())
-        self.assertIn("2023-01-15 12:00:00", sql)
+        self.assertIn("equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`), %(hogql_val_0)s)", sql)
 
     def test_group_join_with_temporal_filtering(self):
         """Test that group_1.properties access includes temporal filtering for $group_1"""
@@ -142,17 +120,12 @@ class TestGroupTemporalFiltering(APIBaseTest):
             created_at=datetime(2023, 2, 1, 10, 0, 0, tzinfo=UTC),
         )
 
-        # Parse a query that joins with group_1 properties
         query = "SELECT group_1.properties FROM events"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # Should include temporal filtering in the join condition for $group_1
-        self.assertIn("if(", sql.lower())
-        self.assertIn("2023-02-01 10:00:00", sql)
-        # The join should be based on the temporally filtered $group_1 field
-        self.assertIn("timestamp", sql.lower())
+        self.assertIn("if(events.timestamp < '2023-02-01 10:00:00', '', `$group_1`)", sql)
 
     def test_group_join_without_mapping(self):
         """Test that group_0.properties works when no GroupTypeMapping exists (should use empty string)"""
@@ -163,10 +136,7 @@ class TestGroupTemporalFiltering(APIBaseTest):
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # Should join on empty string since no mapping exists
         self.assertIn("''", sql)
-        # Should not have temporal filtering
-        self.assertNotIn("if(", sql.lower())
 
     def test_multiple_group_joins_with_mixed_mappings(self):
         """Test joins to multiple groups with some having temporal filtering and others not"""
@@ -185,38 +155,8 @@ class TestGroupTemporalFiltering(APIBaseTest):
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # Should have temporal filtering for group_0
-        self.assertIn("2023-01-15 12:00:00", sql)
-        self.assertIn("if(", sql.lower())
-        # Should have empty string for group_1 (no mapping)
+        self.assertIn("if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`)", sql)
         self.assertIn("''", sql)
-
-    def test_direct_group_field_vs_group_properties_distinction(self):
-        """Test that $group_0 and group_0.properties both get temporal filtering"""
-        GroupTypeMapping.objects.create(
-            team=self.team,
-            project=self.team.project,
-            group_type="company",
-            group_type_index=0,
-            created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
-        )
-
-        # Test direct $group_0 access
-        query1 = "SELECT $group_0 FROM events"
-        parsed1 = parse_select(query1)
-        sql1 = print_ast(parsed1, context=self.context, dialect="clickhouse")
-
-        # Test group_0.properties access (which internally uses $group_0 for joining)
-        query2 = "SELECT group_0.properties FROM events"
-        parsed2 = parse_select(query2)
-        sql2 = print_ast(parsed2, context=self.context, dialect="clickhouse")
-
-        # Both should include temporal filtering
-        self.assertIn("if(", sql1.lower())
-        self.assertIn("2023-01-15 12:00:00", sql1)
-
-        self.assertIn("if(", sql2.lower())
-        self.assertIn("2023-01-15 12:00:00", sql2)
 
     def test_non_clickhouse_dialect_no_temporal_filtering(self):
         """Test that non-ClickHouse dialects don't get temporal filtering"""
@@ -228,14 +168,10 @@ class TestGroupTemporalFiltering(APIBaseTest):
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Parse a query that references $group_0
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
 
-        # Print the SQL with HogQL dialect (not ClickHouse)
         sql = print_ast(parsed, context=self.context, dialect="hogql")
 
-        # Should NOT contain temporal filtering for non-ClickHouse dialects
-        self.assertNotIn("if(", sql.lower())
-        self.assertNotIn("2023-01-15 12:00:00", sql)
         self.assertIn("$group_0", sql)
+        self.assertNotIn("if(", sql.lower())
