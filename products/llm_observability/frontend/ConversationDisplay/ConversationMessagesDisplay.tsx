@@ -8,6 +8,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
+import { looksLikeXml } from '../utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
@@ -194,14 +195,8 @@ export const LLMMessageDisplay = React.memo(
         const isMarkdownCandidate =
             content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s|_|\*|~~)/.test(content) : false
 
-        // Compute whether the content looks like XML.
-        // (Heuristic: looks for XML-like tags)
-        const isXmlCandidate =
-            content && typeof content === 'string'
-                ? /<[a-zA-Z_:][a-zA-Z0-9_:.-]*(?:\s+[^>]*)?>.*?<\/[a-zA-Z_:][a-zA-Z0-9_:.-]*>|<[a-zA-Z_:][a-zA-Z0-9_:.-]*(?:\s+[^>]*)?\/>/s.test(
-                      content
-                  )
-                : false
+        // Compute whether the content looks like XML
+        const isXmlCandidate = looksLikeXml(content)
 
         // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)

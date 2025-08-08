@@ -173,6 +173,12 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         toggleMarkdownRendering: () => {
             localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(values.isRenderingMarkdown))
         },
+        setIsRenderingXml: ({ isRenderingXml }) => {
+            localStorage.setItem('llm-observability-xml-rendering', JSON.stringify(isRenderingXml))
+        },
+        toggleXmlRendering: () => {
+            localStorage.setItem('llm-observability-xml-rendering', JSON.stringify(values.isRenderingXml))
+        },
         setDisplayOption: ({ displayOption }) => {
             localStorage.setItem('llm-observability-display-option', JSON.stringify(displayOption))
         },
@@ -184,6 +190,16 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             try {
                 const isRenderingMarkdown = JSON.parse(savedMarkdownState)
                 actions.setIsRenderingMarkdown(isRenderingMarkdown)
+            } catch {
+                // If parsing fails, keep the default value
+            }
+        }
+
+        const savedXmlState = localStorage.getItem('llm-observability-xml-rendering')
+        if (savedXmlState !== null) {
+            try {
+                const isRenderingXml = JSON.parse(savedXmlState)
+                actions.setIsRenderingXml(isRenderingXml)
             } catch {
                 // If parsing fails, keep the default value
             }
