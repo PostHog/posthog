@@ -154,11 +154,9 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
 
 
 @receiver(model_activity_signal, sender=Annotation)
-def handle_annotation_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
-    from posthog.utils import get_current_user_from_thread
-
-    user = get_current_user_from_thread()
-
+def handle_annotation_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
     log_activity(
         organization_id=after_update.organization_id or after_update.team.organization_id,
         team_id=after_update.team_id,
