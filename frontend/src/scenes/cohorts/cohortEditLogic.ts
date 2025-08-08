@@ -73,7 +73,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         }),
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
-        updateCohortCount: (id: CohortType['id']) => ({ id }),
+        updateCohortCount: true,
     }),
 
     reducers(({ props }) => ({
