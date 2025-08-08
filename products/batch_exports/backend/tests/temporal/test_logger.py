@@ -26,6 +26,7 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import (
     BACKGROUND_LOGGER_TASKS,
     bind_contextvars,
+    configure_logger,
     get_external_logger,
     get_logger,
 )
@@ -135,13 +136,17 @@ async def producer(event_loop):
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def configure(configure_logger, log_capture, queue, producer):
+async def configure(configure_logger_auto, log_capture, queue, producer):
     """Configure StructLog logging for testing.
 
     The extra parameters configured for testing are:
     * Add a LogCapture processor to capture logs.
     * Set the queue and producer to capture messages sent.
     * Do not cache logger to ensure each test starts clean.
+
+    This fixture explicitly requests the `configure_logger_auto` fixture so
+    that we override the usual configuration with the specific parameters
+    we need in these tests.
     """
     with override_settings(TEST=False, DEBUG=False):
         # We override settings as otherwise we'll get console logs which
