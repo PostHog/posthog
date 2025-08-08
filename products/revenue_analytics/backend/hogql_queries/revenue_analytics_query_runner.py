@@ -160,7 +160,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         join_from: type[RevenueAnalyticsBaseView],
         product_subquery: ast.SelectQuery | ast.SelectSetQuery,
     ) -> ast.JoinExpr | None:
-        if join_from == RevenueAnalyticsInvoiceItemView or join_from == RevenueAnalyticsSubscriptionView:
+        if join_from == RevenueAnalyticsInvoiceItemView or join_from == RevenueAnalyticsSubscriptionView or join_from == RevenueAnalyticsChargeView:
             return ast.JoinExpr(
                 alias=RevenueAnalyticsProductView.get_generic_view_alias(),
                 table=product_subquery,
@@ -181,7 +181,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         join_from: type[RevenueAnalyticsBaseView],
         customer_subquery: ast.SelectQuery | ast.SelectSetQuery,
     ) -> ast.JoinExpr | None:
-        if join_from == RevenueAnalyticsInvoiceItemView or join_from == RevenueAnalyticsSubscriptionView:
+        if join_from == RevenueAnalyticsInvoiceItemView or join_from == RevenueAnalyticsSubscriptionView or join_from == RevenueAnalyticsChargeView:
             return ast.JoinExpr(
                 alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
                 table=customer_subquery,
