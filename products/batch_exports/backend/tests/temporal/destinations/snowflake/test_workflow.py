@@ -39,6 +39,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import (
+    TEST_TIME,
     FakeSnowflakeConnection,
 )
 from products.batch_exports.backend.tests.temporal.utils import (
@@ -46,9 +47,6 @@ from products.batch_exports.backend.tests.temporal.utils import (
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
-
-
-TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 async def _run_workflow(

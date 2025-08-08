@@ -6,7 +6,6 @@ Note: This module uses a real Snowflake connection.
 
 import asyncio
 import datetime as dt
-import os
 import typing as t
 from uuid import uuid4
 
@@ -30,7 +29,6 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
-    SnowflakeHeartbeatDetails,
     insert_into_snowflake_activity,
     insert_into_snowflake_activity_from_stage,
 )
@@ -38,73 +36,13 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import (
+    SKIP_IF_MISSING_REQUIRED_ENV_VARS,
+    TEST_MODELS,
+    TEST_TIME,
     assert_clickhouse_records_in_snowflake,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
-
-
-TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-
-REQUIRED_ENV_VARS = (
-    "SNOWFLAKE_WAREHOUSE",
-    "SNOWFLAKE_ACCOUNT",
-    "SNOWFLAKE_USERNAME",
-)
-
-
-def snowflake_env_vars_are_set():
-    if not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS):
-        return False
-    if "SNOWFLAKE_PASSWORD" not in os.environ and "SNOWFLAKE_PRIVATE_KEY" not in os.environ:
-        return False
-    return True
-
-
-SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    not snowflake_env_vars_are_set(),
-    reason="Snowflake required env vars are not set",
-)
-
-EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
-    "team_id",
-    "distinct_id",
-    "person_id",
-    "properties",
-    "person_version",
-    "person_distinct_id_version",
-    "created_at",
-    "_inserted_at",
-    "is_deleted",
-]
-
-TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="a-custom-model",
-        schema={
-            "fields": [
-                {"expression": "event", "alias": "event"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-                {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-            ],
-            "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-        },
-    ),
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
-    {
-        "fields": [
-            {"expression": "event", "alias": "event"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-            {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-        ],
-        "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-    },
-    None,
-]
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
@@ -432,33 +370,3 @@ class TestSnowflakeExportWorkflow:
         run = runs[0]
         assert run.status == "Cancelled"
         assert run.latest_error == "Cancelled"
-
-
-@pytest.mark.parametrize(
-    "details",
-    [
-        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 10, 1),
-        (
-            [(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],
-            10,
-        ),
-    ],
-)
-def test_snowflake_heartbeat_details_parses_from_tuple(details):
-    class FakeActivity:
-        def info(self):
-            return FakeInfo()
-
-    class FakeInfo:
-        def __init__(self):
-            self.heartbeat_details = details
-
-    snowflake_details = SnowflakeHeartbeatDetails.from_activity(FakeActivity())
-    expected_done_ranges = details[0]
-
-    assert snowflake_details.done_ranges == [
-        (
-            dt.datetime.fromisoformat(expected_done_ranges[0][0]),
-            dt.datetime.fromisoformat(expected_done_ranges[0][1]),
-        )
-    ]

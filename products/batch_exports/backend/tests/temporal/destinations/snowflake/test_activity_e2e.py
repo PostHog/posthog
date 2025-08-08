@@ -38,79 +38,18 @@ from products.batch_exports.backend.temporal.spmc import (
     RecordBatchTaskError,
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import (
+    EXPECTED_PERSONS_BATCH_EXPORT_FIELDS,
+    SKIP_IF_MISSING_REQUIRED_ENV_VARS,
+    TEST_MODELS,
     assert_clickhouse_records_in_snowflake,
 )
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db, SKIP_IF_MISSING_REQUIRED_ENV_VARS]
 
 
-TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-
-REQUIRED_ENV_VARS = (
-    "SNOWFLAKE_WAREHOUSE",
-    "SNOWFLAKE_ACCOUNT",
-    "SNOWFLAKE_USERNAME",
-)
-
-
-def snowflake_env_vars_are_set():
-    if not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS):
-        return False
-    if "SNOWFLAKE_PASSWORD" not in os.environ and "SNOWFLAKE_PRIVATE_KEY" not in os.environ:
-        return False
-    return True
-
-
-SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    not snowflake_env_vars_are_set(),
-    reason="Snowflake required env vars are not set",
-)
-
-EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
-    "team_id",
-    "distinct_id",
-    "person_id",
-    "properties",
-    "person_version",
-    "person_distinct_id_version",
-    "created_at",
-    "_inserted_at",
-    "is_deleted",
-]
-
-TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="a-custom-model",
-        schema={
-            "fields": [
-                {"expression": "event", "alias": "event"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-                {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-            ],
-            "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-        },
-    ),
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
-    {
-        "fields": [
-            {"expression": "event", "alias": "event"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-            {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-        ],
-        "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-    },
-    None,
-]
-
-
-@SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize("use_internal_stage", [False, True])
 class TestInsertIntoSnowflakeActivity:
     async def _run_activity(
