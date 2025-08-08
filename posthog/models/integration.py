@@ -5,7 +5,7 @@ import time
 import jwt
 import json
 from datetime import timedelta, datetime
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 from django.db import models
@@ -109,11 +109,11 @@ class Integration(models.Model):
         return f"ID: {self.integration_id}"
 
     @property
-    def access_token(self) -> str | None:
+    def access_token(self) -> Optional[str]:
         return self.sensitive_config.get("access_token")
 
     @property
-    def refresh_token(self) -> str | None:
+    def refresh_token(self) -> Optional[str]:
         return self.sensitive_config.get("refresh_token")
 
 
@@ -131,10 +131,10 @@ class OauthConfig:
     scope: str
     id_path: str
     name_path: str
-    token_info_url: str | None = None
-    token_info_graphql_query: str | None = None
-    token_info_config_fields: list[str] | None = None
-    additional_authorize_params: dict[str, str] | None = None
+    token_info_url: Optional[str] = None
+    token_info_graphql_query: Optional[str] = None
+    token_info_config_fields: Optional[list[str]] = None
+    additional_authorize_params: Optional[dict[str, str]] = None
 
 
 class OauthIntegration:
@@ -449,7 +449,7 @@ class OauthIntegration:
 
         return integration
 
-    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
 
         refresh_token = self.integration.sensitive_config.get("refresh_token")
@@ -539,7 +539,7 @@ class SlackIntegration:
 
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
-    ) -> dict | None:
+    ) -> Optional[dict]:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
@@ -763,7 +763,7 @@ class GoogleCloudIntegration:
 
     @classmethod
     def integration_from_key(
-        cls, kind: str, key_info: dict, team_id: int, created_by: User | None = None
+        cls, kind: str, key_info: dict, team_id: int, created_by: Optional[User] = None
     ) -> Integration:
         if kind == "google-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
@@ -799,7 +799,7 @@ class GoogleCloudIntegration:
 
         return integration
 
-    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
         if not expires_in or not refreshed_at:
@@ -894,7 +894,7 @@ class EmailIntegration:
         return MailjetProvider()
 
     @classmethod
-    def integration_from_domain(cls, domain: str, team_id: int, created_by: User | None = None) -> Integration:
+    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
         mailjet = MailjetProvider()
         mailjet.create_email_domain(domain, team_id=team_id)
 
@@ -920,7 +920,7 @@ class EmailIntegration:
 
     @classmethod
     def integration_from_keys(
-        cls, api_key: str, secret_key: str, team_id: int, created_by: User | None = None
+        cls, api_key: str, secret_key: str, team_id: int, created_by: Optional[User] = None
     ) -> Integration:
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1027,7 +1027,7 @@ class GitHubIntegration:
 
     @classmethod
     def integration_from_installation_id(
-        cls, installation_id: str, team_id: int, created_by: User | None = None
+        cls, installation_id: str, team_id: int, created_by: Optional[User] = None
     ) -> Integration:
         installation_info = cls.client_request(f"installations/{installation_id}").json()
         access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
@@ -1067,7 +1067,7 @@ class GitHubIntegration:
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
-    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
         if not expires_in or not refreshed_at:
