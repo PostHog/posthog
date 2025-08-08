@@ -19,7 +19,6 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
-from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
