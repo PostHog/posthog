@@ -78,7 +78,7 @@ class HyperCache:
         else:
             return f"cache/teams/{key}/{self.namespace}/{self.value}"
 
-    def get_from_cache(self, key: KeyType) -> dict:
+    def get_from_cache(self, key: KeyType) -> dict | None:
         data, _ = self.get_from_cache_with_source(key)
         return data
 
@@ -143,9 +143,9 @@ class HyperCache:
         if "s3" in kinds:
             object_storage.delete(self.get_cache_key(key))
 
-    def _set_cache_value_redis(self, key: KeyType, data: dict | None):
+    def _set_cache_value_redis(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
         key = self.get_cache_key(key)
-        if data is None:
+        if data is None or isinstance(data, HyperCacheStoreMissing):
             cache.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=DEFAULT_CACHE_MISS_TTL)
         else:
             cache.set(key, json.dumps(data), timeout=DEFAULT_CACHE_TTL)
