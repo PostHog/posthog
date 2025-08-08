@@ -35,6 +35,8 @@ import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
+import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -205,7 +207,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CASSANDRA_USER: string | null
     CASSANDRA_PASSWORD: string | null
     WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
-    EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
@@ -400,6 +401,8 @@ export interface Hub extends PluginsServerConfig {
     appMetrics: AppMetrics
     rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
+    groupRepository: GroupRepository
+    clickhouseGroupRepository: ClickhouseGroupRepository
     celery: Celery
     // geoip database, setup in workers
     geoipService: GeoIPService
@@ -1321,3 +1324,8 @@ export interface HookPayload {
         }
     }
 }
+
+/**
+ * Metadata switchover can be absent, enforced (boolean true), or after a provided date
+ */
+export type SessionRecordingV2MetadataSwitchoverDate = Date | null | true

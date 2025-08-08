@@ -10,6 +10,7 @@ class LinkAdmin(admin.ModelAdmin):
     list_filter = ("team", "created_at", "updated_at")
     search_fields = ("id", "redirect_url", "team__name")
     readonly_fields = ("id", "created_at", "updated_at")
+    autocomplete_fields = ("team",)
     fieldsets = (
         (None, {"fields": ("id", "redirect_url", "short_link_domain", "short_code", "team")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
