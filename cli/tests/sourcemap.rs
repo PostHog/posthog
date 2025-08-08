@@ -24,6 +24,33 @@ fn test_search() {
 }
 
 #[test]
+fn test_glob_ignore() {
+    use ignore::overrides::OverrideBuilder;
+    use ignore::WalkBuilder;
+
+    let mut builder = WalkBuilder::new(&get_case_path(""));
+
+    let base_path = PathBuf::from("tests/_cases").canonicalize().unwrap();
+
+    // This is the user-supplied glob (as a string)
+    let pattern = "**/search/**";
+
+    // Build override matcher from pattern
+    let mut override_builder = OverrideBuilder::new(&base_path);
+    override_builder.add(&format!("!{}", pattern)).unwrap(); // `!` means ignore
+
+    let overrides = override_builder.build().unwrap();
+
+    // Build walk with override filters
+    let walker = WalkBuilder::new(&base_path).overrides(overrides).build();
+
+    for entry in walker.into_iter().filter_map(|e| e.ok()) {
+        let entry_path = entry.path().canonicalize().unwrap();
+        println!("{}", entry_path.display());
+    }
+}
+
+#[test]
 fn test_pair_inject() {
     let case_path = get_case_path("inject");
     let mut pairs = read_pairs(&case_path).expect("Failed to read pairs");
