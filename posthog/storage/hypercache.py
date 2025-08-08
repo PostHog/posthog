@@ -44,7 +44,6 @@ class HyperCacheStoreMissingException(Exception):
 class HyperCache:
     """
     This is a helper cache for a standard model of multi-tier caching. It should be used for anything that is "client" facing - i.e. where SDKs will be calling in high volumes.
-
     The idea is simple - pre-cache every value we could possibly need. This might sound expensive but for read-heavy workloads it is a MUST.
     """
 
