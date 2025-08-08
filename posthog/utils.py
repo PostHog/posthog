@@ -422,6 +422,10 @@ def render_template(
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            posthog_app_context["effective_resource_access_control"] = {
+                resource: user_access_control.effective_access_level_for_resource(resource)
+                for resource in ACCESS_CONTROL_RESOURCES
+            }
             posthog_app_context["resource_access_control"] = {
                 resource: user_access_control.access_level_for_resource(resource)
                 for resource in ACCESS_CONTROL_RESOURCES
@@ -1609,3 +1613,12 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
     """Catches path with or without trailing slash, taking into account query param and hash."""
     # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
     return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+
+
+def get_current_user_from_thread() -> Optional["User"]:
+    from threading import current_thread
+
+    request = getattr(current_thread(), "request", None)
+    if request and hasattr(request, "user"):
+        return request.user
+    return None

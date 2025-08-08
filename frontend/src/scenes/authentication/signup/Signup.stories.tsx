@@ -5,7 +5,7 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SignupContainer } from './SignupContainer'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/Signup',
@@ -34,7 +34,7 @@ export const SelfHosted = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
+    useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
 
     return <SignupContainer />
 }
@@ -51,7 +51,7 @@ export const SelfHostedSSO = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
+    useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
 
     return <SignupContainer />
 }
@@ -68,7 +68,7 @@ export const Cloud = (): JSX.Element => {
         },
     })
 
-    useOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
+    useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
 
     return <SignupContainer />
 }
