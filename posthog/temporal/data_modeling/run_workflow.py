@@ -12,8 +12,6 @@ import uuid
 
 import asyncstdlib
 import deltalake
-import pyarrow as pa
-import pyarrow.compute as pc
 import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
@@ -28,6 +26,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql import ast
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
@@ -36,7 +35,6 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import FilteringBoundLogger, bind_temporal_worker_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
@@ -453,8 +451,6 @@ async def materialize_model(
         delta_table: deltalake.DeltaTable | None = None
 
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
-            batch = _transform_unsupported_decimals(batch, logger)
-
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
                     table_uri=table_uri,
@@ -719,64 +715,61 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         stack=[],
     )
 
-    await logger.adebug(f"Running clickhouse query: {printed}")
+    table_describe_query = f"DESCRIBE TABLE ({printed})"
+    unsupported_arrow_types = ["FIXED_SIZE_BINARY", "JSON", "UUID", "ENUM"]
+
+    # Query for types first, check for any types ArrowStream doesn't support
+    # and rewrite the query wrapping those columns in a `toString(..)`
+    async with get_client() as client:
+        table_describe_response = await client.read_query(query=table_describe_query, query_parameters=context.values)
+        query_typings: list[tuple[str, str, bool]] = []
+        has_type_to_convert = False
+        for line in table_describe_response.decode("utf-8").splitlines():
+            column_name, ch_type = line.strip().split("\t")
+
+            if any(uat.lower() in ch_type.lower() for uat in unsupported_arrow_types):
+                has_type_to_convert = True
+                query_typings.append((column_name, ch_type, True))
+            else:
+                query_typings.append((column_name, ch_type, False))
+
+    if has_type_to_convert:
+        await logger.adebug("Query has fields that need converting")
+
+        select_fields: list[ast.Expr] = []
+        for column_name, ch_type, should_convert in query_typings:
+            if should_convert:
+                await logger.adebug(f"Converting {column_name} of type {ch_type} to be wrapped with toString(..)")
+
+                select_fields.append(
+                    ast.Alias(expr=ast.Call(name="toString", args=[ast.Field(chain=[column_name])]), alias=column_name)
+                )
+            else:
+                select_fields.append(ast.Field(chain=[column_name]))
+
+        query_node = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=query_node))
+
+    # Re-print the query with `FORMAT = ArrowStream`
+    context.output_format = "ArrowStream"
+    arrow_prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+        query_node, context=context, dialect="clickhouse", stack=[]
+    )
+
+    if arrow_prepared_hogql_query is None:
+        raise EmptyHogQLResponseColumnsError()
+
+    arrow_printed = await database_sync_to_async(print_prepared_ast)(
+        arrow_prepared_hogql_query,
+        context=context,
+        dialect="clickhouse",
+        stack=[],
+    )
+
+    await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
     async with get_client() as client:
-        batch_size_mb = 200
-        async for batch, pa_schema in client.astream_query_in_batches(
-            printed, query_parameters=context.values, batch_size_mb=batch_size_mb
-        ):
-            await logger.adebug(f"Processing {batch_size_mb} MB batch. Batch rows count: {len(batch)}")
-            yield table_from_py_list(batch, pa_schema)
-
-
-def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogger) -> pa.Table:
-    """
-    Transform high-precision decimal columns to types supported by Delta Lake.
-    Delta Lake supports decimal types up to precision 38, but ClickHouse can return
-    Decimal256 types with 76 digit precision.
-    """
-    schema = batch.schema
-    columns_to_cast = {}
-
-    precision = 38
-    scale = 38 - 1
-
-    for field in schema:
-        if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
-            if field.type.precision > 38:
-                original_scale = field.type.scale
-                new_scale = min(original_scale, scale)
-                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
-
-    if not columns_to_cast:
-        return batch
-
-    new_columns: list[pa.ChunkedArray] = []
-    new_fields: list[pa.Field] = []
-    for field in batch.schema:
-        if field.name in columns_to_cast:
-            column_data = batch[field.name]
-            decimal128_type = columns_to_cast[field.name]
-            try:
-                cast_column_decimal = pc.cast(column_data, decimal128_type)
-                new_fields.append(field.with_type(decimal128_type))
-                new_columns.append(cast_column_decimal)
-            except Exception:
-                reduced_decimal_type = pa.decimal128(precision, scale)
-                string_column = pc.cast(column_data, pa.string())
-                truncated_string = pc.utf8_slice_codeunits(typing.cast(pa.StringArray, string_column), 0, precision)
-                cast_column_reduced = pc.cast(truncated_string, reduced_decimal_type)
-                new_fields.append(field.with_type(reduced_decimal_type))
-                new_columns.append(pa.chunked_array([cast_column_reduced]))
-        else:
-            new_fields.append(field)
-            new_columns.append(batch[field.name])
-
-    new_metadata: dict[str | bytes, str | bytes] | None = (
-        typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
-    )
-    return pa.Table.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
+        async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
+            yield batch
 
 
 def _get_credentials():
