@@ -3,7 +3,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { HighlightableJSONViewer } from 'lib/components/HighlightableJSONViewer'
+import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
@@ -98,14 +98,14 @@ export function ConversationMessagesDisplay({
         <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
-                <HighlightableJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
+                <HighlightedJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
             ) : (
                 <span className="font-mono">
                     {(() => {
                         try {
                             const parsedJson = JSON.parse(output)
                             return isObject(parsedJson) ? (
-                                <HighlightableJSONViewer src={parsedJson} collapsed={5} searchQuery={searchQuery} />
+                                <HighlightedJSONViewer src={parsedJson} collapsed={5} searchQuery={searchQuery} />
                             ) : (
                                 JSON.stringify(output ?? null)
                             )
@@ -270,7 +270,7 @@ export const LLMMessageDisplay = React.memo(
                                         }}
                                     />
                                 ) : (
-                                    <HighlightableJSONViewer
+                                    <HighlightedJSONViewer
                                         src={item}
                                         name={null}
                                         collapsed={5}
@@ -307,7 +307,7 @@ export const LLMMessageDisplay = React.memo(
                     }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return (
-                            <HighlightableJSONViewer src={parsed} name={null} collapsed={5} searchQuery={searchQuery} />
+                            <HighlightedJSONViewer src={parsed} name={null} collapsed={5} searchQuery={searchQuery} />
                         )
                     }
                 } catch {
@@ -402,7 +402,7 @@ export const LLMMessageDisplay = React.memo(
                 {show && !!content && <div className="p-2 border-t">{renderMessageContent(content, searchQuery)}</div>}
                 {show && Object.keys(additionalKwargsEntries).length > 0 && (
                     <div className="p-2 text-xs border-t">
-                        <HighlightableJSONViewer
+                        <HighlightedJSONViewer
                             src={additionalKwargsEntries}
                             name={null}
                             collapsed={5}

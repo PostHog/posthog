@@ -3,11 +3,11 @@ import { useEffect, useRef } from 'react'
 
 import { JSONViewer } from './JSONViewer'
 
-interface HighlightableJSONViewerProps extends ReactJsonViewProps {
+interface HighlightedJSONViewerProps extends ReactJsonViewProps {
     searchQuery?: string
 }
 
-export function HighlightableJSONViewer({ searchQuery, ...props }: HighlightableJSONViewerProps): JSX.Element {
+export function HighlightedJSONViewer({ searchQuery, ...props }: HighlightedJSONViewerProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
 
     // Check if the JSON contains the search query to determine if we should expand it
