@@ -86,7 +86,8 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                                         from the previous group will fall under the new definition.
                                         <br />
                                         <br />
-                                        Make sure to update your event triggers before deleting the group type.
+                                        Make sure to update the event triggers in your code before deleting the group
+                                        type.
                                         <br />
                                         <br />
                                         For more information about groups, see{' '}
