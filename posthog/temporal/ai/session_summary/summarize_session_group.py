@@ -435,7 +435,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 f"{len(chunks) - len(redis_keys_of_chunks_to_combine)}/{len(chunks)} chunks failed"
             )
         # If enough chunks succeeded - combine patterns extracted from chunks in a single list
-        # TODO: Define proper text
         self._current_status = "Combining similar behavior patterns into groups"
         await temporalio.workflow.execute_activity(
             combine_patterns_from_chunks_activity,
