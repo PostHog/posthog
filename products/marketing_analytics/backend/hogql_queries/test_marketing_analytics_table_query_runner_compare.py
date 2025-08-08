@@ -27,7 +27,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_tabl
     MarketingAnalyticsTableQueryRunner,
 )
 
-TEST_DATE_FROM = "2024-01-01"
+TEST_DATE_FROM = "2024-11-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
 DEFAULT_LIMIT = 100
@@ -71,7 +71,7 @@ def _create_action(team, name: str = "test_action") -> Action:
     )
 
 
-class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTest):
+class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -222,6 +222,10 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             "orderBy": None,
             "draftConversionGoal": None,
             "properties": [],
+            "compareFilter": {
+                "compare": True,
+                "compare_to": "-2m",
+            },
         }
         defaults.update(overrides)
         return MarketingAnalyticsTableQuery(**defaults)
@@ -271,96 +275,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert len(response.results) == 0
         assert response.hasMore is False
 
-    def test_facebook_ads_single_source_execution(self):
-        """Test Facebook Ads single source execution with real data."""
-        facebook_info = self._setup_csv_table("facebook_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                },
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        query = self._create_basic_query()
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        assert isinstance(response, MarketingAnalyticsTableQueryResponse)
-        assert response.results is not None
-        assert len(response.results) == 5, f"Expected 5 campaigns from CSV, got {len(response.results)}"
-
-        total_cost = sum(float(row[2] or 0) for row in response.results)
-        total_clicks = sum(int(row[3] or 0) for row in response.results)
-        total_impressions = sum(int(row[4] or 0) for row in response.results)
-
-        assert round(total_cost, 2) == 18.66, f"Expected cost $18.66, got ${total_cost}"
-        assert total_impressions == 1676, f"Expected {1676} impressions, got {total_impressions}"
-        assert total_clicks == 12, f"Expected {12} clicks, got {total_clicks}"
-
-        overall_cpc = self._calculate_cpc(total_cost, total_clicks)
-        overall_cpm = self._calculate_cpm(total_cost, total_impressions)
-        overall_ctr = self._calculate_ctr(total_clicks, total_impressions)
-
-        assert round(overall_cpc, 3) == 1.555, f"Expected CPC $1.555, got ${round(overall_cpc, 3)}"
-        assert round(overall_cpm, 2) == 11.13, f"Expected CPM $11.13, got ${round(overall_cpm, 2)}"
-        assert round(overall_ctr, 3) == 0.716, f"Expected CTR 0.716%, got {round(overall_ctr, 3)}%"
-
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
-
-    def test_facebook_only_multi_source_execution(self):
-        """Test query runner with only Facebook source."""
-        facebook_info = self._setup_csv_table("facebook_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        query = self._create_basic_query()
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        assert isinstance(response, MarketingAnalyticsTableQueryResponse)
-        assert response.results is not None
-        assert len(response.results) == 5, f"Expected 5 Facebook campaigns, got {len(response.results)}"
-
-        # Verify all results are from Facebook
-        sources = [row[1] for row in response.results]
-        assert all(source == "Facebook Ads" for source in sources), f"Expected all Facebook sources, got {sources}"
-
-        total_cost = sum(float(row[2] or 0) for row in response.results)
-        total_clicks = sum(int(row[3] or 0) for row in response.results)
-        total_impressions = sum(int(row[4] or 0) for row in response.results)
-
-        assert round(total_cost, 2) == 18.66, f"Expected Facebook cost $18.66, got ${total_cost}"
-        assert total_impressions == 1676, f"Expected Facebook impressions 1676, got {total_impressions}"
-        assert total_clicks == 12, f"Expected Facebook clicks 12, got {total_clicks}"
-
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
-
-    def test_multi_source_business_metrics_validation(self):
+    def test_multi_source_business_metrics_validation_with_compare(self):
         """Test business metrics validation across multiple sources."""
         facebook_info = self._setup_csv_table("facebook_ads")
         tiktok_info = self._setup_csv_table("tiktok_ads")
@@ -415,198 +330,6 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             "query": pretty_print_in_tests(response.hogql, self.team.pk),
         } == self.snapshot
 
-    def test_cost_efficiency_analysis(self):
-        facebook_info = self._setup_csv_table("facebook_ads")
-        tiktok_info = self._setup_csv_table("tiktok_ads")
-        linkedin_info = self._setup_csv_table("linkedin_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
-            },
-            {
-                "table_id": tiktok_info.table.id,
-                "source_map": {
-                    "campaign": "campaign2",
-                    "source": "source2",
-                    "cost": "spend2",
-                    "date": "date2",
-                    "impressions": "impressions2",
-                    "clicks": "clicks2",
-                    "currency": "USD",
-                },
-            },
-            {
-                "table_id": linkedin_info.table.id,
-                "source_map": {
-                    "campaign": "campaign3",
-                    "source": "source3",
-                    "cost": "spend3",
-                    "date": "date3",
-                    "impressions": "impressions3",
-                    "clicks": "clicks3",
-                    "currency": "USD",
-                },
-            },
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        query = self._create_basic_query(orderBy=[["Total Clicks", "DESC"]])
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        source_efficiency = {}
-        for row in response.results:
-            source = row[1]
-            cost = float(row[2] or 0)
-            clicks = int(row[3] or 0)
-            impressions = int(row[4] or 0)
-
-            if source not in source_efficiency:
-                source_efficiency[source] = {
-                    "campaigns": [],
-                    "total_cost": 0,
-                    "total_clicks": 0,
-                    "total_impressions": 0,
-                }
-
-            source_efficiency[source]["campaigns"].append(
-                {
-                    "campaign": row[0],
-                    "cost": cost,
-                    "clicks": clicks,
-                    "impressions": impressions,
-                    "cpc": self._calculate_cpc(cost, clicks),
-                    "cpm": self._calculate_cpm(cost, impressions),
-                    "ctr": self._calculate_ctr(clicks, impressions),
-                }
-            )
-
-            source_efficiency[source]["total_cost"] += cost
-            source_efficiency[source]["total_clicks"] += clicks
-            source_efficiency[source]["total_impressions"] += impressions
-
-        for source, data in source_efficiency.items():
-            campaigns_with_clicks = [c for c in data["campaigns"] if c["clicks"] > 0]
-            if source == "Facebook Ads":
-                assert (
-                    len(campaigns_with_clicks) == 4
-                ), f"Expected 4 Facebook campaigns with clicks, got {len(campaigns_with_clicks)}"
-            elif source == "TikTok Ads":
-                assert (
-                    len(campaigns_with_clicks) == 4
-                ), f"Expected 4 TikTok campaigns with clicks, got {len(campaigns_with_clicks)}"
-            elif source == "LinkedIn Ads":
-                assert (
-                    len(campaigns_with_clicks) == 8
-                ), f"Expected 8 LinkedIn campaigns with clicks, got {len(campaigns_with_clicks)}"
-
-            best_cpc_campaign = min(campaigns_with_clicks, key=lambda x: x["cpc"])
-            worst_cpc_campaign = max(campaigns_with_clicks, key=lambda x: x["cpc"])
-
-            assert best_cpc_campaign["cpc"] <= worst_cpc_campaign["cpc"], f"{source} best CPC should be <= worst CPC"
-
-    def test_zero_cost_campaigns_handling(self):
-        tiktok_info = self._setup_csv_table("tiktok_ads")
-
-        source_configs = [
-            {
-                "table_id": tiktok_info.table.id,
-                "source_map": {
-                    "campaign": "campaign2",
-                    "source": "source2",
-                    "cost": "spend2",
-                    "date": "date2",
-                    "impressions": "impressions2",
-                    "clicks": "clicks2",
-                    "currency": "USD",
-                },
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        query = self._create_basic_query()
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        zero_cost_campaigns = [row for row in response.results if float(row[2] or 0) == 0]
-        paid_campaigns = [row for row in response.results if float(row[2] or 0) != 0]
-
-        assert len(zero_cost_campaigns) == 5, f"Expected 5 zero-cost campaigns, got {len(zero_cost_campaigns)}"
-        assert len(paid_campaigns) == 4, f"Expected 4 paid campaigns, got {len(paid_campaigns)}"
-
-        # Check total impressions and clicks for zero-cost campaigns
-        total_zero_total_impressions = sum(int(row[4] or 0) for row in zero_cost_campaigns)
-        total_zero_total_clicks = sum(int(row[3] or 0) for row in zero_cost_campaigns)
-
-        assert (
-            total_zero_total_impressions == 56
-        ), f"Expected 56 total impressions for zero-cost campaigns, got {total_zero_total_impressions}"
-        assert (
-            total_zero_total_clicks == 0
-        ), f"Expected 0 total clicks for zero-cost campaigns, got {total_zero_total_clicks}"
-
-    def test_pagination_basic(self):
-        linkedin_info = self._setup_csv_table("linkedin_ads")
-
-        source_configs = [
-            {
-                "table_id": linkedin_info.table.id,
-                "source_map": {
-                    "campaign": "campaign3",
-                    "source": "source3",
-                    "cost": "spend3",
-                    "date": "date3",
-                    "impressions": "impressions3",
-                    "clicks": "clicks3",
-                    "currency": "USD",
-                },
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        query = self._create_basic_query(limit=5, offset=0)
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        assert len(response.results) == 5, "Should return exactly 5 results"
-        assert response.hasMore is True, "Should have more results available"
-        assert response.limit == 5, "Limit should be 5"
-        assert response.offset == 0, "Offset should be 0"
-
-        query_page2 = self._create_basic_query(limit=5, offset=5)
-        runner_page2 = MarketingAnalyticsTableQueryRunner(
-            query=query_page2,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
-
-        response_page2 = runner_page2.calculate()
-
-        assert len(response_page2.results) == 4, "Page 2 should return exactly 4 results"
-        assert response_page2.offset == 5, "Page 2 offset should be 5"
-
-        page1_campaigns = [row[0] for row in response.results]
-        page2_campaigns = [row[0] for row in response_page2.results]
-
-        assert set(page1_campaigns).isdisjoint(
-            set(page2_campaigns)
-        ), "Page 1 and Page 2 should have different campaigns"
-
     def test_pagination_edge_cases(self):
         facebook_info = self._setup_csv_table("facebook_ads")
 
@@ -647,50 +370,6 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
         assert len(response_beyond.results) == 0, "Should return empty results when offset exceeds data"
         assert response_beyond.hasMore is False, "Should not have more results when offset exceeds data"
-
-    def test_date_range_filtering(self):
-        facebook_info = self._setup_csv_table("facebook_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        query = self._create_basic_query(dateRange=DateRange(date_from="2024-12-01", date_to="2024-12-31"))
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        assert len(response.results) == 4, "Should have 4 Facebook campaigns in December 2024"
-
-        query_narrow = self._create_basic_query(dateRange=DateRange(date_from="2024-12-15", date_to="2024-12-15"))
-        runner_narrow = MarketingAnalyticsTableQueryRunner(
-            query=query_narrow,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
-
-        response_narrow = runner_narrow.calculate()
-
-        assert len(response_narrow.results) == 1, "Should have exactly 1 campaign from Dec 15"
-        actual_campaigns = [row[0] for row in response_narrow.results]
-        expected_campaigns = ["test_brand_campaign"]
-        assert any(
-            campaign in expected_campaigns for campaign in actual_campaigns
-        ), "Should have expected campaigns from Dec 15"
 
     def test_invalid_table_configuration(self):
         source_configs = [
@@ -901,149 +580,3 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert total_impressions == 546, f"Expected 546 impressions, got {total_impressions}"
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
-
-    def test_query_performance_single_source(self):
-        linkedin_info = self._setup_csv_table("linkedin_ads")
-
-        source_configs = [
-            {
-                "table_id": linkedin_info.table.id,
-                "source_map": {
-                    "campaign": "campaign3",
-                    "source": "source3",
-                    "cost": "spend3",
-                    "date": "date3",
-                    "impressions": "impressions3",
-                    "clicks": "clicks3",
-                    "currency": "USD",
-                },
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        query = self._create_basic_query()
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        assert isinstance(response, MarketingAnalyticsTableQueryResponse)
-        assert len(response.results) == 9, "Should return exactly 9 LinkedIn campaigns"
-
-    def test_query_performance_multi_source(self):
-        facebook_info = self._setup_csv_table("facebook_ads")
-        tiktok_info = self._setup_csv_table("tiktok_ads")
-        linkedin_info = self._setup_csv_table("linkedin_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
-            },
-            {
-                "table_id": tiktok_info.table.id,
-                "source_map": {
-                    "campaign": "campaign2",
-                    "source": "source2",
-                    "cost": "spend2",
-                    "date": "date2",
-                    "impressions": "impressions2",
-                    "clicks": "clicks2",
-                    "currency": "USD",
-                },
-            },
-            {
-                "table_id": linkedin_info.table.id,
-                "source_map": {
-                    "campaign": "campaign3",
-                    "source": "source3",
-                    "cost": "spend3",
-                    "date": "date3",
-                    "impressions": "impressions3",
-                    "clicks": "clicks3",
-                    "currency": "USD",
-                },
-            },
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        query = self._create_basic_query()
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        assert isinstance(response, MarketingAnalyticsTableQueryResponse)
-        assert len(response.results) == 23, "Should return exactly 23 total campaigns"
-
-
-# Standalone parametrized test that works with pytest
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "test_name,order_by,expected_sort_reverse",
-    [
-        ("cost", [["Total Cost", "DESC"]], True),
-        ("clicks", [["Total Clicks", "DESC"]], True),
-        ("impressions", [["Total Impressions", "DESC"]], True),
-        ("campaign", [["Campaign", "ASC"]], False),
-    ],
-)
-def test_campaign_performance_ranking(test_name, order_by, expected_sort_reverse):
-    """Test campaign performance ranking with different ordering scenarios using pytest parametrize."""
-    # Create test instance to access helper methods
-    test_instance = TestMarketingAnalyticsTableQueryRunnerBusiness()
-    test_instance.setUpClass()
-    test_instance.setUp()
-
-    try:
-        facebook_info = test_instance._setup_csv_table("facebook_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
-            }
-        ]
-        test_instance._setup_team_source_configs(source_configs)
-
-        query = test_instance._create_basic_query(orderBy=order_by)
-        runner = get_default_query_runner(query, test_instance.team)
-
-        response = runner.calculate()
-
-        assert len(response.results) == 5, f"Should have 5 Facebook campaigns for {test_name} ordering"
-
-        # Extract values based on test_name
-        if test_name == "cost":
-            values = [float(row[2] or 0) for row in response.results]
-        elif test_name == "clicks":
-            values = [int(row[3] or 0) for row in response.results]
-        elif test_name == "impressions":
-            values = [int(row[4] or 0) for row in response.results]
-        elif test_name == "campaign":
-            values = [row[0] for row in response.results]
-        else:
-            raise ValueError(f"Unknown test_name: {test_name}")
-
-        # Verify ordering
-        expected_values = sorted(values, reverse=expected_sort_reverse)
-        assert (
-            values == expected_values
-        ), f"{test_name} should be in {'descending' if expected_sort_reverse else 'ascending'} order. Got {values}, expected {expected_values}"
-    finally:
-        test_instance.tearDown()
-        test_instance.tearDownClass()
