@@ -4,7 +4,6 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -151,16 +150,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse, s.user, s.featureFlags],
-            (filters, templates, templatesFuse, user, featureFlags): HogFunctionTemplateType[] => {
+            (s) => [s.filters, s.templates, s.templatesFuse, s.user],
+            (filters, templates, templatesFuse, user): HogFunctionTemplateType[] => {
                 const { search } = filters
 
-                const flagComingSoon = !!featureFlags[FEATURE_FLAGS.SHOW_COMING_SOON_DESTINATIONS]
-
                 return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter(
-                    (x) =>
-                        shouldShowHogFunctionTemplate(x, user) &&
-                        (x.status === 'coming_soon' ? search && flagComingSoon : true)
+                    (x) => shouldShowHogFunctionTemplate(x, user) && (x.status === 'coming_soon' ? search : true)
                 )
             },
         ],

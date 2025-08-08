@@ -54,7 +54,7 @@ export interface RawPostgresPersonRepository {
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
 
-    personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number>
+    personPropertiesSize(personId: string): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],

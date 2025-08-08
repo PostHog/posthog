@@ -4,39 +4,36 @@ import hashlib
 import json
 from typing import Optional
 
-from django.utils.crypto import get_random_string
 import posthoganalytics
+from django.core.cache import cache
+from django.utils.crypto import get_random_string
+from google.genai.types import GenerateContentConfig, Schema
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
+from posthoganalytics.ai.gemini import genai
+from posthoganalytics.ai.openai import OpenAI
+from rest_framework import exceptions, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework import viewsets, response
-from django.core.cache import cache
-from rest_framework import serializers, exceptions
-from openai.types.chat import (
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-    ChatCompletionMessageParam,
-)
-from posthoganalytics.ai.openai import OpenAI
-from posthoganalytics.ai.gemini import genai
-from google.genai.types import GenerateContentConfig, Schema
 
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.cloud_utils import get_api_host
-from posthog.permissions import APIScopePermission
-from posthog.rate_limit import SetupWizardQueryRateThrottle, SetupWizardAuthenticationRateThrottle
-from rest_framework.exceptions import AuthenticationFailed
 from posthog.models.project import Project
+from posthog.permissions import APIScopePermission
+from posthog.rate_limit import SetupWizardAuthenticationRateThrottle, SetupWizardQueryRateThrottle
 from posthog.user_permissions import UserPermissions
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
-SETUP_WIZARD_DEFAULT_MODEL = "o4-mini"
+SETUP_WIZARD_DEFAULT_MODEL = "gpt-5-mini"
 
-OPENAI_SUPPORTED_MODELS = {
-    "o4-mini",
-}
+OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 
 # Supported Gemini models
 GEMINI_SUPPORTED_MODELS = {

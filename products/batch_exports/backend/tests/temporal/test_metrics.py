@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import uuid
 from unittest import mock
@@ -7,6 +8,7 @@ import pytest
 import pytest_asyncio
 import temporalio.client
 from django.conf import settings
+from structlog.testing import capture_logs
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
@@ -20,6 +22,7 @@ from posthog.temporal.tests.utils.models import (
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     PostgresBatchExportInputs,
 )
+from products.batch_exports.backend.temporal.metrics import SLAWaiter
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -149,3 +152,23 @@ async def test_interceptor_calls_histogram_metrics(
         expected_calls = [mock.call(1)] * number_of_add_calls
 
         assert mocked_meter.return_value.create_counter.return_value.add.mock_calls == expected_calls
+
+
+async def test_sla_waiter():
+    with capture_logs() as cap_logs:
+        async with SLAWaiter(name="test", sla=dt.timedelta(seconds=1)) as detector:
+            await asyncio.sleep(3)
+
+            assert detector.is_over_sla()
+
+    assert "%(name)s has been running longer than SLA of %(sla_seconds)ds" == cap_logs[0]["event"]
+    assert "test" == cap_logs[0]["name"]
+    assert 1 == cap_logs[0]["sla_seconds"]
+
+    with capture_logs() as cap_logs:
+        async with SLAWaiter(name="test", sla=dt.timedelta(seconds=3)) as detector:
+            await asyncio.sleep(1)
+
+            assert detector.is_over_sla() is False
+
+    assert not cap_logs
