@@ -1,4 +1,3 @@
-import math
 import structlog
 from datetime import datetime
 from typing import Optional
@@ -46,13 +45,6 @@ class S3QueryCacheManager(QueryCacheManagerBase):
         """Generate S3 object key for cache data."""
         return f"query_cache/{self.team_id}/{self.cache_key}"
 
-    def _calculate_ttl_days(self, ttl_seconds: int) -> int:
-        """
-        Calculate TTL in days for S3 lifecycle rules.
-        S3 lifecycle rules work in days, so we round up to ensure data isn't expired too early.
-        """
-        return max(1, math.ceil(ttl_seconds / 86400))  # 86400 seconds = 1 day
-
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
         """Store query results in S3 with lifecycle-based TTL."""
         try:
@@ -60,8 +52,7 @@ class S3QueryCacheManager(QueryCacheManagerBase):
             content = OrjsonJsonSerializer({}).dumps(response).decode("utf-8")
 
             # Calculate TTL in days for S3 lifecycle rules
-            ttl_seconds = getattr(settings, "CACHED_RESULTS_TTL", 86400)  # Default 1 day
-            ttl_days = self._calculate_ttl_days(ttl_seconds)
+            ttl_days = settings.CACHED_RESULTS_TTL_DAYS
 
             # Add S3 object tags for lifecycle management
             extras = {"Tagging": f"ttl_days={ttl_days}&cache_type=query_data&team_id={self.team_id}"}
@@ -83,7 +74,6 @@ class S3QueryCacheManager(QueryCacheManagerBase):
                 self.remove_last_refresh()
 
         except Exception as e:
-            logger.exception("s3_query_cache.set_failed", team_id=self.team_id, cache_key=self.cache_key, error=str(e))
             capture_exception(e)
             raise ObjectStorageError("Failed to set cache data") from e
 
@@ -112,11 +102,5 @@ class S3QueryCacheManager(QueryCacheManagerBase):
             return result
 
         except Exception as e:
-            logger.warning(
-                "s3_query_cache.get_failed",
-                team_id=self.team_id,
-                cache_key=self.cache_key,
-                error=str(e),
-            )
             capture_exception(e)
             return None
