@@ -1073,9 +1073,16 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         posthoganalytics.tag("recording_location", "recording.full_recording_v2_path")
                         LOADING_V2_LTS_COUNTER.inc()
                         try:
-                            blob_prefix = recording.full_recording_v2_path
-                            blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                            might_have_realtime = False
+                            # Parse S3 URL to extract prefix (path without query parameters)
+                            # Example: s3://bucket/path?range=bytes=0-1372588 -> path
+                            # s3://posthog-cloud-prod-us-east-1-session-recordings/session_recordings_lts_1y/{uuid}?range=bytes=0-14468
+                            # for now we can ignore that v2 is in a different bucket and just use the path
+                            sources.append(
+                                {
+                                    "source": "blob_v2",
+                                    "blob_key": urlparse(recording.full_recording_v2_path).path,
+                                }
+                            )
                         except Exception as e:
                             capture_exception(e)
                     else:
@@ -1095,6 +1102,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 with timer("list_objects__gather_session_recording_sources"):
                     if recording.object_storage_path:
                         LOADING_V1_LTS_COUNTER.inc()
+                        # like session_recordings_lts/team_id/{team_id}/session_id/{uuid}/data
+                        # /data has 1 to n files (it should be 1, but we support multiple files)
+                        # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
                         blob_prefix = recording.object_storage_path
                         blob_keys = object_storage.list_objects(cast(str, blob_prefix))
                         might_have_realtime = False
@@ -1119,27 +1129,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             }
                         )
                 if sources:
-                    sources = sorted(sources, key=lambda x: x["start_timestamp"])
-                    oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                    newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
-
-                    if might_have_realtime:
-                        might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
+                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", None))
 
                 if might_have_realtime and not is_v2_enabled:
-                    sources.append(
-                        {
-                            "source": "realtime",
-                            "start_timestamp": newest_timestamp,
-                            "end_timestamp": None,
-                        }
-                    )
+                    oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+                    newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
 
-                    # the UI will use this to try to load realtime snapshots
-                    # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                    # it takes a short while for the subscription to be sync'd into redis
-                    # let's use the network round trip time to get started
-                    publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+                    # if the oldest timestamp is more than 24 hours ago, we don't expect realtime snapshots
+                    if might_have_realtime:
+                        sources.append(
+                            {
+                                "source": "realtime",
+                                "start_timestamp": newest_timestamp,
+                                "end_timestamp": None,
+                            }
+                        )
+
+                        # the UI will use this to try to load realtime snapshots
+                        # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                        # it takes a short while for the subscription to be sync'd into redis
+                        # let's use the network round trip time to get started
+                        publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
                 response_data["sources"] = sources
 

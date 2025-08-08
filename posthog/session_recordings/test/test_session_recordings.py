@@ -1685,26 +1685,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_v2_list_blocks: MagicMock,
     ) -> None:
         session_id = str(uuid7())
-        timestamp = round(now().timestamp() * 1000)
 
         SessionRecording.objects.create(
             team=self.team,
             session_id=session_id,
             deleted=False,
             storage_version="2023-08-01",
-            full_recording_v2_path="an lts stored object path",
+            full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
         )
 
         def list_objects_func(path: str) -> list[str]:
-            # this mock simulates a recording whose blob storage has been deleted by TTL
-            # but which has been stored in LTS blob storage
-            if path == "an lts stored object path":
-                return [
-                    f"an lts stored object path/{timestamp - 10000}-{timestamp - 5000}",
-                    f"an lts stored object path/{timestamp - 5000}-{timestamp}",
-                ]
-            else:
-                return []
+            # we're not expecting to call this, since we know all the data in the stored path
+            raise Exception("we should not call list_objects for the LTS path")
 
         mock_list_objects.side_effect = list_objects_func
 
@@ -1717,22 +1709,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data == {
             "sources": [
                 {
-                    "source": "blob",
-                    "start_timestamp": "2022-12-31T23:59:50Z",
-                    "end_timestamp": "2022-12-31T23:59:55Z",
-                    "blob_key": "1672531190000-1672531195000",
-                },
-                {
-                    "source": "blob",
-                    "start_timestamp": "2022-12-31T23:59:55Z",
-                    "end_timestamp": "2023-01-01T00:00:00Z",
-                    "blob_key": "1672531195000-1672531200000",
+                    "source": "blob_v2",
+                    "blob_key": "/the_lts_path/the_session_uuid",
+                    # it's ok for these to be None, since we don't use the data anyway
+                    # and this key is the whole session
+                    "start_timestamp": None,
+                    "end_timestamp": None,
                 },
             ]
         }
-        assert mock_list_objects.call_args_list == [
-            call("an lts stored object path"),
-        ]
+        mock_list_objects.assert_not_called()
 
     def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
         """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""
