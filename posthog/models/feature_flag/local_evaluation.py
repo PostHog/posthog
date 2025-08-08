@@ -32,7 +32,7 @@ flags_without_cohorts_hypercache = HyperCache(
 )
 
 
-def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict:
+def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict | None:
     return (
         flags_hypercache.get_from_cache(team)
         if include_cohorts

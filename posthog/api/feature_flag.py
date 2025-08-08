@@ -1228,6 +1228,9 @@ class FeatureFlagViewSet(
             )
             response_data = get_flags_response_for_local_evaluation(self.team, include_cohorts)
 
+            if not response_data:
+                raise Exception("No response data")
+
             flag_keys = [flag["id"] for flag in response_data["flags"]]
 
             # Add request for analytics
