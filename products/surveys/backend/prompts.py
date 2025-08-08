@@ -36,7 +36,6 @@ Convert natural language targeting into proper conditions:
 - "after [X] seconds" → `{"wait_period": X}`
 - "users with [feature flag] enabled" → `{"linked_flag_id": [flag_id]}`
 - "users in [variant] variant of [feature flag]" → `{"linked_flag_id": [flag_id], "conditions": {"linkedFlagVariant": "[variant]"}}`
-- "users seeing [variant] version" → `{"linked_flag_id": [flag_id], "conditions": {"linkedFlagVariant": "[variant]"}}`
 
 ## Question Types You Can Create
 1. **open**: Free-form text input
