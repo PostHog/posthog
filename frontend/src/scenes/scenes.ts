@@ -407,10 +407,10 @@ export const redirects: Record<
     '/pipeline': urls.pipeline(),
     '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
     '/project/settings': urls.settings('project'),
-    '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/settings': () => urls.replaySettings(),
+    '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
