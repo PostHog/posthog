@@ -7,7 +7,7 @@ from django.db.models import Model
 from pydantic import BaseModel
 from pydantic_avro import AvroBase
 
-from posthog.models import DataWarehouseTable, PropertyDefinition, Team
+from posthog.models import DataWarehouseTable, GroupTypeMapping, PropertyDefinition, Team
 from posthog.schema import EventTaxonomyItem, TeamTaxonomyItem
 
 
@@ -31,7 +31,9 @@ class BaseSchema(AvroBase, ABC, Generic[T]):
 
     @classmethod
     @abstractmethod
-    def deserialize_for_project(cls, project_id: int, models: Sequence[Self]) -> Generator[T, None, None]:
+    def deserialize_for_project(
+        cls, project_id: int, models: Sequence[Self], *, team_id: int
+    ) -> Generator[T, None, None]:
         raise NotImplementedError
 
 
@@ -45,7 +47,7 @@ class TeamSchema(BaseSchema[Team]):
         yield TeamSchema(name=team.name, test_account_filters=json.dumps(team.test_account_filters))
 
     @classmethod
-    def deserialize_for_project(cls, project_id: int, models: Sequence[Self]) -> Generator[Team, None, None]:
+    def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs) -> Generator[Team, None, None]:
         for model in models:
             yield Team(id=project_id, name=model.name, test_account_filters=json.loads(model.test_account_filters))
 
@@ -70,7 +72,7 @@ class PropertyDefinitionSchema(BaseSchema[PropertyDefinition]):
             )
 
     @classmethod
-    def deserialize_for_project(cls, project_id: int, models: Sequence[Self]):
+    def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs):
         for model in models:
             yield PropertyDefinition(
                 name=model.name,
@@ -79,6 +81,35 @@ class PropertyDefinitionSchema(BaseSchema[PropertyDefinition]):
                 type=model.type,
                 group_type_index=model.group_type_index,
                 team_id=project_id,
+            )
+
+
+class GroupTypeMappingSchema(BaseSchema[GroupTypeMapping]):
+    group_type: str
+    group_type_index: int
+    name_singular: str
+    name_plural: str
+
+    @classmethod
+    def serialize_for_project(cls, project_id: int):
+        for mapping in GroupTypeMapping.objects.filter(project_id=project_id).iterator(500):
+            yield GroupTypeMappingSchema(
+                group_type=mapping.group_type,
+                group_type_index=mapping.group_type_index,
+                name_singular=mapping.name_singular,
+                name_plural=mapping.name_plural,
+            )
+
+    @classmethod
+    def deserialize_for_project(cls, project_id: int, models: Sequence[Self], *, team_id: int):
+        for model in models:
+            yield GroupTypeMapping(
+                group_type=model.group_type,
+                group_type_index=model.group_type_index,
+                name_singular=model.name_singular,
+                name_plural=model.name_plural,
+                team_id=team_id,
+                project_id=project_id,
             )
 
 

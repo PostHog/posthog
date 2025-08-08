@@ -16,11 +16,12 @@ from pydantic_avro import AvroBase
 from ee.hogai.eval.schema import (
     DataWarehouseTableSchema,
     EvalsDockerImageConfig,
+    GroupTypeMappingSchema,
     ProjectSnapshot,
     PropertyDefinitionSchema,
     TeamSchema,
 )
-from posthog.models import Organization, Project, PropertyDefinition, Team, User
+from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
 from posthog.schema import TeamTaxonomyItem
 from posthog.warehouse.models.table import DataWarehouseTable
 
@@ -55,6 +56,7 @@ class SnapshotLoader:
             (
                 project_snapshot_bytes,
                 property_definitions_snapshot_bytes,
+                group_type_mappings_snapshot_bytes,
                 data_warehouse_tables_snapshot_bytes,
                 event_taxonomy_snapshot_bytes,
                 properties_taxonomy_snapshot_bytes,
@@ -63,6 +65,7 @@ class SnapshotLoader:
             team = await self._load_project_snapshot(project, snapshot.project, project_snapshot_bytes)
             await asyncio.gather(
                 self._load_property_definitions(team, property_definitions_snapshot_bytes),
+                self._load_group_type_mappings(team, group_type_mappings_snapshot_bytes),
                 self._load_data_warehouse_tables(team, data_warehouse_tables_snapshot_bytes),
             )
         return self.organization, self.user
@@ -78,6 +81,7 @@ class SnapshotLoader:
             loaded_snapshots = await asyncio.gather(
                 self._get_snapshot_from_s3(client, snapshot.postgres.project),
                 self._get_snapshot_from_s3(client, snapshot.postgres.property_definitions),
+                self._get_snapshot_from_s3(client, snapshot.postgres.group_type_mappings),
                 self._get_snapshot_from_s3(client, snapshot.postgres.data_warehouse_tables),
                 self._get_snapshot_from_s3(client, snapshot.clickhouse.event_taxonomy),
                 self._get_snapshot_from_s3(client, snapshot.clickhouse.properties_taxonomy),
@@ -106,6 +110,11 @@ class SnapshotLoader:
         snapshot = list(self._parse_snapshot_to_schema(PropertyDefinitionSchema, buffer))
         property_definitions = PropertyDefinitionSchema.deserialize_for_project(team.id, snapshot)
         return await PropertyDefinition.objects.abulk_create(property_definitions, batch_size=500)
+
+    async def _load_group_type_mappings(self, team: Team, buffer: BytesIO):
+        snapshot = list(self._parse_snapshot_to_schema(GroupTypeMappingSchema, buffer))
+        group_type_mappings = GroupTypeMappingSchema.deserialize_for_project(team.id, snapshot)
+        return await GroupTypeMapping.objects.abulk_create(group_type_mappings, batch_size=500)
 
     async def _load_data_warehouse_tables(self, team: Team, buffer: BytesIO):
         snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSchema, buffer))

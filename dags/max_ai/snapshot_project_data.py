@@ -14,6 +14,7 @@ from dags.max_ai.utils import compose_clickhouse_dump_path, compose_postgres_dum
 from ee.hogai.eval.schema import (
     ClickhouseProjectDataSnapshot,
     DataWarehouseTableSchema,
+    GroupTypeMappingSchema,
     PostgresProjectDataSnapshot,
     PropertyDefinitionSchema,
     PropertyTaxonomySchema,
@@ -68,6 +69,13 @@ def snapshot_property_definitions(s3: S3Resource, project_id: int) -> SnapshotMo
     return "property_definitions", file_key
 
 
+def snapshot_group_type_mappings(s3: S3Resource, project_id: int) -> SnapshotModelOutput:
+    file_key = compose_postgres_dump_path(project_id, "group_type_mappings.avro")
+    with dump_model(s3=s3, schema=GroupTypeMappingSchema, file_key=file_key) as dump:
+        dump(GroupTypeMappingSchema.serialize_for_project(project_id))
+    return "group_type_mappings", file_key
+
+
 def snapshot_data_warehouse_tables(s3: S3Resource, project_id: int):
     file_key = compose_postgres_dump_path(project_id, "dwh_tables.avro")
     with dump_model(s3=s3, schema=DataWarehouseTableSchema, file_key=file_key) as dump:
@@ -86,6 +94,7 @@ def snapshot_postgres_project_data(
         (
             snapshot_project(s3, project_id),
             snapshot_property_definitions(s3, project_id),
+            snapshot_group_type_mappings(s3, project_id),
             snapshot_data_warehouse_tables(s3, project_id),
         )
     )
