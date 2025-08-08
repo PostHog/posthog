@@ -420,7 +420,7 @@ class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
 
         divisors = {
             "realtime": 64,
-            "blob": 32,
+            "blob": 4,
             "blob_v2": 1,
         }
 
