@@ -2,7 +2,9 @@ import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -12,16 +14,14 @@ import {
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
+import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { cn } from 'lib/utils/css-classes'
 import { globalModalsLogic } from '~/layout/GlobalModals'
-import { AvailableFeature, TeamBasicType, AccessControlLevel } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { AvailableFeature, TeamBasicType } from '~/types'
 import { EnvironmentSwitcherOverlay } from '../navigation/EnvironmentSwitcher'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
@@ -48,27 +48,6 @@ export function ProjectDropdownMenu({
     if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
         return <EnvironmentSwitcherOverlay buttonProps={buttonProps} />
     }
-
-    const mockTeams: TeamBasicType[] = Array.from({ length: 50 }, (_, idx) => {
-        const n = idx + 1
-        return {
-            id: 1000 + n,
-            uuid: `mock-team-${n}`,
-            organization: 'mock-org',
-            project_id: 2000 + n,
-            api_token: `phc_mock_${n.toString().padStart(2, '0')}`,
-            secret_api_token: `phx_mock_${n.toString().padStart(2, '0')}`,
-            secret_api_token_backup: `phx_bu_mock_${n.toString().padStart(2, '0')}`,
-            name: `Project ${Math.random().toString(36).substring(2, 10)}`,
-            completed_snippet_onboarding: true,
-            has_completed_onboarding_for: {},
-            ingested_event: idx % 3 === 0,
-            is_demo: idx % 7 === 0,
-            timezone: 'UTC',
-            access_control: false,
-            user_access_level: AccessControlLevel.Admin,
-        }
-    })
 
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>
@@ -162,7 +141,7 @@ export function ProjectDropdownMenu({
                         </Label>
                         <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
 
-                        {mockTeams
+                        {currentOrganization?.teams
                             .filter((team) => team.id !== currentTeam?.id)
                             .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
                             .map((team) => {
