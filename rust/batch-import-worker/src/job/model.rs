@@ -3,7 +3,7 @@ use std::{fmt::Display, sync::Arc, time::Duration as StdDuration};
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgQueryResult, PgPool, Row};
+use sqlx::{postgres::PgQueryResult, PgPool};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -111,6 +111,8 @@ impl JobModel {
                 posthog_batchimport.state,
                 posthog_batchimport.import_config,
                 posthog_batchimport.secrets,
+                posthog_batchimport.backoff_attempt,
+                posthog_batchimport.backoff_until,
                 next_job.previous_lease_id
             "#,
             new_lease_id
@@ -122,6 +124,7 @@ impl JobModel {
             return Ok(None);
         };
 
+        // capture id before moving `row` into try_into so we can use it in the error path
         let id = row.id;
 
         let parsed: anyhow::Result<JobModel> = (row, context.encryption_keys.as_slice(), new_lease_id)
@@ -129,25 +132,7 @@ impl JobModel {
             .context("Failed to parse job row");
 
         match parsed {
-            Ok(mut model) => {
-                // Load DB backoff columns (requires migration)
-                if let Ok(rec) = sqlx::query(
-                    r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,
-                )
-                .bind(id)
-                .fetch_one(&context.db)
-                .await
-                {
-                    // Annotate types for clarity
-                    let attempt: Result<i32, sqlx::Error> = rec.try_get("backoff_attempt");
-                    if let Ok(a) = attempt { model.backoff_attempt = a; }
-
-                    let until: Result<Option<DateTime<Utc>>, sqlx::Error> = rec.try_get("backoff_until");
-                    if let Ok(u) = until { model.backoff_until = u; }
-                }
-
-                Ok(Some(model))
-            }
+            Ok(model) => Ok(Some(model)),
             Err(e) => {
                 // If we failed to parse a job, we pause it and leave it for manual intervention
                 sqlx::query!(
@@ -357,6 +342,8 @@ struct JobRow {
     state: Option<serde_json::Value>,
     import_config: serde_json::Value,
     secrets: String,
+    backoff_attempt: Option<i32>,
+    backoff_until: Option<DateTime<Utc>>,
     previous_lease_id: Option<String>,
 }
 
@@ -390,8 +377,8 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
             state: Some(state),
             import_config,
             secrets,
-            backoff_attempt: 0,
-            backoff_until: None,
+            backoff_attempt: row.backoff_attempt.unwrap_or(0),
+            backoff_until: row.backoff_until,
             was_leased: row.previous_lease_id.is_some(),
         })
     }
