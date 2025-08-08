@@ -1237,14 +1237,9 @@ class FeatureFlagViewSet(
 
             try:
                 cached_response = FlagDefinitionsCache.get_cache(self.project_id, should_send_cohorts)
-                if cached_response is not None:
-                    # Still increment request count for analytics
-                    if cached_response.get("flags") and not all(
-                        flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX)
-                        for flag in cached_response["flags"]
-                    ):
-                        increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
-                    return Response(cached_response)
+                response = self._handle_cached_response(cached_response)
+                if response is not None:
+                    return response
             except Exception as e:
                 logger.warning("Cache error in local evaluation, proceeding without cache", extra={"error": str(e)})
 
@@ -1391,6 +1386,19 @@ class FeatureFlagViewSet(
                 },
                 status=500,
             )
+
+    def _handle_cached_response(self, cached_response: Optional[dict]) -> Optional[Response]:
+        """Handle cached response including analytics tracking."""
+        if cached_response is None:
+            return None
+
+        # Increment request count for analytics (exclude survey targeting flags)
+        if cached_response.get("flags") and not all(
+            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in cached_response["flags"]
+        ):
+            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+
+        return Response(cached_response)
 
     def _build_cohort_properties_cache(self, cohorts, seen_cohorts_cache, feature_flag):
         """
