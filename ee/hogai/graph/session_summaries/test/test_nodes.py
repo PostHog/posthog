@@ -111,7 +111,6 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(len(result.messages), 1)
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
-        # Type narrowing for mypy
         assert isinstance(message, AssistantToolCallMessage)
         self.assertEqual(message.content, "Test error")
         self.assertEqual(message.tool_call_id, "test_tool_call_id")
@@ -124,7 +123,6 @@ class TestSessionSummarizationNode(BaseTest):
 
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
-        # Type narrowing for mypy
         assert isinstance(message, AssistantToolCallMessage)
         self.assertEqual(message.tool_call_id, "unknown")
 
@@ -254,10 +252,9 @@ class TestSessionSummarizationNode(BaseTest):
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertIsNotNone(result)
-        assert result is not None  # Type narrowing for mypy
+        assert result is not None
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
-        # Type narrowing for mypy
         assert isinstance(message, AssistantToolCallMessage)
         self.assertIn("encountered an issue", message.content)
 
@@ -280,10 +277,9 @@ class TestSessionSummarizationNode(BaseTest):
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertIsNotNone(result)
-        assert result is not None  # Type narrowing for mypy
+        assert result is not None
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
-        # Type narrowing for mypy
         assert isinstance(message, AssistantToolCallMessage)
         self.assertIn("encountered an issue", message.content)
 
@@ -319,10 +315,9 @@ class TestSessionSummarizationNode(BaseTest):
         # Verify specific "No sessions were found" message
         self.assertIsInstance(result, PartialAssistantState)
         self.assertIsNotNone(result)
-        assert result is not None  # Type narrowing for mypy
+        assert result is not None
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
-        # Type narrowing for mypy
         assert isinstance(message, AssistantToolCallMessage)
         self.assertEqual(message.content, "No sessions were found.")
         self.assertIsNone(result.session_summarization_query)
@@ -379,10 +374,9 @@ class TestSessionSummarizationNode(BaseTest):
         # Verify individual summaries are returned
         self.assertIsInstance(result, PartialAssistantState)
         self.assertIsNotNone(result)
-        assert result is not None  # Type narrowing for mypy
+        assert result is not None
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
-        # Type narrowing for mypy
         assert isinstance(message, AssistantToolCallMessage)
         self.assertEqual(message.content, "Summary 1\nSummary 2")
         # Verify execute_summarize was called for individual summaries
@@ -407,10 +401,9 @@ class TestSessionSummarizationNode(BaseTest):
         # Verify error response is returned
         self.assertIsInstance(result, PartialAssistantState)
         self.assertIsNotNone(result)
-        assert result is not None  # Type narrowing for mypy
+        assert result is not None
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
-        # Type narrowing for mypy
         assert isinstance(message, AssistantToolCallMessage)
         self.assertIn("encountered an issue", message.content)
         self.assertEqual(message.tool_call_id, "test_tool_call_id")
