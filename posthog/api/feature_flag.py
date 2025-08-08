@@ -1240,7 +1240,8 @@ class FeatureFlagViewSet(
                 if cached_response is not None:
                     # Still increment request count for analytics
                     if cached_response.get("flags") and not all(
-                        flag.get("key", "").startswith("survey-targeting-") for flag in cached_response["flags"]
+                        flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX)
+                        for flag in cached_response["flags"]
                     ):
                         increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
                     return Response(cached_response)
