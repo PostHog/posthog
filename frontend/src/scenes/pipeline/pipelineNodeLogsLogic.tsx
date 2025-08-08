@@ -203,8 +203,8 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             node.backend == PipelineBackend.HogFunction
                                 ? 'Invocation'
                                 : node.backend == PipelineBackend.BatchExport
-                                ? 'Run Id'
-                                : 'Source',
+                                  ? 'Run Id'
+                                  : 'Source',
                         dataIndex: 'instance_id',
                         key: 'instance_id',
                         render: (instanceId: string) => (

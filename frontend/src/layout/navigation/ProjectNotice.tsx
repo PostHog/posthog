@@ -17,6 +17,7 @@ import { OnboardingStepKey, ProductKey } from '~/types'
 
 import { cn } from 'lib/utils/css-classes'
 import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -35,17 +36,17 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
     const countdown = pastCountdown
         ? 'Expired'
         : duration.hours() > 0
-        ? duration.format('HH:mm:ss')
-        : duration.format('mm:ss')
+          ? duration.format('HH:mm:ss')
+          : duration.format('mm:ss')
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const interval = setInterval(() => setNow(dayjs()), 1000)
         return () => clearInterval(interval)
-    }, [])
+    })
 
     useEffect(() => {
         if (pastCountdown) {
-            callback?.()
+            callback?.() // oxlint-disable-line react-hooks/exhaustive-deps
         }
     }, [pastCountdown])
 

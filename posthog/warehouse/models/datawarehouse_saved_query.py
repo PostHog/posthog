@@ -2,6 +2,7 @@ from datetime import datetime
 import re
 from typing import Any, Optional, Union
 import uuid
+from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -162,6 +163,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     @property
     def url_pattern(self):
+        if settings.USE_LOCAL_SETUP:
+            parsed = urlparse(settings.BUCKET_URL)
+            bucket_name = parsed.netloc
+
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     @property

@@ -62,6 +62,14 @@ def check_can_edit_sharing_configuration(
     if sharing.dashboard and not view.user_permissions.dashboard(sharing.dashboard).can_edit:
         raise PermissionDenied("You don't have edit permissions for this dashboard.")
 
+    # Check if organization allows publicly shared resources
+    if (
+        request.data.get("enabled")
+        and sharing.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not sharing.team.organization.allow_publicly_shared_resources
+    ):
+        raise PermissionDenied("Public sharing is disabled for this organization.")
+
     return True
 
 
@@ -315,6 +323,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if not resource:
             return custom_404_response(self.request)
 
+        # Check if organization allows publicly shared resources
+        if (
+            isinstance(resource, SharingConfiguration)
+            and resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+            and not resource.team.organization.allow_publicly_shared_resources
+        ):
+            return custom_404_response(self.request)
+
         embedded = "embedded" in request.GET or "/embedded/" in request.path
         context = {
             "view": self,
@@ -342,6 +358,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         add_og_tags = resource.insight or resource.dashboard
         asset_description = ""
 
+        # Check both query params (legacy) and settings for configuration options
+        state = getattr(resource, "settings", {}) or {}
+
         if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
@@ -350,7 +369,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             InsightViewed.objects.update_or_create(
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
-            insight_data = InsightSerializer(resource.insight, many=False, context=context).data
+            # Add hideExtraDetails to context so that PII related information is not returned to the client
+            insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
+            insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:
@@ -408,6 +429,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"legend": True})
         if final_settings.detailed:
             exported_data.update({"detailed": True})
+        if final_settings.hideExtraDetails:
+            exported_data.update({"hideExtraDetails": True})
 
         if request.path.endswith(f".json"):
             return response.Response(exported_data)

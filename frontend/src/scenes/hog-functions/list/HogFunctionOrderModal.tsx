@@ -53,10 +53,13 @@ export function HogFunctionOrderModal(): JSX.Element {
     // Store initial orders when modal opens
     useEffect(() => {
         if (reorderModalOpen) {
-            const orders = enabledHogFunctions.reduce((acc, hogFunction) => {
-                acc[hogFunction.id] = hogFunction.execution_order || 0
-                return acc
-            }, {} as Record<string, number>)
+            const orders = enabledHogFunctions.reduce(
+                (acc, hogFunction) => {
+                    acc[hogFunction.id] = hogFunction.execution_order || 0
+                    return acc
+                },
+                {} as Record<string, number>
+            )
             setInitialOrders(orders)
         } else {
             setInitialOrders({})
@@ -81,12 +84,15 @@ export function HogFunctionOrderModal(): JSX.Element {
             const to = sortedHogFunctions.findIndex((d) => d.id === over.id)
             const newSortedHogFunctions = arrayMove(sortedHogFunctions, from, to)
 
-            const newTemporaryOrder = newSortedHogFunctions.reduce((acc, hogFunction, index) => {
-                if (hogFunction.id) {
-                    acc[hogFunction.id] = index + 1
-                }
-                return acc
-            }, {} as Record<string, number>)
+            const newTemporaryOrder = newSortedHogFunctions.reduce(
+                (acc, hogFunction, index) => {
+                    if (hogFunction.id) {
+                        acc[hogFunction.id] = index + 1
+                    }
+                    return acc
+                },
+                {} as Record<string, number>
+            )
 
             setNewOrders(newTemporaryOrder)
         }
@@ -94,13 +100,16 @@ export function HogFunctionOrderModal(): JSX.Element {
 
     const handleSaveOrder = (): void => {
         // Compare and only include changed orders
-        const changedOrders = Object.entries(newOrders).reduce((acc, [id, newOrder]) => {
-            const originalOrder = initialOrders[id]
-            if (originalOrder !== newOrder) {
-                acc[id] = newOrder
-            }
-            return acc
-        }, {} as Record<string, number>)
+        const changedOrders = Object.entries(newOrders).reduce(
+            (acc, [id, newOrder]) => {
+                const originalOrder = initialOrders[id]
+                if (originalOrder !== newOrder) {
+                    acc[id] = newOrder
+                }
+                return acc
+            },
+            {} as Record<string, number>
+        )
 
         // Only send if there are changes
         if (Object.keys(changedOrders).length > 0) {

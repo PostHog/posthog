@@ -330,8 +330,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.None
+                      ? MathAvailability.ActorsOnly
+                      : MathAvailability.None
                 mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
         }

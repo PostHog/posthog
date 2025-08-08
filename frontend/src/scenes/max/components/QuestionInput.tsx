@@ -15,6 +15,7 @@ import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import posthog from 'posthog-js'
+import { MAX_SLASH_COMMANDS } from '../slash-commands'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -77,7 +78,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 className={clsx(
                     'flex flex-col items-center',
                     isSticky &&
-                        'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 <div className="relative w-full flex flex-col">
@@ -85,8 +86,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--border-primary)] rounded-[var(--radius)]',
-                            'bg-[var(--bg-fill-input)]',
+                            'border border-[var(--color-border-primary)] rounded-[var(--radius)]',
+                            'bg-[var(--color-bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
                             isFloating && 'border-primary m-1'
                         )}
@@ -106,16 +107,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <ContextDisplay size={contextDisplaySize} />
                         )}
 
-                        <SlashCommandAutocomplete
-                            onActivate={(command) => {
-                                setShowAutocomplete(false)
-                                askMax(command.name)
-                            }}
-                            onSelect={(command) => setQuestion(command.name)}
-                            visible={showAutocomplete}
-                            onClose={() => setShowAutocomplete(false)}
-                            searchText={question}
-                        >
+                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
                                 ref={textAreaRef}
                                 value={question}
@@ -124,8 +116,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     threadLoading
                                         ? 'Thinking…'
                                         : isFloating
-                                        ? placeholder || 'Ask follow-up (/ for commands)'
-                                        : 'Ask away (/ for commands)'
+                                          ? placeholder || 'Ask follow-up (/ for commands)'
+                                          : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
@@ -183,7 +175,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         : submissionDisabledReason
                                 }
                                 size="small"
-                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
+                                icon={
+                                    threadLoading ? (
+                                        <IconStopFilled />
+                                    ) : (
+                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                            ?.icon || <IconArrowRight />
+                                    )
+                                }
                             />
                         </AIConsentPopoverWrapper>
                     </div>

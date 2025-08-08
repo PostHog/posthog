@@ -84,7 +84,7 @@ export function WebOverview(props: {
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
                     These results are using a sampling factor of {samplingRate.numerator}
-                    <span>{samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}</span>. Sampling
+                    <span>{(samplingRate.denominator ?? 1 !== 1) ? `/${samplingRate.denominator}` : ''}</span>. Sampling
                     is currently in beta.
                 </LemonBanner>
             ) : null}
@@ -118,14 +118,14 @@ const WebOverviewItemCell = ({
         ? item.changeFromPreviousPct === 0
             ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
             : item.changeFromPreviousPct > 0
-            ? {
-                  Icon: IconTrending,
-                  color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
-              }
-            : {
-                  Icon: IconTrendingDown,
-                  color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
-              }
+              ? {
+                    Icon: IconTrending,
+                    color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
+                }
+              : {
+                    Icon: IconTrendingDown,
+                    color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
+                }
         : undefined
 
     const docsUrl = settingsLinkFromKey(item.key)
@@ -143,8 +143,8 @@ const WebOverviewItemCell = ({
                   { precise: true, currency: baseCurrency }
               )}`
             : isNotNil(item.value)
-            ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
-            : 'No data'
+              ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
+              : 'No data'
 
     return (
         <Tooltip title={tooltip}>

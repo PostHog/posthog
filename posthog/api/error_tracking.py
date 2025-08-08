@@ -951,17 +951,24 @@ def create_symbol_set(
         release = None
 
     with transaction.atomic():
-        # Use update_or_create for proper upsert behavior
-        symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
-            team=team,
-            ref=chunk_id,
-            release=release,
-            defaults={
-                "storage_ptr": storage_ptr,
-                "content_hash": content_hash,
-                "failure_reason": None,
-            },
-        )
+        try:
+            symbol_set = ErrorTrackingSymbolSet.objects.get(team=team, ref=chunk_id)
+            if symbol_set.release is None:
+                symbol_set.release = release
+            elif symbol_set.release != release:
+                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+            symbol_set.storage_ptr = storage_ptr
+            symbol_set.content_hash = content_hash
+            symbol_set.save()
+
+        except ErrorTrackingSymbolSet.DoesNotExist:
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                team=team,
+                ref=chunk_id,
+                release=release,
+                storage_ptr=storage_ptr,
+                content_hash=content_hash,
+            )
 
         # Delete any existing frames associated with this symbol set
         ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()

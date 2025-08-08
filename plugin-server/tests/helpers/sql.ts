@@ -279,6 +279,7 @@ export async function createUserTeamAndOrganization(
         available_product_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
+        allow_publicly_shared_resources: true,
         members_can_use_personal_api_keys: true,
         slug: new UUIDT().toString(),
     } as RawOrganization)
@@ -402,6 +403,7 @@ export const createOrganization = async (pg: PostgresRouter) => {
         for_internal_metrics: false,
         available_product_features: [],
         domain_whitelist: [],
+        allow_publicly_shared_resources: true,
         members_can_use_personal_api_keys: true,
         is_member_join_email_enabled: false,
         slug: new UUIDT().toString(),
@@ -422,6 +424,7 @@ export const updateOrganizationAvailableFeatures = async (
     )
 }
 
+type PartialProject = { organization_id: string }
 export const createTeam = async (
     pg: PostgresRouter,
     projectOrOrganizationId: ProjectId | string,
@@ -435,7 +438,7 @@ export const createTeam = async (
     if (typeof projectOrOrganizationId === 'number') {
         projectId = projectOrOrganizationId
         organizationId = await pg
-            .query<{ organization_id: string }>(
+            .query<PartialProject>(
                 PostgresUse.COMMON_READ,
                 'SELECT organization_id FROM posthog_project WHERE id = $1',
                 [projectId],
@@ -556,7 +559,7 @@ export async function fetchPostgresPersons(db: DB, teamId: number) {
                 ...rawPerson,
                 created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
                 version: Number(rawPerson.version || 0),
-            } as InternalPerson)
+            }) as InternalPerson
     )
 }
 

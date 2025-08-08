@@ -20,7 +20,7 @@ export function BasicCard({ children, className, id, backgroundColor, ...props }
             style={
                 {
                     // We use this value in the animation 'animate-mark' so it can return to it's original color
-                    '--original-bg': backgroundColor || 'var(--bg-surface-primary)',
+                    '--original-bg': backgroundColor || 'var(--color-bg-surface-primary)',
                     backgroundColor: 'var(--original-bg)',
                 } as React.CSSProperties
             }

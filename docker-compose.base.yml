@@ -279,6 +279,7 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@counters_db:5432/counters'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -407,14 +408,6 @@ services:
         networks:
             - otel_network
 
-    echo_server:
-        image: docker.io/library/caddy:2
-        container_name: echo-server
-        restart: on-failure
-        ports:
-            - '18081:8081'
-        volumes:
-            - ./rust/docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
     jaeger:
         image: jaegertracing/all-in-one:latest
         container_name: jaeger-local
@@ -425,23 +418,20 @@ services:
         networks:
             - otel_network
 
-    cassandra:
-        image: cassandra:4.1
+    counters_db:
+        image: postgres:12-alpine
         restart: on-failure
         environment:
-            - HEAP_NEWSIZE=128M
-            - MAX_HEAP_SIZE=512M
+            POSTGRES_USER: posthog
+            POSTGRES_DB: counters
+            POSTGRES_PASSWORD: posthog
         healthcheck:
-            test: ['CMD-SHELL', 'cqlsh -e "SELECT now() FROM system.local;" || exit 1']
-            interval: 30s
-            timeout: 10s
-            retries: 5
+            test: ['CMD-SHELL', 'pg_isready -U posthog']
+            interval: 5s
+            timeout: 5s
         volumes:
-            - cassandra_data:/var/lib/cassandra
+            - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
 networks:
     otel_network:
         driver: bridge
-
-volumes:
-    cassandra_data:

@@ -88,6 +88,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
@@ -182,6 +183,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -214,6 +216,7 @@ export type QuerySchema =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | ExperimentQuery
@@ -780,6 +783,7 @@ export interface DataTableNode
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
                     | ErrorTrackingQuery
+                    | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
@@ -812,6 +816,7 @@ export interface DataTableNode
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
         | ErrorTrackingQuery
+        | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
@@ -892,10 +897,13 @@ export interface TableSettings {
 
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
+    // Insights
     noHeader?: boolean
-    showInspector?: boolean
     legend?: boolean
     detailed?: boolean
+    hideExtraDetails?: boolean
+    // Recordings
+    showInspector?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -2059,6 +2067,21 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     offset?: integer
 }
 
+export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
+    kind: NodeKind.ErrorTrackingIssueCorrelationQuery
+    events: string[]
+}
+
+export interface ErrorTrackingIssueCorrelationQueryResponse
+    extends AnalyticsQueryResponseBase<ErrorTrackingCorrelatedIssue[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedErrorTrackingIssueCorrelationQueryResponse =
+    CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
+
 export interface ErrorTrackingSceneToolOutput
     extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
     newFilters?: AnyPropertyFilter[]
@@ -2114,6 +2137,17 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     }
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
+}
+
+export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    event: string
+    odds_ratio: number
+    population: {
+        both: number
+        success_only: number
+        exception_only: number
+        neither: number
+    }
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -2347,6 +2381,7 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
+    uuid?: string
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
@@ -2354,6 +2389,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
     kind: NodeKind.ExperimentTrendsQuery
+    uuid?: string
     name?: string
     experiment_id?: integer
     count_query: TrendsQuery
@@ -2674,7 +2710,6 @@ export interface MultipleBreakdownOptions {
 }
 
 export interface InsightActorsQueryOptionsResponse {
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
     status?: { label: string; value: string }[]
     interval?: {
@@ -2983,8 +3018,7 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    // Values can be floats and integers. The comment below is to preserve the `integer` type.
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    // Values can be floats and integers
     sample_values: (string | number | boolean | integer)[]
     sample_count: integer
 }
@@ -3304,6 +3338,12 @@ export interface RevenueAnalyticsEventItem {
     couponProperty?: string
 
     /**
+     * Property used to identify what subscription the revenue event refers to
+     * Useful when trying to detect churn/LTV/ARPU/etc.
+     */
+    subscriptionProperty?: string
+
+    /**
      * TODO: In the future, this should probably be renamed to
      * `currencyProperty` to follow the pattern above
      *
@@ -3382,6 +3422,8 @@ export interface MarketingAnalyticsTableQuery
     filterTestAccounts?: boolean
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter | null
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {

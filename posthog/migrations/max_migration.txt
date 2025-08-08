@@ -1,1 +1,1 @@
-0815_sharingconfiguration_settings
+0820_organization_allow_publicly_shared_resources

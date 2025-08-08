@@ -106,8 +106,8 @@ function getEmailFromIdentifyEvent(event: any): string {
     return isEmail(event.distinct_id)
         ? event.distinct_id
         : !!event['$set'] && Object.keys(event['$set']).includes('email')
-        ? event['$set']['email']
-        : ''
+          ? event['$set']['email']
+          : ''
 }
 
 function statusOk(res: any): boolean {

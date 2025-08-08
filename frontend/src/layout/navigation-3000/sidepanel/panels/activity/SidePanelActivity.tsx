@@ -10,7 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -23,6 +23,7 @@ import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
 import { SidePanelActivitySubscriptions } from './SidePanelActivitySubscriptions'
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -52,13 +53,14 @@ export const SidePanelActivity = (): JSX.Element => {
         togglePolling(pageIsVisible)
     })
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         loadImportantChanges(false)
+
         return () => {
             markAllAsRead()
             togglePolling(false)
         }
-    }, [])
+    })
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
