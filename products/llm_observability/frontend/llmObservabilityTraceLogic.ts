@@ -120,18 +120,6 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                 },
             },
         ],
-        // Track what user manually toggled during current search
-        userToggledDuringSearch: [
-            new Set<string>(),
-            {
-                toggleMessage: (state, { type, index }) => {
-                    const newSet = new Set(state)
-                    newSet.add(`${type}-${index}`)
-                    return newSet
-                },
-                setSearchQuery: () => new Set<string>(), // Clear when search changes
-            },
-        ],
         displayOptionsModalVisible: [
             false as boolean,
             {
