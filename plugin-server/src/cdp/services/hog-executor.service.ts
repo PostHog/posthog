@@ -558,11 +558,8 @@ export class HogExecutorService {
             headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
         }
 
-        const fetchParams: FetchOptions = {
-            method,
-            headers,
-            timeoutMs: this.hub.CDP_FETCH_TIMEOUT_MS,
-        }
+        const fetchParams: FetchOptions = { method, headers }
+
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
         }
