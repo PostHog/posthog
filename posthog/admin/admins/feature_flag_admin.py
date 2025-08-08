@@ -17,6 +17,7 @@ class FeatureFlagAdmin(admin.ModelAdmin):
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "key", "team__name", "team__organization__name")
     autocomplete_fields = ("team", "created_by", "last_modified_by")
+    readonly_fields = ("usage_dashboard",)
     ordering = ("-created_at",)
 
     @admin.display(description="Team")
