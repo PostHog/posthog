@@ -4,8 +4,8 @@ import structlog
 from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_REASONING_EFFORT,
     SESSION_SUMMARIES_TEMPERATURE,
-    SESSION_SUMMARIES_STREAMING_MODELS,
-    SESSION_SUMMARIES_REASONING_MODELS,
+    SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS,
+    SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS,
 )
 from posthoganalytics.ai.openai import OpenAI, AsyncOpenAI
 from posthog.cloud_utils import is_cloud
@@ -118,7 +118,7 @@ async def call_llm(
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_key)
     client = get_async_openai_client()
-    if model in SESSION_SUMMARIES_STREAMING_MODELS:
+    if model in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
             messages=messages,
             model=model,
@@ -126,7 +126,7 @@ async def call_llm(
             user=user_param,
             posthog_trace_id=trace_id,
         )
-    elif model in SESSION_SUMMARIES_REASONING_MODELS:
+    elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
             messages=messages,
             model=model,
@@ -137,6 +137,6 @@ async def call_llm(
     else:
         raise ValueError(
             f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
-            f"{SESSION_SUMMARIES_STREAMING_MODELS + SESSION_SUMMARIES_REASONING_MODELS}"
+            f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS | SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS}"
         )
     return result
