@@ -234,6 +234,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     ...state,
                     [index]: count,
                 }),
+                resetAffectedUsers: () => ({
+                    0: undefined,
+                }),
             },
         ],
         totalUsers: [
@@ -432,6 +435,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
         moveConditionSetDown: ({ index }) => {
             swapAffectedUsers(values.affectedUsers, actions, index, index + 1)
+        },
+        resetAffectedUsers: () => {
+            actions.calculateBlastRadius()
         },
     })),
     selectors({
