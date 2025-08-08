@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
@@ -11,8 +11,21 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
+import dataclasses
 from posthog.models.signals import model_activity_signal
+
+
+@dataclasses.dataclass(frozen=True)
+class AnnotationContext(ActivityContextBase):
+    scope: str
+    scope_id: Optional[str] = None
+    scope_name: Optional[str] = None
+    dashboard_id: Optional[int] = None
+    dashboard_name: Optional[str] = None
+    insight_id: Optional[int] = None
+    insight_short_id: Optional[str] = None
+    insight_name: Optional[str] = None
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -157,6 +170,15 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
 def handle_annotation_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    context = AnnotationContext(
+        scope=after_update.scope,
+        dashboard_id=after_update.dashboard_id,
+        dashboard_name=after_update.dashboard_name,
+        insight_id=after_update.dashboard_item_id,
+        insight_short_id=after_update.insight_short_id,
+        insight_name=after_update.insight_name,
+    )
+
     log_activity(
         organization_id=after_update.organization_id or after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -168,5 +190,6 @@ def handle_annotation_change(
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=after_update.content,
+            context=context,
         ),
     )
