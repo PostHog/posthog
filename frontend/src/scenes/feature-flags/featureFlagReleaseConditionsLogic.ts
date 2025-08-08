@@ -406,9 +406,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setFlagKeysLoading(false)
             }
         },
-        resetAffectedUsers: () => {
-            actions.calculateBlastRadius()
-        },
     })),
     selectors({
         // Get the appropriate groups based on isSuper
