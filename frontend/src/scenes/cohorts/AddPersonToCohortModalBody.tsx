@@ -43,8 +43,8 @@ export function AddPersonToChortModalBody(): JSX.Element {
         showOpenEditorButton: false,
     }
     return (
-        <>
+        <div className="min-w-180">
             <Query query={query} setQuery={setQuery} context={context} />
-        </>
+        </div>
     )
 }
