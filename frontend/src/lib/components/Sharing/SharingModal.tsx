@@ -159,8 +159,8 @@ export function SharingModalContent({
                                             label={`Share ${resource} publicly`}
                                             checked={sharingConfiguration.enabled}
                                             data-attr="sharing-switch"
-                                            onChange={(active) => !disabled && setIsEnabled(active)}
-                                            disabled={disabled || !sharingAllowed}
+                                            onChange={(active) => setIsEnabled(active)}
+                                            disabled={disabled}
                                             bordered
                                             fullWidth
                                             tooltip={disabledReason}
