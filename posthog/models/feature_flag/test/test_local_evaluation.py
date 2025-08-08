@@ -1,4 +1,3 @@
-
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -6,8 +5,6 @@ from posthog.models.project import Project
 from posthog.models.feature_flag.local_evaluation import FeatureFlagLocalEvaluationCache
 from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
-
-CONFIG_REFRESH_QUERY_COUNT = 5
 
 
 class TestLocalEvaluationCache(BaseTest):
