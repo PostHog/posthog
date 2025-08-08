@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from typing import cast
 
 from asgiref.sync import async_to_sync
@@ -20,7 +21,7 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import create_su
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
-from posthog.models import User
+from posthog.models import User, Team
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 
@@ -45,6 +46,38 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionSummariesSerializer
 
+    @staticmethod
+    async def _get_summary_from_progress_stream(
+        session_ids: list[str],
+        user_id: int,
+        team: Team,
+        min_timestamp: datetime,
+        max_timestamp: datetime,
+        extra_summary_context: ExtraSummaryContext | None = None,
+    ) -> EnrichedSessionGroupSummaryPatternsList:
+        """Helper function to consume the async generator and return a summary"""
+        results: list[EnrichedSessionGroupSummaryPatternsList | str] = []
+        async for update in execute_summarize_session_group(
+            session_ids=session_ids,
+            user_id=user_id,
+            team=team,
+            min_timestamp=min_timestamp,
+            max_timestamp=max_timestamp,
+            extra_summary_context=extra_summary_context,
+        ):
+            results.append(update)
+        if not results:
+            raise exceptions.APIException(
+                "No summaries were generated for the provided sessions (session ids: {})".format(session_ids)
+            )
+        # The last item in the result should be the summary, if not - raise an exception
+        summary = results[-1]
+        if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
+            raise exceptions.APIException(
+                f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {session_ids}): {results}"
+            )
+        return summary
+
     @extend_schema(
         operation_id="create_session_summaries",
         description="Generate AI summaries per-session and a general summary for a group of session recordings",
@@ -57,7 +90,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.NotAuthenticated()
         tag_queries(product=Product.SESSION_SUMMARY)
         user = cast(User, request.user)
-
         # Validate environment requirements
         environment_is_allowed = settings.DEBUG or is_cloud()
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
@@ -65,7 +97,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("Session summaries are not enabled for this user")
-
         # Validate input
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -77,36 +108,16 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         extra_summary_context = None
         if focus_area:
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
-
-        # Helper function to consume the async generator and return a list
-        async def _execute_and_collect_results() -> list[EnrichedSessionGroupSummaryPatternsList | str]:
-            results = []
-            async for update in execute_summarize_session_group(
+        # Summarize provided sessions
+        try:
+            summary = async_to_sync(self._get_summary_from_progress_stream)(
                 session_ids=session_ids,
                 user_id=user.pk,
                 team=self.team,
                 min_timestamp=min_timestamp,
                 max_timestamp=max_timestamp,
                 extra_summary_context=extra_summary_context,
-                local_reads_prod=False,
-            ):
-                results.append(update)
-            return results
-
-        # Summarize provided sessions
-        try:
-            summary_result: list[EnrichedSessionGroupSummaryPatternsList | str] = async_to_sync(
-                _execute_and_collect_results
-            )()
-            if not summary_result:
-                raise exceptions.APIException(
-                    "No summaries were generated for the provided sessions (session ids: {})".format(session_ids)
-                )
-            summary = summary_result[-1]
-            if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-                raise exceptions.APIException(
-                    f"Unexpected result type ({type(summary_result[-1])}) when generating summaries (session ids: {session_ids}): {summary_result[-1]}"
-                )
+            )
             create_summary_notebook(session_ids=session_ids, user=user, team=self.team, summary=summary)
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
