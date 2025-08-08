@@ -381,7 +381,7 @@ def get_temporal_context() -> dict[str, str | int]:
 
     workflow_id, workflow_type, workflow_run_id, attempt = info
 
-    ctx = {
+    ctx: dict[str, str | int] = {
         "attempt": attempt,
         "workflow_id": workflow_id,
         "workflow_run_id": workflow_run_id,
