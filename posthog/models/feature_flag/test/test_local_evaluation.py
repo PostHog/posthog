@@ -167,27 +167,24 @@ class TestLocalEvaluationCache(BaseTest):
 
     def test_get_flags_cache_hot(self):
         update_flag_caches(self.team)
-        response, source = get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
 
     def test_get_flags_cache_warm(self):
         update_flag_caches(self.team)
         clear_flag_caches(self.team, kinds=["redis"])
-        response, source = flags_hypercache.get_from_cache(self.team)
+        response, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "s3"
         self._assert_payload_valid_with_cohorts(response)
 
     def test_get_flags_cold(self):
         clear_flag_caches(self.team, kinds=["redis", "s3"])
-        response, source = flags_hypercache.get_from_cache(self.team)
-
+        response, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "postgres"
         self._assert_payload_valid_with_cohorts(response)
 
         # second request should be cached in redis
-
-        response, source = flags_hypercache.get_from_cache(self.team)
-
+        response, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
