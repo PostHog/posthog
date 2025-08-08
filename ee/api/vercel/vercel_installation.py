@@ -8,6 +8,7 @@ https://vercel.com/docs/integrations/create-integration/marketplace-api
 """
 
 from typing import Any
+from django.conf import settings
 from django.db import IntegrityError
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.request import Request
@@ -271,7 +272,20 @@ class VercelInstallationViewSet(
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-installation
         """
-        return super().destroy(request, *args, **kwargs)
+        installation_id = self.kwargs["installation_id"]
+
+        try:
+            installation = VercelInstallation.objects.get(installation_id=installation_id)
+        except VercelInstallation.DoesNotExist:
+            raise exceptions.NotFound("Installation not found")
+
+        installation.delete()
+
+        # In production, installation stays in "delete pending" state for 24 hours for invoicing
+        is_dev = settings.DEBUG
+        response_data = {"finalized": is_dev}
+
+        return Response(response_data, status=200)
 
     @decorators.action(detail=True, methods=["get"])
     def plans(self, _request: Request, *_args: Any, **_kwargs: Any) -> Response:

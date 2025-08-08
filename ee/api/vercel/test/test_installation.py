@@ -2,7 +2,6 @@ from unittest.mock import patch
 import json
 import jwt
 import base64
-from typing import Optional
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.utils import timezone
@@ -50,7 +49,7 @@ class TestVercelInstallationAPI(APIBaseTest):
         value_bytes = value.to_bytes(byte_length, byteorder="big")
         return base64.urlsafe_b64encode(value_bytes).decode("ascii").rstrip("=")
 
-    def _create_jwt_token(self, payload: dict, headers: Optional[dict] = None) -> str:
+    def _create_jwt_token(self, payload: dict, headers: dict | None = None) -> str:
         """Create a real JWT token for testing"""
         if headers is None:
             headers = {"kid": self.test_kid}
@@ -66,7 +65,7 @@ class TestVercelInstallationAPI(APIBaseTest):
         return jwt.encode(payload, private_key_str, algorithm="RS256", headers=headers)
 
     def _create_user_auth_payload(
-        self, installation_id: Optional[str] = None, account_id: Optional[str] = None, user_id: Optional[str] = None
+        self, installation_id: str | None = None, account_id: str | None = None, user_id: str | None = None
     ) -> dict:
         """Create user auth JWT payload"""
         return {
@@ -80,9 +79,7 @@ class TestVercelInstallationAPI(APIBaseTest):
             "exp": timezone.now().timestamp() + 3600,
         }
 
-    def _create_system_auth_payload(
-        self, installation_id: Optional[str] = None, account_id: Optional[str] = None
-    ) -> dict:
+    def _create_system_auth_payload(self, installation_id: str | None = None, account_id: str | None = None) -> dict:
         """Create system auth JWT payload"""
         account = account_id or self.account_id
         return {
@@ -169,7 +166,10 @@ class TestVercelInstallationAPI(APIBaseTest):
 
         response = self.client.delete(f"/api/vercel/v1/installations/{self.installation_id}/", **headers)
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("finalized", data)
+        self.assertFalse(data["finalized"])
         self.assertFalse(VercelInstallation.objects.filter(installation_id=self.installation_id).exists())
 
     def test_system_auth_retrieve_installation(self, mock_get_jwks):
