@@ -35,7 +35,7 @@ class TestSourceVaryingSnapshotThrottle(APIBaseTest):
     @parameterized.expand(
         [
             ("realtime", 1),
-            ("blob", 4),
+            ("blob", 30),
             ("blob_v2", 120),
         ]
     )
