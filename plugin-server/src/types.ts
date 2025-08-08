@@ -79,6 +79,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
+    cdp_aggregation_writer = 'cdp-aggregation-writer',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -113,6 +114,7 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: boolean // If true then degraded functions will be automatically disabled
+    CDP_AGGREGATION_WRITER_ENABLED: boolean // If true then the CDP aggregation writer consumer will be enabled
     CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
@@ -194,19 +196,16 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
+    COUNTERS_DATABASE_URL: string // Optional read-write Postgres database for counters
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
-    CASSANDRA_HOST: string
-    CASSANDRA_PORT: number
-    CASSANDRA_KEYSPACE: string
-    CASSANDRA_LOCAL_DATACENTER: string
-    CASSANDRA_USER: string | null
-    CASSANDRA_PASSWORD: string | null
-    WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
+    POSTGRES_COUNTERS_HOST: string
+    POSTGRES_COUNTERS_USER: string
+    POSTGRES_COUNTERS_PASSWORD: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
@@ -433,6 +432,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpBehaviouralEvents?: boolean
+    cdpAggregationWriter?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }
