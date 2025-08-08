@@ -10,6 +10,7 @@ from posthog.hogql.models import (
     PropertyDefinitionDataClass,
     InsightVariableDataClass,
     ElementDataClass,
+    GroupTypeMappingDataClass,
 )
 
 
@@ -34,6 +35,9 @@ class HogQLDataBundle:
     
     insight_variables_by_id: Dict[Union[str, UUID], InsightVariableDataClass] = field(default_factory=dict)
     insight_variables_by_code_name: Dict[str, InsightVariableDataClass] = field(default_factory=dict)
+    
+    # Group type mappings for field traversal
+    group_type_mappings: List[GroupTypeMappingDataClass] = field(default_factory=list)
     
     # Data warehouse joins and table info (simplified for now)
     data_warehouse_joins: Dict[str, dict] = field(default_factory=dict)
@@ -115,6 +119,7 @@ def create_data_bundle_from_orm(team_id: int, project_id: Optional[int] = None, 
         PropertyDefinition,
         InsightVariable,
     )
+    from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.warehouse.models import DataWarehouseJoin
     
     # Get team
@@ -214,6 +219,18 @@ def create_data_bundle_from_orm(team_id: int, project_id: Optional[int] = None, 
         if iv_data.code_name:
             insight_variables_by_code_name[iv_data.code_name] = iv_data
     
+    # Get group type mappings for this project
+    group_type_mappings = []
+    group_mapping_orms = GroupTypeMapping.objects.filter(project_id=team_data.project_id)
+    for mapping_orm in group_mapping_orms:
+        mapping_data = GroupTypeMappingDataClass(
+            group_type=mapping_orm.group_type,
+            group_type_index=mapping_orm.group_type_index,
+            name_singular=mapping_orm.name_singular,
+            name_plural=mapping_orm.name_plural
+        )
+        group_type_mappings.append(mapping_data)
+    
     # Get data warehouse joins (simplified)
     data_warehouse_joins = {}
     dw_joins = DataWarehouseJoin.objects.filter(team_id=team_id).filter(
@@ -237,5 +254,6 @@ def create_data_bundle_from_orm(team_id: int, project_id: Optional[int] = None, 
         property_definitions_by_key=property_definitions_by_key,
         insight_variables_by_id=insight_variables_by_id,
         insight_variables_by_code_name=insight_variables_by_code_name,
+        group_type_mappings=group_type_mappings,
         data_warehouse_joins=data_warehouse_joins,
     )

@@ -155,6 +155,15 @@ class ElementDataClass:
     attr_class: Optional[list[str]] = None
 
 
+@dataclass
+class GroupTypeMappingDataClass:
+    """Group type mapping data"""
+    group_type: str
+    group_type_index: int
+    name_singular: Optional[str] = None
+    name_plural: Optional[str] = None
+
+
 # Re-export commonly used UUID types
 class UUIDType:
     """Placeholder for UUIDT functionality"""

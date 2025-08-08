@@ -105,7 +105,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.models.group_type_mapping import GroupTypeMapping
+# GroupTypeMapping now comes from data_bundle
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
@@ -126,6 +126,7 @@ from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTabl
 
 if TYPE_CHECKING:
     from posthog.models import Team
+    from posthog.hogql.data_bundle import HogQLDataBundle
 
 
 class Database(BaseModel):
@@ -408,9 +409,7 @@ TableStore = dict[str, Table | TableGroup]
 
 
 def create_hogql_database(
-    team_id: Optional[int] = None,
-    *,
-    team: Optional["Team"] = None,
+    data_bundle: "HogQLDataBundle",
     modifiers: Optional[HogQLQueryModifiers] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
@@ -426,17 +425,8 @@ def create_hogql_database(
         timings = HogQLTimings()
 
     with timings.measure("team"):
-        if team_id is None and team is None:
-            raise ValueError("Either team_id or team must be provided")
-
-        if team is not None and team_id is not None and team.pk != team_id:
-            raise ValueError("team_id and team must be the same")
-
-        if team is None:
-            team = Team.objects.get(pk=team_id)
-
-        # Team is definitely not None at this point, make mypy believe that
-        team = cast("Team", team)
+        # Use team from data bundle - we always have full context
+        team_data = data_bundle.team
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -501,7 +491,7 @@ def create_hogql_database(
         _use_virtual_fields(database, modifiers, timings)
 
     with timings.measure("group_type_mapping"):
-        for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
+        for mapping in data_bundle.group_type_mappings:
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
@@ -512,7 +502,7 @@ def create_hogql_database(
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
-            saved_queries = list(DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True))
+            saved_queries = list(DataWarehouseSavedQuery.objects.filter(team_id=team_data.id).exclude(deleted=True))
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)
