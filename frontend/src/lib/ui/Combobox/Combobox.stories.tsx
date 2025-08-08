@@ -25,7 +25,7 @@ function RenderCombobox(): JSX.Element {
             <Combobox.Search placeholder="Search this list..." autoFocus />
 
             {/* For styling the list items */}
-            <Combobox.Content className="max-w-[300px] max-h-none">
+            <Combobox.Content className="max-w-[300px]">
                 <Combobox.Empty>No searchable groups match</Combobox.Empty>
 
                 {/* responsible for filtering the list items */}
