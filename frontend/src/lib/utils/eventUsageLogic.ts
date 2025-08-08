@@ -480,6 +480,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
+        reportSurveysEmptyStateViewed: true,
+        reportSurveyLaunched: (survey: Survey) => ({ survey }),
         reportSurveyViewed: (survey: Survey) => ({
             survey,
         }),
@@ -1152,6 +1154,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 }),
             })
         },
+        reportSurveysEmptyStateViewed: () => {
+            posthog.capture('surveys empty state viewed')
+        },
         reportSurveyViewed: ({ survey }) => {
             posthog.capture('survey viewed', {
                 name: survey.name,
@@ -1212,6 +1217,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: survey.id,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
+            })
+        },
+        reportSurveyLaunched: ({ survey }) => {
+            posthog.capture('survey launched', {
+                name: survey.name,
+                id: survey.id,
             })
         },
         reportProductUnsubscribed: ({ product }) => {
