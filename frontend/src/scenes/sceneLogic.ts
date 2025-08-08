@@ -2,7 +2,7 @@ import { actions, afterMount, BuiltLogic, connect, kea, listeners, path, props, 
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { identifierToHuman, getRelativeNextPath } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
@@ -38,6 +38,7 @@ import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 import { arrayMove } from '@dnd-kit/sortable'
 import { subscriptions } from 'kea-subscriptions'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface SceneTab {
     id: string
@@ -108,7 +109,14 @@ export const sceneLogic = kea<sceneLogicType>([
             inviteLogic,
             ['hideInviteModal'],
         ],
-        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
+        values: [
+            billingLogic,
+            ['billing'],
+            organizationLogic,
+            ['organizationBeingDeleted'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -794,8 +802,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.setTabs(newTabs)
             }
             // When the title changes, trigger a history REPLACE event to persist the new title in the browser
-            const { currentLocation } = router.values
-            router.actions.replace(currentLocation.pathname, currentLocation.search, currentLocation.hash)
+            if (values.featureFlags[FEATURE_FLAGS.SCENE_TABS] && values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]) {
+                const { currentLocation } = router.values
+                router.actions.replace(currentLocation.pathname, currentLocation.search, currentLocation.hash)
+            }
         },
         tabs: () => {
             const { tabIds } = values
