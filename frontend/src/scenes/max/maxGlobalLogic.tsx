@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { AssistantContextualTool, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { routes } from 'scenes/scenes'
-import { IconBook, IconCompass, IconLineGraph } from '@posthog/icons'
+import { IconBook, IconCompass, IconEye } from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { SidePanelTab } from '~/types'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
@@ -43,8 +43,56 @@ export interface ToolDefinition {
     /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
     suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
     /** The callback function that will be executed with the LLM's tool call output */
-    callback: (toolOutput: any) => void | Promise<void>
+    callback?: (toolOutput: any) => void | Promise<void>
 }
+
+/** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
+const STATIC_TOOLS: ToolDefinition[] = [
+    {
+        name: 'navigate' as const,
+        displayName: 'Navigate',
+        description: 'Max can navigate to other places in PostHog',
+        icon: <IconCompass />,
+        context: { current_page: location.pathname },
+        callback: async (toolOutput) => {
+            const { page_key: pageKey } = toolOutput
+            if (!(pageKey in urls)) {
+                throw new Error(`${pageKey} not in urls`)
+            }
+            const url = urls[pageKey as AssistantNavigateUrls]()
+            router.actions.push(url)
+            // First wait for navigation to complete
+            await new Promise<void>((resolve, reject) => {
+                const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
+                const startTime = performance.now()
+                const checkPathname = (): void => {
+                    if (sceneLogic.values.activeScene === routes[url]?.[0]) {
+                        resolve()
+                    } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
+                        reject(new Error('Navigation timeout'))
+                    } else {
+                        setTimeout(checkPathname, 50)
+                    }
+                }
+                checkPathname()
+            })
+        },
+    },
+    {
+        name: 'search_docs' as const,
+        displayName: 'Search docs',
+        description: 'Max can search the PostHog docs',
+        icon: <IconBook />,
+        context: {},
+    },
+    {
+        name: 'create_and_query_insight' as const,
+        displayName: 'Query data',
+        description: 'Max can use analytics data and the data warehouse',
+        icon: <IconEye />,
+        context: {},
+    },
+]
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
@@ -69,56 +117,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         setFloatingMaxDragState: (dragState: { isDragging: boolean; isAnimating: boolean }) => ({ dragState }),
     }),
     reducers({
-        toolMap: [
-            {
-                create_and_query_insight: {
-                    name: 'create_and_query_insight' as const,
-                    displayName: 'Create and query insight',
-                    description: 'Max can create and query insights',
-                    icon: <IconLineGraph />,
-                    context: {},
-                    callback: () => {},
-                },
-                // The navigation tool is available everywhere
-                navigate: {
-                    name: 'navigate' as const,
-                    displayName: 'Navigate',
-                    description: 'Max can navigate to other places in PostHog',
-                    icon: <IconCompass />,
-                    context: { current_page: location.pathname },
-                    callback: async (toolOutput) => {
-                        const { page_key: pageKey } = toolOutput
-                        if (!(pageKey in urls)) {
-                            throw new Error(`${pageKey} not in urls`)
-                        }
-                        const url = urls[pageKey as AssistantNavigateUrls]()
-                        router.actions.push(url)
-                        // First wait for navigation to complete
-                        await new Promise<void>((resolve, reject) => {
-                            const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
-                            const startTime = performance.now()
-                            const checkPathname = (): void => {
-                                if (sceneLogic.values.activeScene === routes[url]?.[0]) {
-                                    resolve()
-                                } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
-                                    reject(new Error('Navigation timeout'))
-                                } else {
-                                    setTimeout(checkPathname, 50)
-                                }
-                            }
-                            checkPathname()
-                        })
-                    },
-                },
-                search_docs: {
-                    name: 'search_docs' as const,
-                    displayName: 'Search docs',
-                    description: 'Max can search the PostHog docs',
-                    icon: <IconBook />,
-                    context: {},
-                    callback: () => {},
-                },
-            } as Record<string, ToolDefinition>,
+        registeredToolMap: [
+            {} as Record<string, ToolDefinition>,
             {
                 registerTool: (state, { tool }) => ({
                     ...state,
@@ -206,6 +206,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 currentOrganization.membership_level < OrganizationMembershipLevel.Admin
                     ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
                     : null,
+        ],
+        toolMap: [
+            (s) => [s.registeredToolMap],
+            (registeredToolMap) => ({
+                ...Object.fromEntries(STATIC_TOOLS.map((tool) => [tool.name, tool])),
+                ...registeredToolMap,
+            }),
         ],
         tools: [(s) => [s.toolMap], (toolMap): ToolDefinition[] => Object.values(toolMap)],
     }),
