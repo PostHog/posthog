@@ -14,7 +14,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { Breakdown, BreakdownFilter } from '~/queries/schema/schema-general'
+import { Breakdown, BreakdownBin, BreakdownFilter } from '~/queries/schema/schema-general'
 import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
@@ -97,6 +97,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         }),
         setBreakdownHideOtherAggregation: (hidden: boolean) => ({
             hidden,
+        }),
+        setBreakdownBins: (breakdown: string | number, breakdownType: string, bins: BreakdownBin[]) => ({
+            breakdown,
+            breakdownType,
+            bins,
         }),
     }),
     reducers({
@@ -464,6 +469,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                         values.breakdownFilter.breakdowns,
                         {
                             histogram_bin_count: binsUsed ? binCount : undefined,
+                            breakdown_bins: [],
                         },
                         breakdown,
                         breakdownType
@@ -501,6 +507,30 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             props.updateBreakdownFilter?.({
                 breakdown_hide_other_aggregation: hidden,
             })
+        },
+        setBreakdownBins: async ({ breakdown, breakdownType, bins }, breakpoint) => {
+            await breakpoint(300)
+            if (!props.updateBreakdownFilter) {
+                return
+            }
+
+            if (values.isMultipleBreakdownsEnabled) {
+                const breakdownUpdate: Partial<Breakdown> = {
+                    breakdown_bins: bins,
+                }
+                if (bins?.length) {
+                    breakdownUpdate.histogram_bin_count = undefined
+                }
+
+                props.updateBreakdownFilter?.({
+                    breakdowns: updateNestedBreakdown(
+                        values.breakdownFilter.breakdowns,
+                        breakdownUpdate,
+                        breakdown,
+                        breakdownType
+                    ),
+                })
+            }
         },
     })),
 ])

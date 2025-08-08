@@ -2299,6 +2299,19 @@
         "Breakdown": {
             "additionalProperties": false,
             "properties": {
+                "breakdown_bins": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/BreakdownBin"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "group_type_index": {
                     "anyOf": [
                         {
@@ -2335,6 +2348,19 @@
         "BreakdownAttributionType": {
             "enum": ["first_touch", "last_touch", "all_events", "step"],
             "type": "string"
+        },
+        "BreakdownBin": {
+            "additionalProperties": false,
+            "properties": {
+                "high": {
+                    "type": ["number", "null"]
+                },
+                "low": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["high", "low"],
+            "type": "object"
         },
         "BreakdownFilter": {
             "additionalProperties": false,
