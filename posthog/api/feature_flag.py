@@ -1220,6 +1220,15 @@ class FeatureFlagViewSet(
             response_data = FeatureFlagLocalEvaluationCache.get_flags_response_for_local_evaluation(
                 self.team, include_cohorts
             )
+
+            flag_keys = [flag["id"] for flag in response_data["flags"]]
+
+            # Add request for analytics
+            if len(flag_keys) > 0 and not all(
+                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag_key in flag_keys
+            ):
+                increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+
             return Response(response_data)
 
         except Exception as e:
