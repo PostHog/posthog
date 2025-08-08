@@ -1,4 +1,5 @@
 import math
+import re
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
@@ -13,6 +14,7 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
+import posthoganalytics
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
@@ -297,6 +299,13 @@ class RootNode(RootNodeUIContextMixin):
     Determines the maximum number of tool calls allowed in a single generation.
     """
     CONVERSATION_WINDOW_SIZE = 64000
+
+    def _has_session_summarization_feature_flag(self) -> bool:
+        """
+        Check if the user has the session summarization feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled("max-session-summarization", str(self._user.distinct_id))
+
     """
     Determines the maximum number of tokens allowed in the conversation window.
     """
@@ -306,10 +315,23 @@ class RootNode(RootNodeUIContextMixin):
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
 
+        # Check if session summarization is enabled for the user
+        session_summarization_enabled = self._has_session_summarization_feature_flag()
+
+        # Build system prompt with conditional session summarization section
+        system_prompt_template = ROOT_SYSTEM_PROMPT
+        if not session_summarization_enabled:
+            # Remove session summarization section from prompt using regex
+            system_prompt_template = re.sub(
+                r"\n?<session_summarization>.*?</session_summarization>", "", system_prompt_template, flags=re.DOTALL
+            )
+            # Also remove the reference to session_summarization in basic_functionality
+            system_prompt_template = re.sub(r"\n?\d+\. `session_summarization`[^\n]*", "", system_prompt_template)
+
         prompt = (
             ChatPromptTemplate.from_messages(
                 [
-                    ("system", ROOT_SYSTEM_PROMPT),
+                    ("system", system_prompt_template),
                     (
                         "system",
                         CORE_MEMORY_PROMPT
@@ -417,7 +439,12 @@ class RootNode(RootNodeUIContextMixin):
             session_summarization,
         )
 
-        available_tools: list[type[BaseModel]] = [search_insights, session_summarization]
+        # Check if session summarization is enabled for the user
+        session_summarization_enabled = self._has_session_summarization_feature_flag()
+
+        available_tools: list[type[BaseModel]] = [search_insights]
+        if session_summarization_enabled:
+            available_tools.append(session_summarization)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
