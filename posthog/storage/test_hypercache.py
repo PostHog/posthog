@@ -37,6 +37,10 @@ class HyperCacheTestBase:
 
         return HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn)
 
+    def setUp(self):
+        # Clear the cache for the commonly used hypercache
+        self.hypercache.clear_cache(self.mock_team)
+
 
 class TestCacheKey(HyperCacheTestBase):
     def test_cache_key_format(self):
@@ -122,12 +126,7 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         hc = HyperCache(namespace="test", value="value", load_fn=load_fn_raises_exception)
 
         # Clear both Redis and S3
-        key = cache_key(self.mock_team.id, hc.namespace, hc.value)
-        cache.delete(key)
-        try:
-            object_storage.delete(key)
-        except ObjectStorageError:
-            pass  # Key might not exist
+        self.hypercache.clear_cache(self.mock_team)
 
         result, source = hc.get_from_cache_with_source(self.mock_team)
 
