@@ -215,12 +215,9 @@ impl Job {
                 };
 
                 let policy = self.context.config.backoff_policy();
-                let current_attempt = if self.context.config.backoff_db_columns_enabled {
+                let current_attempt = {
                     let model = self.model.lock().await;
                     model.backoff_attempt.max(0) as u32
-                } else {
-                    let state = self.state.lock().await;
-                    state.backoff_attempt
                 };
                 let (next_attempt, precomputed_delay) =
                     next_attempt_and_delay(current_attempt, policy);
@@ -245,7 +242,6 @@ impl Job {
                                 status_msg,
                                 Some(display_msg),
                                 next_attempt as i32,
-                                self.context.config.backoff_db_columns_enabled,
                             )
                             .await?;
                         return Ok(None);

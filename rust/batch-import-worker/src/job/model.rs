@@ -130,23 +130,20 @@ impl JobModel {
 
         match parsed {
             Ok(mut model) => {
-                // Optionally load DB backoff columns if enabled (requires migration)
-                if context.config.backoff_db_columns_enabled {
-                    // Best-effort: if columns not present yet in test/dev, ignore errors
-                    if let Ok(rec) = sqlx::query(
-                        r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,
-                    )
-                    .bind(id)
-                    .fetch_one(&context.db)
-                    .await
-                    {
-                        // Annotate types for clarity
-                        let attempt: Result<i32, sqlx::Error> = rec.try_get("backoff_attempt");
-                        if let Ok(a) = attempt { model.backoff_attempt = a; }
+                // Load DB backoff columns (requires migration)
+                if let Ok(rec) = sqlx::query(
+                    r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,
+                )
+                .bind(id)
+                .fetch_one(&context.db)
+                .await
+                {
+                    // Annotate types for clarity
+                    let attempt: Result<i32, sqlx::Error> = rec.try_get("backoff_attempt");
+                    if let Ok(a) = attempt { model.backoff_attempt = a; }
 
-                        let until: Result<Option<DateTime<Utc>>, sqlx::Error> = rec.try_get("backoff_until");
-                        if let Ok(u) = until { model.backoff_until = u; }
-                    }
+                    let until: Result<Option<DateTime<Utc>>, sqlx::Error> = rec.try_get("backoff_until");
+                    if let Ok(u) = until { model.backoff_until = u; }
                 }
 
                 Ok(Some(model))
@@ -190,7 +187,6 @@ impl JobModel {
         status_message: String,
         display_message: Option<String>,
         next_attempt: i32,
-        db_columns_enabled: bool,
     ) -> Result<(), Error> {
         let Some(current_lease) = self.lease_id.as_ref() else {
             anyhow::bail!("Cannot schedule backoff on a job with no lease")
@@ -200,67 +196,30 @@ impl JobModel {
             + chrono::Duration::from_std(delay)
                 .map_err(|_| anyhow::Error::msg("Invalid backoff duration"))?;
 
-        // Increment and persist backoff attempt in state JSON as a temporary persistence mechanism
-        if let Some(state) = &mut self.state {
-            state.backoff_attempt = state.backoff_attempt.saturating_add(1);
-        } else {
-            self.state = Some(JobState {
-                parts: vec![],
-                backoff_attempt: 1,
-            });
-        }
+        // Persist backoff attempt and until in DB
 
-        let state_json = serde_json::to_value(&self.state)?;
-
-        let res = if db_columns_enabled {
-            // Write DB backoff columns too
-            sqlx::query(
-                r#"
-                UPDATE posthog_batchimport
-                SET
-                    status = 'running',
-                    status_message = $3,
-                    display_status_message = $4,
-                    updated_at = now(),
-                    leased_until = $2,
-                    state = $5,
-                    backoff_attempt = $6,
-                    backoff_until = $2
-                WHERE id = $1 AND lease_id = $7
-                "#,
-            )
-            .bind(self.id)
-            .bind(until)
-            .bind(&status_message)
-            .bind(&display_message)
-            .bind(state_json)
-            .bind(next_attempt)
-            .bind(current_lease)
-            .execute(pool)
-            .await?
-        } else {
-            sqlx::query(
-                r#"
-                UPDATE posthog_batchimport
-                SET
-                    status = 'running',
-                    status_message = $3,
-                    display_status_message = $4,
-                    updated_at = now(),
-                    leased_until = $2,
-                    state = $5
-                WHERE id = $1 AND lease_id = $6
-                "#,
-            )
-            .bind(self.id)
-            .bind(until)
-            .bind(&status_message)
-            .bind(&display_message)
-            .bind(state_json)
-            .bind(current_lease)
-            .execute(pool)
-            .await?
-        };
+        let res = sqlx::query(
+            r#"
+            UPDATE posthog_batchimport
+            SET
+                status = 'running',
+                status_message = $3,
+                display_status_message = $4,
+                updated_at = now(),
+                leased_until = $2,
+                backoff_attempt = $5,
+                backoff_until = $2
+            WHERE id = $1 AND lease_id = $6
+            "#,
+        )
+        .bind(self.id)
+        .bind(until)
+        .bind(&status_message)
+        .bind(&display_message)
+        .bind(next_attempt)
+        .bind(current_lease)
+        .execute(pool)
+        .await?;
 
         throw_if_no_rows(res)?;
 
@@ -342,22 +301,18 @@ impl JobModel {
         self.backoff_attempt = 0;
         self.backoff_until = None;
 
-        // Persist regular fields
+        // Persist regular fields and reset DB backoff columns
         self.flush(&context.db, true).await?;
-
-        // Optionally reset DB backoff columns
-        if context.config.backoff_db_columns_enabled {
-            let _ = sqlx::query(
-                r#"
-                UPDATE posthog_batchimport
-                SET backoff_attempt = 0, backoff_until = NULL
-                WHERE id = $1
-                "#,
-            )
-            .bind(self.id)
-            .execute(&context.db)
-            .await?;
-        }
+        sqlx::query(
+            r#"
+            UPDATE posthog_batchimport
+            SET backoff_attempt = 0, backoff_until = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(self.id)
+        .execute(&context.db)
+        .await?;
 
         Ok(())
     }
