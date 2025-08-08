@@ -7,6 +7,7 @@ from rest_framework import status
 from django.core.cache import cache
 
 from posthog.models import PersonalAPIKey, SessionRecording
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.personal_api_key import hash_key_value
 from posthog.test.base import APIBaseTest
 
@@ -28,6 +29,8 @@ class TestSourceVaryingSnapshotThrottle(APIBaseTest):
         self.base_headers = {
             "Authorization": f"Bearer test_api_key",
         }
+
+        set_instance_setting("RATE_LIMIT_ENABLED", True)
 
     @parameterized.expand(
         [
@@ -96,7 +99,7 @@ class TestSourceVaryingSnapshotThrottle(APIBaseTest):
                 # If we get other errors, fail the test
                 self.fail(f"Unexpected status code {response.status_code}: {response.content}")
 
-        tolerance = 2
+        tolerance = 2 if expected_allowed_requests > 5 else 1
         assert (
             abs(allowed_count - expected_allowed_requests) <= tolerance
         ), f"Source '{source}' should allow ~{expected_allowed_requests} requests but allowed {allowed_count}"
