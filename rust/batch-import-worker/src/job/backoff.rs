@@ -42,9 +42,7 @@ pub fn compute_next_delay(attempt: u32, policy: BackoffPolicy) -> Duration {
     let scaled_secs = (base_secs * pow).round();
 
     let scaled = if scaled_secs.is_finite() && scaled_secs > 0.0 {
-        let secs_u64 = scaled_secs
-            .min(u64::MAX as f64)
-            .max(0.0) as u64;
+        let secs_u64 = scaled_secs.min(u64::MAX as f64).max(0.0) as u64;
         Duration::from_secs(secs_u64)
     } else {
         policy.max_delay
@@ -138,10 +136,11 @@ mod tests {
         let (s1, d1) = format_backoff_messages(None, Duration::from_secs(90));
         assert!(s1.contains("90s"));
         assert!(d1.contains("90s"));
-        let (s2, d2) = format_backoff_messages(Some("2023-01-01 00:00 UTC to 01:00 UTC"), Duration::from_secs(30));
+        let (s2, d2) = format_backoff_messages(
+            Some("2023-01-01 00:00 UTC to 01:00 UTC"),
+            Duration::from_secs(30),
+        );
         assert!(s2.contains("30s"));
         assert!(d2.contains("Date range"));
     }
 }
-
-

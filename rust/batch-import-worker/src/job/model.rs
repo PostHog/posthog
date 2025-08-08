@@ -182,7 +182,10 @@ impl JobModel {
         if let Some(state) = &mut self.state {
             state.backoff_attempt = state.backoff_attempt.saturating_add(1);
         } else {
-            self.state = Some(JobState { parts: vec![], backoff_attempt: 1 });
+            self.state = Some(JobState {
+                parts: vec![],
+                backoff_attempt: 1,
+            });
         }
 
         let state_json = serde_json::to_value(&self.state)?;
@@ -366,7 +369,10 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
         let (row, keys, lease_id) = input;
         let state = match row.state {
             Some(s) => serde_json::from_value(s).context("Parsing state")?,
-            None => JobState { parts: vec![], backoff_attempt: 0 },
+            None => JobState {
+                parts: vec![],
+                backoff_attempt: 0,
+            },
         };
 
         let import_config = serde_json::from_value(row.import_config).context("Parsing config")?;

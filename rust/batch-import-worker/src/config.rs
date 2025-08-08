@@ -1,6 +1,6 @@
+use crate::job::backoff::BackoffPolicy;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
-use crate::job::backoff::BackoffPolicy;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {

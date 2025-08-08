@@ -17,9 +17,9 @@ use crate::{
     spawn_liveness_loop,
 };
 
+pub mod backoff;
 pub mod config;
 pub mod model;
-pub mod backoff;
 
 // Small, testable decision function to avoid mocking DB in unit tests
 #[derive(Debug, PartialEq)]
@@ -134,11 +134,10 @@ impl Job {
             .await
             .with_context(|| format!("Failed to construct sink for job {}", model.id))?;
 
-        let mut state = model
-            .state
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| JobState { parts: vec![], backoff_attempt: 0 });
+        let mut state = model.state.as_ref().cloned().unwrap_or_else(|| JobState {
+            parts: vec![],
+            backoff_attempt: 0,
+        });
 
         if state.parts.is_empty() {
             info!("Found job with no parts, initializing parts list");
@@ -223,7 +222,8 @@ impl Job {
                     let state = self.state.lock().await;
                     state.backoff_attempt
                 };
-                let (next_attempt, precomputed_delay) = next_attempt_and_delay(current_attempt, policy);
+                let (next_attempt, precomputed_delay) =
+                    next_attempt_and_delay(current_attempt, policy);
                 match decide_on_error(
                     &e,
                     current_date_range.as_deref(),
@@ -231,22 +231,29 @@ impl Job {
                     current_attempt,
                     user_facing_error_message,
                 ) {
-                    ErrorHandlingDecision::Backoff { delay, status_msg, display_msg } => {
+                    ErrorHandlingDecision::Backoff {
+                        delay,
+                        status_msg,
+                        display_msg,
+                    } => {
                         error!("Rate limited (429): scheduling retry in {:?}", delay);
                         let mut model = self.model.lock().await;
-                    model
-                        .schedule_backoff(
-                            &self.context.db,
-                            precomputed_delay.min(delay),
-                            status_msg,
-                            Some(display_msg),
-                            next_attempt as i32,
-                            self.context.config.backoff_db_columns_enabled,
-                        )
+                        model
+                            .schedule_backoff(
+                                &self.context.db,
+                                precomputed_delay.min(delay),
+                                status_msg,
+                                Some(display_msg),
+                                next_attempt as i32,
+                                self.context.config.backoff_db_columns_enabled,
+                            )
                             .await?;
                         return Ok(None);
                     }
-                    ErrorHandlingDecision::Pause { error_msg, display_msg } => {
+                    ErrorHandlingDecision::Pause {
+                        error_msg,
+                        display_msg,
+                    } => {
                         error!("Failed to fetch and parse chunk: {:?}", e);
                         let mut model = self.model.lock().await;
                         model
@@ -472,9 +479,9 @@ impl Job {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use std::collections::HashMap;
     use httpmock::MockServer;
     use reqwest::Client;
+    use std::collections::HashMap;
 
     struct MockDataSource {
         keys: Vec<String>,
@@ -599,7 +606,11 @@ mod tests {
         );
 
         match decision {
-            ErrorHandlingDecision::Backoff { delay, status_msg, display_msg } => {
+            ErrorHandlingDecision::Backoff {
+                delay,
+                status_msg,
+                display_msg,
+            } => {
                 assert_eq!(delay.as_secs(), 60);
                 assert!(status_msg.contains("retry"));
                 assert!(display_msg.contains("Date range"));
@@ -637,7 +648,10 @@ mod tests {
         );
 
         match decision {
-            ErrorHandlingDecision::Pause { error_msg, display_msg } => {
+            ErrorHandlingDecision::Pause {
+                error_msg,
+                display_msg,
+            } => {
                 assert!(error_msg.contains("Failed to fetch and parse chunk"));
                 assert_eq!(display_msg, "Remote server error");
             }
@@ -647,7 +661,10 @@ mod tests {
 
     #[test]
     fn test_reset_backoff_after_success() {
-        let mut state = JobState { parts: vec![], backoff_attempt: 3 };
+        let mut state = JobState {
+            parts: vec![],
+            backoff_attempt: 3,
+        };
         let mut model = JobModel {
             // Minimal dummy values; only fields we need in this function
             id: uuid::Uuid::now_v7(),
@@ -659,14 +676,24 @@ mod tests {
             status: super::model::JobStatus::Running,
             status_message: None,
             display_status_message: None,
-            state: Some(JobState { parts: vec![], backoff_attempt: 3 }),
+            state: Some(JobState {
+                parts: vec![],
+                backoff_attempt: 3,
+            }),
             import_config: super::config::JobConfig {
                 // Construct a trivially valid config that won't be used by this test
-                source: super::config::SourceConfig::Folder(super::config::FolderSourceConfig { path: "/tmp".to_string() }),
-                data_format: crate::parse::format::FormatConfig::JsonLines { skip_blanks: true, content: crate::parse::content::ContentType::Captured },
+                source: super::config::SourceConfig::Folder(super::config::FolderSourceConfig {
+                    path: "/tmp".to_string(),
+                }),
+                data_format: crate::parse::format::FormatConfig::JsonLines {
+                    skip_blanks: true,
+                    content: crate::parse::content::ContentType::Captured,
+                },
                 sink: super::config::SinkConfig::NoOp,
             },
-            secrets: super::config::JobSecrets { secrets: std::collections::HashMap::new() },
+            secrets: super::config::JobSecrets {
+                secrets: std::collections::HashMap::new(),
+            },
             was_leased: false,
             backoff_attempt: 5,
             backoff_until: None,
