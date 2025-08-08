@@ -40,36 +40,36 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         category: MathCategory.EventCount,
     },
     [FunnelMathType.FirstTimeForUser]: {
-        name: 'First event for user',
+        // renamed on 2025-07-24, used to 'First time for user'
+        name: 'First-ever occurrence',
         shortName: 'first event',
         description: (
             <>
-                Matches only the first time the user performed this event type. If this event does not match the event
-                filters, or is outside the selected date range, the user will be excluded from the funnel.
+                Finds the user's very first occurrence of this event type, then checks if it matches your filters. If
+                the first-ever event doesn't match your filters, the user is excluded from the funnel.
                 <br />
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com/about, but the user's first
-                    pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
+                    Example: If you're filtering for pageview events to posthog.com/about, but the user's first pageview
+                    was to posthog.com, it will not match (even if they went to posthog.com/about later).
                 </i>
             </>
         ),
         category: MathCategory.EventCount,
     },
     [FunnelMathType.FirstTimeForUserWithFilters]: {
-        name: 'First matching event for user',
+        // renamed on 2025-07-24, used to 'First matching event for user'
+        name: 'First occurrence matching filters',
         shortName: 'first matching event',
         description: (
             <>
-                Matches only the first time the user performed this event type with the selected filters. If this event
-                is outside the selected date range, or the user never performed the event with the selected filters, the
-                user will be excluded from the funnel.
+                Finds the first time the user performed this event type that also matches your filters. Previous events
+                that don't match are ignored.
                 <br />
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com/about, and the user's first
-                    pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
-                    event from posthog.com/about
+                    Example: If you're filtering for pageview events to posthog.com/about, and the user first viewed
+                    posthog.com then later posthog.com/about, it will match the posthog.com/about pageview.
                 </i>
             </>
         ),
@@ -188,36 +188,36 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         category: MathCategory.SessionCount,
     },
     [BaseMathType.FirstTimeForUser]: {
-        name: 'First time for user',
+        // renamed on 2025-07-24, used to 'First time for user'
+        name: 'First-ever occurrence',
         shortName: 'first time',
         description: (
             <>
-                Matches only the first time the user performed this event type. If this event does not match the event
-                filters, or is outside the selected date range, the user will be excluded from the insight.
+                Finds the user's very first occurrence of this event type, then checks if it matches your filters. If
+                the first-ever event doesn't match your filters, the user is excluded.
                 <br />
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com/about, but the user's first
-                    pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
+                    Example: If you're filtering for pageview events to posthog.com/about, but the user's first pageview
+                    was to posthog.com, it will not match (even if they went to posthog.com/about later).
                 </i>
             </>
         ),
         category: MathCategory.EventCount,
     },
     [BaseMathType.FirstMatchingEventForUser]: {
-        name: 'First matching event for user',
+        // renamed on 2025-07-24, used to 'First matching event for user'
+        name: 'First occurrence matching filters',
         shortName: 'first matching event',
         description: (
             <>
-                Matches only the first time the user performed this event type with the selected filters. If this event
-                is outside the selected date range, or the user never performed the event with the selected filters, the
-                user will be excluded from the insight.
+                Finds the first time the user performed this event type that also matches your filters. Previous events
+                that don't match are ignored.
                 <br />
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com/about, and the user's first
-                    pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
-                    event from posthog.com/about
+                    Example: If you're filtering for pageview events to posthog.com/about, and the user first viewed
+                    posthog.com then later posthog.com/about, it will match the posthog.com/about pageview.
                 </i>
             </>
         ),

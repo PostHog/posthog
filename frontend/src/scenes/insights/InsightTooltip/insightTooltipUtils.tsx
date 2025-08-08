@@ -23,6 +23,7 @@ export interface SeriesDatum {
     color?: string
     count: number
     filter?: FilterType
+    hideTooltip?: boolean
 }
 
 // Describes the row-by-row data for insight tooltips in the situation where series
@@ -45,6 +46,7 @@ export interface TooltipConfig {
     showHeader?: boolean
     hideColorCol?: boolean
     groupTypeLabel?: string
+    filter?: (s: SeriesDatum) => boolean
 }
 
 export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount'> {

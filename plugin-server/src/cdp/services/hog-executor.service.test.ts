@@ -12,16 +12,13 @@ import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
+import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
 import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
-import {
-    CyclotronJobInvocationHogFunction,
-    HogFunctionQueueParametersFetchRequest,
-    HogFunctionType,
-} from '../../../src/cdp/types'
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
@@ -684,7 +681,7 @@ describe('Hog Executor', () => {
         jest.setTimeout(10000)
         let server: any
         let baseUrl: string
-        let mockRequest = jest.fn()
+        const mockRequest = jest.fn()
         let timeoutHandle: NodeJS.Timeout | undefined
         let hogFunction: HogFunctionType
 
@@ -725,14 +722,14 @@ describe('Hog Executor', () => {
         beforeEach(() => {
             jest.spyOn(Math, 'random').mockReturnValue(0.5)
 
-            mockRequest = jest.fn((req, res) => {
+            mockRequest.mockImplementation((req, res) => {
                 res.writeHead(200, { 'Content-Type': 'text/plain' })
                 res.end('Hello, world!')
             })
         })
 
         const createFetchInvocation = async (
-            params: Omit<HogFunctionQueueParametersFetchRequest, 'type'>
+            params: Omit<CyclotronInvocationQueueParametersFetchType, 'type'>
         ): Promise<CyclotronJobInvocationHogFunction> => {
             const invocation = createExampleInvocation(hogFunction)
 

@@ -11,7 +11,7 @@ export function useKeyHeld(key: string, deps?: DependencyList): boolean {
 
     useEffect(() => {
         checkKeysHeld()
-    }, [key, ...(deps || [])])
+    }, [key, ...(deps || [])]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEventListener(
         'keydown',

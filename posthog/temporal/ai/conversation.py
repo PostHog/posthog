@@ -18,7 +18,7 @@ from ee.hogai.stream.redis_stream import (
 from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
 from posthog.models import Team, User
-from posthog.schema import HumanMessage
+from posthog.schema import HumanMessage, MaxBillingContext
 from posthog.temporal.common.base import PostHogWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -27,7 +27,7 @@ logger = structlog.get_logger(__name__)
 CONVERSATION_STREAM_ACTIVITY_RETRY_INTERVAL = 1  # 1 second
 CONVERSATION_STREAM_ACTIVITY_RETRY_MAX_INTERVAL = 30 * 60  # 30 minutes
 CONVERSATION_STREAM_ACTIVITY_RETRY_MAX_ATTEMPTS = 3
-CONVERSATION_STREAM_ACTIVITY_HEARTBEAT_TIMEOUT = 30
+CONVERSATION_STREAM_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 
 
 @dataclass
@@ -43,6 +43,7 @@ class AssistantConversationRunnerWorkflowInputs:
     trace_id: Optional[str] = None
     session_id: Optional[str] = None
     mode: AssistantMode = AssistantMode.ASSISTANT
+    billing_context: Optional[MaxBillingContext] = None
 
 
 @workflow.defn(name="conversation-processing")

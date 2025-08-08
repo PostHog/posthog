@@ -6,8 +6,8 @@ settings:
 
 devDependencies:
   '@types/node':
-    specifier: ^18.11.9
-    version: 18.11.9
+    specifier: ^22.13.14
+    version: 22.13.14
   typescript:
     specifier: ^4.7.4
     version: 4.7.4
@@ -17,7 +17,7 @@ devDependencies:
 
 packages:
 
-  /@types/node@18.11.9:
+  /@types/node@22.13.14:
     resolution: {integrity: sha512-CRpX21/kGdzjOpFsZSkcrXMGIBWMGNIHXXBVFSH+ggkftxg+XYP20TESbh+zFvFj3EQOl5byk0HTRn1IL6hbqg==}
     dev: true
 

@@ -56,11 +56,9 @@ from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    UnsupportedFileFormatError,
-)
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = [
+NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.
     "ParamValidationError",
     # This error usually indicates credentials are incorrect or permissions are missing.
@@ -71,13 +69,11 @@ NON_RETRYABLE_ERROR_TYPES = [
     "EndpointConnectionError",
     # User provided an invalid S3 key
     "InvalidS3Key",
-    # All consumers failed with non-retryable errors.
-    "RecordBatchConsumerNonRetryableExceptionGroup",
     # Invalid S3 endpoint URL
     "InvalidS3EndpointError",
     # Invalid file_format input
     "UnsupportedFileFormatError",
-]
+)
 
 FILE_FORMAT_EXTENSIONS = {
     "Parquet": "parquet",
@@ -99,6 +95,13 @@ SUPPORTED_COMPRESSIONS = {
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
+
+
+class UnsupportedFileFormatError(Exception):
+    """Raised when an unsupported file format is requested."""
+
+    def __init__(self, file_format: str):
+        super().__init__(f"'{file_format}' is not a supported format for S3 batch exports.")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -124,7 +127,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     use_virtual_style_addressing: bool = False
 
 
-def get_allowed_template_variables(inputs) -> dict[str, str]:
+def get_allowed_template_variables(inputs: S3InsertInputs) -> dict[str, str]:
     """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
     export_datetime = dt.datetime.fromisoformat(inputs.data_interval_end)
     return {
@@ -134,7 +137,7 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "day": f"{export_datetime:%d}",
         "month": f"{export_datetime:%m}",
         "year": f"{export_datetime:%Y}",
-        "data_interval_start": inputs.data_interval_start,
+        "data_interval_start": inputs.data_interval_start or "START",
         "data_interval_end": inputs.data_interval_end,
         "table": inputs.batch_export_model.name if inputs.batch_export_model is not None else "events",
     }
@@ -142,7 +145,13 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
 
 def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
     template_variables = get_allowed_template_variables(inputs)
-    return inputs.prefix.format(**template_variables)
+    try:
+        return inputs.prefix.format(**template_variables)
+    except KeyError as e:
+        EXTERNAL_LOGGER.warning(
+            f"The key prefix '{inputs.prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
+        )
+        return inputs.prefix
 
 
 def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
@@ -152,7 +161,7 @@ def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
     try:
         file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
     except KeyError:
-        raise UnsupportedFileFormatError(inputs.file_format, "S3")
+        raise UnsupportedFileFormatError(inputs.file_format)
 
     base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
     # to maintain backwards compatibility with the old file naming scheme
@@ -326,12 +335,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             insert_into_s3_activity_from_stage,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
         )
         return
 
 
 @activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
     """Activity to batch export data to a customer's S3.
 

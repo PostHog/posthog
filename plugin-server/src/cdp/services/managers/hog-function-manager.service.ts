@@ -103,7 +103,9 @@ export class HogFunctionManagerService {
 
     public async getHogFunctionsForTeams(
         teamIds: Team['id'][],
-        types: HogFunctionTypeType[]
+        types: HogFunctionTypeType[],
+        /** Optional way to pre-filter hog functions before returning them */
+        filterFn?: (hogFunction: HogFunctionType) => boolean
     ): Promise<Record<Team['id'], HogFunctionType[]>> {
         const result = teamIds.reduce<Record<Team['id'], HogFunctionType[]>>((acc, teamId) => {
             acc[teamId] = []
@@ -116,6 +118,9 @@ export class HogFunctionManagerService {
 
         for (const fn of Object.values(hogFunctions)) {
             if (!fn) {
+                continue
+            }
+            if (filterFn && !filterFn(fn)) {
                 continue
             }
             result[fn.team_id] = result[fn.team_id] ?? []

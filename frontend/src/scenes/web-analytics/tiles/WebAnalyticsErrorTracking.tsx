@@ -8,7 +8,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ErrorTrackingTile } from 'scenes/web-analytics/common'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'

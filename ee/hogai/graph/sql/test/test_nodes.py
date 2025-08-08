@@ -9,18 +9,18 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
-from posthog.test.base import BaseTest
+from posthog.test.base import NonAtomicBaseTest
 
 
-class TestSQLGeneratorNode(BaseTest):
+class TestSQLGeneratorNode(NonAtomicBaseTest):
     maxDiff = None
 
-    def test_node_runs(self):
+    async def test_node_runs(self):
         node = SQLGeneratorNode(self.team, self.user)
         with patch.object(SQLGeneratorNode, "_model") as generator_model_mock:
             answer = AssistantHogQLQuery(query="SELECT 1")
             generator_model_mock.return_value = RunnableLambda(lambda _: answer.model_dump())
-            new_state = node.run(
+            new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     plan="Plan",

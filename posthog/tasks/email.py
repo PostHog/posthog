@@ -8,6 +8,8 @@ import structlog
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
+from django.db.models import OuterRef, Subquery
+
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
@@ -24,8 +26,10 @@ from posthog.models import (
 )
 from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
+
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +56,7 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
         organization_id=team.organization_id
     )
     for membership in memberships:
-        if not membership.user.notification_settings.get(notification_setting, True):
+        if not should_send_notification(membership.user, notification_setting):
             continue
         team_permissions = UserPermissions(membership.user).team(team)
         # Only send the email to users who have access to the affected project
@@ -97,9 +101,9 @@ def should_send_notification(
 
         return True
 
-    # Default to False (disabled) if not set
+    # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
-        return not settings.get(notification_type, True)
+        return settings.get(notification_type, True)
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
@@ -505,7 +509,7 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_hog_functions_digest_email(digest_data: dict) -> None:
+def send_hog_functions_digest_email(digest_data: dict, test_email_override: str | None = None) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -521,6 +525,24 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
     memberships_to_email = get_members_to_notify(team, "plugin_disabled")
     if not memberships_to_email:
         return
+
+    # If test email override is provided, validate it early
+    if test_email_override:
+        test_membership = None
+        for membership in memberships_to_email:
+            if membership.user.email == test_email_override:
+                test_membership = membership
+                break
+
+        if not test_membership:
+            logger.warning(
+                f"Test email override {test_email_override} not found in organization memberships for team {team_id}"
+            )
+            return
+
+        # For testing: use only the override recipient
+        memberships_to_email = [test_membership]
+        logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
 
     campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
 
@@ -540,6 +562,7 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         },
     )
 
+    # Add recipients (either filtered list for test override or full list for normal flow)
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
 
@@ -675,13 +698,50 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         return
 
     # Get all active HogFunctions for the team that had failures
-    hog_functions = HogFunction.objects.filter(
-        team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids
-    ).values("id", "team_id", "name", "type")
+    hog_functions = (
+        HogFunction.objects.filter(team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids)
+        .select_related("created_by")
+        .values("id", "team_id", "name", "type", "created_by__email")
+    )
 
     if not hog_functions:
         logger.info(f"No active HogFunctions found for team {team_id}")
         return
+
+    # Get the last editor for each HogFunction from activity log
+    hog_function_ids_list = [str(hf["id"]) for hf in hog_functions]
+    last_editors: dict[str, str | None] = {}
+    last_edit_dates: dict[str, str | None] = {}
+
+    # Use a subquery to get only the latest activity for each HogFunction
+    latest_activities_subquery = (
+        ActivityLog.objects.filter(team_id=team_id, scope="HogFunction", item_id=OuterRef("item_id"))
+        .order_by("-created_at")
+        .values("id")[:1]
+    )
+
+    latest_activities = ActivityLog.objects.select_related("user").filter(
+        team_id=team_id,
+        scope="HogFunction",
+        item_id__in=hog_function_ids_list,
+        id__in=Subquery(latest_activities_subquery),
+    )
+
+    # Build the dictionaries from the optimized result set
+    for activity in latest_activities:
+        if activity.item_id is not None:  # Ensure item_id is not None before using as dict key
+            if activity.user:
+                last_editors[activity.item_id] = activity.user.email
+                last_edit_dates[activity.item_id] = activity.created_at.strftime("%Y-%m-%d")
+            else:
+                last_editors[activity.item_id] = None
+                last_edit_dates[activity.item_id] = None
+
+    # Ensure all HogFunctions have entries (even if no activity log exists)
+    for hog_function_id in hog_function_ids_list:
+        if hog_function_id not in last_editors:
+            last_editors[hog_function_id] = None
+            last_edit_dates[hog_function_id] = None
 
     # Build function metrics
     function_metrics = []
@@ -698,6 +758,9 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
                     "id": hog_function_id,
                     "name": hog_function["name"],
                     "type": hog_function["type"],
+                    "created_by_email": hog_function["created_by__email"],
+                    "last_edited_by_email": last_editors.get(hog_function_id),
+                    "last_edit_date": last_edit_dates.get(hog_function_id),
                     "succeeded": metrics["succeeded"],
                     "failed": metrics["failed"],
                     "failure_rate": round(failure_rate, 1),

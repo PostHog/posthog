@@ -331,6 +331,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     placement={placement || 'right-start'}
                     closeOnClickInside={!custom}
                     closeParentPopoverOnClickInside={!custom}
+                    buttonSize={size}
                 >
                     {button}
                 </LemonMenu>

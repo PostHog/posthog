@@ -100,9 +100,7 @@ jobs:
                                   if (result.comparison_experiment_name?.startsWith("master-")) {
                                       baselineComparison = `${diffHighlight}${value.diff > 0 ? "+" : value.diff < 0 ? "" : "±"}${(
                                           value.diff * 100
-                                      ).toFixed(2)}%${diffHighlight} versus [baseline (master)](${result.project_url}/experiments/${
-                                          result.comparison_experiment_name
-                                      }) (improvements: ${value.improvements}, regressions: ${value.regressions})`
+                                      ).toFixed(2)}%${diffHighlight} (improvements: ${value.improvements}, regressions: ${value.regressions})`
                                       diffEmoji = value.diff > 0.01 ? "🟢" : value.diff < -0.01 ? "🔴" : "🔵"
                                   }
                                   return `${diffEmoji} **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ""}`
@@ -115,11 +113,16 @@ jobs:
                           const totalTokens = metrics.total_tokens ? `🔢 ${Math.floor(metrics.total_tokens.metric)} tokens` : null
                           const cost = metrics.estimated_cost ? `💵 $${metrics.estimated_cost.metric.toFixed(4)} in tokens` : null
                           const metricsText = [duration, totalTokens, cost].filter(Boolean).join(", ")
+                          const baselineLink = `[${result.comparison_experiment_name}](${result.project_url}/experiments/${result.comparison_experiment_name})`
 
                           // Create concise experiment summary with header only showing experiment name
                           const experimentName = result.project_name.replace(/^max-ai-/, "")
 
-                          return `### [${experimentName}](${result.experiment_url})\n\n${scoresList}\n\nAvg. case performance: ${metricsText}`
+                          return [
+                              `### [${experimentName}](${result.experiment_url})`,
+                              scoresList,
+                              `Baseline: ${baselineLink} • Avg. case performance: ${metricsText}`,
+                          ].join("\n\n")
                       })
 
                       const totalExperiments = evalResults.length
@@ -144,17 +147,3 @@ jobs:
                           // Just log the summary if this is a push to master
                           console.log(body)
                       }
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && github.repository == 'PostHog/posthog' && (
-            github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
-            )
-        needs: [eval] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

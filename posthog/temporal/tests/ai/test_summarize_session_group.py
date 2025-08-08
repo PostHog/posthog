@@ -29,7 +29,9 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
 )
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
+    combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
+    split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog import constants
 from collections.abc import AsyncGenerator
@@ -38,6 +40,12 @@ from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatComple
 from datetime import datetime, timedelta
 from temporalio.testing import WorkflowEnvironment
 from posthog.temporal.ai import WORKFLOWS
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionGroupSummaryOfSummariesInputs,
+    SessionGroupSummaryPatternsExtractionChunksInputs,
+)
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 pytestmark = pytest.mark.django_db
 
@@ -376,6 +384,8 @@ class TestSummarizeSessionGroupWorkflow:
                         extract_session_group_patterns_activity,
                         assign_events_to_patterns_activity,
                         fetch_session_batch_events_activity,
+                        combine_patterns_from_chunks_activity,
+                        split_session_summaries_into_chunks_for_patterns_extraction_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ) as worker:
@@ -482,13 +492,379 @@ class TestSummarizeSessionGroupWorkflow:
             # Operations: session data storage (2) + session summaries (2) + pattern extraction (1) + pattern assignment (1)
             assert spy_setex.call_count == 6
             # Operations:
-            # - try to get cached DB data for 2 sessions (2)
-            # - try to get cached single-session summaries for 2 sessions (2)
-            # - get cached DB data for 2 sessions (2)
-            # - try to get cached extracted patterns from all sessions (1)
-            # - get cached single-session summaries for 2 sessions (2)
-            # - try to get cached patterns assignments for all sessions (1)
-            # - get cached extracted patterns for all sessions (1)
-            # - get cached single-session summaries for 2 sessions (2)
-            # - get cached DB data for 2 sessions (2)
-            assert spy_get.call_count == 15
+            # - try to get cached DB data for 2 sessions (2) - fetch_session_batch_events_activity
+            # - try to get cached single-session summaries for 2 sessions (2) - fetch_session_batch_events_activity
+            # - get cached DB data for 2 sessions (2) - fetch_session_batch_events_activity
+            # - get cached DB data for 2 sessions (2) - split_session_summaries_into_chunks_for_patterns_extraction_activity
+            # - nothing from combine_patterns_from_chunks_activity, as only one chunk, so no combination step
+            # - try to get cached extracted patterns from all sessions (1) - extract_session_group_patterns_activity
+            # - get cached single-session summaries for 2 sessions (2) - extract_session_group_patterns_activity
+            # - try to get cached patterns assignments for all sessions (1) - assign_events_to_patterns_activity
+            # - get cached extracted patterns for all sessions (1) - assign_events_to_patterns_activity
+            # - get cached single-session summaries for 2 sessions (2) - assign_events_to_patterns_activity
+            # - get cached DB data for 2 sessions (2) - assign_events_to_patterns_activity
+            assert spy_get.call_count == 17
+
+
+@pytest.mark.asyncio
+class TestPatternExtractionChunking:
+    async def test_empty_input_returns_empty_chunks(self):
+        """Test that empty input returns empty list of chunks."""
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=[],
+            user_id=1,
+            extra_summary_context=None,
+            redis_key_base="test",
+        )
+
+        # Execute the activity directly
+        chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+
+        assert chunks == []
+
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.get_async_client")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
+    @patch(
+        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
+    )
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
+    async def test_all_sessions_fit_in_single_chunk(
+        self, mock_get_summaries, mock_estimate_tokens, mock_remove_excessive, mock_json_dumps, mock_get_async_client
+    ):
+        """Test when all sessions fit within token limit in a single chunk."""
+        # Setup inputs with 2 sessions
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=[
+                SingleSessionSummaryInputs(session_id="session-1", user_id=1, team_id=1, redis_key_base="test"),
+                SingleSessionSummaryInputs(session_id="session-2", user_id=1, team_id=1, redis_key_base="test"),
+            ],
+            user_id=1,
+            extra_summary_context=ExtraSummaryContext(focus_area="test"),
+            redis_key_base="test",
+        )
+
+        # Mock Redis client
+        mock_redis_client = AsyncMock()
+        mock_get_async_client.return_value = mock_redis_client
+
+        # Mock Redis returning session summaries
+        mock_get_summaries.return_value = [
+            '{"summary": "Summary 1", "segments": []}',
+            '{"summary": "Summary 2", "segments": []}',
+        ]
+
+        # Mock json.dumps to return a simple string
+        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
+
+        # Mock token counts: base template=1000, each summary=500
+        mock_estimate_tokens.side_effect = [1000, 500, 500]  # Total: 2000 < 150000
+
+        chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+
+        assert len(chunks) == 1
+        assert chunks[0] == ["session-1", "session-2"]
+
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.get_async_client")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
+    @patch(
+        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
+    )
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
+    async def test_sessions_split_into_multiple_chunks(
+        self, mock_get_summaries, mock_estimate_tokens, mock_remove_excessive, mock_json_dumps, mock_get_async_client
+    ):
+        """Test sessions are split when exceeding token limit."""
+        # Setup inputs with 3 sessions
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=[
+                SingleSessionSummaryInputs(session_id=f"session-{i}", user_id=1, team_id=1, redis_key_base="test")
+                for i in range(3)
+            ],
+            user_id=1,
+            extra_summary_context=None,
+            redis_key_base="test",
+        )
+
+        # Mock Redis client
+        mock_redis_client = AsyncMock()
+        mock_get_async_client.return_value = mock_redis_client
+
+        # Mock Redis returning session summaries
+        mock_get_summaries.return_value = [f'{{"summary": "Summary {i}", "segments": []}}' for i in range(3)]
+
+        # Mock json.dumps to return a simple string
+        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
+
+        # Mock token counts: base=1000, session0=80000, session1=70000, session2=500
+        # - session0 goes alone (80k + 1k base)
+        # - session1 goes into the next chunk (80k + 70k + 1k base > 150k)
+        # - session2 fits together with session1 (70k + 500 + 1k base < 150k)
+        mock_estimate_tokens.side_effect = [1000, 80000, 70000, 500]
+
+        chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+
+        assert len(chunks) == 2
+        assert chunks[0] == ["session-0"]
+        assert chunks[1] == ["session-1", "session-2"]
+
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.get_async_client")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
+    @patch(
+        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
+    )
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.logger")
+    async def test_oversized_session_handling(
+        self,
+        mock_logger,
+        mock_get_summaries,
+        mock_estimate_tokens,
+        mock_remove_excessive,
+        mock_json_dumps,
+        mock_get_async_client,
+    ):
+        """Test handling of sessions that exceed token limits."""
+        # Setup inputs with 4 sessions
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=[
+                SingleSessionSummaryInputs(session_id=f"session-{i}", user_id=1, team_id=1, redis_key_base="test")
+                for i in range(4)
+            ],
+            user_id=1,
+            extra_summary_context=None,
+            redis_key_base="test",
+        )
+        # Mock Redis client
+        mock_redis_client = AsyncMock()
+        mock_get_async_client.return_value = mock_redis_client
+        # Mock Redis returning session summaries
+        mock_get_summaries.return_value = [f'{{"summary": "Summary {i}", "segments": []}}' for i in range(4)]
+        # Mock json.dumps to return a simple string
+        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
+        # Mock token counts:
+        # base=1000
+        # session-0: 500 (fits normally)
+        # session-1: 160000 (exceeds PATTERNS_EXTRACTION_MAX_TOKENS but fits in SINGLE_ENTITY_MAX_TOKENS)
+        # session-2: 250000 (exceeds even SINGLE_ENTITY_MAX_TOKENS, should be skipped)
+        # session-3: 600 (fits normally)
+        mock_estimate_tokens.side_effect = [1000, 500, 160000, 250000, 600]
+        chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+        # Expected behavior:
+        # - session-0 goes into first chunk
+        # - session-1 gets its own chunk (warning logged)
+        # - session-2 is skipped (error logged)
+        # - session-3 goes into third chunk
+        assert len(chunks) == 3
+        assert chunks[0] == ["session-0"]
+        assert chunks[1] == ["session-1"]
+        assert chunks[2] == ["session-3"]
+        # Verify logging
+        mock_logger.warning.assert_called_once()
+        warning_call = mock_logger.warning.call_args[0][0]
+        assert "session-1" in warning_call
+        assert "PATTERNS_EXTRACTION_MAX_TOKENS" in warning_call
+        assert "SINGLE_ENTITY_MAX_TOKENS" in warning_call
+        mock_logger.error.assert_called_once()
+        error_call = mock_logger.error.call_args[0][0]
+        assert "session-2" in error_call
+        assert "SINGLE_ENTITY_MAX_TOKENS" in error_call
+
+
+@pytest.mark.asyncio
+async def test_combine_patterns_from_chunks_activity(
+    mocker: MockerFixture,
+    mock_session_id: str,
+    redis_test_setup: AsyncRedisTestContext,
+):
+    """Test combine_patterns_from_chunks_activity."""
+    # Prepare test data
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2", f"{mock_session_id}-3"]
+    redis_key_base = "test-combine-patterns"
+    user_id = 1
+    # Create chunk patterns to store in Redis
+    chunk_patterns_1 = RawSessionGroupSummaryPatternsList(
+        patterns=[
+            {
+                "pattern_id": 1,
+                "pattern_name": "Login Flow",
+                "pattern_description": "User login pattern",
+                "severity": "low",
+                "indicators": ["clicked login", "entered credentials"],
+            }
+        ]
+    )
+    chunk_patterns_2 = RawSessionGroupSummaryPatternsList(
+        patterns=[
+            {
+                "pattern_id": 2,
+                "pattern_name": "Error Pattern",
+                "pattern_description": "Multiple errors occurred",
+                "severity": "high",
+                "indicators": ["error message", "retry attempt"],
+            }
+        ]
+    )
+    # Store chunk patterns in Redis
+    chunk_key_1 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="chunk-1",
+    )
+    chunk_key_2 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="chunk-2",
+    )
+    await store_data_in_redis(
+        redis_client=redis_test_setup.redis_client,
+        redis_key=chunk_key_1,
+        data=chunk_patterns_1.model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    await store_data_in_redis(
+        redis_client=redis_test_setup.redis_client,
+        redis_key=chunk_key_2,
+        data=chunk_patterns_2.model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    redis_test_setup.keys_to_cleanup.extend([chunk_key_1, chunk_key_2])
+    # Set up spies
+    spy_get = mocker.spy(redis_test_setup.redis_client, "get")
+    spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
+    # Mock the LLM combination function
+    with (
+        patch(
+            "posthog.temporal.ai.session_summary.activities.patterns.get_llm_session_group_patterns_combination"
+        ) as mock_combine,
+        patch("temporalio.activity.info") as mock_activity_info,
+    ):
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Mock returns combined patterns
+        combined_patterns = RawSessionGroupSummaryPatternsList(
+            patterns=[
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Login Flow",
+                    "pattern_description": "User login pattern",
+                    "severity": "low",
+                    "indicators": ["clicked login", "entered credentials"],
+                },
+                {
+                    "pattern_id": 2,
+                    "pattern_name": "Error Pattern",
+                    "pattern_description": "Multiple errors occurred",
+                    "severity": "high",
+                    "indicators": ["error message", "retry attempt"],
+                },
+            ]
+        )
+        mock_combine.return_value = combined_patterns
+        # Execute the activity
+        inputs = SessionGroupSummaryPatternsExtractionChunksInputs(
+            redis_keys_of_chunks_to_combine=[chunk_key_1, chunk_key_2],
+            redis_key_base=redis_key_base,
+            session_ids=session_ids,
+            user_id=user_id,
+            extra_summary_context=None,
+        )
+        await combine_patterns_from_chunks_activity(inputs)
+        # Verify Redis operations
+        # 1 get for checking if combined patterns exist + 2 gets for chunk patterns
+        assert spy_get.call_count == 3
+        # 1 setex for storing combined patterns (2 initial setex were before spy)
+        assert spy_setex.call_count == 1
+        # Verify LLM was called
+        mock_combine.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_combine_patterns_from_chunks_activity_fails_with_missing_chunks(
+    mock_session_id: str,
+    redis_test_setup: AsyncRedisTestContext,
+):
+    """Test that combine_patterns_from_chunks_activity fails when any chunk is missing."""
+    # Prepare test data
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    redis_key_base = "test-combine-patterns-missing"
+    user_id = 1
+    # Create only one chunk pattern (simulating missing chunk)
+    chunk_patterns_1 = RawSessionGroupSummaryPatternsList(
+        patterns=[
+            {
+                "pattern_id": 1,
+                "pattern_name": "Test Pattern",
+                "pattern_description": "Test",
+                "severity": "low",
+                "indicators": ["test"],
+            }
+        ]
+    )
+    chunk_key_1 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="chunk-1",
+    )
+    chunk_key_2 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="chunk-2-missing",  # This one won't exist in Redis
+    )
+    # Store only the first chunk
+    await store_data_in_redis(
+        redis_client=redis_test_setup.redis_client,
+        redis_key=chunk_key_1,
+        data=chunk_patterns_1.model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    redis_test_setup.keys_to_cleanup.append(chunk_key_1)
+
+    with patch("temporalio.activity.info") as mock_activity_info:
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Should raise ValueError when a chunk is missing
+        with pytest.raises(ValueError):
+            inputs = SessionGroupSummaryPatternsExtractionChunksInputs(
+                redis_keys_of_chunks_to_combine=[chunk_key_1, chunk_key_2],
+                redis_key_base=redis_key_base,
+                session_ids=session_ids,
+                user_id=user_id,
+                extra_summary_context=None,
+            )
+            await combine_patterns_from_chunks_activity(inputs)
+
+
+@pytest.mark.asyncio
+async def test_combine_patterns_from_chunks_activity_fails_when_no_chunks(
+    mock_session_id: str,
+    redis_test_setup: AsyncRedisTestContext,
+):
+    """Test that activity fails when no chunks can be retrieved."""
+    # Prepare test data with non-existent chunk keys
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    redis_key_base = "test-combine-patterns-fail"
+    user_id = 1
+    chunk_key_1 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="non-existent-1",
+    )
+    chunk_key_2 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="non-existent-2",
+    )
+
+    with patch("temporalio.activity.info") as mock_activity_info:
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Should raise ValueError when chunks are missing
+        with pytest.raises(ValueError):
+            inputs = SessionGroupSummaryPatternsExtractionChunksInputs(
+                redis_keys_of_chunks_to_combine=[chunk_key_1, chunk_key_2],
+                redis_key_base=redis_key_base,
+                session_ids=session_ids,
+                user_id=user_id,
+                extra_summary_context=None,
+            )
+            await combine_patterns_from_chunks_activity(inputs)

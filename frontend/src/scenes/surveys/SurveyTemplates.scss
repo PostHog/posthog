@@ -3,8 +3,8 @@
     flex: 1;
     align-items: center;
     min-height: 300px;
-    background: var(--bg-surface-primary);
-    border: 1px solid var(--border-primary);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
     border-radius: var(--radius);
 
     &:hover {

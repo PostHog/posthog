@@ -822,8 +822,8 @@ export class HedgehogActor {
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 // NOTE: Some styles done here to avoid it showing as an interactable element (via border)
-                                border: '1px solid var(--border-primary)',
-                                backgroundColor: 'var(--bg-surface-primary)',
+                                border: '1px solid var(--color-border-primary)',
+                                backgroundColor: 'var(--color-bg-surface-primary)',
                             }}
                         >
                             {this.tooltip}
@@ -945,7 +945,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         if (currentLocation.pathname.includes('/heatmaps')) {
             actor?.setOnFire()
         }
-    }, [currentLocation.pathname])
+    }, [currentLocation.pathname, actor])
 
     useEffect(() => {
         if (hedgehogConfig) {
@@ -955,15 +955,15 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
                 actor.direction = hedgehogConfig.fixed_direction
             }
         }
-    }, [hedgehogConfig])
+    }, [hedgehogConfig, actor, actor.hedgehogConfig, actor.direction])
 
     useEffect(() => {
         actor.tooltip = tooltip
-    }, [tooltip])
+    }, [tooltip, actor.tooltip])
 
     useEffect(() => {
         actor.static = staticMode ?? false
-    }, [staticMode])
+    }, [staticMode, actor.static])
 
     useEffect(() => {
         let timer: any = null
@@ -978,7 +978,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         return () => {
             clearTimeout(timer)
         }
-    }, [])
+    }, [actor])
 
     useEffect(() => {
         if (actor.isDragging) {
@@ -992,7 +992,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     useEffect(() => {
         onPositionChange?.(actor)
-    }, [actor.x, actor.y, actor.direction])
+    }, [actor.x, actor.y, actor.direction, onPositionChange, actor])
 
     const onClick = (): void => {
         !actor.isDragging && _onClick?.(actor)

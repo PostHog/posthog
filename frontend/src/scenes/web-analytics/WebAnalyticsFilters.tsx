@@ -15,7 +15,8 @@ import { AvailableFeature, PropertyMathType } from '~/types'
 
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
-import { ProductTab, webAnalyticsLogic } from './webAnalyticsLogic'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
+import { ProductTab } from './common'
 import { WebConversionGoal } from './WebConversionGoal'
 import { WebPropertyFilters } from './WebPropertyFilters'
 
@@ -69,10 +70,8 @@ const FoldableFilters = (): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
         preAggregatedEnabled,
-        productTab,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
-
     return (
         <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
             <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
@@ -84,7 +83,7 @@ const FoldableFilters = (): JSX.Element => {
             <WebVitalsPercentileToggle />
             <PathCleaningToggle />
 
-            {productTab !== ProductTab.MARKETING && <WebPropertyFilters />}
+            <WebPropertyFilters />
         </div>
     )
 }
@@ -151,7 +150,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
         <LemonSelect
             className="grow md:grow-0"
             size="small"
-            value={hasHostFilter ? 'host' : domainFilter ?? 'all'}
+            value={hasHostFilter ? 'host' : (domainFilter ?? 'all')}
             icon={<IconGlobe />}
             onChange={(value) => setDomainFilter(value)}
             disabledReason={

@@ -326,6 +326,7 @@ class TestRedisStream(BaseTest):
     @pytest.mark.asyncio
     async def test_write_to_stream_exception(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()  # Allow expire to succeed
             mock_client.xadd = AsyncMock(side_effect=Exception("Redis error"))
 
             async def test_generator():
@@ -334,7 +335,6 @@ class TestRedisStream(BaseTest):
             with self.assertRaises(Exception):
                 await self.redis_stream.write_to_stream(test_generator())
 
-            # Should call xadd twice: 1 failed data message + 1 error status
             self.assertEqual(mock_client.xadd.call_count, 2)
 
     @pytest.mark.asyncio

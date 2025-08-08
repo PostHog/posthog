@@ -10,7 +10,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/transformations/geoip.png',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 // Define the properties to be added to the event
 let geoipProperties := {
     'city_name': null,

@@ -21,6 +21,7 @@ export function loadPostHogJS(): void {
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
             api_transport: 'fetch',
+            disable_surveys: window.IMPERSONATED_SESSION,
             before_send: (payload) => {
                 const win = window as WindowWithCypressCaptures
                 if (win.Cypress && payload) {
@@ -92,7 +93,7 @@ export function loadPostHogJS(): void {
             person_profiles: 'always',
             __preview_remote_config: true,
             __preview_flags_v2: true,
-            __add_tracing_headers: false,
+            __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {

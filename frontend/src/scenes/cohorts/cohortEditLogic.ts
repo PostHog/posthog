@@ -11,6 +11,7 @@ import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
     cleanCriteria,
+    createCohortDataNodeLogicKey,
     createCohortFormData,
     isCohortCriteriaGroup,
     validateGroup,
@@ -34,6 +35,7 @@ import {
 } from '~/types'
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
@@ -153,8 +155,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 isCohortCriteriaGroup(oldCriteria)
                                     ? oldCriteria
                                     : criteriaI === criteriaIndex
-                                    ? cleanCriteria({ ...oldCriteria, ...newCriteria })
-                                    : oldCriteria
+                                      ? cleanCriteria({ ...oldCriteria, ...newCriteria })
+                                      : oldCriteria
                             ),
                         groupIndex
                     ),
@@ -234,8 +236,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
-                    let cohort = { ...cohortParams }
                     const existingCohort = values.cohort
+                    let cohort = { ...existingCohort, ...cohortParams }
                     const cohortFormData = createCohortFormData(cohort)
 
                     try {
@@ -267,6 +269,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    if (cohort.id !== 'new') {
+                        const mountedDataNodeLogic = dataNodeLogic.findMounted({
+                            key: createCohortDataNodeLogicKey(cohort.id),
+                        })
+                        mountedDataNodeLogic?.actions.loadData('force_blocking')
+                    }
                     return processCohort(cohort)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {
@@ -337,7 +345,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(
-                    // eslint-disable-next-line @typescript-eslint/no-misused-promises
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
                         breakpoint()

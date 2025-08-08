@@ -8,7 +8,6 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
 } from '../types'
 import { HogFunctionType } from '../types'
-import { isSegmentPluginHogFunction } from '../utils'
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
@@ -24,7 +23,7 @@ export function createInvocation(
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,
         hogFunction,
-        queue: isSegmentPluginHogFunction(hogFunction) ? 'segment' : 'hog',
+        queue: 'hog',
         queuePriority: 0,
     }
 }

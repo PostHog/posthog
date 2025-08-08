@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from django.test import override_settings
 from langchain_core.agents import AgentAction
 from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
@@ -14,10 +12,9 @@ from posthog.schema import (
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
-    MaxEventContext,
     VisualizationMessage,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -112,34 +109,8 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIsInstance(history[5], HumanMessagePromptTemplate)
         self.assertIn("Question 3", history[5].prompt.template)
 
-    def test_agent_filters_out_low_count_events(self):
-        _create_person(distinct_ids=["test"], team=self.team)
-        for i in range(26):
-            _create_event(event=f"event{i}", distinct_id="test", team=self.team)
-            _create_event(event="distinctevent", distinct_id="test", team=self.team)
-        node = self._get_node()
-        self.assertEqual(
-            node._format_events_prompt([]),
-            "<defined_events><event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
-        )
-
-    def test_agent_preserves_low_count_events_for_smaller_teams(self):
-        _create_person(distinct_ids=["test"], team=self.team)
-        _create_event(event="distinctevent", distinct_id="test", team=self.team)
-        node = self._get_node()
-        self.assertIn("distinctevent", node._format_events_prompt([]))
-        self.assertIn("all events", node._format_events_prompt([]))
-
     # Removed test_agent_handles_output_without_tool_call as this functionality
     # is now handled differently and the test was testing legacy behavior
-
-    def test_node_outputs_all_events_prompt(self):
-        node = self._get_node()
-        self.assertIn("All events", node._format_events_prompt([]))
-        self.assertIn(
-            "<event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event>",
-            node._format_events_prompt([]),
-        )
 
     # Removed test_format_prompt as _get_react_format_prompt method no longer exists
     # The current implementation uses a different approach for prompt formatting
@@ -208,94 +179,6 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         final_msg = history[-1]
         self.assertIsInstance(final_msg, HumanMessagePromptTemplate)
         self.assertIn("Final Question", final_msg.prompt.template)
-
-    def test_events_in_context_adds_events_to_prompt(self):
-        """Test that events from context are added to the events list"""
-        _create_person(distinct_ids=["test"], team=self.team)
-        _create_event(event="existing_event", distinct_id="test", team=self.team)
-
-        node = self._get_node()
-        events_in_context = [
-            MaxEventContext(id="1", name="context_event", description="Event from context"),
-            MaxEventContext(id="2", name="another_context_event", description=None),
-        ]
-
-        prompt = node._format_events_prompt(events_in_context)
-
-        self.assertIn("context_event", prompt)
-        self.assertIn("another_context_event", prompt)
-        self.assertIn("Event from context", prompt)
-
-    def test_events_in_context_overwrites_system_event_filtering(self):
-        """Test that system events are not filtered out if they're in context"""
-        node = self._get_node()
-
-        # Test with a system event that would normally be filtered
-        # (we'll mock the core filter definitions to include a system event)
-        with patch("ee.hogai.graph.query_planner.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
-            mock_definitions.__getitem__.return_value = {
-                "test_system_event": {
-                    "system": True,
-                    "description": "System event that should be filtered",
-                    "ignored_in_assistant": True,
-                }
-            }
-
-            events_in_context = [
-                MaxEventContext(id="1", name="test_system_event", description="System event from context"),
-            ]
-
-            prompt = node._format_events_prompt(events_in_context)
-
-            # Should include the system event because it's in context
-            self.assertIn("test_system_event", prompt)
-
-    def test_events_in_context_duplicates_are_handled(self):
-        """Test that duplicate events between context and taxonomy are handled correctly"""
-        _create_person(distinct_ids=["test"], team=self.team)
-        _create_event(event="duplicate_event", distinct_id="test", team=self.team)
-
-        node = self._get_node()
-        events_in_context = [
-            MaxEventContext(id="1", name="duplicate_event", description="Context description"),
-        ]
-
-        prompt = node._format_events_prompt(events_in_context)
-
-        # Should only appear once in the prompt
-        event_count = prompt.count("<name>duplicate_event</name>")
-        self.assertEqual(event_count, 1)
-
-    def test_events_in_context_mixed_with_core_definitions(self):
-        """Test events from context mixed with core event definitions"""
-        node = self._get_node()
-
-        with patch("ee.hogai.graph.query_planner.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
-            mock_definitions.__getitem__.return_value = {
-                "core_event": {
-                    "description": "Core event description",
-                    "label": "Core Event",
-                }
-            }
-
-            events_in_context = [
-                MaxEventContext(id="1", name="core_event", description="Context description"),
-                MaxEventContext(id="2", name="context_only_event", description="Only in context"),
-            ]
-
-            prompt = node._format_events_prompt(events_in_context)
-
-            # Should include both events
-            self.assertIn("core_event", prompt)
-            self.assertIn("context_only_event", prompt)
-
-            # For core_event, should use core definition, not context description
-            # because core definitions take precedence
-            self.assertIn("Core Event. Core event description", prompt)
-            self.assertNotIn("Context description", prompt)
-
-            # For context-only event, should use context description
-            self.assertIn("Only in context", prompt)
 
 
 @override_settings(IN_UNIT_TESTING=True)

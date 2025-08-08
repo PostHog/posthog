@@ -1,0 +1,20 @@
+.wrapping-loading-skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--color-skeleton-light) 25%,
+        var(--color-skeleton-dark) 45%,
+        var(--color-skeleton-light) 65%
+    );
+    background-size: 400% 100%;
+    animation: LemonSkeleton__shimmer 2s ease infinite;
+
+    .storybook-test-runner & {
+        background: var(--color-skeleton-dark);
+        animation: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        background: var(--color-skeleton-dark);
+        animation: none;
+    }
+}

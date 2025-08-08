@@ -401,7 +401,7 @@ export const SURVEY_TYPE_LABEL_MAP = {
     [SurveyType.Widget]: 'Feedback Button',
     [SurveyType.Popover]: 'Popover',
     [SurveyType.FullScreen]: 'Full Screen',
-    [SurveyType.Email]: 'Email',
+    [SurveyType.ExternalSurvey]: 'Hosted Survey',
 }
 
 export const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'

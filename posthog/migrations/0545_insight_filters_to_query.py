@@ -6,13 +6,13 @@ from django.db import migrations, connection
 from django.db.models import Q
 
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Insight
 from posthog.schema import InsightVizNode
 
 logger = logging.getLogger(__name__)
 
 
 def migrate_insight_filters_to_query(apps, schema_editor):
+    Insight = apps.get_model("posthog", "Insight")
     insights = Insight.objects.filter(Q(filters__insight__isnull=False) & Q(query__kind__isnull=True))
     migrated_at = datetime.now()
 

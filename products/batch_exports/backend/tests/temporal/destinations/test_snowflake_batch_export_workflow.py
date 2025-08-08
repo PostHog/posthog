@@ -728,8 +728,14 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
                 assert err.__cause__.__cause__.type == "SnowflakeFileNotLoadedError"
 
 
-async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, snowflake_batch_export):
-    """Test that Snowflake Export Workflow can gracefully handle errors when inserting Snowflake data."""
+async def test_snowflake_export_workflow_handles_unexpected_insert_activity_errors(ateam, snowflake_batch_export):
+    """Test that Snowflake Export Workflow can gracefully handle unexpected errors when inserting Snowflake data.
+
+    This means we do the right updates to the BatchExportRun model and ensure the workflow fails (since we
+    treat this as an unexpected internal error).
+
+    To simulate an unexpected error, we mock the `Producer.start` activity.
+    """
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
@@ -738,10 +744,6 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
         **snowflake_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_snowflake_activity")
-    async def insert_into_snowflake_activity_mocked(_: SnowflakeInsertInputs) -> str:
-        raise ValueError("A useful error message")
-
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
@@ -749,19 +751,23 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_snowflake_activity_mocked,
+                insert_into_snowflake_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
-                await activity_environment.client.execute_workflow(
-                    SnowflakeBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.Producer.start",
+                side_effect=ValueError("A useful error message"),
+            ):
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        SnowflakeBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
     assert len(runs) == 1
@@ -773,7 +779,12 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
 
 
 async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(ateam, snowflake_batch_export):
-    """Test that Snowflake Export Workflow can gracefully handle non-retryable errors when inserting Snowflake data."""
+    """Test that Snowflake Export Workflow can gracefully handle non-retryable errors when inserting Snowflake data.
+
+    In this case, we expect the workflow to succeed, but the batch export run to be marked as failed.
+
+    To simulate a user error, we mock the `Producer.start` activity.
+    """
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
@@ -782,12 +793,8 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
         **snowflake_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_snowflake_activity")
-    async def insert_into_snowflake_activity_mocked(_: SnowflakeInsertInputs) -> str:
-        class ForbiddenError(Exception):
-            pass
-
-        raise ForbiddenError("A useful error message")
+    class ForbiddenError(Exception):
+        pass
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -796,12 +803,15 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_snowflake_activity_mocked,
+                insert_into_snowflake_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.Producer.start",
+                side_effect=ForbiddenError("A useful error message"),
+            ):
                 await activity_environment.client.execute_workflow(
                     SnowflakeBatchExportWorkflow.run,
                     inputs,

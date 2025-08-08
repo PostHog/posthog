@@ -430,6 +430,21 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+    def test_does_not_count_empty_object_as_filters(self) -> None:
+        """
+        can delete a collection despite there is an empty object for filters
+        a regression test for https://github.com/PostHog/posthog/issues/35820
+        """
+        create_response = self._create_playlist({"type": "collection"})
+        assert "short_id" in create_response.json(), create_response.json()
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
+            {"filters": {}, "deleted": True},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_cannot_update_collection_to_have_filters(self) -> None:
         create_response = self._create_playlist({"type": "collection"})
         assert "short_id" in create_response.json(), create_response.json()

@@ -7,7 +7,7 @@ import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
-from products.messaging.backend.api import MessageTemplatesViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet, MessagePreferencesViewSet
 import products.logs.backend.api as logs
 from posthog.api import data_color_theme, hog_flow, metalytics, project, my_notifications
 from posthog.api.wizard import http as wizard
@@ -23,6 +23,7 @@ from posthog.warehouse.api import (
     modeling,
     query_tab_state,
     saved_query,
+    saved_query_draft,
     table,
     view_link,
 )
@@ -373,6 +374,12 @@ environments_router.register(
     r"fix_hogql",
     fix_hogql.FixHogQLViewSet,
     "project_fix_hogql",
+    ["team_id"],
+)
+environments_router.register(
+    r"warehouse_saved_query_drafts",
+    saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
+    "environment_warehouse_saved_query_drafts",
     ["team_id"],
 )
 
@@ -745,6 +752,20 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"messaging_categories",
+    MessageCategoryViewSet,
+    "environment_messaging_categories",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"messaging_preferences",
+    MessagePreferencesViewSet,
+    "environment_messaging_preferences",
     ["team_id"],
 )
 

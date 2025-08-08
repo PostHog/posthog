@@ -3,17 +3,15 @@ from typing import Any, Generic
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
-
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext, MaxBillingContext
 from posthog.sync import database_sync_to_async
 
-from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 from ..utils.types import (
     AssistantMessageUnion,
     AssistantState,
@@ -25,8 +23,8 @@ from ..utils.types import (
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):
     def __init__(self, team: Team, user: User):
-        self.__internal_team = team
-        self.__internal_user = user
+        self._team = team
+        self._user = user
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
@@ -47,14 +45,6 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
-
-    @property
-    def _team(self) -> Team:
-        return self.__internal_team
-
-    @property
-    def _user(self) -> User:
-        return self.__internal_user
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
@@ -88,18 +78,14 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
             return find_last_ui_context(state.messages)
         return None
 
-    def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
+    def _get_billing_context(self, config: RunnableConfig) -> MaxBillingContext | None:
         """
-        Extracts the user distinct ID from the runnable config.
+        Extracts the billing context from the runnable config.
         """
-        return (config.get("configurable") or {}).get("distinct_id") or None
-
-    def _get_trace_id(self, config: RunnableConfig) -> Any | None:
-        """
-        Extracts the trace ID from the runnable config.
-        """
-        return (config.get("configurable") or {}).get("trace_id") or None
+        billing_context = (config.get("configurable") or {}).get("billing_context")
+        if not billing_context:
+            return None
+        return MaxBillingContext.model_validate(billing_context)
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]
-FilterOptionsBaseNode = BaseAssistantNode[FilterOptionsState, PartialFilterOptionsState]

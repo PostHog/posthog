@@ -487,7 +487,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? values.sendSupportRequest.message ?? '',
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -511,7 +511,7 @@ export const supportLogic = kea<supportLogicType>([
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
                 ': ' +
                 (target_area
-                    ? getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`
+                    ? (getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`)
                     : 'General') +
                 ' (' +
                 zendesk_ticket_uuid +
@@ -602,8 +602,8 @@ export const supportLogic = kea<supportLogicType>([
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
-                                ? 'email_support'
-                                : 'free_support',
+                                  ? 'email_support'
+                                  : 'free_support',
                         },
                         {
                             id: 37742340880411,
@@ -742,8 +742,7 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         closeSupportForm: () => {
-            // Reset the form when closing so Cancel button clears the data
-            actions.resetSendSupportRequest()
+            // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
         },
 

@@ -87,12 +87,11 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { dateRange } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
     if (!record.aggregations) {
         throw new Error('No aggregations found')
     }
-    const data = useSparklineData(record.aggregations.volumeRange, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
+    const data = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
@@ -176,7 +175,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         <span className="font-semibold text-[1.2em] line-clamp-1">{record.name || 'Unknown Type'}</span>
                     </div>
                 </Link>
-                <div className="line-clamp-1 text-secondary">{record.description}</div>
+                <div title={record.description || undefined} className="line-clamp-1 text-secondary">
+                    {record.description}
+                </div>
                 <div className="flex items-center text-secondary">
                     <IssueStatusSelect
                         status={record.status}

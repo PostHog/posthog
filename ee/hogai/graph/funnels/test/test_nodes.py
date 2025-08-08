@@ -18,13 +18,13 @@ class TestFunnelsGeneratorNode(BaseTest):
         super().setUp()
         self.schema = AssistantFunnelsQuery(series=[])
 
-    def test_node_runs(self):
+    async def test_node_runs(self):
         node = FunnelGeneratorNode(self.team, self.user)
         with patch.object(FunnelGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: FunnelsSchemaGeneratorOutput(query=self.schema).model_dump()
             )
-            new_state = node.run(
+            new_state = await node.arun(
                 AssistantState(messages=[HumanMessage(content="Text")], plan="Plan", root_tool_insight_plan="question"),
                 {},
             )

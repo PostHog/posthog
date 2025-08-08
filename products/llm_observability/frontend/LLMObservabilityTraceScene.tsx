@@ -1,4 +1,4 @@
-import { IconAIText, IconChat, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import { IconAIText, IconChat, IconGear, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -32,6 +32,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { DisplayOptionsModal } from './ConversationDisplay/DisplayOptionsModal'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
@@ -46,6 +47,7 @@ import {
     getSessionID,
     hasSessionID,
     isLLMTraceEvent,
+    normalizeMessages,
     removeMilliseconds,
 } from './utils'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -80,11 +82,14 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative deprecated-space-y-4 flex flex-col">
-                    <TraceMetadata
-                        trace={trace}
-                        metricEvents={metricEvents as LLMTraceEvent[]}
-                        feedbackEvents={feedbackEvents as LLMTraceEvent[]}
-                    />
+                    <div className="flex items-start justify-between">
+                        <TraceMetadata
+                            trace={trace}
+                            metricEvents={metricEvents as LLMTraceEvent[]}
+                            feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                        />
+                        <DisplayOptionsButton />
+                    </div>
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
                         <EventContent event={event} tree={enrichedTree} />
@@ -389,7 +394,7 @@ function EventContentDisplay({
     return (
         <LLMInputOutput
             inputDisplay={
-                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-secondary)]">
+                <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
                     {isObject(input) ? (
                         <JSONViewer src={input} collapsed={4} />
                     ) : (
@@ -401,7 +406,9 @@ function EventContentDisplay({
                 <div
                     className={cn(
                         'p-2 text-xs border rounded',
-                        !raisedError ? 'bg-[var(--bg-fill-success-tertiary)]' : 'bg-[var(--bg-fill-error-tertiary)]'
+                        !raisedError
+                            ? 'bg-[var(--color-bg-fill-success-tertiary)]'
+                            : 'bg-[var(--color-bg-fill-error-tertiary)]'
                     )}
                 >
                     {isObject(output) ? (
@@ -452,14 +459,16 @@ const EventContent = React.memo(
 
             let model: string | undefined = undefined
             let input: any = undefined
+            let tools: any = undefined
 
             if (isLLMTraceEvent(event)) {
                 model = event.properties.$ai_model
                 // Prefer $ai_input if available, otherwise fallback to $ai_input_state
                 input = event.properties.$ai_input ?? event.properties.$ai_input_state
+                tools = event.properties.$ai_tools
             }
 
-            setupPlaygroundFromEvent({ model, input })
+            setupPlaygroundFromEvent({ model, input, tools })
         }
 
         return (
@@ -553,13 +562,23 @@ const EventContent = React.memo(
                                             {isLLMTraceEvent(event) ? (
                                                 event.event === '$ai_generation' ? (
                                                     <ConversationMessagesDisplay
-                                                        tools={event.properties.$ai_tools}
-                                                        input={event.properties.$ai_input}
+                                                        inputNormalized={normalizeMessages(
+                                                            event.properties.$ai_input,
+                                                            'user',
+                                                            event.properties.$ai_tools
+                                                        )}
+                                                        outputNormalized={normalizeMessages(
+                                                            event.properties.$ai_is_error
+                                                                ? event.properties.$ai_error
+                                                                : (event.properties.$ai_output_choices ??
+                                                                      event.properties.$ai_output),
+                                                            'assistant'
+                                                        )}
                                                         output={
                                                             event.properties.$ai_is_error
                                                                 ? event.properties.$ai_error
-                                                                : event.properties.$ai_output_choices ??
-                                                                  event.properties.$ai_output
+                                                                : (event.properties.$ai_output_choices ??
+                                                                  event.properties.$ai_output)
                                                         }
                                                         httpStatus={event.properties.$ai_http_status}
                                                         raisedError={event.properties.$ai_is_error}
@@ -597,6 +616,7 @@ const EventContent = React.memo(
                                 },
                             ]}
                         />
+                        <DisplayOptionsModal />
                     </>
                 )}
             </div>
@@ -618,6 +638,22 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
         >
             {eventType}
         </LemonTag>
+    )
+}
+
+function DisplayOptionsButton(): JSX.Element {
+    const { showDisplayOptionsModal } = useActions(llmObservabilityTraceLogic)
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconGear />}
+            onClick={showDisplayOptionsModal}
+            tooltip="Configure how generation conversation messages are displayed"
+        >
+            Display Options
+        </LemonButton>
     )
 }
 

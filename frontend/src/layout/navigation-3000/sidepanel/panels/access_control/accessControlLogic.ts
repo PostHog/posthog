@@ -323,7 +323,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadAccessControls()
         actions.ensureAllMembersLoaded()
+        actions.loadAccessControls()
     }),
 ])
