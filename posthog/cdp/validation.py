@@ -91,6 +91,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "integration",
             "integration_field",
             "email",
+            "native_email",
         ]
     )
     key = serializers.CharField()

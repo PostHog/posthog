@@ -11,6 +11,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
+from django.db.models import Q
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
@@ -44,11 +45,7 @@ from posthog.models.message_preferences import (
     PreferenceStatus,
 )
 from posthog.models.message_category import MessageCategory
-from posthog.models.personal_api_key import (
-    PersonalAPIKey,
-    hash_key_value,
-    PERSONAL_API_KEY_MODES_TO_TRY,
-)
+from posthog.models.personal_api_key import find_personal_api_key
 
 
 import structlog
@@ -279,19 +276,9 @@ def api_key_search_view(request: HttpRequest):
     personal_api_key_object = None
     personal_api_key_hash_mode = None
     if query is not None and query.startswith("phx_"):
-        for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(query, mode=mode, iterations=iterations)
-            try:
-                personal_api_key_object = (
-                    PersonalAPIKey.objects.select_related("user")
-                    .filter(user__is_active=True)
-                    .get(secure_value=secure_value)
-                )
-                personal_api_key_hash_mode = mode
-                break
-
-            except PersonalAPIKey.DoesNotExist:
-                pass
+        result = find_personal_api_key(query)
+        if result is not None:
+            personal_api_key_object, personal_api_key_hash_mode = result
 
     team_object = None
     team_object_key_type = None
@@ -300,15 +287,8 @@ def api_key_search_view(request: HttpRequest):
 
         try:
             # don't use the cache so that we can differentiate btwn the primary and the backup key
-            team_object = Team.objects.get(secret_api_token=query)
-            team_object_key_type = "primary"
-
-        except Team.DoesNotExist:
-            pass
-
-        try:
-            team_object = Team.objects.get(secret_api_token_backup=query)
-            team_object_key_type = "backup"
+            team_object = Team.objects.get(Q(secret_api_token=query) | Q(secret_api_token_backup=query))
+            team_object_key_type = "primary" if team_object.secret_api_token == query else "backup"
 
         except Team.DoesNotExist:
             pass
