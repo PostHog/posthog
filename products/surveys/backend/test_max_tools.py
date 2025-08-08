@@ -240,7 +240,7 @@ class TestSurveyCreatorTool(BaseTest):
         assert "successfully" in content
 
         # Verify survey was created with feature flag
-        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "Feature Flag Survey"
         assert survey.linked_flag_id == flag.id
         assert survey.linked_flag.key == "test-feature"
@@ -298,7 +298,7 @@ class TestSurveyCreatorTool(BaseTest):
         assert "successfully" in content
 
         # Verify survey was created with feature flag and variant
-        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "A/B Test Control Survey"
         assert survey.linked_flag_id == flag.id
         assert survey.linked_flag.key == "ab-test-feature"
@@ -357,7 +357,7 @@ class TestSurveyCreatorTool(BaseTest):
         assert "successfully" in content
 
         # Verify survey was created with feature flag and 'any' variant
-        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "All Variants Survey"
         assert survey.linked_flag_id == flag.id
         assert survey.linked_flag.key == "multivariate-feature"
