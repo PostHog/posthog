@@ -19,13 +19,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import {
-    ensureTooltip,
-    filterNestedDataset,
-    LineGraphProps,
-    onChartClick,
-    onChartHover,
-} from 'scenes/insights/views/LineGraph/LineGraph'
+import { ensureTooltip, LineGraphProps, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -61,7 +55,6 @@ export interface PieChartProps extends LineGraphProps {
 
 export function PieChart({
     datasets: _datasets,
-    hiddenLegendIndexes,
     labels,
     type,
     onClick,
@@ -101,12 +94,6 @@ export function PieChart({
 
     // Build chart
     useEffect(() => {
-        // Hide intentionally hidden keys
-        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
-            // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-            datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
-        }
-
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
         const onlyOneValue = processedDatasets?.[0]?.data?.length === 1
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
@@ -214,7 +201,7 @@ export function PieChart({
                                     (dp) => dp.datasetIndex >= 0 && dp.datasetIndex < _datasets.length
                                 )
 
-                                highlightSeries(seriesData[0].dataIndex)
+                                highlightSeries(seriesData[0])
 
                                 tooltipRoot.render(
                                     <InsightTooltip
@@ -274,7 +261,7 @@ export function PieChart({
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendIndexes]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [datasets])
 
     return (
         <div className="absolute w-full h-full" data-attr={dataAttr}>
