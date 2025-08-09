@@ -49,16 +49,23 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-def get_new_variant_results(sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentStatsBase]:
-    return [
-        ExperimentStatsBase(
-            key=result[0],
-            number_of_samples=result[1],
-            sum=result[2],
-            sum_squares=result[3],
-        )
-        for result in sorted_results
-    ]
+def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
+    variant_results = []
+    for result in sorted_results:
+        base_stats = {
+            "key": result[0],
+            "number_of_samples": result[1],
+            "sum": result[2],
+            "sum_squares": result[3],
+        }
+
+        # If this is a funnel metric result with step_counts (5 elements)
+        if len(result) > 4:
+            base_stats["step_counts"] = result[4]
+
+        variant_results.append(ExperimentStatsBase(**base_stats))
+
+    return variant_results
 
 
 def validate_variant_result(
@@ -123,6 +130,7 @@ def get_frequentist_experiment_result(
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
+            step_counts=test_variant_validated.step_counts,
             validation_failures=test_variant_validated.validation_failures,
         )
 
@@ -188,6 +196,7 @@ def get_bayesian_experiment_result(
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
+            step_counts=test_variant_validated.step_counts,
             validation_failures=test_variant_validated.validation_failures,
         )
 
