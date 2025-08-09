@@ -3,6 +3,19 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import posthog, { CaptureResult } from 'posthog-js'
 
+// TypeScript declarations for exception storage
+declare global {
+    interface Window {
+        recentPostHogExceptions?: Array<{
+            uuid: string
+            timestamp: number
+            errorName: string
+            errorMessage: string
+            commitHash: string
+        }>
+    }
+}
+
 interface WindowWithCypressCaptures extends Window {
     // our Cypress tests will use this to check what events were sent to PostHog
     _cypress_posthog_captures?: CaptureResult[]
@@ -28,6 +41,28 @@ export function loadPostHogJS(): void {
                     win._cypress_posthog_captures = win._cypress_posthog_captures || []
                     win._cypress_posthog_captures.push(payload)
                 }
+
+                // Store exception events for correlation with user reports
+                try {
+                    if (payload && payload.event === '$exception' && payload.uuid) {
+                        window.recentPostHogExceptions = window.recentPostHogExceptions || []
+                        window.recentPostHogExceptions.push({
+                            uuid: payload.uuid,
+                            timestamp: Date.now(),
+                            errorName: payload.properties?.$exception_list[0]?.type || 'Unknown',
+                            errorMessage: payload.properties?.$exception_list[0]?.value || 'Unknown error',
+                            commitHash: payload.properties?.commit_sha || 'Unknown commit hash',
+                        })
+
+                        // Keep only last 5 exceptions
+                        window.recentPostHogExceptions = window.recentPostHogExceptions.slice(-5)
+                    }
+                } catch (error) {
+                    // Log error but don't break PostHog event tracking
+                    console.error('PostHog exception storage failed:', error)
+                    posthog.captureException(error, { context: 'posthog_exception_storage' })
+                }
+
                 return payload
             },
             loaded: (loadedInstance) => {

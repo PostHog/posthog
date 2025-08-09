@@ -2,19 +2,20 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { supportLogic, ReactErrorContext } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface ErrorBoundaryProps {
     children?: React.ReactNode
-    exceptionProps?: Record<string, number | string | boolean | bigint | symbol | null | undefined>
+    exceptionProps?: Record<string, any> | null | undefined
     className?: string
 }
 
 export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+    const { activeScene } = useValues(sceneLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const additionalProperties = { ...exceptionProps }
@@ -69,6 +70,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
 export function LightErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+
     const additionalProperties = { ...exceptionProps }
     if (currentTeamId !== undefined) {
         additionalProperties.team_id = currentTeamId
