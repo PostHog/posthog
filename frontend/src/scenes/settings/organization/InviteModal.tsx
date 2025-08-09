@@ -2,7 +2,10 @@ import './InviteModal.scss'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -291,10 +294,10 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
     )
 }
 
-export function InviteTeamMatesComponent(): JSX.Element {
+function SingleInviteTab(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
-    const { appendInviteRow, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
+    const { invitesToSend } = useValues(inviteLogic)
+    const { appendInviteRow } = useActions(inviteLogic)
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
@@ -313,6 +316,148 @@ export function InviteTeamMatesComponent(): JSX.Element {
     }))
 
     return (
+        <div className="deprecated-space-y-4">
+            <div className="flex gap-2">
+                <b className="flex-2">Email address</b>
+                {preflight?.email_service_available && <b className="flex-1">Name (optional)</b>}
+                {allowedLevelsOptions.length > 1 && <b className="flex-1">Organization level</b>}
+                {!preflight?.email_service_available && <b className="flex-1" />}
+                {areInvitesDeletable && <b className="w-12" />}
+            </div>
+
+            {invitesToSend.map((_, index) => (
+                <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
+            ))}
+
+            <div className="mt-2 flex justify-end">
+                {areInvitesCreatable && (
+                    <LemonButton type="secondary" icon={<IconPlus />} onClick={appendInviteRow}>
+                        Add
+                    </LemonButton>
+                )}
+            </div>
+        </div>
+    )
+}
+
+function BulkInviteTab(): JSX.Element {
+    const { currentOrganization } = useValues(organizationLogic)
+    const { resetInviteRows, updateInviteAtIndex, appendInviteRow } = useActions(inviteLogic)
+    const [emails, setEmails] = useState<string[]>([])
+    const [selectedLevel, setSelectedLevel] = useState<OrganizationMembershipLevel>(OrganizationMembershipLevel.Member)
+
+    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
+    const allowedLevels = myMembershipLevel
+        ? organizationMembershipLevelIntegers.filter((listLevel) => listLevel <= myMembershipLevel)
+        : [OrganizationMembershipLevel.Member]
+
+    const allowedLevelsOptions = allowedLevels.map((level) => ({
+        value: level,
+        label: OrganizationMembershipLevel[level],
+    }))
+
+    // Update invites when emails or level changes
+    React.useEffect(() => {
+        if (emails.length > 0) {
+            // Reset to empty state first
+            resetInviteRows()
+
+            // Add each email as a separate invite
+            emails.forEach((email, index) => {
+                if (index === 0) {
+                    // Update the first row
+                    updateInviteAtIndex(
+                        {
+                            target_email: email,
+                            first_name: '',
+                            level: selectedLevel,
+                            isValid: isEmail(email),
+                            private_project_access: [],
+                        },
+                        0
+                    )
+                } else {
+                    // Add new rows for additional emails
+                    appendInviteRow()
+                    setTimeout(() => {
+                        updateInviteAtIndex(
+                            {
+                                target_email: email,
+                                first_name: '',
+                                level: selectedLevel,
+                                isValid: isEmail(email),
+                                private_project_access: [],
+                            },
+                            index
+                        )
+                    }, 0)
+                }
+            })
+        } else {
+            resetInviteRows()
+        }
+    }, [emails, selectedLevel, resetInviteRows, updateInviteAtIndex, appendInviteRow])
+
+    return (
+        <div className="space-y-4">
+            <div className="flex gap-2">
+                <b className="flex-2">Email addresses</b>
+                {allowedLevelsOptions.length > 1 && <b className="flex-1">Organization level</b>}
+            </div>
+            <div className="space-y-4 bg-surface-secondary py-4 px-4 rounded-md">
+                <div className="flex gap-2">
+                    <div className="flex-2">
+                        <LemonInputSelect
+                            mode="multiple"
+                            allowCustomValues
+                            placeholder="Enter email addresses (paste or type, separated by commas)"
+                            value={emails}
+                            onChange={(newEmails) => setEmails(newEmails)}
+                            data-attr="bulk-invite-email-input"
+                            autoWidth={false}
+                        />
+                    </div>
+
+                    {allowedLevelsOptions.length > 1 && (
+                        <div className="flex-1">
+                            <LemonSelect
+                                className="bg-bg-light"
+                                fullWidth
+                                data-attr="bulk-invite-org-member-level"
+                                options={allowedLevelsOptions}
+                                value={selectedLevel}
+                                onChange={setSelectedLevel}
+                            />
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+export function InviteTeamMatesComponent(): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
+    const { inviteContainsOwnerLevel } = useValues(inviteLogic)
+    const { updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
+
+    const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single')
+
+    const tabs: LemonTab<'single' | 'bulk'>[] = [
+        {
+            key: 'single',
+            label: 'Invite',
+            content: <SingleInviteTab />,
+        },
+        {
+            key: 'bulk',
+            label: 'Bulk invite',
+            content: <BulkInviteTab />,
+        },
+    ]
+
+    return (
         <>
             {preflight?.licensed_users_available === 0 && (
                 <LemonBanner type="warning">
@@ -320,27 +465,9 @@ export function InviteTeamMatesComponent(): JSX.Element {
                     Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to upgrade your license.
                 </LemonBanner>
             )}
-            <div className="deprecated-space-y-4">
-                <div className="flex gap-2">
-                    <b className="flex-2">Email address</b>
-                    {preflight?.email_service_available && <b className="flex-1">Name (optional)</b>}
-                    {allowedLevelsOptions.length > 1 && <b className="flex-1">Organization level</b>}
-                    {!preflight?.email_service_available && <b className="flex-1" />}
-                    {areInvitesDeletable && <b className="w-12" />}
-                </div>
 
-                {invitesToSend.map((_, index) => (
-                    <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
-                ))}
+            <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} size="small" />
 
-                <div className="mt-2 flex justify-end">
-                    {areInvitesCreatable && (
-                        <LemonButton type="secondary" icon={<IconPlus />} onClick={appendInviteRow}>
-                            Add
-                        </LemonButton>
-                    )}
-                </div>
-            </div>
             {preflight?.email_service_available && (
                 <div className="mt-4">
                     <div className="mb-2">
