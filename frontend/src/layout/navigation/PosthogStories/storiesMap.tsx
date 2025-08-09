@@ -69,7 +69,7 @@ export const storiesMap: storyGroup[] = [
                 title: 'Surveys',
                 description: 'Try surveys',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_522e544094.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_cta_b32a2b0596.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_cta_dacc66ccc1.png',
                 type: StoryType.Image,
                 seeMoreLink: 'https://app.posthog.com/surveys',
                 seeMoreOptions: {
@@ -107,7 +107,7 @@ export const storiesMap: storyGroup[] = [
                 title: 'Experiments',
                 description: 'Try experiments',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_icon_05539e123f.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_cta_18e8927447.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_cta_1730694393.png',
                 type: StoryType.Image,
                 seeMoreLink: 'https://app.posthog.com/experiments',
                 seeMoreOptions: {
@@ -134,7 +134,7 @@ export const storiesMap: storyGroup[] = [
                 title: 'Feature flags',
                 description: 'Try feature flags',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_cta_image_3c1f74f6ed.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_cta_1a76e97ce2.png',
                 type: StoryType.Image,
                 seeMoreLink: 'https://app.posthog.com/feature_flags',
                 seeMoreOptions: {
@@ -161,7 +161,7 @@ export const storiesMap: storyGroup[] = [
                 title: 'Max AI',
                 description: 'Try talking to Max',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_ai_f8c9cdf4e8.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_cta_frame_06906e3804.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_cta_frame_b810fb6440.png',
                 type: StoryType.Image,
                 seeMoreLink: 'https://app.posthog.com/#panel=max:hi%20max',
                 seeMoreOptions: {
