@@ -223,7 +223,7 @@ export function PythonSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Python} wrap>
-                {`experiment_flag_value = posthog.get_feature_flag("${flagKey}", "user_distinct_id"):
+                {`experiment_flag_value = posthog.get_feature_flag("${flagKey}", "user_distinct_id")
 
 if experiment_flag_value == '${variant}':
     # Do something differently for this user
