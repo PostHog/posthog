@@ -26,7 +26,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_contextvars,
-    get_external_logger,
+    get_log_entries_logger,
     get_logger,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -75,7 +75,7 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
 )
 
 LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+EXTERNAL_LOGGER = get_log_entries_logger()
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on errors that are related to database operation.
