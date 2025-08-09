@@ -285,6 +285,7 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
         )
         .order_by("updated_at", "id")
         .values("team_id", "id", "summary", "name", "description", "deleted")
+        .select_related("team")
     )
 
     actions_batch_size = inputs.embeddings_batch_size * inputs.max_parallel_requests
