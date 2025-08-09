@@ -61,7 +61,6 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
     } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
-    const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
 
     if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as BatchExportService['type'])) {
         return <NotFound object={`batch export service ${service}`} />
@@ -198,7 +197,6 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                                             options={tables.map((table) => ({
                                                 value: table.name,
                                                 label: table.id,
-                                                hidden: !sessionsBatchExports && table.name === 'sessions',
                                             }))}
                                             value={selectedModel}
                                             onSelect={(newValue) => {
