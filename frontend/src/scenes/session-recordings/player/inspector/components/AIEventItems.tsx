@@ -21,16 +21,10 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                 <ConversationMessagesDisplay
                     inputNormalized={normalizeMessages(event.properties.$ai_input, 'user', event.properties.$ai_tools)}
                     outputNormalized={normalizeMessages(
-                        event.properties.$ai_is_error
-                            ? event.properties.$ai_error
-                            : (event.properties.$ai_output_choices ?? event.properties.$ai_output),
+                        event.properties.$ai_output_choices ?? event.properties.$ai_output,
                         'assistant'
                     )}
-                    output={
-                        event.properties.$ai_is_error
-                            ? event.properties.$ai_error
-                            : (event.properties.$ai_output_choices ?? event.properties.$ai_output)
-                    }
+                    errorData={event.properties.$ai_error}
                     httpStatus={event.properties.$ai_http_status}
                     raisedError={event.properties.$ai_is_error}
                 />

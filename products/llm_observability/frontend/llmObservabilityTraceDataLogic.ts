@@ -13,7 +13,14 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceDataLogicType } from './llmObservabilityTraceDataLogicType'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { formatLLMUsage } from './utils'
+import { formatLLMUsage, normalizeMessages } from './utils'
+import {
+    eventMatchesSearch,
+    findMessageOccurrences,
+    findSidebarOccurrences,
+    findTraceOccurrences,
+    SearchOccurrence,
+} from './searchUtils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -70,53 +77,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                     return showableEvents
                 }
 
-                const query = searchQuery.toLowerCase().trim()
-                return showableEvents.filter((event) => {
-                    // Search in event title
-                    const title = event.properties.$ai_span_name || event.event || ''
-                    if (title.toLowerCase().includes(query)) {
-                        return true
-                    }
-
-                    // Search in model name
-                    const model = event.properties.$ai_model || ''
-                    if (model.toLowerCase().includes(query)) {
-                        return true
-                    }
-
-                    // Search in provider
-                    const provider = event.properties.$ai_provider || ''
-                    if (provider.toLowerCase().includes(query)) {
-                        return true
-                    }
-
-                    // Search in input content
-                    const input = JSON.stringify(
-                        event.properties.$ai_input || event.properties.$ai_input_state || ''
-                    ).toLowerCase()
-                    if (input.includes(query)) {
-                        return true
-                    }
-
-                    // Search in output content
-                    const output = JSON.stringify(
-                        event.properties.$ai_output ||
-                            event.properties.$ai_output_choices ||
-                            event.properties.$ai_output_state ||
-                            ''
-                    ).toLowerCase()
-                    if (output.includes(query)) {
-                        return true
-                    }
-
-                    // Search in error messages
-                    const error = JSON.stringify(event.properties.$ai_error || '').toLowerCase()
-                    if (error.includes(query)) {
-                        return true
-                    }
-
-                    return false
-                })
+                return showableEvents.filter((event) => eventMatchesSearch(event, searchQuery))
             },
         ],
         filteredTree: [
@@ -182,6 +143,24 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                 // Return the highest scoring event
                 const best = scoredEvents.sort((a, b) => b.score - a.score)[0]
                 return best?.event || null
+            },
+        ],
+        searchOccurrences: [
+            (s) => [s.showableEvents, s.searchQuery, s.trace],
+            (showableEvents, searchQuery, trace): SearchOccurrence[] => {
+                if (!searchQuery.trim()) {
+                    return []
+                }
+
+                const query = searchQuery.toLowerCase().trim()
+
+                // Collect occurrences from different sources
+                const traceOccurrences = findTraceOccurrences(trace, query)
+                const sidebarOccurrences = findSidebarOccurrences(showableEvents, query)
+                const messageOccurrences = findMessageOccurrences(showableEvents, query, normalizeMessages)
+
+                // Combine all occurrences
+                return [...traceOccurrences, ...sidebarOccurrences, ...messageOccurrences]
             },
         ],
         metricEvents: [
