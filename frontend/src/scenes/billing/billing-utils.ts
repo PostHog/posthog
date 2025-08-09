@@ -1,4 +1,5 @@
 import equal from 'fast-deep-equal'
+import Papa from 'papaparse'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -10,7 +11,7 @@ import { OrganizationType } from '~/types'
 import { BillingPeriod, BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
-import type { BillingFilters, BillingUsageInteractionProps } from './types'
+import type { BillingFilters, BillingUsageInteractionProps, BillingSeriesForCsv, BuildBillingCsvOptions } from './types'
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
@@ -430,4 +431,38 @@ export function calculateBillingPeriodMarkers(
     }
 
     return markers
+}
+
+const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
+
+// Keep up to N decimals without trailing zeros
+const formatWithDecimals = (value: number, decimals?: number): string =>
+    typeof decimals === 'number' ? String(Number(value.toFixed(decimals))) : String(value)
+
+/**
+ * Build CSV from the billing usage and spend data:
+ * - columns are [Series, Total, ...dates]
+ * - rows are visible series (products and/or projects)
+ * - sorted by total desc
+ * Values can be clamped to N decimals via options.decimals.
+ */
+export function buildBillingCsv(params: {
+    series: BillingSeriesForCsv[]
+    dates: string[]
+    hiddenSeries?: number[]
+    options?: BuildBillingCsvOptions
+}): string {
+    const { series, dates, hiddenSeries = [], options } = params
+
+    const visible = series.filter((s) => !hiddenSeries.includes(s.id))
+    const withTotalSorted = visible.map((s) => ({ ...s, total: sumSeries(s.data) })).sort((a, b) => b.total - a.total)
+
+    const header = ['Series', 'Total', ...dates]
+    const rows = withTotalSorted.map((s) => [
+        s.label,
+        formatWithDecimals(s.total, options?.decimals),
+        ...s.data.map((v) => formatWithDecimals(v, options?.decimals)),
+    ])
+
+    return Papa.unparse([header, ...rows])
 }

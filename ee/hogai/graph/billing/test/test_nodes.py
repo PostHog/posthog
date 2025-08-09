@@ -345,7 +345,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         # Check data is properly grouped
         self.assertIn("| Events | 1,000.00 | 2,000.00 |", table)
         self.assertIn("| Recordings | 100.00 | 200.00 |", table)
-        self.assertIn("| Feature Flags | 50.00 | 100.00 |", table)
+        self.assertIn("| Feature Flag Requests | 50.00 | 100.00 |", table)
 
     def test_format_billing_context_edge_cases(self):
         """Test edge cases and potential security issues"""
@@ -561,8 +561,8 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         # Events: 50000+25000=75000, 75000+30000=105000, 60000+28000=88000
         self.assertIn("| Events | 75,000.00 | 105,000.00 | 88,000.00 |", table)
 
-        # Feature Flags should appear in aggregated (only non-team data)
-        self.assertIn("| Feature Flags | 1,000.00 | 1,500.00 | 1,200.00 |", table)
+        # Feature Flag Requests should appear in aggregated (only non-team data)
+        self.assertIn("| Feature Flag Requests | 1,000.00 | 1,500.00 | 1,200.00 |", table)
 
         # Data Pipelines should show aggregated total (only from team 84444)
         self.assertIn("| Data Pipelines | 8,036.00 | 10,286.00 | 8,174.00 |", table)
