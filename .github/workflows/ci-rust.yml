@@ -80,8 +80,21 @@ jobs:
         strategy:
             matrix:
                 package:
+                    - batch-import-worker
+                    - capture
+                    - common-database
+                    - cyclotron-core
+                    - cyclotron-node
+                    - cyclotron-janitor
+                    - cymbal
                     - feature-flags
-                    - others
+                    - hook-api
+                    - hook-janitor
+                    - hook-worker
+                    - kafka-deduplicator
+                    - log-capture
+                    - property-defs-rs
+                    - serve-metrics
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
@@ -124,38 +137,38 @@ jobs:
                   sccache --start-server
 
             - name: Set up Python
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgres-client
 
             - name: Install python dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
             - name: Set up databases
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               env:
                   DEBUG: 'true'
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd ../ && python manage.py setup_test_environment --only-postgres
+              run: cd ../ && python manage.py setup_test_environment
 
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
@@ -166,7 +179,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags')|| '--workspace --exclude feature-flags'}}
+                  RUST_BACKTRACE=1 cargo test -s -p ${{ matrix.package}}
                   echo "Cargo test completed"
 
     linting:
