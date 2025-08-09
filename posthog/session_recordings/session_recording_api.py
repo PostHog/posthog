@@ -325,28 +325,32 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
 
         # Validate blob_v2 parameters
         if source == "blob_v2":
+            if not blob_key and not start_blob_key and not end_blob_key:
+                raise serializers.ValidationError("Must provide either a blob key or start and end blob keys")
+
             if blob_key and (start_blob_key or end_blob_key):
                 raise serializers.ValidationError("Must provide a single blob key or start and end blob keys, not both")
 
-            if start_blob_key and not end_blob_key:
-                raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
-            if end_blob_key and not start_blob_key:
-                raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+            if blob_key and blob_key.startswith("/"):
+                # blob key that starts with / is (probably) an LTS path
+                pass
+            else:
+                if start_blob_key and not end_blob_key:
+                    raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+                if end_blob_key and not start_blob_key:
+                    raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
 
-            if not blob_key and not start_blob_key:
-                raise serializers.ValidationError("Must provide one of blob key or start and end blob keys")
+                try:
+                    min_blob_key = int(start_blob_key or blob_key)
+                    max_blob_key = int(end_blob_key or blob_key)
+                    data["min_blob_key"] = min_blob_key
+                    data["max_blob_key"] = max_blob_key
+                except (ValueError, TypeError):
+                    raise serializers.ValidationError("Blob key must be an integer")
 
-            try:
-                min_blob_key = int(start_blob_key or blob_key)
-                max_blob_key = int(end_blob_key or blob_key)
-                data["min_blob_key"] = min_blob_key
-                data["max_blob_key"] = max_blob_key
-            except (ValueError, TypeError):
-                raise serializers.ValidationError("Blob key must be an integer")
-
-            max_blobs_allowed = 20 if is_personal_api_key else 100
-            if max_blob_key - min_blob_key > max_blobs_allowed:
-                raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
+                max_blobs_allowed = 20 if is_personal_api_key else 100
+                if max_blob_key - min_blob_key > max_blobs_allowed:
+                    raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
         # Validate blob parameters (v1)
         elif source == "blob" and blob_key:
@@ -980,6 +984,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         min_blob_key=validated_data["min_blob_key"],
                         max_blob_key=validated_data["max_blob_key"],
                     )
+                elif "blob_key" in validated_data:
+                    response = self._stream_lts_blob_v2_to_client(recording, timer, blob_key=validated_data["blob_key"])
                 else:
                     response = self._gather_session_recording_sources(
                         recording, timer, is_v2_enabled, is_v2_lts_enabled
@@ -1279,6 +1285,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 return response
 
+    async def _stream_lts_blob_v2_to_client_async(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        blob_key: str,
+    ) -> HttpResponse:
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
+            with (
+                timer("list_blocks__stream_lts_blob_v2_to_client_async"),
+                tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
+            ):
+                content = await asyncio.to_thread(session_recording_v2_object_storage.client().fetch_file, blob_key)
+
+            twenty_hour_hours_in_seconds = 60 * 60 * 24
+            response = HttpResponse(
+                content=content,
+                content_type="application/jsonl",
+            )
+            response["Cache-Control"] = f"max-age={twenty_hour_hours_in_seconds}"
+            response["Content-Disposition"] = "inline"
+            return response
+
     async def _stream_blob_v2_to_client_async(
         self,
         recording: SessionRecording,
@@ -1351,6 +1379,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         max_blob_key: int,
     ) -> HttpResponse:
         return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
+
+    def _stream_lts_blob_v2_to_client(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        blob_key: str,
+    ) -> HttpResponse:
+        return asyncio.run(self._stream_lts_blob_v2_to_client_async(recording, timer, blob_key))
 
     def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():

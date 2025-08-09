@@ -103,7 +103,9 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_blobby_v1_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
+    def test_list_snapshot_sources_blobby_v1_from_lts(
+        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
+    ) -> None:
         session_id = str(uuid7())
         timestamp = round(now().timestamp() * 1000)
 
@@ -359,7 +361,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.stream_from")
     def test_cannot_get_session_recording_blob_for_made_up_sessions(
-        self, _mock_stream_from, mock_presigned_url, mock_get_session_recording
+        self, _mock_stream_from, _mock_presigned_url, mock_get_session_recording
     ) -> None:
         session_id = str(uuid7())
         blob_key = f"1682608337071"

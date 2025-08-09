@@ -143,7 +143,12 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_client_instance.fetch_block.assert_any_call("http://test.com/block0")
         mock_client_instance.fetch_block.assert_any_call("http://test.com/block1")
 
-    @parameterized.expand([("0", ""), ("", "1")])
+    @parameterized.expand(
+        [
+            ("0", "", ""),
+            ("", "1", "Must provide either a blob key or start and end blob keys"),
+        ]
+    )
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -154,6 +159,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         self,
         start_key,
         end_key,
+        expected_error_message,
         mock_list_blocks,
         mock_get_session_recording,
         _mock_exists,
@@ -350,3 +356,63 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
                 },
             ]
         }
+
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.client")
+    @patch(
+        "posthog.session_recordings.session_recording_api.list_blocks",
+        side_effect=Exception(
+            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
+        ),
+    )
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch(
+        "posthog.session_recordings.session_recording_api.object_storage.list_objects",
+        side_effect=Exception(
+            "if the LTS loading works then we'll not call list_objects, we throw in the mock to enforce this"
+        ),
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_get_snapshot_for_lts_source_blobby_v2(
+        self,
+        _mock_feature_enabled: MagicMock,
+        _mock_list_objects: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_v2_list_blocks: MagicMock,
+        mock_object_storage_client: MagicMock,
+    ) -> None:
+        session_id = str(uuid7())
+
+        # Mock the client fetch_block method
+        mock_client_instance = MagicMock()
+        mock_object_storage_client.return_value = mock_client_instance
+        mock_client_instance.fetch_block.side_effect = Exception(
+            "if the LTS loading works then we'll not call fetch_block, we throw in the mock to enforce this"
+        )
+        mock_client_instance.fetch_file.return_value = """
+            {"timestamp": 1000, "type": "snapshot1"}
+            {"timestamp": 2000, "type": "snapshot2"}
+        """
+
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            deleted=False,
+            storage_version="2023-08-01",
+            full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true&source=blob_v2&blob_key=/the_lts_path/the_session_uuid"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert (
+            response.content
+            == b"""
+            {"timestamp": 1000, "type": "snapshot1"}
+            {"timestamp": 2000, "type": "snapshot2"}
+        """
+        )
