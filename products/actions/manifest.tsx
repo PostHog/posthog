@@ -13,6 +13,14 @@ export const manifest: ProductManifest = {
         },
         action: (id: string | number): string => `/data-management/actions/${id}`,
         actions: (): string => '/data-management/actions',
+        actionEdit: (id: string | number): string => `/data-management/actions/${id}/edit`,
+        actionNew: (): string => `/data-management/actions/new`,
+    },
+    routes: {
+        '/data-management/actions': ['Actions', 'actions'],
+        '/data-management/actions/new': ['ActionNew', 'actionNew'],
+        '/data-management/actions/:id/edit': ['ActionEdit', 'actionEdit'],
+        '/data-management/actions/:id': ['Action', 'action'],
     },
     fileSystemTypes: {
         action: {
@@ -37,4 +45,44 @@ export const manifest: ProductManifest = {
             href: urls.actions(),
         },
     ],
+    children: {
+        DataManagement: {
+            name: 'Data management',
+            children: {
+                Actions: {
+                    name: 'Actions',
+                    scenes: {
+                        Actions: {
+                            name: 'Actions',
+                            import: () => import('./frontend/pages/Actions'),
+                            projectBased: true,
+                            defaultDocsPath: '/docs/data/actions',
+                            activityScope: 'Action',
+                        },
+                        ActionEdit: {
+                            name: 'Edit action',
+                            import: () => import('./frontend/pages/ActionEditPage'),
+                            projectBased: true,
+                            defaultDocsPath: '/docs/data/actions',
+                            activityScope: 'Action',
+                        },
+                        ActionNew: {
+                            name: 'New action',
+                            import: () => import('./frontend/pages/ActionNew'),
+                            projectBased: true,
+                            defaultDocsPath: '/docs/data/actions',
+                            activityScope: 'Action',
+                        },
+                        Action: {
+                            name: 'Action',
+                            import: () => import('./frontend/pages/Action'),
+                            projectBased: true,
+                            defaultDocsPath: '/docs/data/actions',
+                            activityScope: 'Action',
+                        },
+                    },
+                },
+            },
+        },
+    },
 }

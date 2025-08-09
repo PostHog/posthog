@@ -62,6 +62,9 @@ export function buildProductManifests() {
                             sceneConfigs.push(cfg)
                         }
                     })
+                } else if (name === 'children') {
+                    // Handle hierarchical children structure
+                    processChildren(node.initializer, sourceFile.fileName, [])
                 } else {
                     ts.forEachChild(node, walk)
                 }
@@ -74,10 +77,10 @@ export function buildProductManifests() {
                     node.name.text === 'treeItemsNew'
                         ? treeItemsNew
                         : node.name.text === 'treeItemsProducts'
-                        ? treeItemsProducts
-                        : node.name.text === 'treeItemsMetadata'
-                        ? treeItemsMetadata
-                        : treeItemsGames
+                          ? treeItemsProducts
+                          : node.name.text === 'treeItemsMetadata'
+                            ? treeItemsMetadata
+                            : treeItemsGames
                 node.initializer.elements.forEach((el) => {
                     if (!ts.isObjectLiteralExpression(el)) {
                         return
@@ -90,6 +93,67 @@ export function buildProductManifests() {
                 })
             } else {
                 ts.forEachChild(node, walk)
+            }
+        })
+    }
+
+    // Helper function to process children structure and generate breadcrumb logics
+    function processChildren(childrenNode, fileName, parentPath) {
+        childrenNode.properties.forEach((childProp) => {
+            if (!ts.isPropertyAssignment(childProp) || !ts.isObjectLiteralExpression(childProp.initializer)) {
+                return
+            }
+
+            const childName = childProp.name.text
+            const currentPath = [...parentPath, childName]
+
+            // Process scenes in this child
+            const scenesProperty = childProp.initializer.properties.find(
+                (p) => ts.isPropertyAssignment(p) && p.name?.text === 'scenes'
+            )
+
+            if (scenesProperty && ts.isObjectLiteralExpression(scenesProperty.initializer)) {
+                scenesProperty.initializer.properties.forEach((sceneProp) => {
+                    const imp = keepOnlyImport(sceneProp, fileName)
+                    if (imp) {
+                        scenes.push(imp)
+                    }
+
+                    const cfg = withoutImport(sceneProp)
+                    if (cfg) {
+                        // For now, just add the scene config as-is
+                        // TODO: Add breadcrumb path generation in a separate enhancement
+                        sceneConfigs.push(cfg)
+                    }
+                })
+            }
+
+            // Process other properties (urls, routes, etc.)
+            childProp.initializer.properties.forEach((prop) => {
+                if (!ts.isPropertyAssignment(prop)) {
+                    return
+                }
+
+                const { text: propName } = prop.name
+                const list = {
+                    urls,
+                    routes,
+                    redirects,
+                    fileSystemTypes,
+                }[propName]
+
+                if (list && ts.isObjectLiteralExpression(prop.initializer)) {
+                    prop.initializer.properties.forEach((p) => list.push(cloneNode(p)))
+                }
+            })
+
+            // Recursively process nested children
+            const nestedChildren = childProp.initializer.properties.find(
+                (p) => ts.isPropertyAssignment(p) && p.name?.text === 'children'
+            )
+
+            if (nestedChildren && ts.isObjectLiteralExpression(nestedChildren.initializer)) {
+                processChildren(nestedChildren.initializer, fileName, currentPath)
             }
         })
     }
@@ -149,10 +213,10 @@ export function buildProductManifests() {
             kind === 'default'
                 ? spec
                 : kind === 'namespace'
-                ? spec
-                : spec.includes(' as ')
-                ? spec.split(' as ').pop()
-                : spec
+                  ? spec
+                  : spec.includes(' as ')
+                    ? spec.split(' as ').pop()
+                    : spec
         if (globalNames.has(localName)) {
             return
         }
@@ -298,7 +362,14 @@ export function buildProductManifests() {
     fse.mkdirSync(tmpDir, { recursive: true })
     const tmpFile = path.join(tmpDir, 'products.tsx')
     fse.writeFileSync(tmpFile, productsTsx)
-    ps.execFileSync('prettier', ['--write', tmpFile])
+
+    // Try to format with prettier, but don't fail if it's not available
+    try {
+        ps.execFileSync('prettier', ['--write', tmpFile])
+    } catch (error) {
+        console.warn('Prettier not available, skipping formatting', error)
+    }
+
     fse.renameSync(tmpFile, path.join(__dirname, 'src/products.tsx'))
 }
 

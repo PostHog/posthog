@@ -22,7 +22,7 @@ import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
-import { ActionsTable } from './actions/ActionsTable'
+import { ActionsTable } from 'products/actions/frontend/components/ActionsTable'
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'

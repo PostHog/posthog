@@ -5496,6 +5496,8 @@ export interface ProductManifest {
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
+    /** Hierarchical children manifests for auto-generating breadcrumbs */
+    children?: Record<string, ProductManifest>
 }
 
 export interface ProjectTreeRef {

@@ -9,6 +9,9 @@ import { SettingSectionId } from './settings/types'
 
 export enum Scene {
     Action = 'Action',
+    Actions = 'Actions',
+    ActionEdit = 'ActionEdit',
+    ActionNew = 'ActionNew',
     Activity = 'Activity',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
@@ -181,6 +184,7 @@ export interface SceneConfig {
     defaultDocsPath?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+    children?: Record<string, SceneConfig>
 }
 
 // Map scenes to their access control resource types
