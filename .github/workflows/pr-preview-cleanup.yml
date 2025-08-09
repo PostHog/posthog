@@ -31,7 +31,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
 
             - name: connect to tailscale
-              uses: tailscale/github-action@8b804aa882ac3429b804a2a22f9803a2101a0db9 # 8b804aa882ac3429b804a2a22f9803a2101a0db9
+              uses: tailscale/github-action@fd5642846afc811140af2c6eeca3c25f228d798a # 8b804aa882ac3429b804a2a22f9803a2101a0db9
               env:
                   TS_EXPERIMENT_OAUTH_AUTHKEY: true
               with:
