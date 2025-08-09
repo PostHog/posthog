@@ -1,16 +1,22 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
 import { getHogFlowStep } from '../HogFlowSteps'
+import { HogFlowActionSchema } from '../types'
 
 export function StepView({ action, children }: { action: HogFlowAction; children?: React.ReactNode }): JSX.Element {
     const { selectedNode } = useValues(hogFlowEditorLogic)
     const isSelected = selectedNode?.id === action.id
 
     const Step = getHogFlowStep(action.type)
+
+    // Validate the action against the Zod schema
+    const validationResult = HogFlowActionSchema.safeParse(action)
+    const hasValidationError = !validationResult.success
 
     return (
         <div
@@ -57,6 +63,15 @@ export function StepView({ action, children }: { action: HogFlowAction; children
                 </div>
             </div>
             {children}
+            {hasValidationError && (
+                <LemonBadge
+                    status="warning"
+                    size="small"
+                    content="!"
+                    title="This action has validation errors"
+                    position="top-right"
+                />
+            )}
         </div>
     )
 }
