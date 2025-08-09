@@ -12,6 +12,8 @@ from typing import Any, Optional
 from django.core.cache import cache
 from statshog.defaults.django import statsd
 
+RUST_FLAGS_CACHE_PREFIX = "posthog:1:team_feature_flags_"  # TEAM_FLAGS_CACHE_PREFIX in rust
+
 
 class FlagDefinitionsCache:
     """Manages caching for flag definitions used in local evaluation."""
@@ -30,7 +32,7 @@ class FlagDefinitionsCache:
         CACHE_TTL = CACHE_DEFAULT_TTL
 
     @classmethod
-    def get_cache_key(cls, project_id: int, include_cohorts: bool = False) -> str:
+    def get_local_evaluation_cache_key(cls, project_id: int, include_cohorts: bool = False) -> str:
         """
         Generate cache key for flag definitions.
 
@@ -47,7 +49,7 @@ class FlagDefinitionsCache:
     @classmethod
     def get_all_cache_keys(cls, project_id: int) -> list[str]:
         """
-        Get both cache keys (with and without cohorts) for a project.
+        Get all cache keys for a project.
 
         Args:
             project_id: The project ID
@@ -56,8 +58,9 @@ class FlagDefinitionsCache:
             List of cache keys
         """
         return [
-            cls.get_cache_key(project_id, include_cohorts=False),
-            cls.get_cache_key(project_id, include_cohorts=True),
+            cls.get_local_evaluation_cache_key(project_id, include_cohorts=False),
+            cls.get_local_evaluation_cache_key(project_id, include_cohorts=True),
+            f"{RUST_FLAGS_CACHE_PREFIX}{project_id}",
         ]
 
     @classmethod
@@ -118,7 +121,7 @@ class FlagDefinitionsCache:
             include_cohorts: Whether this data includes cohorts
         """
         try:
-            cache_key = cls.get_cache_key(project_id, include_cohorts)
+            cache_key = cls.get_local_evaluation_cache_key(project_id, include_cohorts)
             cache.set(cache_key, data, cls.CACHE_TTL)
 
             # Record cache set metric
@@ -156,7 +159,7 @@ class FlagDefinitionsCache:
             Cached flag definitions data or None if not found
         """
         try:
-            cache_key = cls.get_cache_key(project_id, include_cohorts)
+            cache_key = cls.get_local_evaluation_cache_key(project_id, include_cohorts)
             cached_data = cache.get(cache_key)
 
             # Record cache hit/miss metrics
