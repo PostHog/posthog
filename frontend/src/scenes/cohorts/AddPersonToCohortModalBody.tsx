@@ -6,7 +6,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { IconPlusSmall } from '@posthog/icons'
 import React from 'react'
 
-export function AddPersonToChortModalBody(): JSX.Element {
+export function AddPersonToCohortModalBody(): JSX.Element {
     const { query, cohortPersons } = useValues(addPersonToCohortModalLogic)
     const { setQuery, addPersonToCohort } = useActions(addPersonToCohortModalLogic)
 
