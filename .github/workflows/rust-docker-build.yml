@@ -27,9 +27,6 @@ jobs:
                     - image: hook-worker
                       dockerfile: ./rust/Dockerfile
                       project: c1bwj4j4qg
-                    - image: hook-migrator
-                      dockerfile: ./rust/Dockerfile.migrate-hooks
-                      project: c1bwj4j4qg
                     - image: cyclotron-janitor
                       dockerfile: ./rust/Dockerfile
                       project: r4zm8vtlbw
