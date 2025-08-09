@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { LemonModal } from '@posthog/lemon-ui'
-import { AddPersonToChortModalBody } from './AddPersonToCohortModalBody'
+import { AddPersonToCohortModalBody } from './AddPersonToCohortModalBody'
 import { CohortLogicProps } from './cohortEditLogic'
 
 export function AddPersonToCohortModal({ id }: CohortLogicProps): JSX.Element {
@@ -16,7 +16,7 @@ export function AddPersonToCohortModal({ id }: CohortLogicProps): JSX.Element {
                 onClose={hideAddPersonToCohortModal}
                 isOpen={addPersonToCohortModalVisible}
             >
-                <AddPersonToChortModalBody />
+                <AddPersonToCohortModalBody />
             </LemonModal>
         </BindLogic>
     )
