@@ -10,6 +10,7 @@ from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     StringDatabaseField,
+    BooleanDatabaseField,
     FieldOrTable,
 )
 from posthog.hogql.database.schema.exchange_rate import (
@@ -43,6 +44,11 @@ FIELDS: dict[str, FieldOrTable] = {
     "invoice_id": StringDatabaseField(name="invoice_id"),
     "session_id": StringDatabaseField(name="session_id"),
     "event_name": StringDatabaseField(name="event_name"),
+    "is_recurring": BooleanDatabaseField(name="is_recurring"),
+    "product_id": StringDatabaseField(name="product_id"),
+    "subscription_id": StringDatabaseField(name="subscription_id"),
+    "coupon": StringDatabaseField(name="coupon"),
+    "coupon_id": StringDatabaseField(name="coupon_id"),
     **BASE_CURRENCY_FIELDS,
 }
 
@@ -96,6 +102,13 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
                     ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
+                    # Charges are typically one-time payments, not recurring
+                    ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
+                    # For events, we don't have product_id, subscription_id, coupon info
+                    ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="coupon", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="coupon_id", expr=ast.Constant(value=None)),
                     ast.Alias(alias="original_currency", expr=currency_expression_for_events(team, event)),
                     ast.Alias(alias="original_amount", expr=value_expr),
                     # Being zero-decimal implies we will NOT divide the original amount by 100
@@ -167,6 +180,13 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 # Empty, but required for the `events` view to work
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
+                # Charges are typically one-time payments, not recurring
+                ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
+                # For charges, we don't have product_id, subscription_id, coupon info
+                ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
+                ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
+                ast.Alias(alias="coupon", expr=ast.Constant(value=None)),
+                ast.Alias(alias="coupon_id", expr=ast.Constant(value=None)),
                 # Compute the original currency, converting to uppercase to match the currency code in the `exchange_rate` table
                 ast.Alias(
                     alias="original_currency",
@@ -218,7 +238,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                             ],
                         ),
                     ),
-                ),
+                )
             ],
             # Simple query, simply refer to the `stripe_charge` table
             select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),
