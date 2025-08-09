@@ -780,7 +780,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_ids need to be a list")
         if len(person_ids) == 0:
             raise ValidationError("Cannot have empty person_ids")
-        if len(person_ids) >= DEFAULT_COHORT_INSERT_BATCH_SIZE:
+        if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
             raise ValidationError("List size exceeds limit")
         uuids = [
             str(uuid)
