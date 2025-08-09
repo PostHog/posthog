@@ -1,4 +1,4 @@
-import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -36,17 +36,17 @@ export interface OperatorValueSelectProps {
     operatorSelectProps?: Partial<Omit<LemonSelectProps<any>, 'onChange'>>
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
-    defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
     size?: 'xsmall' | 'small' | 'medium'
+    startVisible?: LemonDropdownProps['startVisible']
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
-    defaultOpen?: boolean
+    startVisible?: LemonDropdownProps['startVisible']
 }
 
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
@@ -79,11 +79,11 @@ export function OperatorValueSelect({
     operatorSelectProps,
     propertyDefinitions = [],
     eventNames = [],
-    defaultOpen,
     addRelativeDateTimeOptions,
     groupTypeIndex = undefined,
     size,
     editable,
+    startVisible,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -182,7 +182,7 @@ export function OperatorValueSelect({
                         }}
                         {...operatorSelectProps}
                         size={size}
-                        defaultOpen={defaultOpen}
+                        startVisible={startVisible}
                     />
                 ) : (
                     <span>{allOperatorsToHumanName(currentOperator)} </span>
@@ -230,7 +230,14 @@ export function OperatorValueSelect({
     )
 }
 
-export function OperatorSelect({ operator, operators, onChange, className, size }: OperatorSelectProps): JSX.Element {
+export function OperatorSelect({
+    operator,
+    operators,
+    onChange,
+    className,
+    size,
+    startVisible,
+}: OperatorSelectProps): JSX.Element {
     const operatorOptions = operators.map((op) => ({
         label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
         value: op || PropertyOperator.Exact,
@@ -250,6 +257,7 @@ export function OperatorSelect({ operator, operators, onChange, className, size 
             menu={{
                 closeParentPopoverOnClickInside: false,
             }}
+            startVisible={startVisible}
         />
     )
 }

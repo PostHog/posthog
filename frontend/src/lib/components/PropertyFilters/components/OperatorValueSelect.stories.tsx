@@ -19,12 +19,16 @@ const makePropertyDefinition = (name: string, propertyType: PropertyType | undef
     description: '',
 })
 
-const props = (type: PropertyType | undefined, editable: boolean): OperatorValueSelectProps => ({
+const props = (
+    type: PropertyType | undefined,
+    editable: boolean,
+    startVisible?: boolean = false
+): OperatorValueSelectProps => ({
     type: undefined,
     propertyKey: 'the_property',
     onChange: () => {},
     propertyDefinitions: [makePropertyDefinition('the_property', type)],
-    defaultOpen: true,
+    startVisible,
     editable,
 })
 
@@ -84,6 +88,15 @@ export function OperatorValueWithUnknownProperty(): JSX.Element {
             <h1>Property without specific type</h1>
             <OperatorValueSelect {...props(undefined, true)} />
             <OperatorValueSelect {...props(undefined, false)} />
+        </>
+    )
+}
+
+export function OperatorValueMenuOpen(): JSX.Element {
+    return (
+        <>
+            <h1>Showing the options</h1>
+            <OperatorValueSelect {...props(undefined, true, true)} />
         </>
     )
 }
