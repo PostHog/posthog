@@ -303,12 +303,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings.s(),
             name="persist finished recordings",
         )
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings_v2.s(),
             name="persist finished recordings v2",
         )
