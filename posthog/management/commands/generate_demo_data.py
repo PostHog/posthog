@@ -79,6 +79,18 @@ class Command(BaseCommand):
             default=False,
             help="Create a staff user",
         )
+        parser.add_argument(
+            "--skip-materialization",
+            action="store_true",
+            default=False,
+            help="Skip materializing common columns after data generation",
+        )
+        parser.add_argument(
+            "--skip-dagster",
+            action="store_true",
+            default=False,
+            help="Skip running dagster materializations after data generation",
+        )
 
     def handle(self, *args, **options):
         timer = monotonic()
@@ -154,11 +166,17 @@ class Command(BaseCommand):
                         f"http://localhost:8000/signup?email={email}\n"
                     )
                 )
-            print("Materializing common columns...")
-            self.materialize_common_columns(options["days_past"])
+            if not options.get("skip_materialization"):
+                print("Materializing common columns...")
+                self.materialize_common_columns(options["days_past"])
+            else:
+                print("Skipping materialization of common columns.")
 
-            print("Running dagster materializations...")
-            self.initialize_dagster_materialization(options["days_past"])
+            if not options.get("skip_dagster"):
+                print("Running dagster materializations...")
+                self.initialize_dagster_materialization(options["days_past"])
+            else:
+                print("Skipping dagster materializations.")
         else:
             print("Dry run - not saving results.")
 
