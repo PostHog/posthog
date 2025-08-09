@@ -44,6 +44,7 @@ ee/tasks/subscriptions/email_subscriptions.py:0: error: Item "None" of "User | N
 ee/tasks/subscriptions/email_subscriptions.py:0: error: Item "None" of "datetime | None" has no attribute "isoformat"  [union-attr]
 ee/tasks/subscriptions/email_subscriptions.py:0: error: Item "None" of "datetime | None" has no attribute "strftime"  [union-attr]
 ee/tasks/subscriptions/slack_subscriptions.py:0: error: Item "None" of "datetime | None" has no attribute "strftime"  [union-attr]
+ee/urls.py:0: error: Module "django.contrib.admin.sites" has no attribute "NotRegistered"  [attr-defined]
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "name"  [union-attr]
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "pk"  [union-attr]
 posthog/admin/admins/plugin_config_admin.py:0: error: Item "None" of "Team | None" has no attribute "name"  [union-attr]

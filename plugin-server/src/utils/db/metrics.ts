@@ -16,7 +16,6 @@ export const pluginLogEntryCounter = new Counter({
     help: 'Plugin log entry created by plugin',
     labelNames: ['plugin_id', 'source'],
 })
-
 export const moveDistinctIdsCountHistogram = new Histogram({
     name: 'move_distinct_ids_count',
     help: 'Number of distinct IDs moved in merge operations',
