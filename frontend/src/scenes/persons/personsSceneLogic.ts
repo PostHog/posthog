@@ -52,10 +52,8 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL
                 if (!queryParam) {
-                    // set the default unless it's already there
-                    if (!equal(values.query, defaultQuery)) {
-                        actions.setQuery(defaultQuery)
-                    }
+                    // We set the query again so that the actionToUrl for setQuery can run, which updates the url
+                    actions.setQuery(values.query)
                 } else {
                     if (typeof queryParam === 'object') {
                         actions.setQuery(queryParam)
