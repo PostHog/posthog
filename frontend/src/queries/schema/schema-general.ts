@@ -2515,11 +2515,18 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface ExperimentFunnelStepResult {
+    step_number: integer
+    step_name: string
+    step_count: integer
+}
+
 export interface ExperimentStatsBase {
     key: string
     number_of_samples: integer
     sum: number
     sum_squares: number
+    steps_count?: ExperimentFunnelStepResult[]
 }
 
 export enum ExperimentStatsValidationFailure {

@@ -581,7 +581,7 @@ def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNo
 def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: str) -> ast.Expr:
     """
     Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
-    Evaluates to 1 if the user completed the funnel, 0 if they didn't.
+    Returns the highest step number reached by the user (0-indexed).
 
     When events_alias is provided, assumes that step conditions have been pre-calculated
     as step_0, step_1, etc. fields in the aliased table.
@@ -610,26 +610,22 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
     funnel_order_type = funnel_metric.funnel_order_type or "ordered"
 
     expression = f"""
-    if(
-        length(
-            arrayFilter(result -> result.1 >= {num_steps - 1},
-                aggregate_funnel_array(
-                    {num_steps},
-                    {conversion_window_seconds},
-                    'first_touch',
-                    '{funnel_order_type}',
-                    array(array('')),
-                    arraySort(t -> t.1, groupArray(tuple(
-                        toFloat({timestamp_field}),
-                        {uuid_field},
-                        array(''),
-                        arrayFilter(x -> x != 0, [{step_conditions_str}])
-                    )))
-                )
+    arrayMax(
+        arrayMap(result -> result.1,
+            aggregate_funnel_array(
+                {num_steps},
+                {conversion_window_seconds},
+                'first_touch',
+                '{funnel_order_type}',
+                array(array('')),
+                arraySort(t -> t.1, groupArray(tuple(
+                    toFloat({timestamp_field}),
+                    {uuid_field},
+                    array(''),
+                    arrayFilter(x -> x != 0, [{step_conditions_str}])
+                )))
             )
-        ) > 0,
-        1,
-        0
+        )
     )
     """
 

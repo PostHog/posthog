@@ -11007,6 +11007,22 @@
             "required": ["metric_type", "series"],
             "type": "object"
         },
+        "ExperimentFunnelStepResult": {
+            "additionalProperties": false,
+            "properties": {
+                "step_count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "step_name": {
+                    "type": "string"
+                },
+                "step_number": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["step_number", "step_name", "step_count"],
+            "type": "object"
+        },
         "ExperimentFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -11422,6 +11438,12 @@
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
                 },
+                "steps_count": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelStepResult"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -11440,6 +11462,12 @@
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
+                },
+                "steps_count": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelStepResult"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -11611,6 +11639,12 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "steps_count": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelStepResult"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -11653,6 +11687,12 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "steps_count": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelStepResult"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
