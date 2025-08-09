@@ -3,6 +3,7 @@ MaxTool for AI-powered survey creation.
 """
 
 from typing import Any, cast
+import logging
 
 import django.utils.timezone
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,14 +13,27 @@ from pydantic import BaseModel, Field
 from ee.hogai.tool import MaxTool
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Survey, Team
+from posthog.models import Survey, Team, FeatureFlag
 from posthog.schema import SurveyCreationSchema
 
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
 
+logger = logging.getLogger(__name__)
+
 
 class SurveyCreatorArgs(BaseModel):
     instructions: str = Field(description="Natural language description of the survey to create")
+
+
+class FeatureFlagLookupArgs(BaseModel):
+    flag_key: str = Field(description="The key of the feature flag to look up")
+
+
+class FeatureFlagLookupResult(BaseModel):
+    flag_id: int = Field(description="The internal ID of the feature flag")
+    flag_key: str = Field(description="The key of the feature flag")
+    variants: list[str] = Field(description="List of available variant keys for this feature flag")
+    exists: bool = Field(description="Whether the feature flag exists")
 
 
 class CreateSurveyTool(MaxTool):
@@ -31,34 +45,38 @@ class CreateSurveyTool(MaxTool):
 
     async def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationSchema:
         """
-        Create a survey from natural language instructions.
+        Create a survey from natural language instructions using PostHog-native pattern.
         """
-        # Create the prompt
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", SURVEY_CREATION_SYSTEM_PROMPT),
-                ("human", "Create a survey based on these instructions: {{{instructions}}}"),
-            ],
-            template_format="mustache",
-        )
+        logger.info(f"Starting survey creation with instructions: '{instructions}'")
 
-        # Set up the LLM with structured output
+        # Extract and lookup feature flags inline (following PostHog pattern)
+        feature_flag_context = await self._extract_feature_flags_inline(instructions)
+
+        # Build enhanced system prompt with feature flag information
+        enhanced_system_prompt = SURVEY_CREATION_SYSTEM_PROMPT
+        if feature_flag_context:
+            enhanced_system_prompt += f"\n\n## Available Feature Flags\n{feature_flag_context}"
+
+        # Single LLM call with all context (cost-effective, fast)
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", enhanced_system_prompt),
+            ("human", "Create a survey based on these instructions: {{{instructions}}}")
+        ], template_format="mustache")
+
         model = (
-            ChatOpenAI(model="gpt-4.1-mini", temperature=0.2)
+            ChatOpenAI(model="gpt-5-mini")
             .with_structured_output(SurveyCreationSchema, include_raw=False)
             .with_retry()
         )
 
-        # Generate the survey configuration
         chain = prompt | model
-        result = await chain.ainvoke(
-            {
-                "instructions": instructions,
-                "existing_surveys": await self._get_existing_surveys_summary(),
-                "team_survey_config": self._get_team_survey_config(self._team),
-            }
-        )
+        result = await chain.ainvoke({
+            "instructions": instructions,
+            "existing_surveys": await self._get_existing_surveys_summary(),
+            "team_survey_config": self._get_team_survey_config(self._team),
+        })
 
+        logger.info(f"Survey created with linked_flag_id: {getattr(result, 'linked_flag_id', None)}")
         return cast(SurveyCreationSchema, result)
 
     async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
@@ -167,3 +185,147 @@ class CreateSurveyTool(MaxTool):
         survey_data["appearance"] = appearance
 
         return survey_data
+
+    async def _extract_feature_flags_inline(self, instructions: str) -> str:
+        """
+        Extract and lookup feature flags inline using PostHog-native pattern.
+        Similar to how insights nodes handle pagination inline.
+        """
+        import re
+
+        # Step 1: Extract potential feature flag names using comprehensive patterns
+        flag_patterns = [
+            # Handle "feature flag key name" patterns (with/without quotes)
+            r"feature flag[s]?\s+key\s+['\"]([a-zA-Z0-9_-]+)['\"]",    # "feature flag key 'name'"
+            r"feature flag[s]?\s+key\s+([a-zA-Z0-9_-]+)",              # "feature flag key name"
+            r"flag[s]?\s+key\s+['\"]([a-zA-Z0-9_-]+)['\"]",            # "flag key 'name'"
+            r"flag[s]?\s+key\s+([a-zA-Z0-9_-]+)",                      # "flag key name"
+
+            # Handle direct "feature flag name" patterns
+            r"feature flag[s]?\s+['\"]([a-zA-Z0-9_-]+)['\"]",          # "feature flag 'name'"
+            r"feature flag[s]?\s+([a-zA-Z0-9_-]+)",                    # "feature flag name"
+            r"flag[s]?\s+['\"]([a-zA-Z0-9_-]+)['\"]",                  # "flag 'name'"
+            r"flag[s]?\s+([a-zA-Z0-9_-]+)",                            # "flag name"
+
+            # Handle contextual patterns
+            r"with\s+(?:the\s+)?['\"]?([a-zA-Z0-9_-]+)['\"]?\s+(?:feature\s+)?flag",  # "with name flag"
+            r"have\s+(?:the\s+)?['\"]?([a-zA-Z0-9_-]+)['\"]?\s+(?:feature\s+)?flag",  # "have name flag"
+            r"(?:tied|linked)\s+(?:to|with)\s+(?:the\s+)?(?:feature\s+)?flag\s+['\"]?([a-zA-Z0-9_-]+)['\"]?",  # "tied to flag name"
+
+            # Handle quoted names anywhere near flag context
+            r"['\"]([a-zA-Z0-9_-]+)['\"].*(?:feature\s+flag|flag)",    # "'name' ... flag"
+            r"(?:feature\s+flag|flag).*['\"]([a-zA-Z0-9_-]+)['\"]",    # "flag ... 'name'"
+        ]
+
+        potential_flags = set()
+        instructions_lower = instructions.lower()
+
+        # Also extract any hyphenated words that might be flag names in context of "flag"
+        context_words = re.findall(r'\b([a-zA-Z0-9_-]{3,})\b', instructions_lower)
+        flag_context_found = any(word in instructions_lower for word in ['flag', 'feature'])
+
+        for pattern in flag_patterns:
+            matches = re.finditer(pattern, instructions_lower, re.IGNORECASE)
+            for match in matches:
+                flag_name = match.group(1).strip()
+                if len(flag_name) > 2:
+                    potential_flags.add(flag_name)
+
+        # If we're in a flag context, also consider hyphenated words as potential flags
+        if flag_context_found:
+            for word in context_words:
+                if '-' in word and len(word) > 5:  # likely flag names have hyphens and are longer
+                    potential_flags.add(word)
+
+        # Filter out obvious false positives
+        false_positives = {
+            'the', 'and', 'for', 'with', 'have', 'that', 'this', 'flag', 'flags',
+            'feature', 'key', 'enabled', 'disabled', 'survey', 'create', 'tied', 'linked'
+        }
+        potential_flags = {flag for flag in potential_flags if flag not in false_positives}
+
+        if not potential_flags:
+            logger.debug(f"No feature flags detected in instructions")
+            return ""
+
+        logger.info(f"Detected potential feature flags: {list(potential_flags)}")
+
+        # Step 2: Lookup each flag in database and only include found ones
+        flag_info_parts = []
+        found_flags = []
+        not_found_flags = []
+
+        for flag_key in potential_flags:
+            try:
+                # Direct database lookup (like PostHog insights nodes do)
+                feature_flag = await FeatureFlag.objects.select_related("team").aget(
+                    key=flag_key, team_id=self._team.id
+                )
+
+                variants = [variant["key"] for variant in (feature_flag.variants or [])]
+                variant_info = f" (variants: {', '.join(variants)})" if variants else " (no variants)"
+
+                flag_info_parts.append(f"- **{flag_key}**: ID = {feature_flag.id}{variant_info}")
+                found_flags.append(flag_key)
+                logger.info(f"Found feature flag '{flag_key}' with ID: {feature_flag.id}")
+
+            except FeatureFlag.DoesNotExist:
+                not_found_flags.append(flag_key)
+                logger.debug(f"Feature flag '{flag_key}' not found for team {self._team.id}")
+            except Exception as e:
+                logger.error(f"Error looking up feature flag '{flag_key}': {e}")
+
+        # Log summary for debugging
+        if found_flags:
+            logger.info(f"Successfully found feature flags: {found_flags}")
+        if not_found_flags:
+            logger.debug(f"Feature flags not found: {not_found_flags}")
+
+        return "\n".join(flag_info_parts) if flag_info_parts else ""
+
+
+class FeatureFlagLookupTool(MaxTool):
+    name: str = "lookup_feature_flag"
+    description: str = "Look up a feature flag by its key to get the ID and available variants"
+    thinking_message: str = "Looking up feature flag information"
+
+    args_schema: type[BaseModel] = FeatureFlagLookupArgs
+
+    async def _arun_impl(self, flag_key: str) -> tuple[str, dict[str, Any]]:
+        """
+        Look up feature flag information by key.
+        """
+        logger.info(f"🚨 DEBUG: FeatureFlagLookupTool called with flag_key='{flag_key}' for team {self._team.id}")
+        try:
+            # Look up the feature flag by key for the current team
+            feature_flag = await FeatureFlag.objects.select_related("team").aget(key=flag_key, team_id=self._team.id)
+
+            # Get available variants
+            variants = [variant["key"] for variant in feature_flag.variants]
+
+            message = f"✅ Found feature flag '{flag_key}' (ID: {feature_flag.id})"
+            if variants:
+                message += f" with variants: {', '.join(variants)}"
+            else:
+                message += " (no variants)"
+
+            logger.info(f"✅ FeatureFlagLookupTool found flag '{flag_key}' with ID: {feature_flag.id}")
+            return message, {
+                "flag_id": feature_flag.id,
+                "flag_key": feature_flag.key,
+                "variants": variants,
+                "exists": True,
+            }
+
+        except FeatureFlag.DoesNotExist:
+            logger.warning(f"❌ FeatureFlagLookupTool: Feature flag '{flag_key}' not found for team {self._team.id}")
+            return f"❌ Feature flag '{flag_key}' not found", {
+                "flag_id": None,
+                "flag_key": flag_key,
+                "variants": [],
+                "exists": False,
+            }
+        except Exception as e:
+            logger.error(f"❌ FeatureFlagLookupTool error for flag '{flag_key}': {str(e)}")
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return f"❌ Error looking up feature flag: {str(e)}", {"error": str(e), "exists": False}

@@ -852,7 +852,8 @@
                 "navigate",
                 "search_error_tracking_issues",
                 "experiment_results_summary",
-                "create_survey"
+                "create_survey",
+                "lookup_feature_flag"
             ],
             "type": "string"
         },
@@ -23245,6 +23246,9 @@
                     "type": "number"
                 },
                 "iteration_frequency_days": {
+                    "type": "number"
+                },
+                "linked_flag_id": {
                     "type": "number"
                 },
                 "name": {
