@@ -535,16 +535,23 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
-            if (values.queryInput) {
-                actions._setSuggestionPayload({
-                    suggestedValue: suggestedQueryInput,
-                    acceptText: aiSuggestionOnAcceptText,
-                    rejectText: aiSuggestionOnRejectText,
-                    onAccept: aiSuggestionOnAccept,
-                    onReject: aiSuggestionOnReject,
-                    source,
-                    diffShowRunButton: true,
-                })
+            // Only set suggestion if Monaco editor is properly initialized
+            if (values.queryInput && props.monaco && props.editor && values.activeModelUri) {
+                const currentModel = props.monaco.editor.getModel(values.activeModelUri.uri)
+                if (currentModel) {
+                    actions._setSuggestionPayload({
+                        suggestedValue: suggestedQueryInput,
+                        acceptText: aiSuggestionOnAcceptText,
+                        rejectText: aiSuggestionOnRejectText,
+                        onAccept: aiSuggestionOnAccept,
+                        onReject: aiSuggestionOnReject,
+                        source,
+                        diffShowRunButton: true,
+                    })
+                } else {
+                    // If no current model, just set the query directly
+                    actions.setQueryInput(suggestedQueryInput)
+                }
             } else {
                 actions.setQueryInput(suggestedQueryInput)
             }
@@ -1335,7 +1342,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         activeModelUri: (activeModelUri) => {
-            if (props.monaco) {
+            if (props.monaco && activeModelUri?.uri) {
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
                 const val = _model?.getValue()
                 actions.setQueryInput(val ?? '')
