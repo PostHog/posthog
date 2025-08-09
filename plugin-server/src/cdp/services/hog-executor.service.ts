@@ -486,9 +486,10 @@ export class HogExecutorService {
                         }
 
                         case 'sendEmail': {
-                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
-                                args[0]
-                            )
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
+                                ...args[0],
+                                type: 'email',
+                            })
                             break
                         }
                         default:

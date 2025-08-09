@@ -3,11 +3,12 @@ import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
+import { template as emailTemplate } from './_destinations/email/email.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
 import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
-import { template as nativeWebhookTemplate } from './_destinations/native-webhook/webhook.template'
+import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
@@ -39,6 +40,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     twilioTemplate,
     googleSheetsTemplate,
     googleTagManagerTemplate,
+    emailTemplate,
     clickupTemplate,
 ]
 
