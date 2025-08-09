@@ -168,6 +168,7 @@ elif TEST:
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_PORT: int = int(os.getenv("CLICKHOUSE_TCP_PORT", os.getenv("CLICKHOUSE_PORT", "9000")))
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
@@ -241,12 +242,15 @@ with suppress(Exception):
     API_QUERIES_ON_ONLINE_CLUSTER = {int(v) for v in as_json}
 
 _clickhouse_http_protocol = "http://"
-_clickhouse_http_port = "8123"
+_clickhouse_http_port = os.getenv("CLICKHOUSE_HTTP_PORT", "8123")
 if CLICKHOUSE_SECURE:
     _clickhouse_http_protocol = "https://"
-    _clickhouse_http_port = "8443"
+    _clickhouse_http_port = os.getenv("CLICKHOUSE_HTTP_PORT", "8443")
 
-CLICKHOUSE_HTTP_URL: str = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
+# Allow direct override of the full URL
+CLICKHOUSE_HTTP_URL: str = (
+    os.getenv("CLICKHOUSE_HTTP_URL") or f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
+)
 
 CLICKHOUSE_OFFLINE_HTTP_URL: str = (
     f"{_clickhouse_http_protocol}{CLICKHOUSE_OFFLINE_CLUSTER_HOST}:{_clickhouse_http_port}/"
