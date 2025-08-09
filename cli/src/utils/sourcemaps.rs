@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail, Ok, Result};
 use core::str;
 use magic_string::{GenerateDecodedMapOptions, MagicString};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sourcemap::SourceMap;
@@ -163,7 +164,17 @@ pub fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
         if is_javascript_file(&entry_path) {
             info!("Processing file: {}", entry_path.display());
             let source = SourceFile::load(&entry_path)?;
-            let sourcemap_path = guess_sourcemap_path(&source.path);
+            let mut sourcemap_path = guess_sourcemap_path(&source.path);
+            
+            // If guess_sourcemap_path doesn't find a file, try parsing the source
+            if !sourcemap_path.exists() {
+                if let Some(sourcemap_url) = get_sourcemap_path(&source.content) {
+                    // Resolve the sourcemap URL relative to the source file
+                    let source_dir = source.path.parent().unwrap_or(Path::new("."));
+                    sourcemap_path = source_dir.join(sourcemap_url);
+                }
+            }
+            
             if sourcemap_path.exists() {
                 let sourcemap = SourceFile::load(&sourcemap_path)?;
                 let chunk_id = get_chunk_id(&sourcemap);
@@ -203,4 +214,41 @@ pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
 fn is_javascript_file(path: &Path) -> bool {
     path.extension()
         .map_or(false, |ext| ext == "js" || ext == "mjs" || ext == "cjs")
+}
+
+pub fn get_sourcemap_path(source: &str) -> Option<String> {
+    let js_comment = Regex::new(r"(?m)\s*(?://(?P<single>.*)|/\*(?P<multi>.*?)\*/|/\*.*|$|(?P<code>[^/]+))").unwrap();
+    let pattern = Regex::new(r"^[@#]\s*sourceMappingURL=(\S*?)\s*$").unwrap();
+    
+    let mut last_url: Option<String> = None;
+    
+    for line in source.lines() {
+        let mut pos = 0;
+        while pos < line.len() {
+            if let Some(captures) = js_comment.captures(&line[pos..]) {
+                let match_end = captures.get(0).unwrap().end();
+                
+                if let Some(single_comment) = captures.name("single") {
+                    if let Some(url_match) = pattern.captures(single_comment.as_str()) {
+                        last_url = url_match.get(1).map(|m| m.as_str().to_string());
+                    }
+                } else if let Some(multi_comment) = captures.name("multi") {
+                    if let Some(url_match) = pattern.captures(multi_comment.as_str()) {
+                        last_url = url_match.get(1).map(|m| m.as_str().to_string());
+                    }
+                } else if captures.name("code").is_some() {
+                    last_url = None;
+                }
+                
+                pos += match_end;
+                if match_end == 0 {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+    
+    last_url
 }
