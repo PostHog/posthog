@@ -38,6 +38,7 @@ export function buildProductManifests() {
     const treeItemsGames = {}
     const treeItemsMetadata = {}
     const treeItemsProducts = {}
+    const pageConfigurations = []
 
     const visitManifests = (sourceFile) => {
         ts.forEachChild(sourceFile, function walk(node) {
@@ -48,8 +49,15 @@ export function buildProductManifests() {
                     routes,
                     redirects,
                     fileSystemTypes,
+                    treeItemsNew,
+                    treeItemsGames,
+                    treeItemsMetadata,
+                    treeItemsProducts,
                 }[name]
-                if (list) {
+
+                if (name === 'pages') {
+                    processPages(node.initializer, sourceFile.fileName)
+                } else if (list) {
                     node.initializer.properties.forEach((p) => list.push(cloneNode(p)))
                 } else if (name === 'scenes') {
                     node.initializer.properties.forEach((prop) => {
@@ -62,9 +70,6 @@ export function buildProductManifests() {
                             sceneConfigs.push(cfg)
                         }
                     })
-                } else if (name === 'children') {
-                    // Handle hierarchical children structure
-                    processChildren(node.initializer, sourceFile.fileName, [])
                 } else {
                     ts.forEachChild(node, walk)
                 }
@@ -97,63 +102,60 @@ export function buildProductManifests() {
         })
     }
 
-    // Helper function to process children structure and generate breadcrumb logics
-    function processChildren(childrenNode, fileName, parentPath) {
-        childrenNode.properties.forEach((childProp) => {
-            if (!ts.isPropertyAssignment(childProp) || !ts.isObjectLiteralExpression(childProp.initializer)) {
+    // Helper function to process pages structure
+    function processPages(pagesNode, fileName) {
+        pagesNode.properties.forEach((pageProp) => {
+            if (!ts.isPropertyAssignment(pageProp) || !ts.isObjectLiteralExpression(pageProp.initializer)) {
                 return
             }
 
-            const childName = childProp.name.text
-            const currentPath = [...parentPath, childName]
+            const pageName = pageProp.name.text
+            const pageObj = { key: pageName }
 
-            // Process scenes in this child
-            const scenesProperty = childProp.initializer.properties.find(
-                (p) => ts.isPropertyAssignment(p) && p.name?.text === 'scenes'
-            )
-
-            if (scenesProperty && ts.isObjectLiteralExpression(scenesProperty.initializer)) {
-                scenesProperty.initializer.properties.forEach((sceneProp) => {
-                    const imp = keepOnlyImport(sceneProp, fileName)
-                    if (imp) {
-                        scenes.push(imp)
-                    }
-
-                    const cfg = withoutImport(sceneProp)
-                    if (cfg) {
-                        // For now, just add the scene config as-is
-                        // TODO: Add breadcrumb path generation in a separate enhancement
-                        sceneConfigs.push(cfg)
-                    }
-                })
-            }
-
-            // Process other properties (urls, routes, etc.)
-            childProp.initializer.properties.forEach((prop) => {
+            // Extract page properties
+            pageProp.initializer.properties.forEach((prop) => {
                 if (!ts.isPropertyAssignment(prop)) {
                     return
                 }
 
-                const { text: propName } = prop.name
-                const list = {
-                    urls,
-                    routes,
-                    redirects,
-                    fileSystemTypes,
-                }[propName]
+                const propName = prop.name.text
+                if (propName === 'name') {
+                    pageObj.name = prop.initializer.text
+                } else if (propName === 'parent') {
+                    pageObj.parent = prop.initializer.text
+                } else if (propName === 'scenes') {
+                    // Process scenes in this page
+                    if (ts.isObjectLiteralExpression(prop.initializer)) {
+                        prop.initializer.properties.forEach((sceneProp) => {
+                            const imp = keepOnlyImport(sceneProp, fileName)
+                            if (imp) {
+                                scenes.push(imp)
+                            }
 
-                if (list && ts.isObjectLiteralExpression(prop.initializer)) {
-                    prop.initializer.properties.forEach((p) => list.push(cloneNode(p)))
+                            const cfg = withoutImport(sceneProp)
+                            if (cfg) {
+                                sceneConfigs.push(cfg)
+                            }
+                        })
+                    }
+                } else if (['urls', 'routes', 'redirects', 'fileSystemTypes'].includes(propName)) {
+                    // Process other properties (urls, routes, etc.)
+                    const list = {
+                        urls,
+                        routes,
+                        redirects,
+                        fileSystemTypes,
+                    }[propName]
+
+                    if (list && ts.isObjectLiteralExpression(prop.initializer)) {
+                        prop.initializer.properties.forEach((p) => list.push(cloneNode(p)))
+                    }
                 }
             })
 
-            // Recursively process nested children
-            const nestedChildren = childProp.initializer.properties.find(
-                (p) => ts.isPropertyAssignment(p) && p.name?.text === 'children'
-            )
-
-            if (nestedChildren && ts.isObjectLiteralExpression(nestedChildren.initializer)) {
-                processChildren(nestedChildren.initializer, fileName, currentPath)
+            // Add page configuration if it has a name
+            if (pageObj.name) {
+                pageConfigurations.push(pageObj)
             }
         })
     }
@@ -340,6 +342,9 @@ export function buildProductManifests() {
 
         ${autogen}
         export const productUrls = ${manifestUrls}
+
+        ${autogen}
+        export const productPageConfigurations = ${JSON.stringify(pageConfigurations, null, 2)}
 
         ${autogen}
         export const fileSystemTypes = ${manifestFileSystemTypes}

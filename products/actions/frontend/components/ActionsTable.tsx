@@ -16,7 +16,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { actionsLogic } from 'scenes/actions/actionsLogic'
+import { actionsLogic } from '../logics/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'

@@ -12,6 +12,7 @@
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",
-        "react": "*"
+        "react": "*",
+        "@storybook/react": "*"
     }
 }

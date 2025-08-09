@@ -16,6 +16,36 @@ export const manifest: ProductManifest = {
         actionEdit: (id: string | number): string => `/data-management/actions/${id}/edit`,
         actionNew: (): string => `/data-management/actions/new`,
     },
+    scenes: {
+        Actions: {
+            name: 'Actions',
+            import: () => import('./frontend/pages/Actions'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data/actions',
+            activityScope: 'Action',
+        },
+        ActionEdit: {
+            name: 'Edit action',
+            import: () => import('./frontend/pages/ActionEditPage'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data/actions',
+            activityScope: 'Action',
+        },
+        ActionNew: {
+            name: 'New action',
+            import: () => import('./frontend/pages/ActionNew'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data/actions',
+            activityScope: 'Action',
+        },
+        Action: {
+            name: 'Action',
+            import: () => import('./frontend/pages/Action'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data/actions',
+            activityScope: 'Action',
+        },
+    },
     routes: {
         '/data-management/actions': ['Actions', 'actions'],
         '/data-management/actions/new': ['ActionNew', 'actionNew'],
@@ -45,44 +75,4 @@ export const manifest: ProductManifest = {
             href: urls.actions(),
         },
     ],
-    children: {
-        DataManagement: {
-            name: 'Data management',
-            children: {
-                Actions: {
-                    name: 'Actions',
-                    scenes: {
-                        Actions: {
-                            name: 'Actions',
-                            import: () => import('./frontend/pages/Actions'),
-                            projectBased: true,
-                            defaultDocsPath: '/docs/data/actions',
-                            activityScope: 'Action',
-                        },
-                        ActionEdit: {
-                            name: 'Edit action',
-                            import: () => import('./frontend/pages/ActionEditPage'),
-                            projectBased: true,
-                            defaultDocsPath: '/docs/data/actions',
-                            activityScope: 'Action',
-                        },
-                        ActionNew: {
-                            name: 'New action',
-                            import: () => import('./frontend/pages/ActionNew'),
-                            projectBased: true,
-                            defaultDocsPath: '/docs/data/actions',
-                            activityScope: 'Action',
-                        },
-                        Action: {
-                            name: 'Action',
-                            import: () => import('./frontend/pages/Action'),
-                            projectBased: true,
-                            defaultDocsPath: '/docs/data/actions',
-                            activityScope: 'Action',
-                        },
-                    },
-                },
-            },
-        },
-    },
 }

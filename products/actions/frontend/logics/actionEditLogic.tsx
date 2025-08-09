@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { breadcrumbPatterns } from 'lib/utils/breadcrumbUtils'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { productUrls } from '~/products'
@@ -15,9 +14,12 @@ import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/pane
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType, Breadcrumb } from '~/types'
+import { Scene } from 'scenes/sceneTypes'
 
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import { urls } from 'scenes/urls'
 
 export interface SetActionProps {
     merge?: boolean
@@ -157,12 +159,36 @@ export const actionEditLogic = kea<actionEditLogicType>([
             (hasCohortFilters, originalActionHasCohortFilters) => hasCohortFilters && !originalActionHasCohortFilters,
         ],
         breadcrumbs: [
-            (s) => [s.action],
-            (action): Breadcrumb[] =>
-                breadcrumbPatterns.dataManagement.actions(
-                    action?.name || undefined,
-                    !!action?.id // isEdit if action has an ID
-                ),
+            (s) => [
+                s.action,
+                (state, props) =>
+                    actionEditLogic.findMounted(String(props?.id || 'new'))?.selectors.action(state).name || null,
+            ],
+            (action, inProgressName): Breadcrumb[] => [
+                {
+                    key: Scene.DataManagement,
+                    name: `Data management`,
+                    path: urls.eventDefinitions(),
+                },
+                {
+                    key: DataManagementTab.Actions,
+                    name: 'Actions',
+                    path: productUrls.actions(),
+                },
+                {
+                    key: [Scene.Action, action?.id || 'new'],
+                    name: inProgressName ?? (action?.name || ''),
+                    onRename: async (name: string) => {
+                        const id = action?.id
+                        const actionEditLogicActions = actionEditLogic.find(String(id || 'new'))
+                        actionEditLogicActions.actions.setActionValue('name', name)
+                        if (id) {
+                            await actionEditLogicActions.asyncActions.submitAction()
+                        }
+                    },
+                    forceEditMode: !action?.id,
+                },
+            ],
         ],
     }),
 

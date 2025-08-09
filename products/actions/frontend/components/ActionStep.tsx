@@ -338,7 +338,7 @@ function StringMatchingSelection({
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
 }): JSX.Element {
-    const key = `${field}_matching`
+    const key = `${field}_matching` as keyof ActionStepType
     const handleURLMatchChange = (value: string): void => {
         sendStep({ ...step, [key]: value })
     }
@@ -348,7 +348,7 @@ function StringMatchingSelection({
         <div className="flex flex-1 justify-end">
             <LemonSegmentedButton
                 onChange={handleURLMatchChange}
-                value={step[key] || defaultValue}
+                value={(step[key] as ActionStepStringMatching) || defaultValue}
                 options={[
                     {
                         value: 'exact',
