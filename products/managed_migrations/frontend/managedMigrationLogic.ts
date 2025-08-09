@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
-import type { managedMigrationLogicType } from './managedMigrationLogicType'
 import { ManagedMigration } from './types'
 
 export interface ManagedMigrationForm {
@@ -41,15 +40,16 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     is_eu_region: false,
 }
 
-export const managedMigrationLogic = kea<managedMigrationLogicType>([
+export const managedMigrationLogic = kea<any>([
     path(['products', 'managed_migrations', 'frontend', 'managedMigrationLogic']),
     props({
         managedMigrationId: null,
     }),
     actions({
-        editManagedMigration: (id: string | null) => ({ id }),
+        editManagedMigration: (id) => ({ id }),
         startPolling: true,
         stopPolling: true,
+        resumeMigration: (migrationId) => ({ migrationId }),
     }),
     reducers({
         managedMigrationId: [null as string | null, { editManagedMigration: (_, { id }) => id }],
@@ -63,6 +63,18 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     const projectId = ApiConfig.getCurrentProjectId()
                     const response = await api.get(`api/projects/${projectId}/managed_migrations`)
                     return response.results
+                },
+            },
+        ],
+        resumeMigration: [
+            null as any,
+            {
+                resumeMigration: async ({ migrationId }: { migrationId: string }) => {
+                    const projectId = ApiConfig.getCurrentProjectId()
+                    const response = await api.create(
+                        `api/projects/${projectId}/managed_migrations/${migrationId}/resume/`
+                    )
+                    return response
                 },
             },
         ],
@@ -152,13 +164,28 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 lemonToast.error('Failed to create migration. Please try again.')
             }
         },
+        resumeMigrationSuccess: async () => {
+            lemonToast.success('Migration resumed successfully')
+            actions.loadMigrations()
+        },
+        resumeMigrationFailure: async ({ error }) => {
+            if (error?.message) {
+                lemonToast.error(error.message)
+            } else {
+                lemonToast.error('Failed to resume migration. Please try again.')
+            }
+        },
         loadMigrationsSuccess: () => {
             const hasRunningMigrations = values.migrations.some(
                 (migration: ManagedMigration) => migration.status === 'running'
             )
-            if (hasRunningMigrations && !values.isPolling) {
+            const hasPausedMigrations = values.migrations.some(
+                (migration: ManagedMigration) => migration.status === 'paused'
+            )
+
+            if ((hasRunningMigrations || hasPausedMigrations) && !values.isPolling) {
                 actions.startPolling()
-            } else if (!hasRunningMigrations && values.isPolling) {
+            } else if (!hasRunningMigrations && !hasPausedMigrations && values.isPolling) {
                 actions.stopPolling()
             }
         },

@@ -14,6 +14,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 
 import { managedMigrationLogic } from './managedMigrationLogic'
 import { type ManagedMigration } from './types'
@@ -160,6 +161,7 @@ export function ManagedMigration(): JSX.Element {
 
 export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
+    const { resumeMigration } = useActions(managedMigrationLogic)
 
     const calculateProgress = (migration: ManagedMigration): { progress: number; completed: number; total: number } => {
         if (migration.state?.parts && Array.isArray(migration.state.parts)) {
@@ -327,6 +329,26 @@ export function ManagedMigrations(): JSX.Element {
                         title: 'Status Message',
                         dataIndex: 'status_message',
                         render: (_: any, migration: ManagedMigration) => migration.status_message || '-',
+                    },
+                    {
+                        title: 'Actions',
+                        key: 'actions',
+                        render: (_: any, migration: ManagedMigration) => {
+                            if (migration.status === 'paused') {
+                                return (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => resumeMigration(migration.id)}
+                                        icon={<IconPlayCircle />}
+                                        data-attr={`resume-managed-migration-${migration.id}`}
+                                    >
+                                        Resume
+                                    </LemonButton>
+                                )
+                            }
+                            return null
+                        },
                     },
                 ]}
                 emptyState="No migrations found. Create a new migration to get started."
