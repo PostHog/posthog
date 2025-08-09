@@ -45,12 +45,20 @@ pub enum SourcemapCommand {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
         directory: PathBuf,
+
+        /// One or more directory glob patterns to ignore
+        #[arg(short, long)]
+        ignore: Vec<String>,
     },
     /// Upload the bundled chunks to PostHog
     Upload {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
         directory: PathBuf,
+
+        /// One or more directory glob patterns to ignore
+        #[arg(short, long)]
+        ignore: Vec<String>,
 
         /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
         /// a specific release, auto-discovered from git information on disk if not provided.
@@ -78,11 +86,12 @@ impl Cli {
                 login::login()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
-                SourcemapCommand::Inject { directory } => {
-                    sourcemap::inject::inject(directory)?;
+                SourcemapCommand::Inject { directory, ignore } => {
+                    sourcemap::inject::inject(directory, ignore)?;
                 }
                 SourcemapCommand::Upload {
                     directory,
+                    ignore,
                     project,
                     version,
                     delete_after,
@@ -90,6 +99,7 @@ impl Cli {
                     sourcemap::upload::upload(
                         command.host,
                         directory,
+                        ignore,
                         project.clone(),
                         version.clone(),
                         *delete_after,
