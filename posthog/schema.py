@@ -125,6 +125,7 @@ class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
     CONVERSATION = "conversation"
+    NOTEBOOK = "notebook"
 
 
 class AssistantFormOption(BaseModel):
@@ -190,6 +191,7 @@ class AssistantMessageType(StrEnum):
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
+    NOTEBOOK = "notebook"
 
 
 class AssistantNavigateUrls(StrEnum):
@@ -2037,6 +2039,19 @@ class PropertyOperator(StrEnum):
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
+
+
+class Mark(BaseModel):
+    attrs: Optional[dict[str, Any]] = None
+    type: str
+
+
+class ProsemirrorJSONContent(BaseModel):
+    attrs: Optional[dict[str, Any]] = None
+    content: Optional[list[ProsemirrorJSONContent]] = None
+    marks: Optional[list[Mark]] = None
+    text: Optional[str] = None
+    type: Optional[str] = None
 
 
 class QueryIndexUsage(StrEnum):
@@ -3961,6 +3976,17 @@ class NewExperimentQueryResponse(BaseModel):
     )
     baseline: ExperimentStatsBaseValidated
     variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
+class NotebookUpdateMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: ProsemirrorJSONContent
+    id: Optional[str] = None
+    notebook_id: str
+    tool_calls: Optional[list[AssistantToolCall]] = None
+    type: Literal["notebook"] = "notebook"
 
 
 class PathsFilter(BaseModel):
@@ -14130,12 +14156,19 @@ class RootAssistantMessage(
             AssistantMessage,
             HumanMessage,
             FailureMessage,
+            NotebookUpdateMessage,
             RootAssistantMessage1,
         ]
     ]
 ):
     root: Union[
-        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
+        VisualizationMessage,
+        ReasoningMessage,
+        AssistantMessage,
+        HumanMessage,
+        FailureMessage,
+        NotebookUpdateMessage,
+        RootAssistantMessage1,
     ]
 
 
@@ -14216,6 +14249,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
     type: Literal["switch-group"] = "switch-group"
 
 
+ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()
 MaxDashboardContext.model_rebuild()

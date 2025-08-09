@@ -20,6 +20,7 @@ from posthog.schema import (
     HumanMessage,
     ReasoningMessage,
     VisualizationMessage,
+    NotebookUpdateMessage,
 )
 
 AIMessageUnion = Union[
@@ -29,7 +30,7 @@ AIMessageUnion = Union[
     ReasoningMessage,
     AssistantToolCallMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
@@ -180,6 +181,10 @@ class _SharedAssistantState(BaseState):
     search_insights_query: Optional[str] = Field(default=None)
     """
     The user's search query for finding existing insights.
+    """
+    notebook_id: Optional[str] = Field(default=None)
+    """
+    The ID of the notebook being used.
     """
 
 

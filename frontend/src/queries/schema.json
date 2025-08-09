@@ -917,7 +917,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation"],
+            "enum": ["status", "message", "conversation", "notebook"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1589,7 +1589,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure"],
+            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "notebook"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -15933,6 +15933,32 @@
             ],
             "type": "string"
         },
+        "NotebookUpdateMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/ProsemirrorJSONContent"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "notebook_id": {
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantToolCall"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "notebook_id", "content"],
+            "type": "object"
+        },
         "PageURL": {
             "additionalProperties": false,
             "properties": {
@@ -16496,6 +16522,41 @@
                 "flag_evaluates_to"
             ],
             "type": "string"
+        },
+        "ProsemirrorJSONContent": {
+            "properties": {
+                "attrs": {
+                    "type": "object"
+                },
+                "content": {
+                    "items": {
+                        "$ref": "#/definitions/ProsemirrorJSONContent"
+                    },
+                    "type": "array"
+                },
+                "marks": {
+                    "items": {
+                        "properties": {
+                            "attrs": {
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "QueryIndexUsage": {
             "enum": ["undecisive", "no", "partial", "yes"],
@@ -21815,6 +21876,9 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "$ref": "#/definitions/NotebookUpdateMessage"
                 },
                 {
                     "additionalProperties": false,
