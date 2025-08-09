@@ -1,4 +1,4 @@
-import { IconCheck, IconCornerDownRight, IconGear, IconPlus, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -68,7 +68,7 @@ export function EnvironmentSwitcherOverlay({
             const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
             currentProjectItems.push(
                 <>
-                    <Label intent="menu" className="px-2">
+                    <Label intent="menu" className="px-2 mt-2">
                         Current project
                     </Label>
                     <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
@@ -144,7 +144,8 @@ export function EnvironmentSwitcherOverlay({
                         })
                     }}
                 >
-                    <IconPlus />
+                    <IconBlank />
+                    <IconPlusSmall />
                     New environment in project
                 </ButtonPrimitive>
             )
@@ -163,7 +164,7 @@ export function EnvironmentSwitcherOverlay({
             if (projectTeams.length > 0 && otherProjectsItems.length === 0) {
                 otherProjectsItems.push(
                     <>
-                        <Label intent="menu" className="px-2">
+                        <Label intent="menu" className="px-2 mt-2">
                             Other projects
                         </Label>
                         <div className="-mx-1.5 my-1 h-px bg-border-primary shrink-0" />
@@ -276,8 +277,6 @@ export function EnvironmentSwitcherOverlay({
                         <Combobox.Empty>No projects or environments found</Combobox.Empty>
 
                         {environmentsRollbackNotice}
-                        {currentProjectSection}
-                        {otherProjectsSection}
 
                         <Combobox.Item
                             asChild
@@ -299,6 +298,9 @@ export function EnvironmentSwitcherOverlay({
                                 New project
                             </ButtonPrimitive>
                         </Combobox.Item>
+
+                        {currentProjectSection}
+                        {otherProjectsSection}
                     </Combobox.Content>
                 </Combobox>
             </PopoverPrimitiveContent>

@@ -96,6 +96,7 @@ export type HogFunctionInvocationGlobals = {
         headers: Record<string, string | undefined>
         ip?: string
         body: Record<string, any>
+        stringBody: string
     }
 }
 

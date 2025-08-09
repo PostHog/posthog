@@ -1,20 +1,87 @@
 import logging
+import json
 from pydantic import BaseModel, Field
-
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.tools import base_final_answer
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
+from langchain_core.prompts import ChatPromptTemplate
+from posthog.models import Team, User
 from posthog.schema import MaxRecordingUniversalFilters
-
-# Import the prompts you want to pass to the graph
 from .prompts import (
     PRODUCT_DESCRIPTION_PROMPT,
-    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
-    MULTIPLE_FILTERS_PROMPT,
+    FILTER_FIELDS_TAXONOMY_PROMPT,
+    DATE_FIELDS_PROMPT,
+    USER_FILTER_OPTIONS_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
+    def __init__(self, team: Team):
+        super().__init__(team)
+
+    def _get_custom_tools(self) -> list:
+        """Get custom tools for filter options."""
+
+        class final_answer(base_final_answer[MaxRecordingUniversalFilters]):
+            __doc__ = base_final_answer.__doc__
+
+        return [final_answer]
+
+    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
+        """
+        Override parent implementation to use YAML format instead of XML.
+        """
+        return self._format_properties_yaml(props)
+
+
+class SessionReplayFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]):
+    """Node for generating filtering options for session replay."""
+
+    def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+    def _get_system_prompt(self) -> ChatPromptTemplate:
+        """Get default system prompts. Override in subclasses for custom prompts."""
+        all_messages = [
+            PRODUCT_DESCRIPTION_PROMPT,
+            SESSION_REPLAY_EXAMPLES_PROMPT,
+            FILTER_FIELDS_TAXONOMY_PROMPT,
+            DATE_FIELDS_PROMPT,
+            *super()._get_default_system_prompts(),
+        ]
+        system_messages = [("system", message) for message in all_messages]
+        return ChatPromptTemplate(system_messages, template_format="mustache")
+
+
+class SessionReplayFilterOptionsToolsNode(
+    TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]
+):
+    """Node for generating filtering options for session replay."""
+
+    def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+
+class SessionReplayFilterOptionsGraph(
+    TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]
+):
+    """Graph for generating filtering options for session replay."""
+
+    def __init__(self, team: Team, user: User):
+        super().__init__(
+            team,
+            user,
+            loop_node_class=SessionReplayFilterNode,
+            tools_node_class=SessionReplayFilterOptionsToolsNode,
+            toolkit_class=SessionReplayFilterOptionsToolkit,
+        )
 
 
 class SearchSessionRecordingsArgs(BaseModel):
@@ -36,47 +103,26 @@ class SearchSessionRecordingsTool(MaxTool):
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
-        # Create graph with injected prompts
-        injected_prompts = {
-            "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
-            "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-            "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
-            "multiple_filters_prompt": MULTIPLE_FILTERS_PROMPT,
-        }
+        graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
+        pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
+        user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
 
-        graph = FilterOptionsGraph(
-            team=self._team, user=self._user, injected_prompts=injected_prompts
-        ).compile_full_graph()
-
-        graph_input = {
-            "change": change,
-            "generated_filter_options": None,
-            "messages": [],
+        graph_context = {
+            "change": user_prompt,
+            "output": None,
             "tool_progress_messages": [],
             **self.context,
         }
 
-        result = await graph.ainvoke(graph_input)
+        result = await graph.compile_full_graph().ainvoke(graph_context)
 
-        if "generated_filter_options" not in result or result["generated_filter_options"] is None:
-            last_message = result["intermediate_steps"][-1]
-            help_content = "I need more information to proceed."
-
-            tool_call_id = getattr(last_message, "tool", None)
-
-            if tool_call_id == "ask_user_for_help" or tool_call_id == "max_iterations":
-                content = getattr(last_message, "tool_input", None)
-                help_content = str(content)
-
-            current_filters = MaxRecordingUniversalFilters.model_validate(
-                self.context.get("current_filters", {}),
-            )
-
-            return help_content, current_filters
-
-        try:
-            result = MaxRecordingUniversalFilters.model_validate(result["generated_filter_options"]["data"])
-        except Exception as e:
-            raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
-
-        return "✅ Updated session recordings filters.", result
+        if type(result["output"]) is not MaxRecordingUniversalFilters:
+            content = "❌ I need more information to proceed."
+            filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
+        else:
+            try:
+                content = "✅ Updated session recordings filters."
+                filters = MaxRecordingUniversalFilters.model_validate(result["output"])
+            except Exception as e:
+                raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
+        return content, filters

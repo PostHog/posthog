@@ -1,5 +1,5 @@
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { normalizeMessage } from './utils'
+import { normalizeMessage, looksLikeXml } from './utils'
 
 describe('LLM Observability utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
@@ -258,5 +258,25 @@ describe('LLM Observability utils', () => {
                 ],
             },
         ])
+    })
+
+    describe('looksLikeXml', () => {
+        it('detects basic XML structures', () => {
+            expect(looksLikeXml('<root><child/></root>')).toBe(true)
+            expect(looksLikeXml('<?xml version="1.0"?><root></root>')).toBe(true)
+            expect(looksLikeXml('<root attr="1">text</root>')).toBe(true)
+            expect(looksLikeXml('<self-closing/>')).toBe(true)
+        })
+
+        it('returns true for typical HTML snippets (by design)', () => {
+            expect(looksLikeXml('<!DOCTYPE html><html><body></body></html>')).toBe(true)
+            expect(looksLikeXml('<div class="x">hi</div>')).toBe(true)
+        })
+
+        it('returns false for non-XML-like strings', () => {
+            expect(looksLikeXml('a < b and c > d')).toBe(false)
+            expect(looksLikeXml('plain text')).toBe(false)
+            expect(looksLikeXml('{"foo":"bar"}')).toBe(false)
+        })
     })
 })
