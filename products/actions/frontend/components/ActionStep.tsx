@@ -14,7 +14,7 @@ import { groupsModel } from '~/models/groupsModel'
 
 import { ActionStepStringMatching, ActionStepType } from '~/types'
 
-import { LemonEventName } from './EventName'
+import { EventName } from './EventName'
 import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
@@ -64,7 +64,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                 {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
                     <div className="deprecated-space-y-1">
                         <LemonLabel>Event name</LemonLabel>
-                        <LemonEventName
+                        <EventName
                             value={step.event}
                             onChange={(value) =>
                                 sendStep({
