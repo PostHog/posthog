@@ -16,6 +16,10 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     join_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
+from posthog.hogql.database.schema.revenue_analytics import (
+    RawPersonsRevenueAnalyticsTable,
+    build_join_with_persons_revenue_analytics_table,
+)
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -119,6 +123,12 @@ class EventsTable(Table):
         "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts", nullable=False),
         "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids", nullable=False),
         "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements", nullable=False),
+        # Here to be used by `poe` mode
+        "revenue_analytics": LazyJoin(
+            from_field=["person_id"],
+            join_table=RawPersonsRevenueAnalyticsTable(),
+            join_function=build_join_with_persons_revenue_analytics_table(with_relative_timestamp=True),
+        ),
     }
 
     def to_printed_clickhouse(self, context):

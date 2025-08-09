@@ -130,7 +130,8 @@
                       "team_id",
                       "distinct_id",
                       "person_id",
-                      "person"
+                      "person",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "pdi",
                   "id": "pdi",
@@ -492,6 +493,20 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "array"
+              },
+              "revenue_analytics": {
+                  "chain": null,
+                  "fields": [
+                      "person_id",
+                      "revenue",
+                      "revenue_last_30_days"
+                  ],
+                  "hogql_value": "revenue_analytics",
+                  "id": "revenue_analytics",
+                  "name": "revenue_analytics",
+                  "schema_valid": true,
+                  "table": "raw_persons_revenue_analytics",
+                  "type": "lazy_table"
               },
               "event_person_id": {
                   "chain": null,
@@ -1458,7 +1473,8 @@
                       "team_id",
                       "distinct_id",
                       "person_id",
-                      "person"
+                      "person",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "pdi",
                   "id": "pdi",
@@ -1810,6 +1826,20 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "array"
+              },
+              "revenue_analytics": {
+                  "chain": null,
+                  "fields": [
+                      "person_id",
+                      "revenue",
+                      "revenue_last_30_days"
+                  ],
+                  "hogql_value": "revenue_analytics",
+                  "id": "revenue_analytics",
+                  "name": "revenue_analytics",
+                  "schema_valid": true,
+                  "table": "raw_persons_revenue_analytics",
+                  "type": "lazy_table"
               },
               "event_issue_id": {
                   "chain": null,
