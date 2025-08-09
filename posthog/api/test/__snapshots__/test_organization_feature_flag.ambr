@@ -606,7 +606,7 @@
          "posthog_team"."base_currency"
   FROM "posthog_remoteconfig"
   INNER JOIN "posthog_team" ON ("posthog_remoteconfig"."team_id" = "posthog_team"."id")
-  WHERE "posthog_team"."api_token" = 'phc_cYtHBPTu4AyGOtO98Ao9EObzFQLXCKMpzfWBVVe5zy3'
+  WHERE "posthog_team"."api_token" = 'phc_KCJewysOGBfs9dZltaqL1Y85TRG3ehoc3RemPFg61Yw'
   LIMIT 21
   '''
 # ---
