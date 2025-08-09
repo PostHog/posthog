@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from ee.hogai.tool import MaxTool
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Survey, Team
+from posthog.models import Survey, Team, FeatureFlag
 from posthog.schema import SurveyCreationSchema
 
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
@@ -20,6 +20,17 @@ from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
 
 class SurveyCreatorArgs(BaseModel):
     instructions: str = Field(description="Natural language description of the survey to create")
+
+
+class FeatureFlagLookupArgs(BaseModel):
+    flag_key: str = Field(description="The key of the feature flag to look up")
+
+
+class FeatureFlagLookupResult(BaseModel):
+    flag_id: int = Field(description="The internal ID of the feature flag")
+    flag_key: str = Field(description="The key of the feature flag")
+    variants: list[str] = Field(description="List of available variant keys for this feature flag")
+    exists: bool = Field(description="Whether the feature flag exists")
 
 
 class CreateSurveyTool(MaxTool):
@@ -167,3 +178,46 @@ class CreateSurveyTool(MaxTool):
         survey_data["appearance"] = appearance
 
         return survey_data
+
+
+class FeatureFlagLookupTool(MaxTool):
+    name: str = "lookup_feature_flag"
+    description: str = "Look up a feature flag by its key to get the ID and available variants"
+    thinking_message: str = "Looking up feature flag information"
+
+    args_schema: type[BaseModel] = FeatureFlagLookupArgs
+
+    async def _arun_impl(self, flag_key: str) -> tuple[str, dict[str, Any]]:
+        """
+        Look up feature flag information by key.
+        """
+        try:
+            # Look up the feature flag by key for the current team
+            feature_flag = await FeatureFlag.objects.select_related("team").aget(key=flag_key, team_id=self._team.id)
+
+            # Get available variants
+            variants = [variant["key"] for variant in feature_flag.variants]
+
+            message = f"✅ Found feature flag '{flag_key}' (ID: {feature_flag.id})"
+            if variants:
+                message += f" with variants: {', '.join(variants)}"
+            else:
+                message += " (no variants)"
+
+            return message, {
+                "flag_id": feature_flag.id,
+                "flag_key": feature_flag.key,
+                "variants": variants,
+                "exists": True,
+            }
+
+        except FeatureFlag.DoesNotExist:
+            return f"❌ Feature flag '{flag_key}' not found", {
+                "flag_id": None,
+                "flag_key": flag_key,
+                "variants": [],
+                "exists": False,
+            }
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return f"❌ Error looking up feature flag: {str(e)}", {"error": str(e), "exists": False}
