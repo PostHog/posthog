@@ -12,6 +12,7 @@ import {
     ExperimentMetricType,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentRatioMetric,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType, FilterType } from '~/types'
@@ -106,6 +107,8 @@ export function ExperimentMetricForm({
         } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
             const lastStep = metric.series[metric.series.length - 1]
             return lastStep?.kind === NodeKind.ActionsNode ? 'actions' : 'events'
+        } else if (metric.metric_type === ExperimentMetricType.RATIO) {
+            return 'events'
         }
         return 'events'
     }
@@ -137,6 +140,12 @@ export function ExperimentMetricForm({
             description:
                 'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
         },
+        {
+            value: ExperimentMetricType.RATIO,
+            label: 'Ratio',
+            description:
+                'Calculates the ratio between two metrics, useful for measuring metrics like revenue per purchase or page views per session.',
+        },
     ]
 
     const metricFilter = getFilter(metric)
@@ -150,6 +159,7 @@ export function ExperimentMetricForm({
             metric.metric_type,
             isExperimentMeanMetric(metric) ? metric.source : null,
             isExperimentFunnelMetric(metric) ? metric.series : null,
+            isExperimentRatioMetric(metric) ? [metric.numerator, metric.denominator] : null,
             filterTestAccounts,
         ]
     )
@@ -224,6 +234,112 @@ export function ExperimentMetricForm({
                         )}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
+                )}
+
+                {metric.metric_type === ExperimentMetricType.RATIO && (
+                    <div className="space-y-4">
+                        <div>
+                            <LemonLabel className="mb-1">Numerator (what you're measuring)</LemonLabel>
+                            <ActionFilter
+                                bordered
+                                filters={{
+                                    events: isExperimentRatioMetric(metric)
+                                        ? [
+                                              {
+                                                  id: metric.numerator.event || '',
+                                                  name: metric.numerator.name || metric.numerator.event || '',
+                                                  type: 'events',
+                                                  kind: metric.numerator.kind,
+                                                  event: metric.numerator.event,
+                                                  math: metric.numerator.math,
+                                                  math_property: metric.numerator.math_property,
+                                                  properties: metric.numerator.properties,
+                                              },
+                                          ]
+                                        : [],
+                                    actions: [],
+                                    data_warehouse: [],
+                                }}
+                                setFilters={(filters) => {
+                                    if (isExperimentRatioMetric(metric) && filters.events?.[0]) {
+                                        handleSetMetric({
+                                            ...metric,
+                                            numerator: {
+                                                kind: NodeKind.EventsNode,
+                                                event: filters.events[0].id,
+                                                name: filters.events[0].name,
+                                                math: filters.events[0].math,
+                                                math_property: filters.events[0].math_property,
+                                                properties: filters.events[0].properties,
+                                            },
+                                        })
+                                    }
+                                }}
+                                typeKey="experiment-metric-numerator"
+                                buttonCopy="Add numerator event"
+                                showSeriesIndicator={false}
+                                hideRename={true}
+                                entitiesLimit={1}
+                                showNumericalPropsOnly={true}
+                                mathAvailability={mathAvailability}
+                                allowedMathTypes={allowedMathTypes}
+                                actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
+                                    (type) => type !== 'data_warehouse'
+                                )}
+                                propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+                            />
+                        </div>
+                        <div>
+                            <LemonLabel className="mb-1">Denominator (what you're dividing by)</LemonLabel>
+                            <ActionFilter
+                                bordered
+                                filters={{
+                                    events: isExperimentRatioMetric(metric)
+                                        ? [
+                                              {
+                                                  id: metric.denominator.event || '',
+                                                  name: metric.denominator.name || metric.denominator.event || '',
+                                                  type: 'events',
+                                                  kind: metric.denominator.kind,
+                                                  event: metric.denominator.event,
+                                                  math: metric.denominator.math,
+                                                  math_property: metric.denominator.math_property,
+                                                  properties: metric.denominator.properties,
+                                              },
+                                          ]
+                                        : [],
+                                    actions: [],
+                                    data_warehouse: [],
+                                }}
+                                setFilters={(filters) => {
+                                    if (isExperimentRatioMetric(metric) && filters.events?.[0]) {
+                                        handleSetMetric({
+                                            ...metric,
+                                            denominator: {
+                                                kind: NodeKind.EventsNode,
+                                                event: filters.events[0].id,
+                                                name: filters.events[0].name,
+                                                math: filters.events[0].math,
+                                                math_property: filters.events[0].math_property,
+                                                properties: filters.events[0].properties,
+                                            },
+                                        })
+                                    }
+                                }}
+                                typeKey="experiment-metric-denominator"
+                                buttonCopy="Add denominator event"
+                                showSeriesIndicator={false}
+                                hideRename={true}
+                                entitiesLimit={1}
+                                mathAvailability={mathAvailability}
+                                allowedMathTypes={allowedMathTypes}
+                                actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
+                                    (type) => type !== 'data_warehouse'
+                                )}
+                                propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+                            />
+                        </div>
+                    </div>
                 )}
             </div>
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />

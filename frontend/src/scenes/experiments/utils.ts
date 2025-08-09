@@ -209,6 +209,21 @@ export function getViewRecordingFilters(
         })
     }
 
+    /**
+     * for ratio metrics, we add both numerator and denominator events to the filters
+     */
+    if (metric.metric_type === ExperimentMetricType.RATIO) {
+        const numeratorFilter = seriesToFilter(metric.numerator)
+        const denominatorFilter = seriesToFilter(metric.denominator)
+
+        if (numeratorFilter) {
+            filters.push(numeratorFilter)
+        }
+        if (denominatorFilter) {
+            filters.push(denominatorFilter)
+        }
+    }
+
     return filters
 }
 
@@ -388,6 +403,26 @@ export function getDefaultCountMetric(): ExperimentMetric {
     }
 }
 
+export function getDefaultRatioMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
+        metric_type: ExperimentMetricType.RATIO,
+        numerator: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        },
+        denominator: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        },
+    }
+}
+
 /**
  * TODO: review. Probably deprecated
  */
@@ -395,6 +430,8 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
             return getDefaultFunnelMetric()
+        case ExperimentMetricType.RATIO:
+            return getDefaultRatioMetric()
         default:
             return getDefaultCountMetric()
     }
@@ -620,6 +657,7 @@ export function filterToMetricConfig(
 export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
+        case ExperimentMetricType.RATIO:
             return MathAvailability.All
         default:
             return MathAvailability.None
@@ -632,6 +670,7 @@ export function getMathAvailability(metricType: ExperimentMetricType): MathAvail
 export function getAllowedMathTypes(metricType: ExperimentMetricType): ExperimentMetricMathType[] {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
+        case ExperimentMetricType.RATIO:
             return [
                 ExperimentMetricMathType.TotalCount,
                 ExperimentMetricMathType.Sum,
@@ -748,6 +787,22 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
                     },
                 ]
             }
+        }
+    } else if (metric.metric_type === ExperimentMetricType.RATIO) {
+        // For ratio metrics, count events from both numerator and denominator
+        // We'll use the numerator for counting since that's what we're measuring
+        const numerator = metric.numerator
+        if (numerator.kind === NodeKind.EventsNode) {
+            series = [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: numerator.event || undefined,
+                    event: numerator.event || undefined,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(numerator.properties &&
+                        numerator.properties.length > 0 && { properties: numerator.properties }),
+                },
+            ]
         }
     }
 

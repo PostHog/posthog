@@ -287,6 +287,16 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
                 data_warehouse: [], // datawarehouse nodes are not supported for funnel metrics yet
             }
         })
+        .with({ metric_type: ExperimentMetricType.RATIO }, () => {
+            // For ratio metrics, we don't use this filter structure
+            // since they have separate numerator and denominator events
+            // This is handled directly in ExperimentMetricForm
+            return {
+                events: [],
+                actions: [],
+                data_warehouse: [],
+            }
+        })
         .otherwise(() => ({
             events: [],
             actions: [],
