@@ -14,7 +14,6 @@ import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepa
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import type { surveysLogicType } from './surveysLogicType'
 
@@ -102,12 +101,7 @@ export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [
-            teamLogic,
-            ['loadCurrentTeam', 'addProductIntent'],
-            eventUsageLogic,
-            ['reportSurveysEmptyStateViewed'],
-        ],
+        actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
     actions({
         setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -273,10 +267,6 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
-
-            if (values.data.surveysCount === 0) {
-                actions.reportSurveysEmptyStateViewed()
-            }
 
             if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
