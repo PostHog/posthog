@@ -75,7 +75,11 @@ export function HogFunctionFiltersInternal(): JSX.Element {
 
     const taxonomicGroupTypes = useMemo(() => {
         if (contextId === 'error-tracking') {
-            return [TaxonomicFilterGroupType.ErrorTrackingIssues]
+            return [
+                TaxonomicFilterGroupType.ErrorTrackingIssues,
+                TaxonomicFilterGroupType.ErrorTrackingProperties,
+                TaxonomicFilterGroupType.EventProperties,
+            ]
         } else if (contextId === 'insight-alerts') {
             return [TaxonomicFilterGroupType.Events]
         }
