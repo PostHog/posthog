@@ -1081,7 +1081,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         try:
                             # Parse S3 URL to extract prefix (path without query parameters)
                             # Example: s3://bucket/path?range=bytes=0-1372588 -> path
-                            # s3://posthog-cloud-prod-us-east-1-session-recordings/session_recordings_lts_1y/{uuid}?range=bytes=0-14468
+                            # s3:/the_bucket/the_session_recordings_lts_prefix/{uuid}?range=bytes=0-14468
                             # for now we can ignore that v2 is in a different bucket and just use the path
                             sources.append(
                                 {
