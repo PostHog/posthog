@@ -42,6 +42,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
@@ -191,6 +192,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -220,6 +222,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -289,6 +292,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
@@ -1087,6 +1091,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -1234,6 +1239,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -1263,6 +1269,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -1418,6 +1425,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
@@ -2226,6 +2234,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."key" = 'flag-1'
@@ -2390,6 +2399,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."webhook_subscriptions",
          "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
