@@ -74,6 +74,7 @@ class SingleSessionSummaryLlmInputs:
     window_mapping_reversed: dict[str, str]
     session_start_time_str: str
     session_duration: int
+    model_to_use: str
 
 
 async def get_session_data_from_db(session_id: str, team_id: int, local_reads_prod: bool) -> SessionSummaryDBData:
@@ -214,9 +215,7 @@ async def prepare_data_for_single_session_summary(
 
 
 def prepare_single_session_summary_input(
-    session_id: str,
-    user_id: int,
-    summary_data: SingleSessionSummaryData,
+    session_id: str, user_id: int, summary_data: SingleSessionSummaryData, model_to_use: str
 ) -> SingleSessionSummaryLlmInputs:
     # Checking here instead of in the preparation function to keep mypy happy
     if summary_data.prompt_data is None:
@@ -240,5 +239,6 @@ def prepare_single_session_summary_input(
         window_mapping_reversed=summary_data.prompt_data.window_mapping_reversed,
         session_start_time_str=summary_data.prompt_data.prompt_data.metadata.start_time.isoformat(),
         session_duration=summary_data.prompt_data.prompt_data.metadata.duration,
+        model_to_use=model_to_use,
     )
     return input_data

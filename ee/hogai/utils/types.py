@@ -181,6 +181,10 @@ class _SharedAssistantState(BaseState):
     """
     The user's search query for finding existing insights.
     """
+    session_summarization_query: Optional[str] = Field(default=None)
+    """
+    The user's query for summarizing sessions.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -227,6 +231,7 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
+    SESSION_SUMMARIZATION = "session_summarization"
 
 
 class AssistantMode(StrEnum):
