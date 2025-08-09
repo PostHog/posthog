@@ -32,6 +32,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity,
+    insert_into_snowflake_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringWorkflow,
@@ -69,6 +70,7 @@ ACTIVITIES = [
     insert_into_postgres_activity,
     insert_into_redshift_activity,
     insert_into_snowflake_activity,
+    insert_into_snowflake_activity_from_stage,
     noop_activity,
     update_batch_export_backfill_model_status,
     get_batch_export,

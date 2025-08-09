@@ -1,7 +1,6 @@
 import abc
 import asyncio
 import collections.abc
-import datetime as dt
 
 import pyarrow as pa
 import temporalio.common
@@ -33,19 +32,9 @@ class Consumer:
 
     This is an alternative implementation of the `spmc.Consumer` class that consumes data from a producer which is in
     turn reading data from the internal S3 staging area.
-
-    Attributes:
-        data_interval_start: The beginning of the batch export period.
-        data_interval_end: The end of the batch export period.
     """
 
-    def __init__(
-        self,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-    ):
-        self.data_interval_start = data_interval_start
-        self.data_interval_end = data_interval_end
+    def __init__(self):
         self.logger = LOGGER.bind()
         self.external_logger = EXTERNAL_LOGGER.bind()
 
