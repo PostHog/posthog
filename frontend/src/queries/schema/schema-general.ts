@@ -1099,7 +1099,6 @@ export type TrendsFilter = {
     goalLines?: GoalLine[]
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
-    showTrendLines?: boolean
     showMovingAverage?: boolean
     movingAverageIntervals?: number
 }
@@ -1165,6 +1164,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
     /**  Whether we should be comparing against a specific conversion goal */
     conversionGoal?: WebAnalyticsConversionGoal | null
+    /** Whether to show trend lines in the line graph */
+    showTrendLines?: boolean
 }
 
 export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
@@ -1330,6 +1331,8 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     retentionFilter: RetentionFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Whether to show trend lines in the graph */
+    showTrendLines?: boolean
 }
 
 export type PathsLink = {
