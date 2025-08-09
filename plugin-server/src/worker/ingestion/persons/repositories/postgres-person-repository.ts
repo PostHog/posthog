@@ -30,16 +30,21 @@ import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
-const DEFAULT_PERSON_PROPERTIES_SIZE_LIMIT = 512 * 1024
+const DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES = 512 * 1024
+const DEFAULT_PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES = 655360
 
 export interface PostgresPersonRepositoryOptions {
     calculatePropertiesSize: number
-    personPropertiesSizeLimit: number
+    /** Limit used when comparing pg_column_size(properties) to decide whether to remediate */
+    personPropertiesDbConstraintLimitBytes: number
+    /** Target JSON size (stringified) to trim down to when remediating oversized properties */
+    personPropertiesTrimTargetBytes: number
 }
 
 const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
     calculatePropertiesSize: 0,
-    personPropertiesSizeLimit: DEFAULT_PERSON_PROPERTIES_SIZE_LIMIT,
+    personPropertiesDbConstraintLimitBytes: DEFAULT_PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES,
+    personPropertiesTrimTargetBytes: DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES,
 }
 
 export class PostgresPersonRepository
@@ -60,7 +65,7 @@ export class PostgresPersonRepository
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const currentSize = await this.personPropertiesSize(person.id)
 
-        if (currentSize >= this.options.personPropertiesSizeLimit) {
+        if (currentSize >= this.options.personPropertiesDbConstraintLimitBytes) {
             try {
                 personPropertiesSizeViolationCounter.inc({
                     violation_type: 'existing_record_violates_limit',
@@ -85,7 +90,7 @@ export class PostgresPersonRepository
                 violation_type: 'attempt_to_violate_limit',
             })
 
-            logger.warn('Rejecting person properties create/update, exceeds size limit', {
+            logger.warn('Rejecting person properties create/update, exceed size limit', {
                 team_id: person.team_id,
                 person_id: person.id,
                 violation_type: 'attempt_to_violate_limit',
@@ -108,7 +113,8 @@ export class PostgresPersonRepository
                 // NOTE: we exclude the properties in the update and just try to trim the existing properties for simplicity
                 // we are throwing data away either way
                 person.properties,
-                this.options.personPropertiesSizeLimit
+                this.options.personPropertiesTrimTargetBytes,
+                { teamId: person.team_id, personId: person.id }
             )
 
             const trimmedUpdate: Partial<InternalPerson> = {
@@ -146,7 +152,11 @@ export class PostgresPersonRepository
         }
     }
 
-    private trimPropertiesToFitSize(properties: Record<string, any>, targetSizeBytes: number): Record<string, any> {
+    private trimPropertiesToFitSize(
+        properties: Record<string, any>,
+        targetSizeBytes: number,
+        context?: { teamId: number; personId: string }
+    ): Record<string, any> {
         const trimmedProperties = { ...properties }
 
         let currentSizeBytes = Buffer.byteLength(JSON.stringify(trimmedProperties), 'utf8')
@@ -187,6 +197,8 @@ export class PostgresPersonRepository
             target_size_bytes: targetSizeBytes,
             properties_removed: removedCount,
             final_property_count: Object.keys(trimmedProperties).length,
+            team_id: context?.teamId,
+            person_id: context?.personId,
         })
         return trimmedProperties
     }

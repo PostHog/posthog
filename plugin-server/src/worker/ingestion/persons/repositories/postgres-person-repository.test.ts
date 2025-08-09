@@ -22,7 +22,8 @@ describe('PostgresPersonRepository', () => {
         postgres = hub.db.postgres
         repository = new PostgresPersonRepository(postgres, {
             calculatePropertiesSize: 0,
-            personPropertiesSizeLimit: 1024 * 1024, // 1MB for tests
+            personPropertiesDbConstraintLimitBytes: 1024 * 1024, // 1MB for tests
+            personPropertiesTrimTargetBytes: 512 * 1024,
         })
 
         const redis = await hub.redisPool.acquire()
@@ -1141,7 +1142,8 @@ describe('PostgresPersonRepository', () => {
         beforeEach(() => {
             oversizedRepository = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
-                personPropertiesSizeLimit: 50,
+                personPropertiesDbConstraintLimitBytes: 50,
+                personPropertiesTrimTargetBytes: 25,
             })
         })
 
@@ -1730,11 +1732,13 @@ describe('PostgresPersonRepository', () => {
 
             const repositoryWithCalculation = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 100,
-                personPropertiesSizeLimit: 1024 * 1024,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
             })
             const repositoryWithoutCalculation = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
-                personPropertiesSizeLimit: 1024 * 1024,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
             })
 
             const update = {
@@ -1778,11 +1782,13 @@ describe('PostgresPersonRepository', () => {
 
             const repositoryWithCalculation = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 100,
-                personPropertiesSizeLimit: 1024 * 1024,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
             })
             const repositoryWithoutCalculation = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
-                personPropertiesSizeLimit: 1024 * 1024,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
             })
 
             const createPersonUpdate = (person: InternalPerson, distinctId: string) => ({
@@ -1826,7 +1832,8 @@ describe('PostgresPersonRepository', () => {
             const team = await getFirstTeam(hub)
             const defaultRepository = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
-                personPropertiesSizeLimit: 1024 * 1024,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
             })
 
             const person = await createTestPerson(team.id, 'test-default', { name: 'John' })

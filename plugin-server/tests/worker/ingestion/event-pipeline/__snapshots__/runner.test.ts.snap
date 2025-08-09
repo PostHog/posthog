@@ -111,7 +111,8 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         "personRepository": {
           "options": {
             "calculatePropertiesSize": 0,
-            "personPropertiesSizeLimit": 524288,
+            "personPropertiesDbConstraintLimitBytes": 655360,
+            "personPropertiesTrimTargetBytes": 524288,
           },
         },
         "personUpdateCache": {},
