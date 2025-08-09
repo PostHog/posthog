@@ -36,7 +36,7 @@ import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
-import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
+import { SURVEY_CREATED_SOURCE, SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
@@ -47,7 +47,7 @@ export const scene: SceneExport = {
 }
 
 function NewSurveyButton(): JSX.Element {
-    const { loadSurveys } = useActions(surveysLogic)
+    const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
     const button = (
@@ -77,6 +77,16 @@ function NewSurveyButton(): JSX.Element {
                 user_id: user.uuid,
             }}
             callback={(toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+                addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: toolOutput.survey_id,
+                        source: SURVEY_CREATED_SOURCE.MAX_AI,
+                        created_successfully: !toolOutput?.error,
+                    },
+                })
+
                 if (toolOutput?.error || !toolOutput?.survey_id) {
                     posthog.captureException('survey-creation-failed', {
                         error: toolOutput.error,
