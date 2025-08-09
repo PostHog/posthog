@@ -19,5 +19,11 @@ The current HogQL query is:
 </current_query>"""
 
 HOGQL_GENERATOR_USER_PROMPT = """
-Write a new HogQL query or tweak the current one to satisfy this request: {{{instructions}}}
+The current HogQL query is:
+<current_query>
+{current_query}
+</current_query>
+
+Write a new HogQL query or tweak the current one to satisfy this request:
+{instructions}
 """.strip()
