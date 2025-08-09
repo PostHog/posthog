@@ -150,6 +150,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "version": 1,
             "last_modified_by": ANY,
             "evaluation_runtime": "all",
+            "webhook_subscriptions": None,
         }
 
         flag_response = response.json()["success"][0]
@@ -233,6 +234,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "version": 2,
             "last_modified_by": ANY,
             "evaluation_runtime": "all",
+            "webhook_subscriptions": None,
         }
 
         flag_response = response.json()["success"][0]
@@ -363,6 +365,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "version": 1,
             "last_modified_by": ANY,
             "evaluation_runtime": "all",
+            "webhook_subscriptions": None,
         }
         flag_response = response.json()["success"][0]
 

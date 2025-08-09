@@ -199,7 +199,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             const searchParams: Record<string, string | number> = {

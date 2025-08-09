@@ -656,8 +656,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 !featureFlag.can_edit
                                                     ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                     : featureFlag.deleted
-                                                    ? 'This feature flag has been deleted. Restore it to edit.'
-                                                    : null
+                                                      ? 'This feature flag has been deleted. Restore it to edit.'
+                                                      : null
                                             }
                                             onClick={() => {
                                                 editFeatureFlag(true)
