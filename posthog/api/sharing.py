@@ -37,6 +37,7 @@ from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+from posthog.jwt import encode_jwt, PosthogJwtAudience
 from posthog.exceptions_capture import capture_exception
 
 
@@ -384,6 +385,55 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
+        elif (
+            isinstance(resource, ExportedAsset) and resource.export_context and resource.export_context.get("replay_id")
+        ):
+            # Handle replay export via export_context
+            replay_id = resource.export_context.get("replay_id")
+            timestamp = resource.export_context.get("timestamp")
+
+            if not replay_id:
+                raise NotFound("Invalid replay export - missing replay_id")
+
+            # Create a SessionRecording object for the replay
+            try:
+                # First, try to get existing recording from database
+                try:
+                    recording = SessionRecording.objects.get(session_id=replay_id, team=resource.team)
+                except SessionRecording.DoesNotExist:
+                    # If not found, create it properly
+                    recording = SessionRecording(session_id=replay_id, team=resource.team)
+                    recording.save()  # This ensures it exists in PostgreSQL
+
+                # Create a JWT for the recording
+                export_access_token = ""
+                if resource.created_by and resource.created_by.id:
+                    export_access_token = encode_jwt(
+                        {"id": resource.created_by.id},
+                        timedelta(minutes=5),  # 5 mins should be enough for the export to complete
+                        PosthogJwtAudience.IMPERSONATED_USER,
+                    )
+
+                asset_title = "Session Recording"
+                asset_description = f"Recording {replay_id}"
+
+                recording_data = SessionRecordingSerializer(recording, context=context).data
+
+                exported_data.update(
+                    {
+                        "type": "replay_export",
+                        "recording": recording_data,
+                        "timestamp": timestamp,
+                        "replay_id": replay_id,
+                        "exportToken": export_access_token,
+                        "noBorder": True,
+                        "autoplay": True,
+                        "mode": "screenshot",
+                    }
+                )
+
+            except Exception:
+                raise NotFound()
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data

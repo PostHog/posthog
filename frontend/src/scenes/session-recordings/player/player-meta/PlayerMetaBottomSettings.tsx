@@ -8,7 +8,6 @@ import {
 } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -26,6 +25,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { ExporterFormat } from '~/types'
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -94,16 +94,25 @@ function Screenshot(): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
-        <>
-            <ScreenShotEditor screenshotKey="replay" />
-            <SettingsButton
-                title="Take a screenshot of the current frame"
-                label="Screenshot"
-                data-attr="screenshot"
-                onClick={takeScreenshot}
-                icon={<IconLlmPromptEvaluation />}
-            />
-        </>
+        <SettingsMenu
+            icon={<IconLlmPromptEvaluation />}
+            data-attr="screenshot"
+            items={[
+                {
+                    label: <div className="flex w-full deprecated-space-x-2 justify-between">PNG</div>,
+                    onClick: () => takeScreenshot(ExporterFormat.PNG),
+                },
+                {
+                    label: <div className="flex w-full deprecated-space-x-2 justify-between">GIF (5 sec)</div>,
+                    onClick: () => takeScreenshot(ExporterFormat.GIF),
+                },
+                {
+                    label: <div className="flex w-full deprecated-space-x-2 justify-between">MP4 (5 sec)</div>,
+                    onClick: () => takeScreenshot(ExporterFormat.MP4),
+                },
+            ]}
+            label="Screenshot"
+        />
     )
 }
 
