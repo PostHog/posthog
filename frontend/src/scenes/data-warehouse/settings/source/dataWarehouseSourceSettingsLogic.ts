@@ -11,6 +11,7 @@ import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, External
 import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
 
 export interface DataWarehouseSourceSettingsLogicProps {
     id: string
@@ -24,6 +25,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     key(({ id }) => id),
     connect({
         values: [availableSourcesDataLogic, ['availableSources']],
+        actions: [externalDataSourcesLogic, ['updateSource as updateSourceCentralized']],
     }),
     actions({
         setSourceId: (id: string) => ({ id }),
@@ -163,10 +165,11 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 }
 
                 try {
-                    const updatedSource = await api.externalDataSources.update(values.sourceId, {
+                    actions.updateSourceCentralized({
+                        ...values.source!,
                         job_inputs: newJobInputs,
                     })
-                    actions.loadSourceSuccess(updatedSource)
+                    actions.loadSource()
                     lemonToast.success('Source updated')
                 } catch (e: any) {
                     if (e.message) {
