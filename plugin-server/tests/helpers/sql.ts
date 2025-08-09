@@ -281,6 +281,7 @@ export async function createUserTeamAndOrganization(
         is_member_join_email_enabled: false,
         allow_publicly_shared_resources: true,
         members_can_use_personal_api_keys: true,
+        allow_publicly_shared_resources: true,
         slug: new UUIDT().toString(),
     } as RawOrganization)
     await updateOrganizationAvailableFeatures(db, organizationId, [{ key: 'data_pipelines', name: 'Data Pipelines' }])
@@ -406,6 +407,7 @@ export const createOrganization = async (pg: PostgresRouter) => {
         allow_publicly_shared_resources: true,
         members_can_use_personal_api_keys: true,
         is_member_join_email_enabled: false,
+        allow_publicly_shared_resources: true,
         slug: new UUIDT().toString(),
     })
     return organizationId
