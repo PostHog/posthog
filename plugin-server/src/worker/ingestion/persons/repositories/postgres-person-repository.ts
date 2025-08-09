@@ -140,7 +140,6 @@ export class PostgresPersonRepository
     }
 
     private isPropertiesSizeConstraintViolation(error: any): boolean {
-        console.log('error', error)
         return error?.code === '23514' && error?.constraint === 'check_properties_size'
     }
 

@@ -101,18 +101,18 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         "fetchPromisesForUpdate": {},
         "kafkaProducer": {},
         "methodCountsPerDistinctId": {},
-          "options": {
-            "dbWriteMode": "NO_ASSERT",
-            "maxConcurrentUpdates": 10,
-            "maxOptimisticUpdateRetries": 5,
-            "optimisticUpdateRetryInterval": 50,
-          },
+        "options": {
+          "dbWriteMode": "NO_ASSERT",
+          "maxConcurrentUpdates": 10,
+          "maxOptimisticUpdateRetries": 5,
+          "optimisticUpdateRetryInterval": 50,
+        },
         "personCheckCache": {},
         "personRepository": {
           "options": {
             "calculatePropertiesSize": 0,
-              "personPropertiesDbConstraintLimitBytes": 655360,
-              "personPropertiesTrimTargetBytes": 524288,
+            "personPropertiesDbConstraintLimitBytes": 655360,
+            "personPropertiesTrimTargetBytes": 524288,
           },
         },
         "personUpdateCache": {},
