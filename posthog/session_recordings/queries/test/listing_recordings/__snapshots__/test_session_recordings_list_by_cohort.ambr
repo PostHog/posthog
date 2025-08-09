@@ -11,7 +11,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_cohort_properties.1
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -60,7 +59,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_cohort_properties.2
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -119,7 +117,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_events_and_cohorts.1
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -174,7 +171,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_events_and_cohorts.2
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -258,7 +254,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.3
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -307,7 +302,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.4
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -356,7 +350,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.5
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -405,7 +398,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.6
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -454,7 +446,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.7
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,
@@ -506,7 +497,6 @@
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.8
   '''
-  /* cohort_calculation: */
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
          any(s.distinct_id) AS `any(s.distinct_id)`,

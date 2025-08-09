@@ -4074,7 +4074,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort.1
   '''
-  /* cohort_calculation: */
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -4217,7 +4217,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_materialized.1
   '''
-  /* cohort_calculation: */
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -4360,7 +4360,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events.1
   '''
-  /* cohort_calculation: */
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -4503,7 +4503,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events_materialized.1
   '''
-  /* cohort_calculation: */
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
