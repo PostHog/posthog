@@ -11,6 +11,10 @@ def get_was_impersonated():
     return getattr(_thread_local, "was_impersonated", False)
 
 
+def get_current_user():
+    return getattr(_thread_local, "user", None)
+
+
 def is_impersonated_session(request):
     """Lazy import to avoid circular import issues during Django setup"""
     try:
@@ -49,6 +53,7 @@ class ModelActivityMixin(models.Model):
                 before_update=before_update,
                 after_update=self,
                 activity=change_type,
+                user=get_current_user(),
                 was_impersonated=get_was_impersonated(),
             )
 

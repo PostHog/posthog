@@ -40,17 +40,21 @@ export enum DataManagementTab {
     MarketingAnalytics = 'marketing-analytics',
 }
 
-const tabs: Record<
-    DataManagementTab,
-    {
-        url: string
-        label: LemonTab<any>['label']
-        content: JSX.Element
-        buttons?: React.ReactNode
-        flag?: FeatureFlagKey
-        tooltipDocLink?: string
+type TabConfig = {
+    url: string
+    label: LemonTab<any>['label']
+    content: JSX.Element
+    buttons?: React.ReactNode
+    flag?: FeatureFlagKey
+    tooltipDocLink?: string
+    children?: {
+        [path: string]: {
+            component?: JSX.Element
+        }
     }
-> = {
+}
+
+const tabs: Record<DataManagementTab, TabConfig> = {
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
         label: 'Events',
@@ -96,6 +100,9 @@ const tabs: Record<
         label: 'Annotations',
         buttons: <NewAnnotationButton />,
         tooltipDocLink: 'https://posthog.com/docs/data/annotations',
+        children: {
+            [urls.annotation(':id')]: {},
+        },
     },
     [DataManagementTab.Comments]: {
         url: urls.comments(),
@@ -207,16 +214,31 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => {
-        return Object.fromEntries(
-            Object.entries(tabs).map(([key, tab]) => [
-                tab.url,
-                () => {
-                    if (values.tab !== key) {
-                        actions.setTab(key as DataManagementTab)
+        const mappings: Record<string, () => void> = {}
+
+        Object.entries(tabs).forEach(([tabKey, tabConfig]) => {
+            const tabEnum = tabKey as DataManagementTab
+
+            // First main tab URLs
+            mappings[tabConfig.url] = () => {
+                if (values.tab !== tabEnum) {
+                    actions.setTab(tabEnum)
+                }
+            }
+
+            // Then child URLs
+            if (tabConfig.children) {
+                Object.keys(tabConfig.children).forEach((childUrl) => {
+                    mappings[childUrl] = () => {
+                        if (values.tab !== tabEnum) {
+                            actions.setTab(tabEnum)
+                        }
                     }
-                },
-            ])
-        )
+                })
+            }
+        })
+
+        return mappings
     }),
 ])
 

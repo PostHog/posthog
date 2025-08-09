@@ -352,6 +352,7 @@ def team_api_test_factory():
                     "created_at": ANY,
                     "detail": {
                         "changes": None,
+                        "context": None,
                         "name": "Default project",
                         "short_id": None,
                         "trigger": None,
@@ -376,6 +377,7 @@ def team_api_test_factory():
                         "created_at": ANY,
                         "detail": {
                             "changes": None,
+                            "context": None,
                             "name": "Default project",
                             "short_id": None,
                             "trigger": None,
