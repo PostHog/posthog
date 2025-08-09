@@ -50,6 +50,7 @@ pub fn upload(
     project: Option<String>,
     version: Option<String>,
     delete_after: bool,
+    skip_ssl_verification: bool,
 ) -> Result<()> {
     let token = load_token().context("While starting upload command")?;
     let host = token.get_host(host.as_deref());
@@ -82,10 +83,17 @@ pub fn upload(
         Some(content_hash(uploads.iter().map(|upload| &upload.data))),
         project,
         version,
+        skip_ssl_verification,
     )
     .context("While creating release")?;
 
-    upload_chunks(&base_url, &token.token, uploads, release.as_ref())?;
+    upload_chunks(
+        &base_url,
+        &token.token,
+        uploads,
+        release.as_ref(),
+        skip_ssl_verification,
+    )?;
 
     if delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
@@ -109,8 +117,12 @@ fn upload_chunks(
     token: &str,
     uploads: Vec<ChunkUpload>,
     release: Option<&CreateReleaseResponse>,
+    skip_ssl_verification: bool,
 ) -> Result<()> {
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(skip_ssl_verification)
+        .build()?;
+
     let release_id = release.map(|r| r.id.to_string());
     let chunk_ids = uploads
         .iter()
@@ -195,10 +207,7 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
         let part = Part::bytes(data.clone());
         form = form.part("file", part);
 
-        let res = client
-            .post(&presigned_url.url)
-            .multipart(form)
-            .send();
+        let res = client.post(&presigned_url.url).multipart(form).send();
 
         match res {
             Result::Ok(resp) if resp.status().is_success() => {
@@ -212,7 +221,10 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
             }
         }
         if attempt < 3 {
-            warn!("Upload attempt {} failed, retrying in {:?}...", attempt, delay);
+            warn!(
+                "Upload attempt {} failed, retrying in {:?}...",
+                attempt, delay
+            );
             std::thread::sleep(delay);
             delay *= 2;
         }
