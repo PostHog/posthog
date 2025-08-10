@@ -1,4 +1,4 @@
-import type { Game } from '@posthog/hedgehog-mode'
+import type { HedgehogModeInterface } from '@posthog/hedgehog-mode'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -19,7 +19,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     }),
     actions({
-        setHedgehogMode: (hedgeHogMode: Game) => ({ hedgeHogMode }),
+        setHedgehogMode: (hedgeHogMode: HedgehogModeInterface) => ({ hedgeHogMode }),
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
         clearLocalConfig: true,
         loadRemoteConfig: true,
