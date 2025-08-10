@@ -161,8 +161,7 @@ export function GolangSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`experimentFlagValue, err := client.GetFeatureFlag(
-                    FeatureFlagPayload{
+                {`experimentFlagValue, err := client.GetFeatureFlag(posthog.FeatureFlagPayload{
                         Key:        '${flagKey}',
                         DistinctId: "distinct-id",
                     })

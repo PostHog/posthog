@@ -213,8 +213,7 @@ remoteConfigPayload, err := ${clientSuffix}GetRemoteConfigPayload("${flagKey}")`
         : ''
 
     const flagSnippet = groupType
-        ? `${clientSuffix}${flagFunction}(
-    FeatureFlagPayload{
+        ? `${clientSuffix}${flagFunction}(posthog.FeatureFlagPayload{
         Key:        "${flagKey}",
         DistinctId: "distinct-id",
         Groups:     Groups{'${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>'},${localEvalAddition}
