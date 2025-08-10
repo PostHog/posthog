@@ -1,5 +1,5 @@
 import type { HedgeHogMode } from '@posthog/hedgehog-mode'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -21,11 +21,11 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     actions({
         setHedgehogMode: (hedgeHogMode: HedgeHogMode) => ({ hedgeHogMode }),
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
-        patchHedgehogConfig: (config: Partial<HedgehogConfig>) => ({ config }),
         clearLocalConfig: true,
         loadRemoteConfig: true,
         updateRemoteConfig: (config: Partial<HedgehogConfig>) => ({ config }),
         syncGame: true,
+        syncFromState: true,
     }),
 
     reducers(() => ({
@@ -35,19 +35,9 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                 setHedgehogMode: (_, { hedgeHogMode }) => hedgeHogMode,
             },
         ],
-        localConfig: [
-            null as Partial<HedgehogConfig> | null,
-            {
-                clearLocalConfig: () => null,
-                patchHedgehogConfig: (state, { config }) => ({
-                    ...state,
-                    ...config,
-                }),
-            },
-        ],
     })),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values }) => ({
         remoteConfig: [
             null as Partial<HedgehogConfig> | null,
             {
@@ -66,8 +56,12 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
 
                 updateRemoteConfig: async ({ config }) => {
                     const endpoint = '/api/users/@me/hedgehog_config'
-                    const localConfig = values.localConfig
                     let newConfig: Partial<HedgehogConfig>
+
+                    let payload = {
+                        ...values.remoteConfig,
+                        ...config,
+                    }
 
                     const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
                     if (mountedToolbarConfigLogic) {
@@ -75,13 +69,9 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                         if (!mountedToolbarConfigLogic.values.isAuthenticated) {
                             return null
                         }
-                        newConfig = await (await toolbarFetch(endpoint, 'PATCH', config)).json()
+                        newConfig = await (await toolbarFetch(endpoint, 'PATCH', payload)).json()
                     } else {
-                        newConfig = await api.update(endpoint, config)
-                    }
-
-                    if (localConfig === values.localConfig) {
-                        actions.clearLocalConfig()
+                        newConfig = await api.update(endpoint, payload)
                     }
 
                     return newConfig ?? null
@@ -91,29 +81,23 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     })),
 
     selectors({
-        partialHedgehogConfig: [
-            (s) => [s.localConfig, s.remoteConfig],
-            (localConfig, remoteConfig): Partial<HedgehogConfig> => {
-                return {
-                    ...remoteConfig,
-                    ...localConfig,
-                }
-            },
-        ],
-
         hedgehogConfig: [
-            (s) => [s.partialHedgehogConfig],
-            (partialHedgehogConfig): HedgehogConfig => {
+            (s) => [s.remoteConfig],
+            (remoteConfig): HedgehogConfig => {
                 return {
                     enabled: false,
                     use_as_profile: false,
-                    color: null,
-                    accessories: [],
-                    ai_enabled: true,
-                    interactions_enabled: true,
-                    controls_enabled: true,
                     party_mode_enabled: false,
-                    ...partialHedgehogConfig,
+                    actor_options: {
+                        color: null,
+                        accessories: [],
+                        ai_enabled: true,
+                        interactions_enabled: true,
+                        controls_enabled: true,
+                        id: 'player',
+                        player: true,
+                    },
+                    ...remoteConfig,
                 }
             },
         ],
@@ -128,15 +112,11 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         setHedgehogModeEnabled: ({ enabled }) => {
-            actions.patchHedgehogConfig({
+            actions.updateRemoteConfig({
                 enabled,
             })
 
             posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
-        },
-
-        patchHedgehogConfig: async () => {
-            actions.updateRemoteConfig(values.hedgehogConfig)
         },
 
         updateRemoteConfigSuccess: ({ remoteConfig }) => {
@@ -212,6 +192,28 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             //     })
             // }
         },
+
+        syncFromState: () => {
+            const { hedgehogMode } = values
+            if (!hedgehogMode) {
+                return
+            }
+            const state = hedgehogMode.stateManager?.getState()
+            const player = state?.hedgehogsById?.['player']
+
+            if (!player) {
+                return
+            }
+
+            const lastPlayerState = JSON.stringify(values.hedgehogConfig.actor_options)
+            const currentPlayerState = JSON.stringify(player)
+            if (lastPlayerState !== currentPlayerState) {
+                // On change, update the remote config
+                actions.updateRemoteConfig({
+                    actor_options: player,
+                })
+            }
+        },
     })),
 
     subscriptions(({ actions, values }) => ({
@@ -224,12 +226,23 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         hedgehogMode: () => actions.syncGame(),
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         const loadedUser = userLogic.findMounted()?.values.user
         if (loadedUser) {
             actions.loadRemoteConfigSuccess(loadedUser.hedgehog_config ?? {})
         } else {
             actions.loadRemoteConfig()
+        }
+
+        cache.syncInterval = setInterval(() => {
+            actions.syncFromState()
+        }, 1000)
+    }),
+
+    beforeUnmount(({ cache }) => {
+        if (cache.syncInterval) {
+            clearInterval(cache.syncInterval)
+            cache.syncInterval = null
         }
     }),
 ])

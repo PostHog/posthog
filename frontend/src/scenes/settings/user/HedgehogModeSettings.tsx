@@ -1,30 +1,32 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeRender'
 
 export function HedgehogModeSettings(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogModeLogic)
-    const { patchHedgehogConfig } = useActions(hedgehogModeLogic)
+    const { updateRemoteConfig } = useActions(hedgehogModeLogic)
     return (
         <>
             <div className="flex gap-2">
+                <HedgehogModeProfile {...hedgehogConfig.actor_options} size={36} />
                 <LemonSwitch
-                    label="Enabled hedgehog mode"
+                    label="Enable hedgehog mode"
                     data-attr="hedgehog-mode-switch"
-                    onChange={(checked) => patchHedgehogConfig({ enabled: checked })}
+                    onChange={(checked) => updateRemoteConfig({ enabled: checked })}
                     checked={hedgehogConfig.enabled}
                     bordered
                 />
                 <LemonSwitch
                     label="Use as profile picture"
                     data-attr="hedgehog-profile-picture"
-                    onChange={(checked) => patchHedgehogConfig({ use_as_profile: checked })}
+                    onChange={(checked) => updateRemoteConfig({ use_as_profile: checked })}
                     checked={hedgehogConfig.use_as_profile}
                     bordered
                 />
             </div>
 
-            <div className="p-2 mt-4 border rounded bg-surface-primary">
+            <div className="p-2 mt-4 rounded border bg-surface-primary">
                 <p>TODO!</p>
             </div>
         </>

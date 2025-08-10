@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { type PositionWithSide } from '../utils/floatingMaxPositioning'
 import { useDragAndSnap } from '../utils/useDragAndSnap'
-import { HedgehogModeStatic } from 'lib/components/HedgehogMode/HedgehogModeRender'
+import { HedgehogModeProfile, HedgehogModeStatic } from 'lib/components/HedgehogMode/HedgehogModeRender'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 interface HedgehogAvatarProps {
@@ -70,7 +70,7 @@ export function HedgehogAvatar({ onExpand, fixedDirection, onPositionChange }: H
                             justifyContent: 'center',
                         }}
                     >
-                        <HedgehogModeStatic {...hedgehogConfig} size={100} />
+                        <HedgehogModeProfile {...hedgehogConfig.actor_options} size="100%" />
                     </div>
                 </Tooltip>
             </div>

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { HedgehogConfig } from '~/types'
 
-export type HedgehogModeStaticProps = Partial<HedgehogConfig> & { size?: number | string }
+export type HedgehogModeStaticProps = Partial<HedgehogConfig['actor_options']> & { size?: number | string }
 
 const staticHedgehogRenderer = new StaticHedgehogRenderer({
     assetsUrl: '/static/hedgehog-mode/',
@@ -57,7 +57,7 @@ export function HedgehogModeStatic({
 export function HedgehogModeProfile({ size, ...props }: HedgehogModeStaticProps): JSX.Element {
     return (
         <div
-            className="relative overflow-hidden rounded-full"
+            className="overflow-hidden relative rounded-full"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: size,

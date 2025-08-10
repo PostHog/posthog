@@ -1,5 +1,5 @@
 import type { HedgehogActorOptions } from '@posthog/hedgehog-mode'
-import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
@@ -362,15 +362,15 @@ export type HedgehogColorOptions =
     | 'invert-hue'
     | 'greyscale'
 
-export type MinimalHedgehogConfig = Pick<HedgehogActorOptions, 'color' | 'accessories'> & {
+export type MinimalHedgehogConfig = {
     use_as_profile: boolean
+    actor_options: HedgehogActorOptions
 }
 
-export type HedgehogConfig = MinimalHedgehogConfig &
-    Omit<HedgehogActorOptions, 'id'> & {
-        party_mode_enabled: boolean
-        enabled: boolean
-    }
+export type HedgehogConfig = MinimalHedgehogConfig & {
+    party_mode_enabled: boolean
+    enabled: boolean
+}
 
 export interface NotificationSettings {
     plugin_disabled: boolean

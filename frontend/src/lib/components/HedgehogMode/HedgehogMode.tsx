@@ -1,8 +1,9 @@
 import type { HedgehogModeConfig } from '@posthog/hedgehog-mode'
 import { useActions, useValues } from 'kea'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 
 import { hedgehogModeLogic } from './hedgehogModeLogic'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 const HedgeHogModeRenderer =
     typeof window !== 'undefined'
@@ -18,6 +19,7 @@ const config: HedgehogModeConfig = {
 export function HedgehogMode(): JSX.Element | null {
     const { hedgehogModeEnabled } = useValues(hedgehogModeLogic)
     const { setHedgehogMode } = useActions(hedgehogModeLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     return typeof window !== 'undefined' && hedgehogModeEnabled ? (
         <Suspense fallback={<span>Loading...</span>}>
@@ -25,12 +27,12 @@ export function HedgehogMode(): JSX.Element | null {
                 config={config}
                 onGameReady={(game) => {
                     setHedgehogMode(game)
-                    console.log('Hedgehog mode ready')
                 }}
                 style={{
                     position: 'fixed',
                     zIndex: 999998,
                 }}
+                theme={isDarkModeOn ? 'dark' : 'light'}
             />
         </Suspense>
     ) : null

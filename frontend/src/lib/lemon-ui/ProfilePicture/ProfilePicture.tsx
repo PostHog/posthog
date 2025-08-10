@@ -61,7 +61,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)} ref={ref}>
             {hedgehogProfile ? (
-                <HedgehogModeProfile {...user.hedgehog_config} size="100%" />
+                <HedgehogModeProfile {...user.hedgehog_config?.actor_options} size="100%" />
             ) : (
                 gravatarLoaded !== true && (
                     <>
@@ -75,7 +75,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                                 color={type === 'system' ? LettermarkColor.Gray : undefined}
                             />
                         ) : (
-                            <HedgehogModeProfile {...user.hedgehog_config} size="100%" />
+                            <HedgehogModeProfile {...user.hedgehog_config?.actor_options} size="100%" />
                         )}
                     </>
                 )
