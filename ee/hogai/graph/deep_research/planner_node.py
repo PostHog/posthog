@@ -14,6 +14,7 @@ from ee.hogai.utils.types import (
     PartialAgentSubgraphState,
     DeepResearchPlanStep,
     TaskDefinition,
+    TaskStatus,
 )
 from posthog.models import Team, User
 from posthog.schema import HumanMessage
@@ -38,7 +39,55 @@ class DeepResearchPlannerNode(BaseAssistantNode[AgentSubgraphState, PartialAgent
         """
         Parse the DEEP_RESEARCH command and create a research step.
         """
-        logger.info("DeepResearchPlannerNode starting")
+        logger.info(
+            "DeepResearchPlannerNode starting",
+            messages_count=len(state.messages or []),
+            message_types=[type(msg).__name__ for msg in (state.messages or [])],
+            has_current_step=bool(state.current_step),
+            current_step_status=state.current_step.status if state.current_step else None,
+        )
+
+        # If we already have a current step, don't create a new one - just pass through
+        if state.current_step:
+            logger.info(
+                "Planner: Current step already exists, passing through",
+                step_id=state.current_step.id,
+                status=state.current_step.status,
+                messages_in_state=len(state.messages or []),
+                returning_empty_partial=True,
+            )
+
+            # If the step is completed, we want to clean up the conversation
+            # Remove the original command and any duplicate messages
+            if state.current_step.status == "completed":
+                logger.info(
+                    "Planner: Analyzing completed step messages",
+                    message_details=[
+                        (
+                            i,
+                            type(msg).__name__,
+                            str(msg.content)[:50] + "..." if hasattr(msg, "content") else "no content",
+                        )
+                        for i, msg in enumerate(state.messages or [])
+                    ],
+                    total_messages=len(state.messages or []),
+                )
+
+                # Filter out human messages (original commands) and keep only results
+                filtered_messages = [msg for msg in (state.messages or []) if not isinstance(msg, HumanMessage)]
+
+                logger.info(
+                    "Planner: Cleaning up completed step messages",
+                    original_count=len(state.messages or []),
+                    filtered_count=len(filtered_messages),
+                    removed_human_messages=len(state.messages or []) - len(filtered_messages),
+                    filtered_message_types=[type(msg).__name__ for msg in filtered_messages],
+                )
+
+                # Return the filtered messages to replace the state messages
+                return PartialAgentSubgraphState(messages=filtered_messages)
+
+            return PartialAgentSubgraphState()
 
         # Find the latest human message
         human_message = None
@@ -67,18 +116,24 @@ class DeepResearchPlannerNode(BaseAssistantNode[AgentSubgraphState, PartialAgent
                 # Parse the JSON
                 research_data = json.loads(json_str)
 
-                # Convert to TaskDefinition format
+                # Convert to TaskDefinition format and create task statuses
                 tasks = []
-                for task_data in research_data.get("tasks", []):
+                task_statuses = []
+                for i, task_data in enumerate(research_data.get("tasks", [])):
                     # Handle both "prompt" and "instructions" fields for compatibility
                     instructions = task_data.get("prompt") or task_data.get("instructions", "")
+                    task_description = task_data.get("description", "Unknown task")
 
                     task = TaskDefinition(
-                        description=task_data.get("description", "Unknown task"),
+                        description=task_description,
                         instructions=instructions,
                         artifact_short_ids=task_data.get("artifact_short_ids"),
                     )
                     tasks.append(task)
+
+                    # Create task status for tracking
+                    task_status = TaskStatus(task_id=f"task_{i}", description=task_description, status="pending")
+                    task_statuses.append(task_status)
 
                 # Create a research step with all tasks
                 step_description = json.dumps(
@@ -99,6 +154,8 @@ class DeepResearchPlannerNode(BaseAssistantNode[AgentSubgraphState, PartialAgent
                     title="Execute Research Tasks",
                     description=step_description,
                     type="parallel_tasks",
+                    status="in_progress",  # Start as in_progress
+                    task_statuses=task_statuses,
                 )
 
                 logger.info("Created research step", step_id=research_step.id, num_tasks=len(tasks))
@@ -112,19 +169,36 @@ class DeepResearchPlannerNode(BaseAssistantNode[AgentSubgraphState, PartialAgent
                 return PartialAgentSubgraphState(plan=f"Failed to parse research request: {str(e)}", current_step=None)
         else:
             # Fallback: treat the entire message as a single task
+            task_status = TaskStatus(task_id="task_0", description="User research request", status="pending")
+
             research_step = DeepResearchPlanStep(
                 id=str(uuid.uuid4()),
                 title="Research Task",
                 description=json.dumps({"tasks": [{"description": "User research request", "instructions": content}]}),
                 type="parallel_tasks",
+                status="in_progress",
+                task_statuses=[task_status],
             )
 
             return PartialAgentSubgraphState(plan="Executing research request", current_step=research_step)
 
     def router(self, state: AgentSubgraphState) -> str:
         """
-        Route to the agent subgraph executor if we have a step, otherwise end.
+        Route to the agent subgraph executor if we have a step that hasn't been executed,
+        otherwise go to end.
         """
-        if state.current_step:
-            return "execute"
-        return "end"
+        if not state.current_step:
+            logger.info("Router: No current step, routing to end")
+            return "end"
+
+        current_status = state.current_step.status
+        logger.info("Router: Current step status", status=current_status, step_id=state.current_step.id)
+
+        # Check overall status
+        if current_status in ["completed", "failed"]:
+            logger.info("Router: Step completed/failed, routing to end")
+            return "end"
+
+        # Still have work to do (pending or in_progress)
+        logger.info("Router: Step still pending/in_progress, routing to execute")
+        return "execute"

@@ -1,5 +1,6 @@
 import json
 import time
+import uuid
 import structlog
 
 from langchain_core.runnables import RunnableConfig
@@ -7,13 +8,14 @@ from langchain_core.runnables import RunnableConfig
 from ee.hogai.graph.base import BaseAssistantNode
 from .tools import ExecuteTasksTool
 from posthog.models import Team, User
-from posthog.schema import AssistantMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, VisualizationMessage, HumanMessage
 
 from ee.hogai.utils.types import (
     AgentSubgraphState,
     PartialAgentSubgraphState,
     DeepResearchPlanStep,
     TaskDefinition,
+    TaskStatus,
 )
 
 logger = structlog.get_logger(__name__)
@@ -32,10 +34,10 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
     - Supports artifact management for task references
     """
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, insights_subgraph):
         super().__init__(team, user)
-        # Initialize the execute_tasks tool for parallel execution
-        self._execute_tasks_tool = ExecuteTasksTool(team, user)
+        # Initialize the execute_tasks tool for parallel execution with insights subgraph
+        self._execute_tasks_tool = ExecuteTasksTool(team, user, insights_subgraph)
 
     async def arun(self, state: AgentSubgraphState, config: RunnableConfig) -> PartialAgentSubgraphState | None:
         logger.info(
@@ -69,7 +71,27 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
 
         logger.info("Found tasks to execute", num_tasks=len(tasks))
 
+        # Initialize task statuses if not already present
+        task_statuses = list(step.task_statuses) if step.task_statuses else []
+        if not task_statuses:
+            # Create task statuses if they don't exist
+            task_statuses = [
+                TaskStatus(task_id=f"task_{i}", description=task.description, status="pending")
+                for i, task in enumerate(tasks)
+            ]
+
+        # Create a map for quick lookup and updates
+        task_status_map = {ts.task_id: ts for ts in task_statuses}
+
         try:
+            # Debug: Check what messages are in the current state
+            logger.info(
+                "TaskExecutor: Starting with state messages",
+                state_messages_count=len(state.messages or []),
+                state_message_types=[type(msg).__name__ for msg in (state.messages or [])],
+                state_has_human_messages=any(isinstance(msg, HumanMessage) for msg in (state.messages or [])),
+            )
+
             messages = []
             visualization_messages = []
             task_count = 0
@@ -87,6 +109,14 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                 task_count += 1
                 current_time = time.time()
                 elapsed_total = current_time - execution_start_time
+
+                # Update task status for this completed task using task_id
+                task_id = f"task_{task_count - 1}"
+                if task_id in task_status_map:
+                    task_status_map[task_id].status = "completed"
+                    task_status_map[task_id].result_summary = (
+                        task_result.result[:100] if task_result.result else "Task completed"
+                    )
 
                 # Calculate task-specific metrics
                 result_length = len(task_result.result) if task_result.result else 0
@@ -106,46 +136,25 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                     else task_result.result or "No result",
                 )
 
-                # Create an assistant message for each task result
-                content = f"## {task_result.description}\n\n{task_result.result}"
-                current_message = AssistantMessage(content=content)
-                messages.append(current_message)
+                # Add a "Finished task" message for streaming
+                finished_message = AssistantMessage(
+                    content=f"✅ Finished task #{task_count}: {task_result.description}", id=str(uuid.uuid4())
+                )
+                messages.append(finished_message)
 
                 # Extract VisualizationMessage objects from artifacts
                 current_viz_messages = []
                 if task_result.artifacts:
                     for artifact in task_result.artifacts:
                         if artifact.artifact_type == "VisualizationMessage":
-                            # Reconstruct the VisualizationMessage from the stored data
-                            viz_data = artifact.data.get("visualization_message")
-                            if viz_data:
-                                # Import at runtime to avoid circular imports
-                                from posthog.schema import (
-                                    AssistantTrendsQuery,
-                                    AssistantFunnelsQuery,
-                                    AssistantRetentionQuery,
-                                    AssistantHogQLQuery,
-                                )
-
-                                # The answer field needs to be reconstructed based on its type
-                                answer_data = viz_data.get("answer")
-                                if answer_data:
-                                    # Determine the query type and reconstruct it
-                                    if "trendsFilter" in answer_data:
-                                        viz_data["answer"] = AssistantTrendsQuery(**answer_data)
-                                    elif "funnelsFilter" in answer_data:
-                                        viz_data["answer"] = AssistantFunnelsQuery(**answer_data)
-                                    elif "retentionFilter" in answer_data:
-                                        viz_data["answer"] = AssistantRetentionQuery(**answer_data)
-                                    elif "metadata" in answer_data:
-                                        viz_data["answer"] = AssistantHogQLQuery(**answer_data)
-
+                            # Get the stored VisualizationMessage object directly
+                            viz_msg = artifact.data.get("visualization_message")
+                            if viz_msg and isinstance(viz_msg, VisualizationMessage):
                                 try:
-                                    viz_msg = VisualizationMessage(**viz_data)
                                     visualization_messages.append(viz_msg)
                                     current_viz_messages.append(viz_msg)
                                     messages.append(viz_msg)
-                                    logger.info("Reconstructed VisualizationMessage", viz_id=viz_msg.id)
+                                    logger.info("Retrieved VisualizationMessage", viz_id=viz_msg.id)
                                 except Exception as e:
                                     logger.warning("Could not reconstruct VisualizationMessage", error=str(e))
 
@@ -158,12 +167,13 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                     "🔄 PLANNER PROCESSED TASK",
                     task_description=task_result.description,
                     task_index=task_count,
-                    created_assistant_messages=1,
+                    created_assistant_messages=2,  # Finished message + any visualization
                     created_visualizations=num_viz_messages,
                     processing_time_ms=round(processing_elapsed * 1000, 2),
                     total_messages_accumulated=len(messages),
                     total_visualizations_accumulated=len(visualization_messages),
                     completion_status="success" if task_result.result else "completed_no_content",
+                    finished_message_added=True,
                 )
 
                 # Note: Real-time streaming happens via logger messages above.
@@ -186,13 +196,83 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                 else f"{task_count}/{len(tasks)} ({round(task_count/len(tasks)*100, 1)}%)",
             )
 
-            # Return all messages (visualization messages are already included in messages)
+            # Convert map back to list for consistency
+            updated_task_statuses = list(task_status_map.values())
+
+            # Check if all tasks are completed
+            all_completed = all(t.status == "completed" for t in updated_task_statuses)
+            any_failed = any(t.status == "failed" for t in updated_task_statuses)
+
+            # Determine overall status
+            if any_failed:
+                overall_status = "failed"
+            elif all_completed:
+                overall_status = "completed"
+            else:
+                overall_status = "in_progress"
+
+            logger.info(
+                "TaskExecutor: Final status determination",
+                total_tasks=len(updated_task_statuses),
+                completed_tasks=sum(1 for t in updated_task_statuses if t.status == "completed"),
+                failed_tasks=sum(1 for t in updated_task_statuses if t.status == "failed"),
+                overall_status=overall_status,
+            )
+
+            # Add completion message when all tasks are completed
+            if overall_status == "completed":
+                summary_content = f"✅ **Deep Research Completed**\n\n"
+                summary_content += f"Successfully completed {task_count}/{len(tasks)} research tasks:\n\n"
+
+                for task_status in updated_task_statuses:
+                    status_emoji = "✅" if task_status.status == "completed" else "❌"
+                    summary_content += f"{status_emoji} **{task_status.description}**\n"
+                    if task_status.result_summary:
+                        summary_content += f"   - {task_status.result_summary}\n"
+                    summary_content += "\n"
+
+                summary_message = AssistantMessage(content=summary_content, id=str(uuid.uuid4()))
+                messages.append(summary_message)
+
+                logger.info("Added completion summary message")
 
             # Extract IDs from visualization messages
             viz_ids = [msg.id for msg in visualization_messages if msg.id]
 
+            # Create updated step with task statuses
+            updated_step = DeepResearchPlanStep(
+                id=step.id,
+                title=step.title,
+                description=step.description,
+                type=step.type,
+                status=overall_status,
+                result_summary=f"Completed {task_count}/{len(tasks)} tasks",
+                visualization_messages=viz_ids,
+                task_statuses=updated_task_statuses,
+            )
+
+            # Filter out human messages and visualization messages (already streamed)
+            # Keep only the completion summary message
+            filtered_messages = [
+                msg
+                for msg in messages
+                if not isinstance(msg, HumanMessage) and not isinstance(msg, VisualizationMessage)
+            ]
+
+            logger.info(
+                "TaskExecutor: Returning filtered messages",
+                total_messages=len(filtered_messages),
+                original_messages=len(messages),
+                filtered_out=len(messages) - len(filtered_messages),
+                message_types=[type(msg).__name__ for msg in filtered_messages],
+                has_completion_message=any(
+                    "Deep Research Completed" in str(getattr(msg, "content", "")) for msg in filtered_messages
+                ),
+            )
+
             return PartialAgentSubgraphState(
-                messages=messages,  # Already contains both assistant and viz messages
+                current_step=updated_step,
+                messages=filtered_messages,  # Only new messages, filtered to avoid DEEP_RESEARCH duplicates
                 visualization_messages=viz_ids,  # Store IDs as per the field type
             )
 
@@ -206,7 +286,14 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
         Expected format: {"tasks": [{"description": "...", "instructions": "..."}, ...]}
         """
         try:
-            data = json.loads(description)
+            # Handle case where description contains "DEEP_RESEARCH" prefix
+            json_str = description
+            if "DEEP_RESEARCH" in description:
+                # Extract JSON after DEEP_RESEARCH keyword
+                json_start = description.index("DEEP_RESEARCH") + len("DEEP_RESEARCH")
+                json_str = description[json_start:].strip()
+
+            data = json.loads(json_str)
             if "tasks" not in data:
                 raise ValueError("No 'tasks' key found in description JSON")
 
@@ -223,18 +310,11 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
 
             return tasks
 
-        except (json.JSONDecodeError, KeyError, TypeError):
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.exception(
+                "Error parsing tasks from description", error=str(e), description_preview=description[:100]
+            )
             # Fallback: create a single task from the description
             return [
                 TaskDefinition(description="Parse and execute tasks", instructions=description, artifact_short_ids=None)
             ]
-
-    def router(self, state: AgentSubgraphState) -> str:
-        """
-        Router function to determine next step after execution.
-        """
-        if state.current_step:
-            # Check if there are more steps to execute
-            # For now, just go to end after executing
-            return "end"
-        return "end"

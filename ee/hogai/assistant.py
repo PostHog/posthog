@@ -369,7 +369,7 @@ class Assistant:
             )
 
             initial_state = AgentSubgraphState(
-                messages=[self._latest_message],
+                messages=[],  # Don't include the original command in conversation
                 current_step=research_step,
             )
         else:
@@ -528,7 +528,6 @@ class Assistant:
 
         # Check for reasoning content first (for all nodes that support it)
         if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-            logger.info(f"*** REASONING: {reasoning} ***")
             if reasoning_headline := self._chunk_reasoning_headline(reasoning):
                 return ReasoningMessage(content=reasoning_headline)
 

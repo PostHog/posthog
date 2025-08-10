@@ -103,6 +103,18 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
+class TaskStatus(BaseModel):
+    """Track individual task status within a research step."""
+
+    task_id: str = Field(description="Unique identifier for this task")
+    description: str = Field(description="Task description")
+    status: Literal["pending", "in_progress", "completed", "failed"] = Field(
+        default="pending", description="Current status of the task"
+    )
+    result_summary: str | None = Field(default=None, description="Summary of task results")
+    artifact_ids: list[str] | None = Field(default=None, description="IDs of artifacts produced")
+
+
 class DeepResearchPlanStep(BaseModel):
     """A single todo item in the research plan."""
 
@@ -115,6 +127,7 @@ class DeepResearchPlanStep(BaseModel):
     visualization_messages: Sequence[str] = Field(
         default=[], description="IDs of visualization messages from this step"
     )
+    task_statuses: list[TaskStatus] = Field(default_factory=list, description="Status of individual tasks")
 
 
 class BaseState(BaseModel):
