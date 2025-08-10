@@ -16,16 +16,7 @@ import type { HedgehogActor } from '@posthog/hedgehog-mode'
 const MARGIN = 2
 const HEDGEHOG_OFFSET = 80
 
-export type MenuState =
-    | 'none'
-    | 'heatmap'
-    | 'actions'
-    | 'flags'
-    | 'inspect'
-    | 'hedgehog'
-    | 'debugger'
-    | 'experiments'
-    | 'web-vitals'
+export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'debugger' | 'experiments' | 'web-vitals'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -77,6 +68,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setHedgehogModeEnabled: (hedgehogModeEnabled: boolean) => ({ hedgehogModeEnabled }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         syncWithHedgehog: true,
+        openHedgehogOptions: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
@@ -112,8 +104,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             'none' as MenuState,
             {
                 setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
-                setHedgehogMode: (state, { hedgehogMode }) =>
-                    hedgehogMode ? 'hedgehog' : state === 'hedgehog' ? 'none' : state,
             },
         ],
         minimized: [
@@ -398,8 +388,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
         syncWithHedgehog: () => {
             const player = values.getHedgehogActor()
 
-            if (!player) {
+            if (!values.hedgehogModeEnabled || !player) {
                 return
+            }
+
+            if (values.minimized !== values.hedgehogMode?.gameUI?.visible) {
+                actions.toggleMinimized(values.hedgehogMode?.gameUI?.visible)
             }
 
             if (values.isDragging) {
@@ -434,6 +428,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     '*'
                 )
             }
+        },
+        openHedgehogOptions: () => {
+            values.hedgehogMode?.gameUI?.show({
+                screen: 'configuration',
+                messages: [],
+                actor: values.getHedgehogActor() ?? undefined,
+            })
         },
     })),
     afterMount(({ actions, values, cache }) => {

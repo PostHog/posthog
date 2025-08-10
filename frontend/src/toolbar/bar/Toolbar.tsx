@@ -133,7 +133,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
 
 function MoreMenu(): JSX.Element {
     const { hedgehogModeEnabled, theme, posthog } = useValues(toolbarLogic)
-    const { setHedgehogModeEnabled, toggleTheme, setVisibleMenu } = useActions(toolbarLogic)
+    const { setHedgehogModeEnabled, toggleTheme, setVisibleMenu, openHedgehogOptions } = useActions(toolbarLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
     const [surveysCount, setSurveysCount] = useState(0)
@@ -167,9 +167,7 @@ function MoreMenu(): JSX.Element {
                         ? {
                               icon: <IconFlare />,
                               label: 'Hedgehog options',
-                              onClick: () => {
-                                  setVisibleMenu('hedgehog')
-                              },
+                              onClick: () => openHedgehogOptions(),
                           }
                         : undefined,
                     {
