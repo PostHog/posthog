@@ -40,6 +40,12 @@ export interface OperatorValueSelectProps {
     groupTypeIndex?: GroupTypeIndex
     size?: 'xsmall' | 'small' | 'medium'
     startVisible?: LemonDropdownProps['startVisible']
+    /**
+     * in some contexts you want to externally limit the available operators
+     * this won't add an operator if it isn't valid
+     * it limits the options shown from the options that would have been shown
+     * **/
+    operatorAllowlist?: Array<PropertyOperator>
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -84,6 +90,7 @@ export function OperatorValueSelect({
     size,
     editable,
     startVisible,
+    operatorAllowlist,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -130,7 +137,9 @@ export function OperatorValueSelect({
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
-        const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
+        const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+            return !operatorAllowlist || operatorAllowlist.includes(op as PropertyOperator)
+        })
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
@@ -145,7 +154,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>

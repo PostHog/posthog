@@ -7,7 +7,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,7 +25,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { RecordingUniversalFilters, ReplayTabs, SidePanelTab, UniversalFiltersGroup } from '~/types'
+import { PropertyOperator, RecordingUniversalFilters, ReplayTabs, SidePanelTab, UniversalFiltersGroup } from '~/types'
 
 import { ReplayActiveHoursHeatMap } from '../components/ReplayActiveHoursHeatMap'
 import { ReplayActiveScreensTable } from '../components/ReplayActiveScreensTable'
@@ -581,6 +581,18 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen}
                         metadataSource={{ kind: NodeKind.RecordingsQuery }}
+                        operatorAllowList={
+                            isCommentTextFilter(filterOrGroup)
+                                ? [
+                                      PropertyOperator.IsSet,
+                                      PropertyOperator.IsNotSet,
+                                      PropertyOperator.Exact,
+                                      PropertyOperator.IsNot,
+                                      PropertyOperator.IContains,
+                                      PropertyOperator.NotIContains,
+                                  ]
+                                : undefined
+                        }
                     />
                 )
             })}

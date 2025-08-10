@@ -140,18 +140,22 @@ def _get_session_ids_from_comment_search(team: Team, comment_text: str) -> list[
 
     # Search for comments with matching text in the content field
     # Filter by team and scope (both 'Replay' and 'recording' for compatibility)
-    matching_comments = (
-        Comment.objects.filter(
-            team=team,
-            # TODO: discussions created `Replay` and comments create `recording`
-            # TODO: that's an unnecessary distinction but we'll ignore it for now
-            scope__in=["recording"],
-            content__icontains=comment_text,
-        )
-        .exclude(deleted=True)
-        .values_list("item_id", flat=True)
-        .distinct()
-    )
+    # supports a subset of operators
+    # PropertyOperator.IsSet,
+    # PropertyOperator.IsNotSet,
+    # PropertyOperator.Exact,
+    # PropertyOperator.IsNot,
+    # PropertyOperator.IContains,
+    # PropertyOperator.NotIContains,
+
+    base_query = Comment.objects.filter(
+        team=team,
+        # TODO: discussions created `Replay` and comments create `recording`
+        # TODO: that's an unnecessary distinction but we'll ignore it for now
+        scope__in=["recording"],
+    ).exclude(deleted=True)
+
+    matching_comments = base_query.values_list("item_id", flat=True).distinct()
 
     # item_id contains the session_id for recording comments
     return list(matching_comments)
