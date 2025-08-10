@@ -13,7 +13,7 @@ export const HedgeHogModeRenderer =
         : () => null
 
 const getAssetsUrl = (): string => {
-    let path = `/static/hedgehog-mode/`
+    let path = `/static/hedgehog-mode`
     const toolbarAPIUrl = toolbarConfigLogic.findMounted()?.values.apiURL
 
     if (inStorybook()) {
