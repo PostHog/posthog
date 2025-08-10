@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { type PositionWithSide } from '../utils/floatingMaxPositioning'
 import { useDragAndSnap } from '../utils/useDragAndSnap'
-import { HedgehogModeProfile, HedgehogModeStatic } from 'lib/components/HedgehogMode/HedgehogModeStatic'
+import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 interface HedgehogAvatarProps {

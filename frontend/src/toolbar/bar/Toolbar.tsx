@@ -133,7 +133,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
 
 function MoreMenu(): JSX.Element {
     const { hedgehogModeEnabled, theme, posthog } = useValues(toolbarLogic)
-    const { setHedgehogModeEnabled, toggleTheme, setVisibleMenu, openHedgehogOptions } = useActions(toolbarLogic)
+    const { setHedgehogModeEnabled, toggleTheme, openHedgehogOptions } = useActions(toolbarLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
     const [surveysCount, setSurveysCount] = useState(0)
@@ -211,9 +211,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <HeatmapToolbarMenu />
     ) : visibleMenu === 'actions' ? (
         <ActionsToolbarMenu />
-    ) : visibleMenu === 'hedgehog' ? (
-        // TODO
-        <span />
     ) : visibleMenu === 'debugger' ? (
         <EventDebugMenu />
     ) : visibleMenu === 'web-vitals' ? (
