@@ -1,7 +1,7 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
-import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeRender'
+import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 
 export function HedgehogModeSettings(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogModeLogic)

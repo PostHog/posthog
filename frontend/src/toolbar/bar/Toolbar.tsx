@@ -43,7 +43,7 @@ const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-pro
 
 function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
     return (
-        <div className="flex items-center justify-between w-full">
+        <div className="flex justify-between items-center w-full">
             <div>{label}: </div>
             <div>{value ? <IconCheck /> : <IconX />}</div>
         </div>
@@ -59,7 +59,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
         items: [
             {
                 label: (
-                    <div className="flex items-center justify-between w-full">
+                    <div className="flex justify-between items-center w-full">
                         <div>version: </div>
                         <div>{posthog?.version || 'posthog not available'}</div>
                     </div>
@@ -67,7 +67,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
             },
             {
                 label: (
-                    <div className="flex items-center justify-between w-full">
+                    <div className="flex justify-between items-center w-full">
                         <div>api host: </div>
                         <div>{posthog?.config.api_host}</div>
                     </div>
@@ -75,7 +75,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
             },
             {
                 label: (
-                    <div className="flex items-center justify-between w-full">
+                    <div className="flex justify-between items-center w-full">
                         <div>ui host: </div>
                         <div>{posthog?.config.ui_host || 'not set'}</div>
                     </div>
@@ -101,7 +101,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
             { label: <EnabledStatusItem label="heatmaps" value={!!posthog?.heatmaps?.isEnabled} /> },
             {
                 label: (
-                    <div className="flex items-center justify-between w-full">
+                    <div className="flex justify-between items-center w-full">
                         <div>surveys: </div>
                         <div>
                             {loadingSurveys ? <Spinner /> : <LemonBadge.Number showZero={true} count={surveysCount} />}
@@ -112,7 +112,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
             { label: <EnabledStatusItem label="session recording" value={!!posthog?.sessionRecording?.started} /> },
             {
                 label: (
-                    <div className="flex items-center justify-between w-full">
+                    <div className="flex justify-between items-center w-full">
                         <div>session recording status: </div>
                         <div>{posthog?.sessionRecording?.status || 'unknown'}</div>
                     </div>
@@ -133,7 +133,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
 
 function MoreMenu(): JSX.Element {
     const { hedgehogMode, theme, posthog } = useValues(toolbarLogic)
-    const { setHedgehogMode, toggleTheme, setVisibleMenu } = useActions(toolbarLogic)
+    const { setHedgehogModeEnabled, toggleTheme, setVisibleMenu } = useActions(toolbarLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
     const [surveysCount, setSurveysCount] = useState(0)
@@ -160,7 +160,7 @@ function MoreMenu(): JSX.Element {
                         icon: <>🦔</>,
                         label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
                         onClick: () => {
-                            setHedgehogMode(!hedgehogMode)
+                            setHedgehogModeEnabled(!hedgehogMode)
                         },
                     },
                     hedgehogMode

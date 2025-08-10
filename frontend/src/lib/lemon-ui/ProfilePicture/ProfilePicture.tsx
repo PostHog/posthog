@@ -2,7 +2,7 @@ import './ProfilePicture.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeRender'
+import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import React, { useMemo, useState } from 'react'

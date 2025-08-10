@@ -130,7 +130,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         },
 
         syncGame: () => {
-            const { hedgehogMode, hedgehogConfig, members } = values
+            const { hedgehogMode, hedgehogConfig } = values
             if (!hedgehogMode || !hedgehogConfig) {
                 return
             }
