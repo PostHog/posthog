@@ -13,20 +13,12 @@ export const manifest: ProductManifest = {
         },
         action: (id: string | number): string => `/data-management/actions/${id}`,
         actions: (): string => '/data-management/actions',
-        actionEdit: (id: string | number): string => `/data-management/actions/${id}/edit`,
         actionNew: (): string => `/data-management/actions/new`,
     },
     scenes: {
         Actions: {
             name: 'Actions',
             import: () => import('./frontend/pages/Actions'),
-            projectBased: true,
-            defaultDocsPath: '/docs/data/actions',
-            activityScope: 'Action',
-        },
-        ActionEdit: {
-            name: 'Edit action',
-            import: () => import('./frontend/pages/ActionEditPage'),
             projectBased: true,
             defaultDocsPath: '/docs/data/actions',
             activityScope: 'Action',
@@ -49,7 +41,6 @@ export const manifest: ProductManifest = {
     routes: {
         '/data-management/actions': ['Actions', 'actions'],
         '/data-management/actions/new': ['ActionNew', 'actionNew'],
-        '/data-management/actions/:id/edit': ['ActionEdit', 'actionEdit'],
         '/data-management/actions/:id': ['Action', 'action'],
     },
     fileSystemTypes: {

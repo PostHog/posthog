@@ -38,7 +38,6 @@ export function buildProductManifests() {
     const treeItemsGames = {}
     const treeItemsMetadata = {}
     const treeItemsProducts = {}
-    const pageConfigurations = []
 
     const visitManifests = (sourceFile) => {
         ts.forEachChild(sourceFile, function walk(node) {
@@ -49,15 +48,8 @@ export function buildProductManifests() {
                     routes,
                     redirects,
                     fileSystemTypes,
-                    treeItemsNew,
-                    treeItemsGames,
-                    treeItemsMetadata,
-                    treeItemsProducts,
                 }[name]
-
-                if (name === 'pages') {
-                    processPages(node.initializer, sourceFile.fileName)
-                } else if (list) {
+                if (list) {
                     node.initializer.properties.forEach((p) => list.push(cloneNode(p)))
                 } else if (name === 'scenes') {
                     node.initializer.properties.forEach((prop) => {
@@ -98,64 +90,6 @@ export function buildProductManifests() {
                 })
             } else {
                 ts.forEachChild(node, walk)
-            }
-        })
-    }
-
-    // Helper function to process pages structure
-    function processPages(pagesNode, fileName) {
-        pagesNode.properties.forEach((pageProp) => {
-            if (!ts.isPropertyAssignment(pageProp) || !ts.isObjectLiteralExpression(pageProp.initializer)) {
-                return
-            }
-
-            const pageName = pageProp.name.text
-            const pageObj = { key: pageName }
-
-            // Extract page properties
-            pageProp.initializer.properties.forEach((prop) => {
-                if (!ts.isPropertyAssignment(prop)) {
-                    return
-                }
-
-                const propName = prop.name.text
-                if (propName === 'name') {
-                    pageObj.name = prop.initializer.text
-                } else if (propName === 'parent') {
-                    pageObj.parent = prop.initializer.text
-                } else if (propName === 'scenes') {
-                    // Process scenes in this page
-                    if (ts.isObjectLiteralExpression(prop.initializer)) {
-                        prop.initializer.properties.forEach((sceneProp) => {
-                            const imp = keepOnlyImport(sceneProp, fileName)
-                            if (imp) {
-                                scenes.push(imp)
-                            }
-
-                            const cfg = withoutImport(sceneProp)
-                            if (cfg) {
-                                sceneConfigs.push(cfg)
-                            }
-                        })
-                    }
-                } else if (['urls', 'routes', 'redirects', 'fileSystemTypes'].includes(propName)) {
-                    // Process other properties (urls, routes, etc.)
-                    const list = {
-                        urls,
-                        routes,
-                        redirects,
-                        fileSystemTypes,
-                    }[propName]
-
-                    if (list && ts.isObjectLiteralExpression(prop.initializer)) {
-                        prop.initializer.properties.forEach((p) => list.push(cloneNode(p)))
-                    }
-                }
-            })
-
-            // Add page configuration if it has a name
-            if (pageObj.name) {
-                pageConfigurations.push(pageObj)
             }
         })
     }
@@ -344,9 +278,6 @@ export function buildProductManifests() {
         export const productUrls = ${manifestUrls}
 
         ${autogen}
-        export const productPageConfigurations = ${JSON.stringify(pageConfigurations, null, 2)}
-
-        ${autogen}
         export const fileSystemTypes = ${manifestFileSystemTypes}
 
         ${autogen}
@@ -367,14 +298,7 @@ export function buildProductManifests() {
     fse.mkdirSync(tmpDir, { recursive: true })
     const tmpFile = path.join(tmpDir, 'products.tsx')
     fse.writeFileSync(tmpFile, productsTsx)
-
-    // Try to format with prettier, but don't fail if it's not available
-    try {
-        ps.execFileSync('prettier', ['--write', tmpFile])
-    } catch (error) {
-        console.warn('Prettier not available, skipping formatting', error)
-    }
-
+    ps.execFileSync('prettier', ['--write', tmpFile])
     fse.renameSync(tmpFile, path.join(__dirname, 'src/products.tsx'))
 }
 

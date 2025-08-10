@@ -10,7 +10,6 @@ import { SettingSectionId } from './settings/types'
 export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
-    ActionEdit = 'ActionEdit',
     ActionNew = 'ActionNew',
     Activity = 'Activity',
     AsyncMigrations = 'AsyncMigrations',

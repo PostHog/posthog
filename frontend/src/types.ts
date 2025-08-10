@@ -5496,20 +5496,6 @@ export interface ProductManifest {
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
-    /** Page-based structure for auto-generating breadcrumbs with parent-child relationships */
-    pages?: Record<string, PageConfig>
-}
-
-export interface PageConfig {
-    name: string
-    /** Parent page key for hierarchical breadcrumb generation */
-    parent?: string
-    /** Scene configurations for this page */
-    scenes?: Record<string, SceneConfig>
-    /** URLs for this page */
-    urls?: Record<string, string | ((...args: any[]) => string)>
-    /** Routes for this page */
-    routes?: Record<string, [string /** Scene */, string /** Scene Key */]>
 }
 
 export interface ProjectTreeRef {
