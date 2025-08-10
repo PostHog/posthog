@@ -34,9 +34,39 @@
         margin: 1em 0;
     }
 
-    h1 {
-        margin-bottom: 0.25em;
+    h1,
+    h2,
+    h3,
+    h4 {
+        margin-bottom: 0.375em;
         font-weight: 600;
+        line-height: 1.2;
+    }
+
+    h1,
+    h2 {
+        padding-bottom: 0.375em;
+        border-bottom-width: 1px;
+
+        &:not(:first-child) {
+            margin-top: 0.75em;
+        }
+    }
+
+    h1 {
+        font-size: 1.375rem;
+    }
+
+    h2 {
+        font-size: 1.125rem;
+    }
+
+    h3 {
+        font-size: 1rem;
+    }
+
+    h4 {
+        font-size: 0.875rem;
     }
 
     img {

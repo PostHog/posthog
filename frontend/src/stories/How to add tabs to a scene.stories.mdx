@@ -93,7 +93,6 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { DashboardsTabs } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { urls } from 'scenes/urls'
 import { dashboardsLogic, humanFriendlyTabName } from './dashboardsLogic'
@@ -113,7 +112,6 @@ export function Dashboards(): JSX.Element {
 
     return (
         <div>
-            <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.dashboards(tab as DashboardsTabs))}

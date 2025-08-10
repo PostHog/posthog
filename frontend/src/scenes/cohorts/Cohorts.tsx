@@ -19,6 +19,14 @@ import { urls } from 'scenes/urls'
 import { CohortType, ProductKey } from '~/types'
 
 import { cohortsModel } from '../../models/cohortsModel'
+import { SceneExport } from 'scenes/sceneTypes'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
+
+export const scene: SceneExport = {
+    component: Cohorts,
+    logic: cohortsSceneLogic,
+}
 
 export function Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(cohortsModel)
@@ -123,7 +131,13 @@ export function Cohorts(): JSX.Element {
                                     Export all columns for users
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        deleteCohort({ id: cohort.id, name: cohort.name, deleted: true })
+                                    }}
+                                    fullWidth
+                                >
                                     Delete cohort
                                 </LemonButton>
                             </>
@@ -136,6 +150,19 @@ export function Cohorts(): JSX.Element {
 
     return (
         <>
+            <PersonsManagementSceneTabs
+                tabKey="cohorts"
+                buttons={
+                    <LemonButton
+                        type="primary"
+                        data-attr="new-cohort"
+                        onClick={() => router.actions.push(urls.cohort('new'))}
+                    >
+                        New cohort
+                    </LemonButton>
+                }
+            />
+
             <ProductIntroduction
                 productName="Cohorts"
                 productKey={ProductKey.COHORTS}

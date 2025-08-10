@@ -36,7 +36,7 @@ export function PathItemFilters({
         if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
             setFilters([...propertyFilters, {} as EmptyPropertyFilter])
         }
-    }, [propertyFilters])
+    }, [propertyFilters]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <BindLogic logic={propertyFilterLogic} props={logicProps}>
@@ -68,12 +68,7 @@ export function PathItemFilters({
                                     Add exclusion
                                 </LemonButton>
                             ) : (
-                                <PropertyFilterButton
-                                    item={filter}
-                                    onClose={() => {
-                                        remove(index)
-                                    }}
-                                >
+                                <PropertyFilterButton item={filter} onClose={() => remove(index)}>
                                     {filter.value.toString()}
                                 </PropertyFilterButton>
                             )}

@@ -23,11 +23,12 @@ import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTempl
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from '../sdks/sdksLogic'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
+import { OnboardingStepKey } from '~/types'
 
 const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement> }): JSX.Element => {
     const { setBrowserUrl, setInitialPath } = useActions(
@@ -315,8 +316,8 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                             isLoading
                                                 ? 'Dashboard creating...'
                                                 : dashboardCreatedDuringOnboarding
-                                                ? 'Dashboard already created'
-                                                : undefined
+                                                  ? 'Dashboard already created'
+                                                  : undefined
                                         }
                                     >
                                         {hasTouchedAnyVariable ? 'Discard dashboard & skip' : 'Skip for now'}

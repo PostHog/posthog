@@ -1,4 +1,5 @@
 use metrics::counter;
+use tracing::info;
 
 use crate::{app_context::AppContext, error::PipelineFailure, metric_consts::DROPPED_EVENTS};
 
@@ -6,7 +7,7 @@ use super::IncomingEvent;
 
 pub async fn apply_billing_limits(
     in_buf: Vec<IncomingEvent>,
-    _context: &AppContext,
+    context: &AppContext,
 ) -> Result<Vec<IncomingEvent>, PipelineFailure> {
     let start_count = in_buf.len();
 
@@ -20,11 +21,10 @@ pub async fn apply_billing_limits(
             continue;
         };
 
-        // TODO - re-enable quota limiting once we've figure out how billing handles
-        // customers with no plan.
-        // if context.billing_limiter.is_limited(&e.token).await {
-        //     continue;
-        // }
+        if context.billing_limiter.is_limited(&e.token).await {
+            info!("Dropped event for {}", &e.token);
+            continue;
+        }
         out.push(IncomingEvent::Captured(e));
     }
 

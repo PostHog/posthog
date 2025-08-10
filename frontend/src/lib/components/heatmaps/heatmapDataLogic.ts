@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, props, reducers, selectors, key } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { windowValues } from 'kea-window-values'
@@ -12,7 +12,6 @@ import {
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
-import { isLikelyRegex } from 'lib/utils/regexp'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
@@ -27,8 +26,14 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
 
+export interface HeatmapDataLogicProps {
+    context: 'in-app' | 'toolbar'
+}
+
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
-    path(['lib', 'components', 'heatmap', 'heatmapDataLogic']),
+    path((key) => ['lib', 'components', 'heatmap', 'heatmapDataLogic', key]),
+    props({ context: 'toolbar' } as HeatmapDataLogicProps),
+    key((props) => props.context),
     actions({
         loadHeatmap: true,
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
@@ -37,7 +42,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHref: (href: string) => ({ href }),
-        setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
+        setHrefMatchType: (matchType: 'exact' | 'pattern') => ({ matchType }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
     }),
@@ -46,12 +51,10 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         windowHeight: (window: Window) => window.innerHeight,
     })),
     reducers({
-        // TODO with toolbar on the posthog page as well as the page itself, this will clash
-        // need to make a separate data logic for toolbar and page
-        fetchFn: [
-            'toolbar' as 'toolbar' | 'native',
+        hrefMatchType: [
+            'exact' as 'exact' | 'pattern',
             {
-                setFetchFn: (_, { fetchFn }) => fetchFn,
+                setHrefMatchType: (_, { matchType }) => matchType,
             },
         ],
         commonFilters: [
@@ -102,13 +105,16 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         rawHeatmap: [
             null as HeatmapResponseType | null,
             {
                 resetHeatmapData: () => ({ results: [] }),
                 loadHeatmap: async (_, breakpoint) => {
                     if (!values.href || !values.href.trim().length) {
+                        return null
+                    }
+                    if (!values.heatmapFilters.enabled) {
                         return null
                     }
                     await breakpoint(150)
@@ -122,8 +128,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             type,
                             date_from,
                             date_to,
-                            url_exact: isLikelyRegex(values.href) ? undefined : values.href,
-                            url_pattern: isLikelyRegex(values.href) ? values.href : undefined,
+                            url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
+                            url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
@@ -132,10 +138,10 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         '?'
                     )}`
 
-                    const response = await (values.fetchFn === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
+                    const response = await (props.context === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
                     breakpoint()
 
-                    if (response.status === 403) {
+                    if (props.context === 'toolbar' && response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
                     }
 
@@ -239,7 +245,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     )
                     const x = Math.round(element.xPercentage * width)
 
-                    return [...acc, { x, y, value: element.count }]
+                    acc.push({ x, y, value: element.count })
+                    return acc
                 }, [] as HeatmapJsDataPoint[])
 
                 // Max is the highest value in the data set we have

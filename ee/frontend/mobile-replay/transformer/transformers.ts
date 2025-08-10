@@ -9,8 +9,8 @@ import {
     mutationData,
     removedNodeMutation,
 } from '@posthog/rrweb-types'
-import { captureMessage } from '@sentry/react'
 import { isObject } from 'lib/utils'
+import posthog from 'posthog-js'
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
 
 import {
@@ -153,7 +153,7 @@ export const makeCustomEvent = (
                     },
                 })
             } else {
-                captureMessage('Failed to create keyboard placeholder', { extra: { mobileCustomEvent } })
+                posthog.captureException(new Error('Failed to create keyboard placeholder'), { mobileCustomEvent })
             }
         } else {
             removes.push({

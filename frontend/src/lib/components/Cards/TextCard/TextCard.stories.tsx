@@ -1,6 +1,6 @@
 import { Meta, Story } from '@storybook/react'
 
-import { DashboardTile, InsightColor, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { TextCard } from './TextCard'
 
@@ -37,16 +37,16 @@ export const Template: Story = () => {
                 <h5>basic text</h5>
                 <TextCard
                     className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
-                    dashboardId={1}
                     textTile={makeTextTile('basic text')}
+                    placement={DashboardPlacement.Dashboard}
                 />
             </div>
             <div>
                 <h5>markdown text</h5>
                 <TextCard
                     className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
-                    dashboardId={1}
                     textTile={makeTextTile('# a title \n\n **formatted** _text_')}
+                    placement={DashboardPlacement.Dashboard}
                 />
             </div>
             <div>
@@ -54,30 +54,54 @@ export const Template: Story = () => {
                 <TextCard
                     className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                     style={{ height: '250px', width: '300px' }}
-                    dashboardId={1}
                     textTile={makeTextTile(
                         '# long text which has a very long title so is too big both X and Y, what shall we do?! Oh what shall we do?\n\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n'
                     )}
+                    placement={DashboardPlacement.Dashboard}
                 />
             </div>
             <div>
                 <h5>with resize handles</h5>
                 <TextCard
                     className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
-                    dashboardId={1}
                     showResizeHandles={true}
                     canResizeWidth={true}
                     textTile={makeTextTile('showing handles')}
+                    placement={DashboardPlacement.Dashboard}
                 />
             </div>
             <div className="w-full h-[200px]">
                 <h5>Large Card</h5>
                 <TextCard
                     className="h-full w-full react-grid-item react-draggable cssTransforms react-resizable"
-                    dashboardId={1}
                     textTile={makeTextTile('basic text')}
+                    placement={DashboardPlacement.Dashboard}
                 />
             </div>
+        </div>
+    )
+}
+
+export const WithMoreButton: Story = () => {
+    return (
+        <div>
+            <TextCard
+                textTile={makeTextTile('basic text')}
+                moreButtonOverlay={<div>more button</div>}
+                placement={DashboardPlacement.Dashboard}
+            />
+        </div>
+    )
+}
+
+export const WithMoreButtonPlacedInPublic: Story = () => {
+    return (
+        <div>
+            <TextCard
+                textTile={makeTextTile('basic text, more button should be hidden')}
+                moreButtonOverlay={<div>more button</div>}
+                placement={DashboardPlacement.Public}
+            />
         </div>
     )
 }

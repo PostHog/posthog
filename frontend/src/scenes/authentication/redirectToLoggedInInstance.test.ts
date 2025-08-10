@@ -1,6 +1,6 @@
-import { cleanedCookieSubdomain } from 'scenes/authentication/redirectToLoggedInInstance'
+import { cleanedCookieSubdomain } from 'scenes/authentication/RedirectToLoggedInInstance'
 
-describe('redirectToLoggedInInstance', () => {
+describe('RedirectToLoggedInInstance cleanedCookieSubdomain', () => {
     test.each([
         ['handles null', null, null],
         ['handles the empty string', '', null],

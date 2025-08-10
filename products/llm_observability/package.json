@@ -2,7 +2,12 @@
     "name": "@posthog/products-llm-observability",
     "scripts": {},
     "dependencies": {
-        "eslint-plugin-posthog": "workspace:*"
+        "kea": "^3.1.6",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.4.1"
+    },
+    "devDependencies": {
+        "kea-test-utils": "*"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
@@ -11,11 +16,7 @@
         "classnames": "*",
         "clsx": "*",
         "eslint": "*",
-        "eslint-plugin-posthog": "*",
         "jest": "*",
-        "kea": "*",
-        "kea-loaders": "*",
-        "kea-router": "*",
         "prettier": "*",
         "react": "*",
         "stylelint": "*",

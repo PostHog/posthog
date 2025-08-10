@@ -12,29 +12,13 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, ProductKey, SidePanelTab } from '~/types'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey, ProductKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
     onCompleteOnboarding?: (key: ProductKey) => void
-}
-
-export enum OnboardingStepKey {
-    INSTALL = 'install',
-    LINK_DATA = 'link_data',
-    PLANS = 'plans',
-    VERIFY = 'verify',
-    PRODUCT_CONFIGURATION = 'configure',
-    REVERSE_PROXY = 'proxy',
-    INVITE_TEAMMATES = 'invite_teammates',
-    DASHBOARD_TEMPLATE = 'dashboard_template',
-    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
-    SESSION_REPLAY = 'session_replay',
-    AUTHORIZED_DOMAINS = 'authorized_domains',
-    SOURCE_MAPS = 'source_maps',
-    ALERTS = 'alerts',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
@@ -116,6 +100,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToPreviousStep: true,
         resetStepKey: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
+        skipOnboarding: true,
     }),
     reducers(() => ({
         productKey: [
@@ -333,6 +318,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.openSidePanel(SidePanelTab.Activation)
             }
         },
+        skipOnboarding: () => {
+            router.actions.push(values.onCompleteOnboardingRedirectUrl)
+        },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {
                 actions.resetStepKey()
@@ -347,7 +335,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             values.allOnboardingSteps[0] && actions.setStepKey(values.allOnboardingSteps[0]?.props.stepKey)
         },
     })),
-    actionToUrl(({ values }) => ({
+    actionToUrl(({ actions, values }) => ({
         setStepKey: ({ stepKey }) => {
             if (stepKey) {
                 return [`/onboarding/${values.productKey}`, { ...router.values.searchParams, step: stepKey }]
@@ -382,7 +370,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
-                return [values.onCompleteOnboardingRedirectUrl]
+                const redirectUrl = values.onCompleteOnboardingRedirectUrl
+                actions.setOnCompleteOnboardingRedirectUrl(null)
+                return [redirectUrl]
             }
         },
     })),

@@ -15,6 +15,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -26,6 +27,7 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -82,7 +84,9 @@ export function InsightsTable({
         isSingleSeries,
         hiddenLegendIndexes,
         getTrendsColor,
+        insightData,
     } = useValues(trendsDataLogic(insightProps))
+    const { weekStartDay, timezone } = useValues(teamLogic)
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
@@ -201,7 +205,11 @@ export function InsightsTable({
                 )
 
             columns.push({
-                title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
+                title: (
+                    <MultipleBreakdownColumnTitle>
+                        {extractExpressionComment(breakdown.property?.toString())}
+                    </MultipleBreakdownColumnTitle>
+                ),
                 render: (_, item) => {
                     return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
                 },
@@ -283,6 +291,9 @@ export function InsightsTable({
                     indexedResults={indexedResults}
                     compare={compareFilter?.compare}
                     interval={interval}
+                    resolvedDateRange={insightData?.resolved_date_range}
+                    timezone={timezone}
+                    weekStartDay={weekStartDay}
                 />
             ),
             render: (_, item: IndexedTrendResult) => {
@@ -292,7 +303,7 @@ export function InsightsTable({
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])
+    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     columns.push(...valueColumns)
 

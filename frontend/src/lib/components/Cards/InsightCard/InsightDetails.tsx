@@ -13,6 +13,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconCalculate } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
@@ -28,6 +29,7 @@ import {
     AnyEntityNode,
     FunnelsQuery,
     HogQLQuery,
+    HogQLVariable,
     InsightQueryNode,
     LifecycleQuery,
     Node,
@@ -95,8 +97,8 @@ function CompactPropertyFiltersDisplay({
                                             ? 'where '
                                             : null
                                         : subType === FilterLogicalOperator.Or
-                                        ? 'or '
-                                        : 'and '}
+                                          ? 'or '
+                                          : 'and '}
                                     {isCohortPropertyFilter(leafFilter) ? (
                                         <>
                                             {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
@@ -191,8 +193,8 @@ function SeriesDisplay({
         isLifecycleQuery(query)
             ? 'dau'
             : series.math
-            ? apiValueToMathType(series.math, series.math_group_type_index)
-            : 'total'
+              ? apiValueToMathType(series.math, series.math_group_type_index)
+              : 'total'
     ] as MathDefinition | undefined
 
     return (
@@ -382,6 +384,44 @@ export function PropertiesSummary({
     )
 }
 
+export function VariablesSummary({
+    variables,
+    variablesOverride,
+}: {
+    variables: Record<string, HogQLVariable> | undefined
+    variablesOverride?: Record<string, HogQLVariable>
+}): JSX.Element | null {
+    if (!variables) {
+        return null
+    }
+
+    return (
+        <section>
+            <h5>Variables</h5>
+            <div>
+                {Object.entries(variables).map(([key, variable]) => {
+                    const overrideValue = variablesOverride?.[key]?.value
+                    const hasOverride = overrideValue !== undefined && overrideValue !== variable.value
+
+                    return (
+                        <div key={key} className="flex items-center gap-2">
+                            <span>
+                                {variable.code_name}:{' '}
+                                {variable.value ? <strong>{variable.value}</strong> : <em>null</em>}
+                            </span>
+                            {hasOverride && (
+                                <LemonTag type="highlight">
+                                    Overridden: {overrideValue ? <strong>{overrideValue}</strong> : <em>null</em>}
+                                </LemonTag>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+        </section>
+    )
+}
+
 export function BreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
     if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
@@ -417,11 +457,12 @@ interface InsightDetailsProps {
         last_modified_at: string
         last_refresh: string | null
     }
+    variablesOverride?: Record<string, HogQLVariable>
 }
 
 export const InsightDetails = React.memo(
     React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
-        { query, footerInfo },
+        { query, footerInfo, variablesOverride },
         ref
     ): JSX.Element {
         // TODO: Implement summaries for HogQL query insights
@@ -430,6 +471,10 @@ export const InsightDetails = React.memo(
                 {isInsightVizNode(query) || isDataVisualizationNode(query) || isDataTableNodeWithHogQLQuery(query) ? (
                     <>
                         <SeriesSummary query={query.source} />
+                        <VariablesSummary
+                            variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
+                            variablesOverride={variablesOverride}
+                        />
                         <PropertiesSummary
                             properties={
                                 isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties

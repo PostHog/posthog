@@ -21,6 +21,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
+from django.forms.models import model_to_dict
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -204,6 +205,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
 
         query_runner = ExperimentExposuresQueryRunner(
@@ -318,6 +325,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
 
         query_runner = ExperimentExposuresQueryRunner(
@@ -496,6 +509,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -515,6 +534,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -634,6 +659,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -762,6 +793,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -844,6 +881,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -875,6 +918,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -884,3 +933,111 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.total_exposures["control"], 2)
         self.assertEqual(response.total_exposures["test"], 3)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_multiple_variant_handling_first_seen(self):
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        # Set the experiment to use first_seen handling for multiple variants
+        self.experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
+        self.experiment.save()
+
+        journeys_for(
+            {
+                "user_control_only": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_only": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                # User who sees control first, then test (should be counted as control)
+                "user_multiple_control_first": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                # User who sees test first, then control (should be counted as test)
+                "user_multiple_test_first": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-04",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+        response = query_runner.calculate()
+
+        # With first_seen handling:
+        # - user_control_only: counted in control
+        # - user_test_only: counted in test
+        # - user_multiple_control_first: counted in control (first seen variant)
+        # - user_multiple_test_first: counted in test (first seen variant)
+        self.assertEqual(response.total_exposures["control"], 2)  # user_control_only + user_multiple_control_first
+        self.assertEqual(response.total_exposures["test"], 2)  # user_test_only + user_multiple_test_first
+
+        # Verify no MULTIPLE_VARIANT_KEY appears in total_exposures for first_seen handling
+        self.assertNotIn(MULTIPLE_VARIANT_KEY, response.total_exposures)

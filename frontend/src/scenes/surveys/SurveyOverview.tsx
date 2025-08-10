@@ -1,12 +1,10 @@
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'kea-forms'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
-import { SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
 import { SurveyFormAppearance } from 'scenes/surveys/SurveyFormAppearance'
@@ -54,13 +52,34 @@ const QuestionIconMap = {
 export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
+
+    const isExternalSurvey = survey.type === SurveyType.ExternalSurvey
+
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
     return (
         <div className="flex gap-4">
             <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
                 <SurveyOption label="Display mode">
-                    {survey.type === SurveyType.API ? survey.type.toUpperCase() : capitalizeFirstLetter(survey.type)}
+                    <div className="flex flex-col">
+                        <div className="flex flex-row items-center gap-2">
+                            {SURVEY_TYPE_LABEL_MAP[survey.type]}
+                            {isExternalSurvey && <CopySurveyLink surveyId={survey.id} className="w-fit" />}
+                        </div>
+                        {isExternalSurvey && (
+                            <span>
+                                Responses are anonymous by default. To identify respondents, add the{' '}
+                                <code className="bg-surface-tertiary px-1 rounded">?distinct_id=user123</code> to the
+                                URL.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                    target="_blank"
+                                >
+                                    Check more details in the documentation
+                                </Link>
+                                .
+                            </span>
+                        )}
+                    </div>
                 </SurveyOption>
                 <SurveyOption label={pluralize(survey.questions.length, 'Question', 'Questions', false)}>
                     {survey.questions.map((q, idx) => {
@@ -108,23 +127,19 @@ export function SurveyOverview(): JSX.Element {
                         </span>
                     </SurveyOption>
                 )}
-                {featureFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES] && (
-                    <SurveyOption label="Partial responses">
-                        {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
-                    </SurveyOption>
-                )}
+                <SurveyOption label="Partial responses">
+                    {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
+                </SurveyOption>
                 <LemonDivider />
                 <SurveyDisplaySummary id={survey.id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             </dl>
             <div className="flex flex-col items-center">
                 {survey.type !== SurveyType.API ? (
-                    <div className="mt-6 px-4">
-                        <SurveyFormAppearance
-                            previewPageIndex={selectedPageIndex || 0}
-                            survey={survey}
-                            handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
-                        />
-                    </div>
+                    <SurveyFormAppearance
+                        previewPageIndex={selectedPageIndex || 0}
+                        survey={survey}
+                        handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
+                    />
                 ) : (
                     <div className="mt-2 space-y-2">
                         <div className="p-4 border rounded">

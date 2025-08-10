@@ -1,5 +1,5 @@
-import { IconArrowRightDown } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconArrowRightDown, IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 
@@ -31,6 +31,9 @@ export const BillingProductPricingTable = ({
     const { billing } = useValues(billingLogic)
     const { isSessionReplayWithAddons } = useValues(billingProductLogic({ product }))
 
+    const showProjectedTotalWithLimitTooltip =
+        'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
+
     const tableColumns: LemonTableColumns<BillingTableTierRow> = [
         {
             title: `Priced per ${product.unit}`,
@@ -46,7 +49,18 @@ export const BillingProductPricingTable = ({
                 <span className="font-bold mb-0 text-text-3000">{item.total}</span>
             ),
         },
-        { title: 'Projected Total', dataIndex: 'projectedTotal' },
+        {
+            title: showProjectedTotalWithLimitTooltip ? (
+                <Tooltip title="The projected total for the product tiers and add-ons does not account for billing limits. To see the projected total that accounts for the billing limits, see the projected amount for the whole product above.">
+                    <span>
+                        Projected Total <IconInfo className="text-muted text-sm" />
+                    </span>
+                </Tooltip>
+            ) : (
+                'Projected Total'
+            ),
+            dataIndex: 'projectedTotal',
+        },
     ]
 
     const subscribedAddons =

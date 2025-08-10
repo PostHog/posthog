@@ -1,7 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="stable",
     free=False,
     type="destination",
     id="template-june",
@@ -9,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to June.so ",
     icon_url="/static/services/june.png",
     category=["Analytics"],
-    hog="""
+    code_language="hog",
+    code="""
 let type := 'track'
 
 if (event.event in ('$identify', '$set')) {

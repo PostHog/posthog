@@ -1,8 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent, StorageExtension } from '@posthog/plugin-scaffold'
 
-import { Response, trackedFetch } from '~/src/utils/fetch'
-
-import { HogFunctionTemplate } from '../templates/types'
+import { fetch, FetchResponse } from '../../utils/request'
+import { HogFunctionTemplate } from '../types'
 
 export type LegacyPluginLogger = {
     debug: (...args: any[]) => void
@@ -24,7 +23,7 @@ export type LegacyTransformationPluginMeta = LegacyPluginMeta & {
 }
 
 export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
-    fetch: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
+    fetch: (...args: Parameters<typeof fetch>) => Promise<FetchResponse>
     storage: Pick<StorageExtension, 'get' | 'set'>
 }
 

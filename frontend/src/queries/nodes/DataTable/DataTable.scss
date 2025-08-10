@@ -3,6 +3,28 @@
         max-width: 20rem;
     }
 
+    // This style makes the sticky css fail, so we need to remove it when there are pinned columns
+    .DataTable__row:not(.DataTable__has_pinned_columns) {
+        position: relative;
+        z-index: 0;
+    }
+
+    // This style makes the sticky css fail, so we need to remove it when there are pinned columns
+    .DataTable__row td:first-child:not(.LemonTable__cell--pinned, .LemonTable__header--pinned) {
+        &::after {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: -1;
+            width: var(--data-table-fraction-fill, 0%);
+            height: 100%;
+            pointer-events: none;
+            content: '';
+            background-color: var(--color-bg-fill-info-secondary);
+            opacity: 0.5;
+        }
+    }
+
     .DataTable__row--highlight_once {
         animation: DataTable__highlight 2000ms ease-out;
     }
@@ -11,9 +33,9 @@
         height: 2rem;
         font-size: 0.75rem;
         font-weight: 600;
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
         text-align: center;
-        background-color: var(--bg-primary);
+        background-color: var(--color-bg-primary);
     }
 
     @keyframes DataTable__highlight {

@@ -1,20 +1,25 @@
-import { IconGear, IconRevert } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonInputSelect, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { IconGear, IconLaptop, IconPhone, IconRevert, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSkeleton,
+} from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import React, { useEffect, useRef } from 'react'
-import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
+import { useRef } from 'react'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
@@ -68,10 +73,10 @@ function UrlSearchHeader(): JSX.Element {
                               userIntent: 'heatmaps',
                           })
                         : hasValidReplayIframeData && replayIframeData?.url
-                        ? appEditorUrl(replayIframeData?.url, {
-                              userIntent: 'heatmaps',
-                          })
-                        : undefined
+                          ? appEditorUrl(replayIframeData?.url, {
+                                userIntent: 'heatmaps',
+                            })
+                          : undefined
                 }
                 targetBlank
                 disabledReason={!browserUrl && !hasValidReplayIframeData ? 'Select a URL first' : undefined}
@@ -160,170 +165,87 @@ function InvalidURL(): JSX.Element {
     )
 }
 
-function IframeErrorOverlay(): JSX.Element | null {
+export function ViewportChooser(): JSX.Element {
     const logic = heatmapsBrowserLogic()
-    const { iframeBanner } = useValues(logic)
-    return iframeBanner ? (
-        <div className="absolute mt-10 flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
-            <LemonBanner className="w-full" type={iframeBanner.level}>
-                {iframeBanner.message}. Your site might not allow being embedded in an iframe. You can click "Open in
-                toolbar" above to visit your site and view the heatmap there.
-            </LemonBanner>
-        </div>
-    ) : null
-}
 
-function LoadingOverlay(): JSX.Element {
-    return (
-        <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none">
-            <Spinner className="text-5xl" textColored={true} />
-        </div>
-    )
-}
-
-export function ViewportChooser({
-    setWidth,
-    selectedWidth,
-}: {
-    setWidth: (width: number | null) => void
-    selectedWidth: number | null
-}): JSX.Element {
-    const [hoveredWidth, setHoveredWidth] = React.useState<number | null>(null)
-
-    const viewports: Record<number, string> = {
-        320: 'Mobile - S (320px)',
-        375: 'Mobile - M (375px)',
-        425: 'Mobile - L (425px)',
-        768: 'Tablet (768px)',
-        1024: 'Desktop (1024px)',
-        1440: 'Desktop - L (1440px)',
-        1920: 'Desktop - XL (1920px)',
-    }
-
-    const handleWidthSelect = (width: number): void => {
-        setWidth(selectedWidth === width ? null : width)
-    }
-
-    const label =
-        hoveredWidth !== null ? (
-            <span>{viewports[hoveredWidth]}</span>
-        ) : selectedWidth !== null ? (
-            <span>{viewports[selectedWidth]}</span>
-        ) : (
-            <span>Choose viewport</span>
-        )
+    const { widthOverride } = useValues(logic)
+    const { setIframeWidth } = useActions(logic)
 
     return (
-        <div className="w-full flex flex-row items-center justify-center relative h-8 border-y rounded-0 bg-bg-light select-none overflow-hidden">
-            {Object.keys(viewports)
-                .map((width) => {
-                    const numWidth = parseInt(width)
-                    return (
-                        <div
-                            key={width}
-                            className={clsx(
-                                'absolute h-full border-l border-r cursor-pointer flex items-center justify-center px-2 text-xs transition-colors',
-                                'hover:bg-primary hover:bg-opacity-20',
-                                'left-1/2 -translate-x-1/2',
-                                selectedWidth === numWidth && 'bg-primary bg-opacity-20'
-                            )}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                width: numWidth,
-                            }}
-                            onClick={() => handleWidthSelect(numWidth)}
-                            onMouseEnter={() => setHoveredWidth(numWidth)}
-                            onMouseLeave={() => setHoveredWidth(null)}
-                        >
-                            {numWidth === 320 ? <span>{label}</span> : null}
-                        </div>
-                    )
-                })
-                .reverse()}
+        <div className="flex justify-center mb-2">
+            <LemonSegmentedButton
+                onChange={setIframeWidth}
+                value={widthOverride ? widthOverride : undefined}
+                data-attr="viewport-chooser"
+                options={[
+                    {
+                        value: 320,
+                        label: (
+                            <div className="px-1">
+                                <IconPhone />
+                                <div className="text-xs">320px</div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 375,
+                        label: (
+                            <div className="px-1">
+                                <IconPhone />
+                                <div className="text-xs">375px</div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 425,
+                        label: (
+                            <div className="px-1">
+                                <IconPhone />
+                                <div className="text-xs">425px</div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 768,
+                        label: (
+                            <div className="px-1">
+                                <IconTabletPortrait />
+                                <div className="text-xs">768px</div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 1024,
+                        label: (
+                            <div className="px-1">
+                                <IconTabletLandscape />
+                                <div className="text-xs">1024px</div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 1440,
+                        label: (
+                            <div className="px-1">
+                                <IconLaptop />
+                                <div className="text-xs">1440px</div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 1920,
+                        label: (
+                            <div className="px-1">
+                                <IconLaptop />
+                                <div className="text-xs">1920px</div>
+                            </div>
+                        ),
+                    },
+                ]}
+                size="small"
+            />
         </div>
     )
-}
-
-function EmbeddedHeatmapBrowser({
-    iframeRef,
-}: {
-    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
-}): JSX.Element | null {
-    const logic = heatmapsBrowserLogic()
-    const [widthOverride, setWidthOverride] = React.useState<number | null>(null)
-
-    const {
-        browserUrl,
-        loading,
-        iframeBanner,
-        heatmapFilters,
-        heatmapColorPalette,
-        heatmapFixedPositionMode,
-        viewportRange,
-        commonFilters,
-        filterPanelCollapsed,
-        heatmapEmpty,
-    } = useValues(logic)
-    const {
-        onIframeLoad,
-        setIframeWidth,
-        patchHeatmapFilters,
-        setHeatmapColorPalette,
-        setHeatmapFixedPositionMode,
-        setCommonFilters,
-        toggleFilterPanelCollapsed,
-    } = useActions(logic)
-
-    const embeddedFilterPanelProps = {
-        heatmapFilters,
-        heatmapColorPalette,
-        heatmapFixedPositionMode,
-        viewportRange,
-        commonFilters,
-        filterPanelCollapsed,
-        loading,
-        patchHeatmapFilters,
-        setHeatmapColorPalette,
-        setHeatmapFixedPositionMode,
-        setCommonFilters,
-        toggleFilterPanelCollapsed,
-    }
-
-    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
-    useEffect(() => {
-        if (widthOverride === null) {
-            setIframeWidth(iframeWidth ?? null)
-        }
-    }, [iframeWidth, setIframeWidth, widthOverride])
-
-    return browserUrl ? (
-        <div className="flex flex-row gap-x-2 w-full">
-            <FilterPanel {...embeddedFilterPanelProps} isEmpty={heatmapEmpty} />
-            <div className="relative flex-1 w-full h-full border-l mt-2">
-                {loading ? <LoadingOverlay /> : null}
-                {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
-                <ViewportChooser setWidth={setWidthOverride} selectedWidth={widthOverride} />
-                <div className="flex relative justify-center h-full">
-                    <iframe
-                        ref={iframeRef}
-                        className="h-full bg-white"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: widthOverride ?? '100%' }}
-                        src={appEditorUrl(browserUrl, {
-                            userIntent: 'heatmaps',
-                        })}
-                        onLoad={onIframeLoad}
-                        // these two sandbox values are necessary so that the site and toolbar can run
-                        // this is a very loose sandbox,
-                        // but we specify it so that at least other capabilities are denied
-                        sandbox="allow-scripts allow-same-origin"
-                        // we don't allow things such as camera access though
-                        allow=""
-                    />
-                </div>
-            </div>
-        </div>
-    ) : null
 }
 
 function Warnings(): JSX.Element | null {
@@ -392,7 +314,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                 ) : !isBrowserUrlValid ? (
                                     <InvalidURL />
                                 ) : (
-                                    <EmbeddedHeatmapBrowser iframeRef={iframeRef} />
+                                    <IframeHeatmapBrowser iframeRef={iframeRef} />
                                 )}
                             </>
                         ) : (

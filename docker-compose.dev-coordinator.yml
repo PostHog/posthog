@@ -156,7 +156,7 @@ services:
             - redis
             - kafka
 
-    # vector replay capture
+    # replay capture-rs
     replay-capture:
         extends:
             file: docker-compose.base.yml
@@ -217,17 +217,6 @@ services:
         depends_on:
             temporal:
                 condition: service_started
-            db:
-                condition: service_healthy
-
-    cyclotron-fetch:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-fetch
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            RUST_LOG: 'info'
-        depends_on:
             db:
                 condition: service_healthy
 

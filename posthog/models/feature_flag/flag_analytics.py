@@ -85,9 +85,9 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
             if total_decide_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
-                    team_id,
-                    "decide usage",
-                    {
+                    distinct_id=team_id,
+                    event="decide usage",
+                    properties={
                         "count": total_decide_request_count,
                         "team_id": team_id,
                         "team_uuid": team_uuid,
@@ -106,9 +106,9 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
             if total_local_evaluation_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
-                    team_id,
-                    "local evaluation usage",
-                    {
+                    distinct_id=team_id,
+                    event="local evaluation usage",
+                    properties={
                         "count": total_local_evaluation_request_count,
                         "team_id": team_id,
                         "team_uuid": team_uuid,

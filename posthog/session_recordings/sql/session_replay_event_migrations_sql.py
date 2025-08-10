@@ -156,3 +156,32 @@ ADD_LIBRARY_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_L
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
+
+# =========================
+# MIGRATION: Add block columns to support session recording v2 implementation
+# This migration adds block_url to the kafka table, and block_first_timestamps, block_last_timestamps, and block_urls
+# to the sharded, writable, and distributed session replay events tables.
+# The Kafka table only has block_url String (not arrays).
+# These columns are required for the v2 session recording implementation.
+# =========================
+
+# 1. Sharded table (physical storage)
+ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS = """
+    ALTER TABLE {table_name}
+        ADD COLUMN IF NOT EXISTS block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+        ADD COLUMN IF NOT EXISTS block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+        ADD COLUMN IF NOT EXISTS block_urls SimpleAggregateFunction(groupArrayArray, Array(String))
+"""
+ADD_BLOCK_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+# 2. Writable table (for writing to sharded table)
+ADD_BLOCK_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
+    table_name="writable_session_replay_events",
+)
+
+# 3. Distributed table (for reading)
+ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
+    table_name="session_replay_events",
+)

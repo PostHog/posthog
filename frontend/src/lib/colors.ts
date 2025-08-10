@@ -1,4 +1,4 @@
-import { captureException } from '@sentry/react'
+import posthog from 'posthog-js'
 
 import { LifecycleToggle } from '~/types'
 
@@ -51,7 +51,7 @@ export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
-        captureException(new Error(`Couldn't find color variable --${variable}`))
+        posthog.captureException(new Error(`Couldn't find color variable --${variable}`))
         // Fall back to black or white depending on the theme
         return document.body.getAttribute('theme') === 'light' ? '#000' : '#fff'
     }
@@ -114,9 +114,9 @@ export function getGraphColors(): Record<string, string | null> {
         crosshair: getColorVar('color-graph-crosshair'),
 
         // TODO: these are not used anywhere, but setting them to the correct values
-        tooltipBackground: getColorVar('bg-surface-tooltip'),
-        tooltipTitle: getColorVar('text-primary'),
-        tooltipBody: getColorVar('bg-surface-tooltip'),
+        tooltipBackground: getColorVar('color-bg-surface-tooltip'),
+        tooltipTitle: getColorVar('color-text-primary'),
+        tooltipBody: getColorVar('color-bg-surface-tooltip'),
     }
 }
 

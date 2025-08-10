@@ -1,4 +1,4 @@
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconChevronRight } from '@posthog/icons'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
@@ -20,7 +20,13 @@ const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 
 const DropdownMenuSub = DropdownMenuPrimitive.Sub
 
-const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup
+const DropdownMenuRadioGroup = React.forwardRef<
+    React.ElementRef<typeof DropdownMenuPrimitive.RadioGroup>,
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+})
+DropdownMenuRadioGroup.displayName = DropdownMenuPrimitive.RadioGroup.displayName
 
 const DropdownMenuItemIndicator = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.ItemIndicator>,
@@ -28,17 +34,20 @@ const DropdownMenuItemIndicator = React.forwardRef<
         intent: 'checkbox' | 'radio'
     }
 >(({ className, intent, ...props }, ref): JSX.Element => {
-    const classes = {
-        checkbox: '',
-        radio: 'relative',
-    }
     return (
-        <DropdownMenuPrimitive.ItemIndicator ref={ref} className={cn(classes[intent], className)} {...props}>
-            {intent === 'checkbox' && <IconCheck />}
-            {intent === 'radio' && (
-                <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-black dark:bg-white" />
-            )}
-        </DropdownMenuPrimitive.ItemIndicator>
+        // We need to make a box around the indicator to ensure when it's not "checked" it's still the same size
+        <div className="flex place-items-center size-[var(--button-height)] shrink-0">
+            <DropdownMenuPrimitive.ItemIndicator
+                ref={ref}
+                className={cn('size-full flex place-items-center shrink-0', className)}
+                {...props}
+            >
+                {intent === 'checkbox' && <IconCheck className="shrink-0" />}
+                {intent === 'radio' && (
+                    <div className="h-2 w-2 rounded-full bg-black dark:bg-white relative -translate-x-1/2 left-1/2" />
+                )}
+            </DropdownMenuPrimitive.ItemIndicator>
+        </div>
     )
 })
 DropdownMenuItemIndicator.displayName = DropdownMenuPrimitive.ItemIndicator.displayName
@@ -49,7 +58,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
         inset?: boolean
     }
 >(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
 })
 DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName
 
@@ -103,6 +112,7 @@ const DropdownMenuContent = React.forwardRef<
                         matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
                         className
                     )}
+                    loop
                     {...props}
                 >
                     <ScrollableShadows
@@ -125,7 +135,7 @@ const DropdownMenuItem = React.forwardRef<
         inset?: boolean
     }
 >(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+    return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
 })
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName
 
@@ -171,7 +181,7 @@ const DropdownMenuLabel = React.forwardRef<
     }
 >(
     ({ className, inset, children, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-8', className)} asChild {...props}>
+        <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-7', className)} asChild {...props}>
             <Label intent="menu">{children}</Label>
         </DropdownMenuPrimitive.Label>
     )
@@ -191,6 +201,27 @@ const DropdownMenuSeparator = React.forwardRef<
     )
 )
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
+
+interface DropdownMenuOpenIndicatorProps extends React.HTMLAttributes<HTMLOrSVGElement> {
+    intent?: 'default' | 'sub'
+}
+const DropdownMenuOpenIndicator = ({
+    className,
+    intent = 'default',
+    ...props
+}: DropdownMenuOpenIndicatorProps): JSX.Element => {
+    return (
+        <IconChevronRight
+            className={cn(
+                'ml-auto size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none',
+                intent === 'sub' && 'rotate-0 group-data-[state=open]/button-primitive:rotate-0',
+                className
+            )}
+            {...props}
+        />
+    )
+}
+DropdownMenuOpenIndicator.displayName = 'DropdownMenuOpenIndicator'
 
 const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>): JSX.Element => {
     return <span className={cn('ml-auto text-xs tracking-widest opacity-60', className)} {...props} />
@@ -214,4 +245,5 @@ export {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    DropdownMenuOpenIndicator,
 }

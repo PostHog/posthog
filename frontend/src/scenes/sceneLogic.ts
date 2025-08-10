@@ -1,28 +1,69 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { actions, afterMount, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { TeamMembershipLevel } from 'lib/constants'
+import { identifierToHuman, getRelativeNextPath } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import posthog from 'posthog-js'
-import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
-import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import {
+    emptySceneParams,
+    forwardedRedirectQueryParams,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
+import {
+    LoadedScene,
+    Params,
+    Scene,
+    SceneConfig,
+    SceneExport,
+    SceneParams,
+    sceneToAccessControlResourceType,
+} from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab, ProductKey } from '~/types'
+import { AccessControlLevel, PipelineTab, ProductKey, OnboardingStepKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
+import { arrayMove } from '@dnd-kit/sortable'
+import { subscriptions } from 'kea-subscriptions'
+
+export interface SceneTab {
+    id: string
+    pathname: string
+    search: string
+    hash: string
+    title: string
+    active: boolean
+}
+
+const TAB_STATE_KEY = 'scene-tabs-state'
+const persistTabs = (tabs: SceneTab[]): void => {
+    sessionStorage.setItem(TAB_STATE_KEY, JSON.stringify(tabs))
+}
+const getPersistedTabs: () => SceneTab[] | null = () => {
+    const savedTabs = sessionStorage.getItem(TAB_STATE_KEY)
+    if (savedTabs) {
+        try {
+            return JSON.parse(savedTabs)
+        } catch (e) {
+            console.error('Failed to parse saved tabs from sessionStorage:', e)
+        }
+    }
+    return null
+}
+const generateTabId = (): string => crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
 
 export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.SESSION_REPLAY]: [urls.replay()],
@@ -31,7 +72,24 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
     [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.pipeline(PipelineTab.Sources)],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
+    [ProductKey.ERROR_TRACKING]: [urls.errorTracking()],
 }
+
+const pathPrefixesOnboardingNotRequiredFor = [
+    urls.onboarding(''),
+    urls.products(),
+    '/settings',
+    urls.organizationBilling(),
+    urls.billingAuthorizationStatus(),
+    urls.wizard(),
+    '/instance',
+    urls.moveToPostHogCloud(),
+    urls.unsubscribe(),
+    urls.debugHog(),
+    urls.debugQuery(),
+    urls.activity(),
+    urls.oauthAuthorize(),
+]
 
 export const sceneLogic = kea<sceneLogicType>([
     props(
@@ -44,23 +102,17 @@ export const sceneLogic = kea<sceneLogicType>([
         logic: [router, userLogic, preflightLogic],
         actions: [
             router,
-            ['locationChanged'],
+            ['locationChanged', 'push'],
             commandBarLogic,
             ['setCommandBar'],
             inviteLogic,
             ['hideInviteModal'],
-            sourceWizardLogic,
-            ['selectConnector', 'handleRedirect', 'setStep'],
         ],
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            billingLogic,
-            ['billing'],
-            organizationLogic,
-            ['organizationBeingDeleted'],
-        ],
+        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
+    afterMount(({ cache }) => {
+        cache.mountedTabLogic = {} as Record<string, () => void>
+    }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
         else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
@@ -78,16 +130,31 @@ export const sceneLogic = kea<sceneLogicType>([
             method,
         }),
         // 3. Set the `scene` reducer
-        setScene: (scene: string, sceneKey: string | null, params: SceneParams, scrollToTop: boolean = false) => ({
+        setScene: (
+            scene: string,
+            sceneKey: string | null,
+            params: SceneParams,
+            scrollToTop: boolean = false,
+            loadedScene?: LoadedScene
+        ) => ({
             scene,
             sceneKey,
             params,
             scrollToTop,
+            loadedScene,
         }),
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
         }),
         reloadBrowserDueToImportError: true,
+
+        newTab: true,
+        setTabs: (tabs: SceneTab[]) => ({ tabs }),
+        removeTab: (tab: SceneTab) => ({ tab }),
+        activateTab: (tab: SceneTab) => ({ tab }),
+        clickOnTab: (tab: SceneTab) => ({ tab }),
+        reorderTabs: (activeId: string, overId: string) => ({ activeId, overId }),
+        cloneTab: (tab: SceneTab) => ({ tab }),
     }),
     reducers({
         scene: [
@@ -132,6 +199,78 @@ export const sceneLogic = kea<sceneLogicType>([
                 reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
+        tabs: [
+            [] as SceneTab[],
+            {
+                setTabs: (_, { tabs }) => tabs,
+                newTab: (state) => {
+                    return [
+                        ...state.map((tab) => (tab.active ? { ...tab, active: false } : tab)),
+                        {
+                            id: generateTabId(),
+                            active: true,
+                            pathname: addProjectIdIfMissing('/new'),
+                            search: '',
+                            hash: '',
+                            title: 'New tab',
+                        },
+                    ]
+                },
+                removeTab: (state, { tab }) => {
+                    let index = state.findIndex((t) => t === tab)
+                    if (index === -1) {
+                        console.error('Tab to remove not found', tab)
+                        return state
+                    }
+                    let newState = state.filter((_, i) => i !== index)
+                    if (!newState.find((t) => t.active)) {
+                        const newActiveIndex = Math.max(index - 1, 0)
+                        newState = newState.map((tab, i) => (i === newActiveIndex ? { ...tab, active: true } : tab))
+                    }
+                    return newState
+                },
+                activateTab: (state, { tab }) => {
+                    const newState = state.map((t) =>
+                        t === tab
+                            ? !t.active
+                                ? { ...t, active: true }
+                                : t
+                            : t.active
+                              ? {
+                                    ...t,
+                                    active: false,
+                                }
+                              : t
+                    )
+                    return newState
+                },
+                reorderTabs: (state, { activeId, overId }) => {
+                    const oldIndex = state.findIndex((t) => t.id === activeId)
+                    const newIndex = state.findIndex((t) => t.id === overId)
+                    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) {
+                        return state
+                    }
+                    return arrayMove(state, oldIndex, newIndex)
+                },
+                cloneTab: (state, { tab }) => {
+                    const idx = state.findIndex((t) => t === tab || t.id === tab.id)
+                    const base = state.map((t) => (t.active ? { ...t, active: false } : t))
+                    const source = idx !== -1 ? state[idx] : tab
+
+                    const cloned: SceneTab = {
+                        ...source,
+                        id: generateTabId(),
+                        active: true,
+                    }
+
+                    if (idx === -1) {
+                        // If for some reason we didn't find the tab, just append
+                        return [...base, cloned]
+                    }
+                    return [...base.slice(0, idx + 1), cloned, ...base.slice(idx + 1)]
+                },
+            },
+        ],
     }),
     selectors({
         sceneConfig: [
@@ -143,7 +282,24 @@ export const sceneLogic = kea<sceneLogicType>([
         activeScene: [
             (s) => [s.scene, teamLogic.selectors.isCurrentTeamUnavailable],
             (scene, isCurrentTeamUnavailable) => {
-                return isCurrentTeamUnavailable && scene && sceneConfigurations[scene]?.projectBased
+                const effectiveResourceAccessControl = window.POSTHOG_APP_CONTEXT?.effective_resource_access_control
+
+                // Get the access control resource type for the current scene
+                const sceneAccessControlResource = scene ? sceneToAccessControlResourceType[scene as Scene] : null
+
+                // Check if the user has effective access to this resource (includes specific object access)
+                if (
+                    sceneAccessControlResource &&
+                    effectiveResourceAccessControl &&
+                    effectiveResourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
+                ) {
+                    return Scene.ErrorAccessDenied
+                }
+
+                return isCurrentTeamUnavailable &&
+                    scene &&
+                    sceneConfigurations[scene]?.projectBased &&
+                    location.pathname !== urls.settings('user-danger-zone')
                     ? Scene.ErrorProjectUnavailable
                     : scene
             },
@@ -158,18 +314,189 @@ export const sceneLogic = kea<sceneLogicType>([
                 activeLoadedScene?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
         ],
         activeSceneLogic: [
-            (s) => [s.activeLoadedScene, s.sceneParams],
-            (activeLoadedScene, sceneParams): BuiltLogic | null =>
-                activeLoadedScene?.logic
-                    ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {})
-                    : null,
+            (s) => [s.activeLoadedScene, s.sceneParams, s.activeTabId],
+            (activeLoadedScene, sceneParams, activeTabId): BuiltLogic | null => {
+                return activeLoadedScene?.logic
+                    ? activeLoadedScene.logic.build({
+                          ...activeLoadedScene.paramsToProps?.(sceneParams),
+                          tabId: activeTabId,
+                      })
+                    : null
+            },
         ],
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
+        productFromUrl: [
+            () => [router.selectors.location],
+            (location: Location): ProductKey | null => {
+                const pathname = location.pathname
+                for (const [productKey, urls] of Object.entries(productUrlMapping)) {
+                    if (urls.some((url) => pathname.includes(url))) {
+                        return productKey as ProductKey
+                    }
+                }
+                return null
+            },
+        ],
+        activeTab: [
+            (s) => [s.tabs],
+            (tabs: SceneTab[]): SceneTab | null => {
+                return tabs.find((tab) => tab.active) || null
+            },
+        ],
+        activeTabId: [
+            (s) => [s.activeTab],
+            (activeTab: SceneTab | null): string | null => {
+                return activeTab ? activeTab.id : null
+            },
+        ],
+        tabIds: [
+            (s) => [s.tabs],
+            (tabs: SceneTab[]): Record<string, boolean> => {
+                return tabs.reduce(
+                    (acc, tab) => {
+                        acc[tab.id] = true
+                        return acc
+                    },
+                    {} as Record<string, boolean>
+                )
+            },
+        ],
+        title: [
+            (s) => [
+                // We're effectively passing the selector through to the scene logic, and "recalculating"
+                // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
+                (state, props): string => {
+                    const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
+                    if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
+                        try {
+                            const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                            const bc = activeSceneLogic.selectors.breadcrumbs(
+                                state,
+                                activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                            )
+                            return bc.length > 0 ? bc[bc.length - 1].name : '...'
+                        } catch {
+                            // If the breadcrumb selector fails, we'll just ignore it and return a placeholder value below
+                        }
+                    }
+
+                    const activeScene = s.activeScene(state, props)
+                    if (activeScene) {
+                        const sceneConfig = s.sceneConfig(state, props)
+                        return sceneConfig?.name ?? identifierToHuman(activeScene)
+                    }
+                    return '...'
+                },
+            ],
+            (title): string => title,
+        ],
     }),
-    listeners(({ values, actions, props, selectors }) => ({
-        setScene: ({ scene, scrollToTop }, _, __, previousState) => {
+    listeners(({ values, actions, cache, props, selectors }) => ({
+        newTab: () => {
+            persistTabs(values.tabs)
+            router.actions.push(urls.newTab())
+        },
+        setTabs: () => persistTabs(values.tabs),
+        activateTab: () => persistTabs(values.tabs),
+        removeTab: ({ tab }) => {
+            if (tab.active) {
+                // values.activeTab will already be the new active tab from the reducer
+                const { activeTab } = values
+                if (activeTab) {
+                    router.actions.push(activeTab.pathname, activeTab.search, activeTab.hash)
+                } else {
+                    persistTabs(values.tabs)
+                }
+            } else {
+                persistTabs(values.tabs)
+            }
+        },
+        clickOnTab: ({ tab }) => {
+            if (!tab.active) {
+                actions.activateTab(tab)
+            }
+            router.actions.push(tab.pathname, tab.search, tab.hash)
+            persistTabs(values.tabs)
+        },
+        reorderTabs: () => {
+            persistTabs(values.tabs)
+        },
+        push: ({ url, hashInput, searchInput }) => {
+            let { pathname, search, hash } = combineUrl(url, searchInput, hashInput)
+            pathname = addProjectIdIfMissing(pathname)
+
+            const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
+            if (activeTabIndex !== -1) {
+                const newTabs = values.tabs.map((tab, i) =>
+                    i === activeTabIndex
+                        ? { ...tab, active: true, pathname, search, hash }
+                        : tab.active
+                          ? {
+                                ...tab,
+                                active: false,
+                            }
+                          : tab
+                )
+                actions.setTabs(newTabs)
+            } else {
+                actions.setTabs([
+                    ...values.tabs,
+                    { id: generateTabId(), active: true, pathname, search, hash, title: 'Loading...' },
+                ])
+            }
+            persistTabs(values.tabs)
+        },
+        locationChanged: ({ pathname, search, hash, routerState, method }) => {
+            pathname = addProjectIdIfMissing(pathname)
+            if (routerState?.tabs && method !== 'PUSH') {
+                actions.setTabs(routerState.tabs)
+                return
+            }
+            const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
+            if (activeTabIndex !== -1) {
+                actions.setTabs(
+                    values.tabs.map((tab, i) =>
+                        i === activeTabIndex
+                            ? { ...tab, active: true, pathname, search, hash }
+                            : tab.active
+                              ? {
+                                    ...tab,
+                                    active: false,
+                                }
+                              : tab
+                    )
+                )
+            } else {
+                actions.setTabs([
+                    ...values.tabs,
+                    { id: generateTabId(), active: true, pathname, search, hash, title: 'Loading...' },
+                ])
+            }
+            persistTabs(values.tabs)
+
+            // Open search or command bar
+            const params = new URLSearchParams(search)
+            const searchBar = params.get('searchBar')
+            const commandBar = params.get('commandBar')
+
+            if (searchBar !== null) {
+                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
+                params.delete('searchBar')
+                router.actions.replace(pathname, params, hash)
+            } else if (commandBar !== null) {
+                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
+                params.delete('commandBar')
+                router.actions.replace(pathname, params, hash)
+            }
+
+            // Remove trailing slash
+            if (pathname !== '/' && pathname.endsWith('/')) {
+                router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
+            }
+        },
+        setScene: ({ scene, loadedScene, params, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
 
             // if we clicked on a link, scroll to top
@@ -177,17 +504,25 @@ export const sceneLogic = kea<sceneLogicType>([
             if (scrollToTop && scene !== previousScene) {
                 window.scrollTo(0, 0)
             }
+
+            const activeTabId = values.activeTabId
+            if (!activeTabId) {
+                console.warn('No active tab found when setting scene logic')
+                return
+            }
+            const unmount = cache.mountedTabLogic[activeTabId]
+            if (unmount) {
+                window.setTimeout(unmount, 50)
+                delete cache.mountedTabLogic[activeTabId]
+            }
+            if (loadedScene?.logic) {
+                cache.mountedTabLogic[activeTabId] = loadedScene?.logic(loadedScene?.paramsToProps?.(params)).mount()
+            }
         },
         openScene: ({ scene, sceneKey, params, method }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
-
-            if (params.searchParams?.organizationDeleted && !organizationLogic.values.organizationBeingDeleted) {
-                lemonToast.success('Organization has been deleted')
-                router.actions.push(urls.default())
-                return
-            }
 
             if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
@@ -201,14 +536,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             if (scene === Scene.MoveToPostHogCloud && preflight?.cloud) {
                 router.actions.replace(urls.projectHomepage())
-                return
-            }
-
-            // Redirect to the scene's canonical pathname if needed
-            const currentPathname = router.values.location.pathname
-            const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
-            if (currentPathname !== canonicalPathname) {
-                router.actions.replace(canonicalPathname, router.values.searchParams, router.values.hashParams)
                 return
             }
 
@@ -226,7 +553,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 // Redirect to org/project creation if there's no org/project respectively, unless using invite
                 if (scene !== Scene.InviteSignup) {
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
-                        if (location.pathname !== urls.organizationCreateFirst()) {
+                        if (
+                            location.pathname !== urls.organizationCreateFirst() &&
+                            location.pathname !== urls.settings('user-danger-zone')
+                        ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
                             return
@@ -248,27 +578,30 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        ![
-                            urls.onboarding(''),
-                            urls.products(),
-                            '/settings',
-                            urls.organizationBilling(),
-                            urls.wizard(),
-                        ].some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
+                        !pathPrefixesOnboardingNotRequiredFor.some((path) =>
+                            removeProjectIdIfPresent(location.pathname).startsWith(path)
+                        )
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (
                             !teamLogic.values.hasOnboardedAnyProduct &&
-                            !allProductUrls.some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
+                            !allProductUrls.some((path) =>
+                                removeProjectIdIfPresent(location.pathname).startsWith(path)
+                            ) &&
+                            !teamLogic.values.currentTeam?.ingested_event
                         ) {
                             console.warn('No onboarding completed, redirecting to /products')
-                            router.actions.replace(urls.products())
+
+                            const nextUrl =
+                                getRelativeNextPath(params.searchParams.next, location) ??
+                                removeProjectIdIfPresent(location.pathname)
+
+                            router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
                             return
                         }
 
-                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key: string) =>
-                            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-                            (Object.values(productUrlMapping[key]) as string[]).some(
+                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key) =>
+                            productUrlMapping[key as ProductKey]?.some(
                                 (path: string) =>
                                     removeProjectIdIfPresent(location.pathname).startsWith(path) &&
                                     !path.startsWith('/projects')
@@ -281,29 +614,15 @@ export const sceneLogic = kea<sceneLogicType>([
                             !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
                             // cloud mode? What is the experience for self-hosted?
                         ) {
-                            if (!teamLogic.values.hasOnboardedAnyProduct) {
+                            if (
+                                !teamLogic.values.hasOnboardedAnyProduct &&
+                                !teamLogic.values.currentTeam?.ingested_event
+                            ) {
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
 
-                                if (
-                                    scene === Scene.PipelineNodeNew &&
-                                    params.searchParams.kind == 'hubspot' &&
-                                    params.searchParams.code
-                                ) {
-                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                                    actions.handleRedirect(params.searchParams.kind, {
-                                        code: params.searchParams.code,
-                                    })
-                                    actions.setStep(2)
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
-                                    )
-                                } else {
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                }
+                                router.actions.replace(urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL))
                                 return
                             }
                         }
@@ -316,12 +635,12 @@ export const sceneLogic = kea<sceneLogicType>([
         loadScene: async ({ scene, sceneKey, params, method }, breakpoint) => {
             const clickedLink = method === 'PUSH'
             if (values.scene === scene) {
-                actions.setScene(scene, sceneKey, params, clickedLink)
+                actions.setScene(scene, sceneKey, params, clickedLink, values.loadedScenes[scene])
                 return
             }
 
             if (!props.scenes?.[scene]) {
-                actions.setScene(Scene.Error404, null, emptySceneParams, clickedLink)
+                actions.setScene(Scene.Error404, null, emptySceneParams, clickedLink, values.loadedScenes[scene])
                 return
             }
 
@@ -357,7 +676,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                breakpoint()
+                if (values.scene !== scene) {
+                    breakpoint()
+                }
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
@@ -399,38 +720,39 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
             }
-            actions.setScene(scene, sceneKey, params, clickedLink || wasNotLoaded)
+            actions.setScene(scene, sceneKey, params, clickedLink || wasNotLoaded, loadedScene)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
         },
-        locationChanged: () => {
-            const {
-                location: { pathname, search, hash },
-            } = router.values
-
-            // Open search or command bar
-            const params = new URLSearchParams(search)
-            const searchBar = params.get('searchBar')
-            const commandBar = params.get('commandBar')
-
-            if (searchBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
-                params.delete('searchBar')
-                router.actions.replace(pathname, params, hash)
-            } else if (commandBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
-                params.delete('commandBar')
-                router.actions.replace(pathname, params, hash)
-            }
-
-            // Remove trailing slash
-            if (pathname !== '/' && pathname.endsWith('/')) {
-                router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
-            }
-        },
     })),
-    urlToAction(({ actions, values }) => {
+
+    // keep this above subscriptions
+    afterMount(({ actions, cache, values }) => {
+        if (!cache.tabsLoaded) {
+            const savedTabs = getPersistedTabs()
+            const withIds = savedTabs?.map((t) => (t.id ? t : { ...t, id: generateTabId() }))
+            if (withIds) {
+                actions.setTabs(withIds)
+            }
+            cache.tabsLoaded = true
+        }
+        if (values.tabs.length === 0) {
+            const { currentLocation } = router.values
+            actions.setTabs([
+                {
+                    id: generateTabId(),
+                    active: true,
+                    pathname: currentLocation.pathname,
+                    search: currentLocation.search,
+                    hash: currentLocation.hash,
+                    title: 'Loading...',
+                },
+            ])
+        }
+    }),
+
+    urlToAction(({ actions }) => {
         const mapping: Record<
             string,
             (
@@ -446,23 +768,17 @@ export const sceneLogic = kea<sceneLogicType>([
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params, searchParams, hashParams) => {
                 const redirect = redirects[path]
-                router.actions.replace(
+                const redirectUrl =
                     typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+
+                router.actions.replace(
+                    withForwardedSearchParams(redirectUrl, searchParams, forwardedRedirectQueryParams)
                 )
             }
         }
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            if (
-                values.featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] &&
-                scene === Scene.PersonsManagement &&
-                path === urls.groups(':groupTypeIndex')
-            ) {
-                mapping[path] = (params, searchParams, hashParams, { method }) =>
-                    actions.openScene(Scene.Groups, 'groups', { params, searchParams, hashParams }, method)
-            } else {
-                mapping[path] = (params, searchParams, hashParams, { method }) =>
-                    actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
-            }
+            mapping[path] = (params, searchParams, hashParams, { method }) =>
+                actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
         }
 
         mapping['/*'] = (_, __, { method }) => {
@@ -471,4 +787,47 @@ export const sceneLogic = kea<sceneLogicType>([
 
         return mapping
     }),
+
+    subscriptions(({ actions, values, cache }) => ({
+        title: (title) => {
+            const activeIndex = values.tabs.findIndex((t) => t.active)
+            if (activeIndex === -1) {
+                const { currentLocation } = router.values
+                actions.setTabs([
+                    {
+                        id: generateTabId(),
+                        active: true,
+                        pathname: currentLocation.pathname,
+                        search: currentLocation.search,
+                        hash: currentLocation.hash,
+                        title: title || 'Loading...',
+                    },
+                ])
+            } else {
+                if (!title || title === '...' || title === 'Loading...') {
+                    // When the tab is loading, don't flicker between the loaded title and the new one
+                    return
+                }
+                const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title } : tab))
+                actions.setTabs(newTabs)
+            }
+            router.actions.refreshRouterState()
+        },
+        tabs: () => {
+            const { tabIds } = values
+            for (const id of Object.keys(cache.mountedTabLogic)) {
+                if (!tabIds[id]) {
+                    const mountedTabLogic = cache.mountedTabLogic[id]
+                    if (mountedTabLogic) {
+                        try {
+                            mountedTabLogic.unmount()
+                        } catch (error) {
+                            console.error('Error unmounting tab logic:', error)
+                        }
+                    }
+                    delete cache.mountedTabLogic[id]
+                }
+            }
+        },
+    })),
 ])

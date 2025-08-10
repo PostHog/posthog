@@ -5,7 +5,6 @@ interface AutoTabProps {
     onChange: React.ChangeEventHandler<HTMLInputElement>
     onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
     onBlur: React.FocusEventHandler<HTMLInputElement>
-    handleRename: () => void
     autoFocus?: boolean
 }
 
@@ -13,7 +12,7 @@ interface AutoTabProps {
  * Tab component that automatically resizes an input field to match the width of its content based upon
  * the width of a hidden span element.
  */
-const AutoTab = ({ value, onChange, onKeyDown, onBlur, autoFocus, handleRename }: AutoTabProps): JSX.Element => {
+const AutoTab = ({ value, onChange, onKeyDown, onBlur, autoFocus }: AutoTabProps): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
     const spanRef = useRef<HTMLSpanElement>(null)
 
@@ -27,7 +26,6 @@ const AutoTab = ({ value, onChange, onKeyDown, onBlur, autoFocus, handleRename }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
         onChange(e)
-        handleRename()
     }
 
     return (

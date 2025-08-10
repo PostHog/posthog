@@ -80,7 +80,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
             (s) => [s.lastLocals],
             (lastLocals): Record<string, any> | undefined => {
                 if (lastLocals) {
-                    return lastLocals.reduce((acc, local) => ({ ...acc, [local[0]]: 'local' }), {})
+                    return lastLocals.reduce((acc, local) => Object.assign(acc, { [local[0]]: 'local' }), {})
                 }
                 return undefined
             },
@@ -158,8 +158,8 @@ export const hogReplLogic = kea<hogReplLogicType>([
                     result.result !== undefined
                         ? result.result
                         : (result.state?.stack?.length ?? 0) > 0
-                        ? result.state?.stack?.[result.state.stack.length - 1]
-                        : 'null'
+                          ? result.state?.stack?.[result.state.stack.length - 1]
+                          : 'null'
                 actions.setResult(index, response)
                 actions.setVMState(index, result.state)
             } catch (error: any) {

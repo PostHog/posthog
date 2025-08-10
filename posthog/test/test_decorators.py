@@ -119,7 +119,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is False
 
     def test_discards_stale_hourly_result(self) -> None:
-        with freeze_time("2023-02-08T13:00:00Z"):
+        with freeze_time("2023-02-08T13:06:00Z"):
             filter = Filter(data={"interval": "hour"})
 
             stale = is_stale_filter(self.team, filter, self.cached_response)
@@ -230,7 +230,7 @@ class TestIsStaleHelper(BaseTest):
             assert stale is False
 
     def test_discards_stale_retention_hourly_result(self) -> None:
-        with freeze_time("2023-02-08T13:00:00Z"):
+        with freeze_time("2023-02-08T13:06:00Z"):
             filter = RetentionFilter(data={"period": "Hour"})
 
             stale = is_stale_filter(self.team, filter, self.cached_response)

@@ -53,7 +53,6 @@ import {
 import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { insightSceneLogic } from '../insightSceneLogic'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {
@@ -122,7 +121,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
-        actions: [insightDataLogic(props), ['setQuery'], insightSceneLogic, ['setOpenedWithQuery']],
+        actions: [insightDataLogic(props), ['setQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
@@ -198,6 +197,22 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
+                    ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+                        ? [
+                              {
+                                  label: (
+                                      <>
+                                          Calendar heatmap
+                                          <LemonTag type="warning" className="uppercase ml-2">
+                                              Beta
+                                          </LemonTag>
+                                      </>
+                                  ),
+                                  type: InsightType.CALENDAR_HEATMAP,
+                                  dataAttr: 'insight-calendar-heatmap-tab',
+                              },
+                          ]
+                        : []),
                 ]
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
@@ -247,10 +262,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         ? mergeCachedProperties(query.source, values.queryPropertyCache)
                         : query.source,
                 } as InsightVizNode)
-                actions.setOpenedWithQuery(query)
             } else {
                 actions.setQuery(query)
-                actions.setOpenedWithQuery(query)
             }
         },
         setQuery: ({ query }) => {
@@ -317,8 +330,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.None
+                      ? MathAvailability.ActorsOnly
+                      : MathAvailability.None
                 mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
         }
@@ -372,6 +385,13 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                     ...cache.breakdownFilter,
                     breakdowns: undefined,
                 }
+            }
+        }
+
+        if (isRetentionQuery(query) && cache.breakdownFilter?.breakdowns) {
+            mergedQuery.breakdownFilter = {
+                ...query.breakdownFilter,
+                breakdowns: cache.breakdownFilter.breakdowns.filter((b) => b.type === 'person' || b.type === 'event'),
             }
         }
     }

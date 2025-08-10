@@ -49,18 +49,21 @@ function toElementsChain(element: HTMLElement): ElementType[] {
             ({
                 attr_class: element.getAttribute('class')?.split(' '),
                 attr_id: element.getAttribute('id') || undefined,
-                attributes: Array.from(element.attributes).reduce((acc, attr) => {
-                    if (!acc[attr.name]) {
-                        acc[attr.name] = attr.value
-                    } else {
-                        acc[attr.name] += ` ${attr.value}`
-                    }
-                    return acc
-                }, {} as Record<string, string>),
+                attributes: Array.from(element.attributes).reduce(
+                    (acc, attr) => {
+                        if (!acc[attr.name]) {
+                            acc[attr.name] = attr.value
+                        } else {
+                            acc[attr.name] += ` ${attr.value}`
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                ),
                 href: element.getAttribute('href') || undefined,
                 tag_name: element.tagName.toLowerCase(),
                 text: index === 0 ? element.innerText : undefined,
-            } as ElementType)
+            }) as ElementType
     )
 }
 
@@ -76,7 +79,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
         incrementCounter: true,
         saveAction: (formValues: ActionForm) => ({ formValues }),
-        deleteAction: true,
         showButtonActions: true,
         hideButtonActions: true,
         setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
@@ -366,17 +368,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
 
                 actions.setActionFormValue('steps', newSteps)
                 actions.incrementCounter()
-            }
-        },
-        deleteAction: async () => {
-            const { selectedActionId, apiURL, temporaryToken } = values
-            if (selectedActionId && selectedActionId !== 'new') {
-                await api.delete(
-                    `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`
-                )
-                actionsLogic.actions.deleteAction({ id: selectedActionId })
-                actions.selectAction(null)
-                lemonToast.info('Action deleted')
             }
         },
         showButtonActions: () => {

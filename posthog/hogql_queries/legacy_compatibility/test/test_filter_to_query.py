@@ -1532,7 +1532,6 @@ class TestFilterToQuery(BaseTest):
                     "custom_name": None,
                     "order": None,
                 },
-                showMean=True,
                 meanRetentionCalculation="simple",
                 cumulative=True,
             ),

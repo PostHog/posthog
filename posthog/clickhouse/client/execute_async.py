@@ -3,7 +3,6 @@ import uuid
 from typing import TYPE_CHECKING, Optional
 
 import orjson as json
-import sentry_sdk
 import structlog
 from prometheus_client import Histogram
 from pydantic import BaseModel
@@ -18,6 +17,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.tasks.tasks import process_query_task
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -148,6 +148,7 @@ def execute_process_query(
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
 ):
+    tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
 
     from posthog.api.services.query import ExecutionMode, process_query_dict
@@ -155,15 +156,12 @@ def execute_process_query(
     from posthog.models.user import User
 
     team = Team.objects.get(pk=team_id)
-    sentry_sdk.set_tag("team_id", team_id)
-
     is_staff_user = False
 
     user = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
-        sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
 
     query_status = manager.get_query_status()
 
@@ -185,7 +183,6 @@ def execute_process_query(
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
     try:
-        tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
         results = process_query_dict(
             team=team,
             query_json=query_json,
@@ -213,7 +210,7 @@ def execute_process_query(
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        sentry_sdk.capture_exception(err)
+        capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)

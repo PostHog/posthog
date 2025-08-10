@@ -25,7 +25,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
         <>
             {cohort.filters.properties.values.map((group, groupIndex) =>
                 isCohortCriteriaGroup(group) ? (
-                    <Group key={groupIndex} name={['filters', 'properties', 'values', groupIndex]}>
+                    <Group key={group.sort_key ?? groupIndex} name={['filters', 'properties', 'values', groupIndex]}>
                         {groupIndex !== 0 && (
                             <div className="CohortCriteriaGroups__matching-group__logical-divider">
                                 {cohort.filters.properties.type}
@@ -75,7 +75,10 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                             <>
                                 {group.values.map((criteria, criteriaIndex) => {
                                     return isCohortCriteriaGroup(criteria) ? null : (
-                                        <Group key={criteriaIndex} name={['values', criteriaIndex]}>
+                                        <Group
+                                            key={criteria.sort_key ?? criteriaIndex}
+                                            name={['values', criteriaIndex]}
+                                        >
                                             <CohortCriteriaRowBuilder
                                                 id={logicProps.id}
                                                 groupIndex={groupIndex}

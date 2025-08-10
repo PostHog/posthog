@@ -2,9 +2,10 @@ const { readFileSync } = require('fs')
 const { DateTime } = require('luxon')
 const { join } = require('path')
 
+// eslint-disable-next-line no-restricted-imports
 import fetch from 'node-fetch'
 
-import { logger } from './src/utils/logger'
+import { logger, shutdownLogger } from './src/utils/logger'
 
 // Setup spies on the logger for all tests to use
 
@@ -12,6 +13,12 @@ jest.mock('node-fetch', () => ({
     __esModule: true,
     ...jest.requireActual('node-fetch'), // Only mock fetch(), leave Request, Response, FetchError, etc. alone
     default: jest.fn(),
+}))
+
+jest.mock('undici', () => ({
+    __esModule: true,
+    ...jest.requireActual('undici'), // Only mock fetch(), leave Request, Response, FetchError, etc. alone
+    fetch: jest.spyOn(jest.requireActual('undici'), 'fetch'),
 }))
 
 beforeEach(() => {
@@ -92,4 +99,9 @@ beforeAll(() => {
     jest.spyOn(process, 'exit').mockImplementation((number) => {
         throw new Error('process.exit: ' + number)
     })
+})
+
+afterAll(async () => {
+    // Shutdown logger to prevent Jest from hanging on open handles
+    await shutdownLogger()
 })

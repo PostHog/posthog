@@ -15,7 +15,6 @@ import type { destinationsFiltersLogicType } from './destinationsFiltersLogicTyp
 export type DestinationsFilters = {
     search?: string
     kind?: PipelineBackend | null
-    sub_template?: string
     showPaused?: boolean
 }
 
@@ -98,7 +97,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => [
             router.values.location.pathname,
             {
@@ -117,7 +116,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        ['*']: (_, searchParams) => {
+        ['/pipeline/*']: (_, searchParams) => {
             if (!objectsEqual(values.filters, searchParams)) {
                 actions.setFilters(searchParams)
             }

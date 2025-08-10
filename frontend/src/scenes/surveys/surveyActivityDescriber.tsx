@@ -191,6 +191,12 @@ const surveyActionsMapping: Record<
             zIndex: 'survey form zIndex',
             fontFamily: 'font family',
             disabledButtonOpacity: 'disabled button opacity',
+            boxPadding: 'box padding',
+            boxShadow: 'box shadow',
+            borderRadius: 'border radius',
+            maxWidth: 'max width',
+            textSubtleColor: 'text subtle color',
+            inputBackground: 'input background',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {
@@ -542,7 +548,7 @@ export function describeRatingChanges([before, after]: [RatingSurveyQuestion, Ra
 
 export function describeMultipleChoiceChanges([before, after]: [
     MultipleSurveyQuestion,
-    MultipleSurveyQuestion
+    MultipleSurveyQuestion,
 ]): JSX.Element[] {
     const changes: JSX.Element[] = []
     if (JSON.stringify(before.choices) !== JSON.stringify(after.choices)) {

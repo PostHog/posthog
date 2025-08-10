@@ -55,6 +55,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
+        setGenerationsColumns: (columns: string[]) => ({ columns }),
         setTracesQuery: (query: DataTableNode) => ({ query }),
         refreshAllDashboardItems: true,
         setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
@@ -99,6 +100,14 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             null as DataTableNode | null,
             {
                 setGenerationsQuery: (_, { query }) => query,
+            },
+        ],
+
+        generationsColumns: [
+            null as string[] | null,
+            { persist: true },
+            {
+                setGenerationsColumns: (_, { columns }) => columns,
             },
         ],
 
@@ -157,6 +166,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     return 'traces'
                 } else if (sceneKey === 'llmObservabilityUsers') {
                     return 'users'
+                } else if (sceneKey === 'llmObservabilityPlayground') {
+                    return 'playground'
                 }
                 return 'dashboard'
             },
@@ -226,6 +237,20 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         insightProps: {
                             dashboardItemId: `new-generations-query`,
                         },
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                const dayStart = dayjs(series.day).startOf('day')
+
+                                router.actions.push(urls.llmObservabilityUsers(), {
+                                    ...router.values.searchParams,
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                })
+                            }
+                        },
                     },
                 },
                 {
@@ -253,7 +278,12 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     context: {
                         groupTypeLabel: 'traces',
                         onDataPointClick: () => {
-                            router.actions.push(urls.llmObservabilityTraces(), router.values.searchParams)
+                            router.actions.push(urls.llmObservabilityTraces(), {
+                                ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
+                            })
                         },
                     },
                 },
@@ -293,6 +323,20 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         insightProps: {
                             dashboardItemId: `new-cost-per-user-query`,
                         },
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                const dayStart = dayjs(series.day).startOf('day')
+
+                                router.actions.push(urls.llmObservabilityUsers(), {
+                                    ...router.values.searchParams,
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                })
+                            }
+                        },
                     },
                 },
                 {
@@ -327,6 +371,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         onDataPointClick: ({ breakdown }) => {
                             router.actions.push(urls.llmObservabilityTraces(), {
                                 ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
                                 filters: [
                                     ...(router.values.searchParams.filters || []),
                                     {
@@ -454,6 +501,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         onDataPointClick: (series) => {
                             router.actions.push(urls.llmObservabilityGenerations(), {
                                 ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
                                 filters: [
                                     ...(router.values.searchParams.filters || []),
                                     {
@@ -518,14 +568,20 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                s.generationsColumns,
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+            (
+                dateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                generationsColumns,
+                groupsTaxonomicTypes
+            ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.EventsQuery,
-                    select: [
-                        '*',
+                    select: generationsColumns || [
                         'uuid',
                         'properties.$ai_trace_id',
                         'person',
@@ -650,6 +706,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             [urls.llmObservabilityGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 

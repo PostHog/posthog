@@ -187,7 +187,8 @@ describe('cohortsModel', () => {
 
     describe('selectors', () => {
         it('correctly calculates pagination values', async () => {
-            // Wait for initial load
+            router.actions.push(urls.cohorts())
+            // Wait for the initial load
             await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
 
             await expectLogic(logic).toMatchValues({

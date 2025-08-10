@@ -160,7 +160,8 @@
             },
             "presentation": {
                 "group": "main"
-            }
+            },
+            "envFile": "${workspaceFolder}/.env"
         },
         {
             "name": "Temporal Worker",
@@ -193,7 +194,8 @@
             "module": "pytest",
             "args": ["${file}", "-vvv"],
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/.env"
         },
         {
             "name": "Frontend: Debug Jest Tests",

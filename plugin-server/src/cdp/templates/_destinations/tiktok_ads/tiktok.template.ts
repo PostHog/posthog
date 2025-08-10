@@ -1,15 +1,80 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionInputSchemaType } from '~/cdp/types'
+import { HogFunctionTemplate } from '~/cdp/types'
+
+const build_inputs = (multiProductEvent = false): HogFunctionInputSchemaType[] => {
+    return [
+        {
+            key: 'eventId',
+            type: 'string',
+            label: 'Event ID',
+            description: 'The ID of the event.',
+            default: '{event.uuid}',
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'eventTimestamp',
+            type: 'string',
+            label: 'Event timestamp',
+            description: 'A Unix timestamp in seconds indicating when the actual event occurred.',
+            default: '{toUnixTimestamp(event.timestamp)}',
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'propertyProperties',
+            type: 'dictionary',
+            label: 'Property properties',
+            description:
+                'A map that contains customer information data. See this page for options: https://business-api.tiktok.com/portal/docs?id=1771101151059969#item-link-properties%20parameters',
+            default: {
+                content_ids: multiProductEvent
+                    ? '{arrayMap(x -> x.sku, event.properties.products ?? [])}'
+                    : '{not empty(event.properties.sku) ? [event.properties.sku] : []}',
+                contents: multiProductEvent
+                    ? "{arrayMap(x -> ({'price': x.price, 'content_id': x.sku, 'content_category': x.category, 'content_name': x.name, 'brand': x.brand}), event.properties.products ?? [])}"
+                    : "{(not empty(event.properties.sku) and not empty(event.properties.price) and not empty(event.properties.category) and not empty(event.properties.name) and not empty(event.properties.brand) ? [{'price': event.properties.price, 'content_id': event.properties.sku, 'content_category': event.properties.category, 'content_name': event.properties.name, 'brand': event.properties.brand}] : [])}",
+                content_type: 'product',
+                currency: "{event.properties.currency ?? 'USD'}",
+                value: '{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}',
+                num_items: multiProductEvent
+                    ? '{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}'
+                    : '{event.properties.quantity}',
+                search_string: '{event.properties.query}',
+                description: '',
+                order_id: '{event.properties.order_id}',
+                shop_id: '{event.properties.shop_id}',
+            },
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'pageProperties',
+            type: 'dictionary',
+            label: 'Page properties',
+            description:
+                'A map that contains page information data. See this page for options: https://business-api.tiktok.com/portal/docs?id=1771101151059969#item-link-page%20parameters',
+            default: {
+                referrer: '{event.properties.$referrer}',
+                url: '{event.properties.$current_url}',
+            },
+            secret: false,
+            required: true,
+        },
+    ]
+}
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'beta',
+    status: 'alpha',
     type: 'destination',
     id: 'template-tiktok-ads',
     name: 'TikTok Ads Conversions',
     description: 'Send conversion events to TikTok Ads',
     icon_url: '/static/services/tiktok.png',
     category: ['Advertisement'],
-    hog: `
+    code_language: 'hog',
+    code: `
 if (empty(inputs.pixelId) or empty(inputs.accessToken)) {
     throw Error('Pixel ID and access token are required')
 }
@@ -83,47 +148,6 @@ if (res.status >= 400) {
             required: true,
         },
         {
-            key: 'eventName',
-            type: 'string',
-            label: 'Event name',
-            description: 'A standard event or custom event name.',
-            default:
-                '{' +
-                "event.event == 'Payment Info Entered' ? 'AddPaymentInfo'" +
-                ": event.event == 'Product Added' ? 'AddToCart'" +
-                ": event.event == 'Product Added to Wishlist' ? 'AddToWishlist'" +
-                ": event.event == 'Product Clicked' ? 'ClickButton'" +
-                ": event.event == 'Order Completed' ? 'CompletePayment'" +
-                ": event.event == 'Signed Up' ? 'CompleteRegistration'" +
-                ": event.event == 'Checkout Started' ? 'InitiateCheckout'" +
-                ": event.event == 'Order Completed' ? 'PlaceAnOrder'" +
-                ": event.event == 'Products Searched' ? 'Search'" +
-                ": event.event == 'Product Viewed' ? 'ViewContent'" +
-                ": event.event == '$pageview' ? 'Pageview'" +
-                ': event.event' +
-                '}',
-            secret: false,
-            required: true,
-        },
-        {
-            key: 'eventId',
-            type: 'string',
-            label: 'Event ID',
-            description: 'The ID of the event.',
-            default: '{event.uuid}',
-            secret: false,
-            required: true,
-        },
-        {
-            key: 'eventTimestamp',
-            type: 'string',
-            label: 'Event timestamp',
-            description: 'A Unix timestamp in seconds indicating when the actual event occurred.',
-            default: '{toUnixTimestamp(event.timestamp)}',
-            secret: false,
-            required: true,
-        },
-        {
             key: 'userProperties',
             type: 'dictionary',
             label: 'User properties',
@@ -150,43 +174,6 @@ if (res.status >= 400) {
             required: true,
         },
         {
-            key: 'propertyProperties',
-            type: 'dictionary',
-            label: 'Property properties',
-            description:
-                'A map that contains customer information data. See this page for options: https://business-api.tiktok.com/portal/docs?id=1771101151059969#item-link-properties%20parameters',
-            default: {
-                content_ids:
-                    "{event.event in ('Order Completed', 'Checkout Started') ? arrayMap(x -> x.sku, event.properties.products ?? []) : not empty(event.properties.sku) ? [event.properties.sku] : []}",
-                contents:
-                    "{event.event in ('Order Completed', 'Checkout Started') ? arrayMap(x -> ({'price': x.price, 'content_id': x.sku, 'content_category': x.category, 'content_name': x.name, 'brand': x.brand}), event.properties.products ?? []) : (not empty(event.properties.sku) and not empty(event.properties.price) and not empty(event.properties.category) and not empty(event.properties.name) and not empty(event.properties.brand) ? [{'price': event.properties.price, 'content_id': event.properties.sku, 'content_category': event.properties.category, 'content_name': event.properties.name, 'brand': event.properties.brand}] : [])}",
-                content_type: 'product',
-                currency: "{event.properties.currency ?? 'USD'}",
-                value: '{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}',
-                num_items:
-                    "{event.event in ('Order Completed', 'Checkout Started') ? length(arrayMap(x -> x.sku, event.properties.products ?? [])) : event.properties.quantity}",
-                search_string: '{event.properties.query}',
-                description: '',
-                order_id: '{event.properties.order_id}',
-                shop_id: '{event.properties.shop_id}',
-            },
-            secret: false,
-            required: true,
-        },
-        {
-            key: 'pageProperties',
-            type: 'dictionary',
-            label: 'Page properties',
-            description:
-                'A map that contains page information data. See this page for options: https://business-api.tiktok.com/portal/docs?id=1771101151059969#item-link-page%20parameters',
-            default: {
-                referrer: '{event.properties.$referrer}',
-                url: '{event.properties.$current_url}',
-            },
-            secret: false,
-            required: true,
-        },
-        {
             key: 'testEventCode',
             type: 'string',
             label: 'Test Event Code',
@@ -197,21 +184,215 @@ if (res.status >= 400) {
             required: false,
         },
     ],
-    filters: {
-        events: [
-            { id: '$pageview', name: 'Pageview', type: 'events' },
-            { id: 'Payment Info Entered', type: 'events' },
-            { id: 'Product Added', type: 'events' },
-            { id: 'Product Added to Wishlist', type: 'events' },
-            { id: 'Product Clicked', type: 'events' },
-            { id: 'Order Completed', type: 'events' },
-            { id: 'Signed Up', type: 'events' },
-            { id: 'Checkout Started', type: 'events' },
-            { id: 'Order Completed', type: 'events' },
-            { id: 'Products Searched', type: 'events' },
-            { id: 'Product Viewed', type: 'events' },
-        ],
-        actions: [],
-        filter_test_accounts: true,
-    },
+    mapping_templates: [
+        {
+            name: 'Page Viewed',
+            include_by_default: true,
+            filters: {
+                events: [{ id: '$pageview', name: 'Pageview', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'Pageview',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(),
+            ],
+        },
+        {
+            name: 'Payment Info Entered',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Payment Info Entered', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'AddPaymentInfo',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(),
+            ],
+        },
+        {
+            name: 'Product Added',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Product Added', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'AddToCart',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(),
+            ],
+        },
+        {
+            name: 'Product Added to Wishlist',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Product Added to Wishlist', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'AddToWishlist',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(),
+            ],
+        },
+        {
+            name: 'Product Clicked',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Product Clicked', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'ClickButton',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(),
+            ],
+        },
+        {
+            name: 'Order Placed',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Order Placed', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'PlaceAnOrder',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(true),
+            ],
+        },
+        {
+            name: 'Signed Up',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Signed Up', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'CompleteRegistration',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(),
+            ],
+        },
+        {
+            name: 'Checkout Started',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Checkout Started', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'InitiateCheckout',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(true),
+            ],
+        },
+        {
+            name: 'Order Completed',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Order Completed', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'CompletePayment',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(true),
+            ],
+        },
+        {
+            name: 'Products Searched',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Products Searched', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'Search',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(),
+            ],
+        },
+        {
+            name: 'Product Viewed',
+            include_by_default: true,
+            filters: {
+                events: [{ id: 'Product Viewed', type: 'events' }],
+            },
+            inputs_schema: [
+                {
+                    key: 'eventName',
+                    type: 'string',
+                    label: 'Event name',
+                    description: 'A standard event or custom event name.',
+                    default: 'ViewContent',
+                    secret: false,
+                    required: true,
+                },
+                ...build_inputs(),
+            ],
+        },
+    ],
 }

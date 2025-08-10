@@ -1,7 +1,8 @@
 import builtins
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, UTC
+from requests import HTTPError
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 from django.db.models import Prefetch
@@ -9,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
+from posthog.api.insight import capture_legacy_api_call
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
@@ -49,6 +51,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.missing_person import MissingPerson
+from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -67,6 +70,8 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    BreakGlassBurstThrottle,
+    BreakGlassSustainedThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
@@ -144,6 +149,16 @@ class PersonsThrottle(ClickHouseSustainedRateThrottle):
     # This makes the rate limit apply to all endpoints under /api/person/
     # and independent of other endpoints.
     scope = "persons"
+
+
+class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
+    scope = "persons"
+    rate = "60/minute"
+
+
+class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
+    scope = "persons"
+    rate = "300/hour"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -228,7 +243,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
+    throttle_classes = [
+        ClickHouseBurstRateThrottle,
+        PersonsThrottle,
+        PersonsBreakGlassBurstThrottle,
+        PersonsBreakGlassSustainedThrottle,
+    ]
     lifecycle_class = Lifecycle
     stickiness_class = Stickiness
 
@@ -380,12 +400,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "distinct_ids",
                 OpenApiTypes.OBJECT,
-                description="A list of distinct IDs, up to 100 of them. We'll delete all persons associated with those distinct IDs.",
+                description="A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.",
             ),
             OpenApiParameter(
                 "ids",
                 OpenApiTypes.OBJECT,
-                description="A list of PostHog person IDs, up to 100 of them. We'll delete all the persons listed.",
+                description="A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.",
             ),
         ],
     )
@@ -428,7 +448,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         key = request.GET.get("key")
         value = request.GET.get("value")
         flattened = []
-        if key:
+        if key and not key.startswith("$virt"):
             result = self._get_person_property_values_for_key(key, value)
 
             for value, count in result:
@@ -550,20 +570,44 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
-        capture_internal(
-            distinct_id=person.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$delete_person_property",
-                "properties": {"$unset": [request.data["$unset"]]},
-                "distinct_id": person.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+        event_name = "$delete_person_property"
+        distinct_id = person.distinct_ids[0]
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$unset": [request.data["$unset"]],
+        }
+
+        try:
+            resp = capture_internal(
+                token=self.team.api_token,
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
+            )
+            resp.raise_for_status()
+
+        # HTTP error - if applicable, thrown after retires are exhausted
+        except HTTPError as he:
+            return response.Response(
+                {
+                    "success": False,
+                    "detail": "Unable to delete property",
+                },
+                status=he.response.status_code,
+            )
+
+        # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
+        except Exception:
+            return response.Response(
+                {
+                    "success": False,
+                    "detail": f"Unable to delete property",
+                },
+                status=400,
+            )
 
         log_activity(
             organization_id=self.organization.id,
@@ -653,20 +697,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _set_properties(self, properties, user):
         instance = self.get_object()
-        capture_internal(
-            distinct_id=instance.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=instance.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$set",
-                "properties": {"$set": properties},
-                "distinct_id": instance.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+        distinct_id = instance.distinct_ids[0]
+        event_name = "$set"
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$set": properties,
+        }
+
+        try:
+            resp = capture_internal(
+                token=instance.team.api_token,
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
+            )
+            resp.raise_for_status()
+
+        # Failures in this codepath (old and new) are ignored here
+        except Exception:
+            pass
 
         if self.organization.id:  # should always be true, but mypy...
             log_activity(
@@ -702,6 +754,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
+        capture_legacy_api_call(request, self.team)
+
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
@@ -731,6 +785,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        capture_legacy_api_call(request, self.team)
+
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
@@ -860,6 +916,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
+
+    @extend_schema(
+        description="Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.",
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["person:write"])
+    def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        distinct_id = request.data.get("distinct_id")
+        if not distinct_id or not isinstance(distinct_id, str):
+            raise ValidationError(detail="distinct_id is required")
+
+        reset_deleted_person_distinct_ids(self.team_id, distinct_id)
+
+        return response.Response(status=202)
 
 
 def paginated_result(

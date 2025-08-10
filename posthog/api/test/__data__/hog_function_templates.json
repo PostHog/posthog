@@ -8,7 +8,8 @@
         "description": "Sends a webhook templated by the incoming event data",
         "icon_url": "/static/posthog-icon.svg",
         "category": ["Custom"],
-        "hog": "\nlet payload := {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n}\n\nif (inputs.debug) {\n  print('Request', inputs.url, payload)\n}\n\nlet res := fetch(inputs.url, payload);\n\nif (inputs.debug) {\n  print('Response', res.status, res.body);\n}\n",
+        "code": "\nlet payload := {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n}\n\nif (inputs.debug) {\n  print('Request', inputs.url, payload)\n}\n\nlet res := fetch(inputs.url, payload);\n\nif (inputs.debug) {\n  print('Response', res.status, res.body);\n}\n",
+        "code_language": "hog",
         "inputs_schema": [
             {
                 "key": "url",
@@ -82,53 +83,6 @@
                 "required": false,
                 "default": false
             }
-        ],
-        "sub_templates": [
-            {
-                "id": "early-access-feature-enrollment",
-                "name": "HTTP Webhook on feature enrollment",
-                "filters": {
-                    "events": [
-                        {
-                            "id": "$feature_enrollment_update",
-                            "type": "events"
-                        }
-                    ]
-                }
-            },
-            {
-                "id": "survey-response",
-                "name": "HTTP Webhook on survey response",
-                "filters": {
-                    "events": [
-                        {
-                            "id": "survey sent",
-                            "type": "events",
-                            "properties": [
-                                {
-                                    "key": "$survey_response",
-                                    "type": "event",
-                                    "value": "is_set",
-                                    "operator": "is_set"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            },
-            {
-                "id": "activity-log",
-                "name": "HTTP Webhook on team activity",
-                "filters": {
-                    "events": [
-                        {
-                            "id": "$activity_log_entry_created",
-                            "type": "events"
-                        }
-                    ]
-                },
-                "type": "internal_destination"
-            }
         ]
     },
     {
@@ -137,7 +91,8 @@
         "type": "transformation",
         "id": "template-blank-transformation",
         "name": "Custom transformation",
-        "hog": "// This is a blank template for custom transformations\n// The function receives 'event' as a global object and expects it to be returned\n// If you return null then the event will be discarded\nreturn event",
+        "code": "// This is a blank template for custom transformations\n// The function receives 'event' as a global object and expects it to be returned\n// If you return null then the event will be discarded\nreturn event",
+        "code_language": "hog",
         "inputs_schema": [],
         "category": ["Custom"],
         "description": "This is a starter template for custom transformations",
@@ -151,7 +106,8 @@
         "type": "transformation",
         "id": "template-geoip",
         "name": "GeoIP",
-        "hog": "// Define the properties to be added to the event\nlet geoipProperties := {\n    'city_name': null,\n    'city_confidence': null,\n    'subdivision_2_name': null,\n    'subdivision_2_code': null,\n    'subdivision_1_name': null,\n    'subdivision_1_code': null,\n    'country_name': null,\n    'country_code': null,\n    'continent_name': null,\n    'continent_code': null,\n    'postal_code': null,\n    'latitude': null,\n    'longitude': null,\n    'accuracy_radius': null,\n    'time_zone': null\n}\n// Check if the event has an IP address\nif (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {\n    print('geoip disabled or no ip.')\n    return event\n}\nlet ip := event.properties.$ip\nif (ip == '127.0.0.1') {\n    print('spoofing ip for local development', ip)\n    ip := '89.160.20.129'\n}\nlet response := geoipLookup(ip)\nif (not response) {\n    print('geoip lookup failed for ip', ip)\n    return event\n}\nlet location := {}\nif (response.city) {\n    location['city_name'] := response.city.names?.en\n}\nif (response.country) {\n    location['country_name'] := response.country.names?.en\n    location['country_code'] := response.country.isoCode\n}\nif (response.continent) {\n    location['continent_name'] := response.continent.names?.en\n    location['continent_code'] := response.continent.code\n}\nif (response.postal) {\n    location['postal_code'] := response.postal.code\n}\nif (response.location) {\n    location['latitude'] := response.location?.latitude\n    location['longitude'] := response.location?.longitude\n    location['accuracy_radius'] := response.location?.accuracyRadius\n    location['time_zone'] := response.location?.timeZone\n}\nif (response.subdivisions) {\n    for (let index, subdivision in response.subdivisions) {\n        location[f'subdivision_{index + 1}_code'] := subdivision.isoCode\n        location[f'subdivision_{index + 1}_name'] := subdivision.names?.en\n    }\n}\nprint('geoip location data for ip:', location) \nlet returnEvent := event\nreturnEvent.properties := returnEvent.properties ?? {}\nreturnEvent.properties.$set := returnEvent.properties.$set ?? {}\nreturnEvent.properties.$set_once := returnEvent.properties.$set_once ?? {}\nfor (let key, value in geoipProperties) {\n    if (value != null) {\n        returnEvent.properties.$set[f'$geoip_{key}'] := value\n        returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n    }\n    returnEvent.properties.$set[f'$geoip_{key}'] := value\n    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n}\nfor (let key, value in location) {\n    returnEvent.properties[f'$geoip_{key}'] := value\n    returnEvent.properties.$set[f'$geoip_{key}'] := value\n    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n}\nreturn returnEvent",
+        "code": "// Define the properties to be added to the event\nlet geoipProperties := {\n    'city_name': null,\n    'city_confidence': null,\n    'subdivision_2_name': null,\n    'subdivision_2_code': null,\n    'subdivision_1_name': null,\n    'subdivision_1_code': null,\n    'country_name': null,\n    'country_code': null,\n    'continent_name': null,\n    'continent_code': null,\n    'postal_code': null,\n    'latitude': null,\n    'longitude': null,\n    'accuracy_radius': null,\n    'time_zone': null\n}\n// Check if the event has an IP address\nif (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {\n    print('geoip disabled or no ip.')\n    return event\n}\nlet ip := event.properties.$ip\nif (ip == '127.0.0.1') {\n    print('spoofing ip for local development', ip)\n    ip := '89.160.20.129'\n}\nlet response := geoipLookup(ip)\nif (not response) {\n    print('geoip lookup failed for ip', ip)\n    return event\n}\nlet location := {}\nif (response.city) {\n    location['city_name'] := response.city.names?.en\n}\nif (response.country) {\n    location['country_name'] := response.country.names?.en\n    location['country_code'] := response.country.isoCode\n}\nif (response.continent) {\n    location['continent_name'] := response.continent.names?.en\n    location['continent_code'] := response.continent.code\n}\nif (response.postal) {\n    location['postal_code'] := response.postal.code\n}\nif (response.location) {\n    location['latitude'] := response.location?.latitude\n    location['longitude'] := response.location?.longitude\n    location['accuracy_radius'] := response.location?.accuracyRadius\n    location['time_zone'] := response.location?.timeZone\n}\nif (response.subdivisions) {\n    for (let index, subdivision in response.subdivisions) {\n        location[f'subdivision_{index + 1}_code'] := subdivision.isoCode\n        location[f'subdivision_{index + 1}_name'] := subdivision.names?.en\n    }\n}\nprint('geoip location data for ip:', location) \nlet returnEvent := event\nreturnEvent.properties := returnEvent.properties ?? {}\nreturnEvent.properties.$set := returnEvent.properties.$set ?? {}\nreturnEvent.properties.$set_once := returnEvent.properties.$set_once ?? {}\nfor (let key, value in geoipProperties) {\n    if (value != null) {\n        returnEvent.properties.$set[f'$geoip_{key}'] := value\n        returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n    }\n    returnEvent.properties.$set[f'$geoip_{key}'] := value\n    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n}\nfor (let key, value in location) {\n    returnEvent.properties[f'$geoip_{key}'] := value\n    returnEvent.properties.$set[f'$geoip_{key}'] := value\n    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n}\nreturn returnEvent",
+        "code_language": "hog",
         "inputs_schema": [],
         "category": ["Custom"],
         "description": "Adds geoip data to the event",
@@ -163,9 +119,10 @@
         "status": "alpha",
         "free": true,
         "type": "transformation",
+        "code_language": "hog",
         "id": "template-ip-anonymization",
         "name": "IP Anonymization",
-        "hog": "// Check if the event has an IP address\nif (empty(event.properties?.$ip)) {\n    print('No IP address found in event')\n    return event\n}\n\nlet ip := event.properties.$ip\nlet parts := splitByString('.', ip)\n\n// Check if we have exactly 4 parts for IPv4\nif (length(parts) != 4) {\n    print('Invalid IP address format: wrong number of octets')\n    return event\n}\n\n// Validate each octet is a number between 0 and 255\nfor (let i := 1; i \u003C= 4; i := i + 1) {\n    let octet := toInt(parts[i])\n    if (octet = null or octet \u003C 0 or octet \u003E 255) {\n        print('Invalid IP address: octets must be numbers between 0 and 255')\n        return event\n    }\n}\n\n// Replace the last octet with '0'\nlet anonymizedIp := concat(parts[1], '.', parts[2], '.', parts[3], '.0')\n    \nlet returnEvent := event\nreturnEvent.properties.$ip := anonymizedIp\nreturn returnEvent",
+        "code": "// Check if the event has an IP address\nif (empty(event.properties?.$ip)) {\n    print('No IP address found in event')\n    return event\n}\n\nlet ip := event.properties.$ip\nlet parts := splitByString('.', ip)\n\n// Check if we have exactly 4 parts for IPv4\nif (length(parts) != 4) {\n    print('Invalid IP address format: wrong number of octets')\n    return event\n}\n\n// Validate each octet is a number between 0 and 255\nfor (let i := 1; i \u003C= 4; i := i + 1) {\n    let octet := toInt(parts[i])\n    if (octet = null or octet \u003C 0 or octet \u003E 255) {\n        print('Invalid IP address: octets must be numbers between 0 and 255')\n        return event\n    }\n}\n\n// Replace the last octet with '0'\nlet anonymizedIp := concat(parts[1], '.', parts[2], '.', parts[3], '.0')\n    \nlet returnEvent := event\nreturnEvent.properties.$ip := anonymizedIp\nreturn returnEvent",
         "inputs_schema": [],
         "category": ["Custom"],
         "description": "This transformation sets the last octet of an IP address to zero (e.g., 12.214.31.144 → 12.214.31.0), protecting user privacy and reducing disclosure risk.",
@@ -177,9 +134,10 @@
         "status": "alpha",
         "free": true,
         "type": "transformation",
+        "code_language": "hog",
         "id": "template-remove-null-properties",
         "name": "Remove Null Properties",
-        "hog": "// Check if the event has properties\nif (empty(event.properties)) {\n    return event\n}\n\nlet returnEvent := event\nreturnEvent.properties := cleanNullValues(event.properties)\nreturn returnEvent",
+        "code": "// Check if the event has properties\nif (empty(event.properties)) {\n    return event\n}\n\nlet returnEvent := event\nreturnEvent.properties := cleanNullValues(event.properties)\nreturn returnEvent",
         "inputs_schema": [],
         "category": ["Custom"],
         "description": "This transformation removes null properties from the event properties object. If the object nesting exceeds 3 levels, deeper levels will be returned unchanged.",
@@ -192,8 +150,9 @@
         "free": false,
         "type": "transformation",
         "id": "template-url-masking",
+        "code_language": "hog",
         "name": "URL Parameter Masking",
-        "hog": "// Function to check if parameter matches any mask pattern\nfun isParameterInList(paramName, paramsString) {\n    let paramsList := splitByString(',', paramsString)\n    for (let pattern in paramsList) {\n        if (lower(paramName) =~ lower(trim(pattern))) {\n            return true\n        }\n    }\n    return false\n}\n\n// Function to mask URL parameters\nfun maskURLParameters(url, paramsToMask, maskValue) {\n    // If URL is empty or not a string, return as is\n    if (empty(url) or typeof(url) != 'string') {\n        return url\n    }\n\n    try {\n        // Split URL into base and query string\n        let parts := splitByString('?', url, 2)\n        if (length(parts) \u003C 2) {\n            return url\n        }\n        \n        let baseUrl := parts[1]\n        let queryString := parts[2]\n        \n        // Handle malformed URLs that start with ?\n        if (empty(baseUrl)) {\n            return url\n        }\n        \n        // Split query string into parameters\n        let params := splitByString('&', queryString)\n        let maskedParams := []\n        \n        // Process each parameter\n        for (let param in params) {\n            if (not empty(param)) {\n                let keyValue := splitByString('=', param, 2)\n                let paramName := keyValue[1]\n                \n                // Handle parameters without values (e.g., ?key&foo=bar)\n                if (length(keyValue) \u003C 2) {\n                    if (isParameterInList(paramName, paramsToMask)) {\n                        maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))\n                    } else {\n                        maskedParams := arrayPushBack(maskedParams, paramName)\n                    }\n                } else {\n                    if (isParameterInList(paramName, paramsToMask)) {\n                        maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))\n                    } else {\n                        maskedParams := arrayPushBack(maskedParams, param)\n                    }\n                }\n            }\n        }\n        \n        // Reconstruct URL with masked parameters\n        return concat(baseUrl, '?', arrayStringConcat(maskedParams, '&'))\n    } catch (error) {\n        print('Error masking URL parameters:', error)\n        return url\n    }\n}\n\n// Create a copy of the event to modify\nlet maskedEvent := event\n\n// Process each URL property\nfor (let propName, paramsToMask in inputs.urlProperties) {\n    if (not empty(event.properties?.[propName])) {\n        maskedEvent.properties[propName] := maskURLParameters(\n            event.properties[propName],\n            paramsToMask,\n            inputs.maskWith\n        )\n    }\n}\n\nreturn maskedEvent",
+        "code": "// Function to check if parameter matches any mask pattern\nfun isParameterInList(paramName, paramsString) {\n    let paramsList := splitByString(',', paramsString)\n    for (let pattern in paramsList) {\n        if (lower(paramName) =~ lower(trim(pattern))) {\n            return true\n        }\n    }\n    return false\n}\n\n// Function to mask URL parameters\nfun maskURLParameters(url, paramsToMask, maskValue) {\n    // If URL is empty or not a string, return as is\n    if (empty(url) or typeof(url) != 'string') {\n        return url\n    }\n\n    try {\n        // Split URL into base and query string\n        let parts := splitByString('?', url, 2)\n        if (length(parts) \u003C 2) {\n            return url\n        }\n        \n        let baseUrl := parts[1]\n        let queryString := parts[2]\n        \n        // Handle malformed URLs that start with ?\n        if (empty(baseUrl)) {\n            return url\n        }\n        \n        // Split query string into parameters\n        let params := splitByString('&', queryString)\n        let maskedParams := []\n        \n        // Process each parameter\n        for (let param in params) {\n            if (not empty(param)) {\n                let keyValue := splitByString('=', param, 2)\n                let paramName := keyValue[1]\n                \n                // Handle parameters without values (e.g., ?key&foo=bar)\n                if (length(keyValue) \u003C 2) {\n                    if (isParameterInList(paramName, paramsToMask)) {\n                        maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))\n                    } else {\n                        maskedParams := arrayPushBack(maskedParams, paramName)\n                    }\n                } else {\n                    if (isParameterInList(paramName, paramsToMask)) {\n                        maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))\n                    } else {\n                        maskedParams := arrayPushBack(maskedParams, param)\n                    }\n                }\n            }\n        }\n        \n        // Reconstruct URL with masked parameters\n        return concat(baseUrl, '?', arrayStringConcat(maskedParams, '&'))\n    } catch (error) {\n        print('Error masking URL parameters:', error)\n        return url\n    }\n}\n\n// Create a copy of the event to modify\nlet maskedEvent := event\n\n// Process each URL property\nfor (let propName, paramsToMask in inputs.urlProperties) {\n    if (not empty(event.properties?.[propName])) {\n        maskedEvent.properties[propName] := maskURLParameters(\n            event.properties[propName],\n            paramsToMask,\n            inputs.maskWith\n        )\n    }\n}\n\nreturn maskedEvent",
         "inputs_schema": [
             {
                 "key": "urlProperties",
@@ -228,8 +187,9 @@
         "free": true,
         "type": "transformation",
         "id": "template-pii-hashing",
+        "code_language": "hog",
         "name": "PII Data Hashing",
-        "hog": "// Get the properties to hash from inputs and split by comma\nlet propertiesToHash := []\nif (notEmpty(inputs.propertiesToHash)) {\n    propertiesToHash := splitByString(',', inputs.propertiesToHash)\n}\nlet hashDistinctId := inputs.hashDistinctId\nlet salt := inputs.salt\n\nif (empty(propertiesToHash) and not hashDistinctId) {\n    return event\n}\n\n// Create a deep copy of the event to modify\nlet returnEvent := event\n\n// Helper function to get nested property value\nfun getNestedValue(obj, path) {\n    let parts := splitByString('.', path)\n    let current := obj\n    \n    for (let part in parts) {\n        if (current = null) {\n            return null\n        }\n        current := current[part]\n    }\n    return current\n}\n\n// Helper function to set nested property value\nfun setNestedValue(obj, path, value) {\n    let parts := splitByString('.', path)\n    let current := obj\n    \n    // Navigate to the parent object of the target property\n    for (let i := 1; i \u003C length(parts); i := i + 1) {\n        let part := parts[i]\n        if (current[part] = null) {\n            current[part] := {}\n        }\n        current := current[part]\n    }\n    \n    // Set the value on the last part\n    let lastPart := parts[length(parts)]\n    current[lastPart] := value\n}\n\n// Hash distinct_id if enabled also potentially using a salt\nif (hashDistinctId and notEmpty(event.distinct_id)) {\n    if(notEmpty(salt)) {\n        returnEvent.distinct_id := sha256Hex(concat(toString(event.distinct_id), salt))\n    } else {\n        returnEvent.distinct_id := sha256Hex(toString(event.distinct_id))\n    }\n}\n\n// Hash each property value potentially using a salt\nfor (let _, path in propertiesToHash) {\n    let value := getNestedValue(event.properties, trim(path))  // Trim to handle spaces after commas\n    if (notEmpty(value)) {\n        if(notEmpty(salt)) {\n            let hashedValue := sha256Hex(concat(toString(value), salt))\n            setNestedValue(returnEvent.properties, trim(path), hashedValue)\n        } else {\n            let hashedValue := sha256Hex(toString(value))\n            setNestedValue(returnEvent.properties, trim(path), hashedValue)\n        }\n    }\n}\n\nreturn returnEvent",
+        "code": "// Get the properties to hash from inputs and split by comma\nlet propertiesToHash := []\nif (notEmpty(inputs.propertiesToHash)) {\n    propertiesToHash := splitByString(',', inputs.propertiesToHash)\n}\nlet hashDistinctId := inputs.hashDistinctId\nlet salt := inputs.salt\n\nif (empty(propertiesToHash) and not hashDistinctId) {\n    return event\n}\n\n// Create a deep copy of the event to modify\nlet returnEvent := event\n\n// Helper function to get nested property value\nfun getNestedValue(obj, path) {\n    let parts := splitByString('.', path)\n    let current := obj\n    \n    for (let part in parts) {\n        if (current = null) {\n            return null\n        }\n        current := current[part]\n    }\n    return current\n}\n\n// Helper function to set nested property value\nfun setNestedValue(obj, path, value) {\n    let parts := splitByString('.', path)\n    let current := obj\n    \n    // Navigate to the parent object of the target property\n    for (let i := 1; i \u003C length(parts); i := i + 1) {\n        let part := parts[i]\n        if (current[part] = null) {\n            current[part] := {}\n        }\n        current := current[part]\n    }\n    \n    // Set the value on the last part\n    let lastPart := parts[length(parts)]\n    current[lastPart] := value\n}\n\n// Hash distinct_id if enabled also potentially using a salt\nif (hashDistinctId and notEmpty(event.distinct_id)) {\n    if(notEmpty(salt)) {\n        returnEvent.distinct_id := sha256Hex(concat(toString(event.distinct_id), salt))\n    } else {\n        returnEvent.distinct_id := sha256Hex(toString(event.distinct_id))\n    }\n}\n\n// Hash each property value potentially using a salt\nfor (let _, path in propertiesToHash) {\n    let value := getNestedValue(event.properties, trim(path))  // Trim to handle spaces after commas\n    if (notEmpty(value)) {\n        if(notEmpty(salt)) {\n            let hashedValue := sha256Hex(concat(toString(value), salt))\n            setNestedValue(returnEvent.properties, trim(path), hashedValue)\n        } else {\n            let hashedValue := sha256Hex(toString(value))\n            setNestedValue(returnEvent.properties, trim(path), hashedValue)\n        }\n    }\n}\n\nreturn returnEvent",
         "inputs_schema": [
             {
                 "key": "propertiesToHash",
@@ -269,9 +229,10 @@
         "status": "alpha",
         "free": false,
         "type": "transformation",
+        "code_language": "hog",
         "id": "template-bot-detection",
         "name": "Filter Bot Events",
-        "hog": "// List of known bot user agents\nlet known_bot_filter_list := ['bot', 'crawler', 'spider', 'feedfetcher-google',\n'mediapartners-google', 'apis-google', 'slurp', 'python-urllib',\n'python-requests', 'aiohttp', 'httpx', 'libwww-perl',\n'httpunit', 'nutch', 'go-http-client', 'biglotron', 'teoma',\n'convera', 'gigablast', 'ia_archiver', 'webmon ', 'httrack',\n'grub.org', 'netresearchserver', 'speedy', 'fluffy',\n'findlink', 'panscient', 'ips-agent', 'yanga', 'yandex',\n'yadirectfetcher', 'cyberpatrol', 'postrank', 'page2rss', \n'linkdex', 'ezooms', 'heritrix', 'findthatfile', 'europarchive.org', \n'mappydata', 'eright', 'apercite', 'aboundex', 'summify', 'ec2linkfinder', \n'facebookexternalhit', 'yeti', 'retrevopageanalyzer', 'sogou', 'wotbox', \n'ichiro', 'drupact', 'coccoc', 'integromedb', 'siteexplorer.info', \n'proximic', 'changedetection', 'cc metadata scaper', 'g00g1e.net', \n'binlar', 'a6-indexer', 'admantx', 'megaindex', 'ltx71', 'bubing', \n'qwantify', 'lipperhey', 'addthis', 'metauri', 'scrapy', 'capsulechecker', \n'sonic', 'sysomos', 'trove', 'deadlinkchecker', 'slack-imgproxy', 'embedly', \n'iskanie', 'skypeuripreview', 'google-adwords-instant', 'whatsapp', \n'electricmonk', 'yahoo link preview', 'xenu link sleuth', 'pcore-http', \n'appinsights', 'phantomjs', 'jetslide', 'newsharecounts', 'tineye', \n'linkarchiver', 'digg deeper', 'snacktory', 'okhttp', 'nuzzel', 'omgili', \n'pocketparser', 'um-ln', 'muckrack', 'netcraftsurveyagent', 'appengine-google', \n'jetty', 'upflow', 'thinklab', 'traackr.com', 'twurly', 'mastodon', 'http_get', \n'brandverity', 'check_http', 'ezid', 'genieo', 'meltwaternews', 'moreover', \n'scoutjet', 'seoscanners', 'hatena', 'google web preview', 'adscanner', \n'netvibes', 'baidu-yunguance', 'btwebclient', 'disqus', 'feedly', 'fever', \n'flamingo_searchengine', 'flipboardproxy', 'g2 web services', 'vkshare', \n'siteimprove.com', 'dareboost', 'feedspot', 'seokicks', 'tracemyfile', \n'zgrab', 'pr-cy.ru', 'datafeedwatch', 'zabbix', 'google-xrawler', 'axios', \n'amazon cloudfront', 'pulsepoint', 'cloudflare-alwaysonline', \n'google-structured-data-testing-tool', 'wordupinfosearch', 'webdatastats', \n'httpurlconnection', 'outbrain', 'w3c_validator', 'w3c-checklink', \n'w3c-mobileok', 'w3c_i18n-checker', 'feedvalidator', 'w3c_css_validator', \n'w3c_unicorn', 'google-physicalweb', 'blackboard', 'bazqux', 'twingly', \n'rivva', 'dataprovider.com', 'theoldreader.com', 'anyevent', \n'nmap scripting engine', '2ip.ru', 'clickagy', 'google favicon', \n'hubspot', 'chrome-lighthouse', 'headlesschrome', 'simplescraper', \n'fedoraplanet', 'friendica', 'nextcloud', 'tiny tiny rss', 'datanyze', \n'google-site-verification', 'trendsmapresolver', 'tweetedtimes', 'gwene', \n'simplepie', 'searchatlas', 'superfeedr', 'freewebmonitoring sitechecker', \n'pandalytics', 'seewithkids', 'cincraw', 'freshrss', 'google-certificates-bridge', \n'viber', 'evc-batch', 'virustotal', 'uptime-kuma', 'feedbin', \n'snap url preview service', 'ruxitsynthetic', 'google-read-aloud', \n'mediapartners', 'wget', 'wget', 'ahrefsgot', 'ahrefssiteaudit', \n'wesee:search', 'y!j', 'collection@infegy.com', 'deusu', 'bingpreview', \n'daum', 'pingdom', 'barkrowler', 'yak', 'ning', 'ahc', 'apache-httpclient', \n'buck', 'newspaper', 'sentry', 'fetch', 'miniflux', 'validator.nu', \n'grouphigh', 'checkmarknetwork', 'www.uptime.com', 'mixnodecache', \n'domains project', 'pagepeeker', 'vigil', 'php-curl-class', 'ptst',\n'seostar.co']\n\nlet userAgentProperty := inputs.userAgent\n\n// Check if user agent property exists in event\n// We treat missing user agent as bot traffic\nif (empty(event.properties[userAgentProperty])) {\n    return null\n}\n\n// Get the user agent value\nlet user_agent := event.properties[userAgentProperty]\n\n// Check for empty string\n// We treat empty user agent as bot traffic\nif (user_agent == '') {\n    return null\n}\n\n// Now that we know we have a valid user agent, convert to lower case\nuser_agent := lower(user_agent)\n\n// Handle custom bot patterns\nlet bot_list := known_bot_filter_list\nif (notEmpty(inputs.customBotPatterns)) {\n    let custom_patterns := splitByString(',', inputs.customBotPatterns)\n    // Add each custom pattern to the list\n    for (let pattern in custom_patterns) {\n        bot_list := arrayPushBack(bot_list, trim(pattern))\n    }\n}\n\n// Function to check if user agent contains any bot identifier\nfun isBot(ua) {\n    for (let bot_name in bot_list) {\n        if (ua =~* bot_name) {\n            return true\n        }\n    }\n    return false\n}\n\n// If bot is detected, return null to filter out the event\n// Otherwise return the original event\nif (isBot(user_agent)) {\n    return null\n}\n\nreturn event",
+        "code": "// List of known bot user agents\nlet known_bot_filter_list := ['bot', 'crawler', 'spider', 'feedfetcher-google',\n'mediapartners-google', 'apis-google', 'slurp', 'python-urllib',\n'python-requests', 'aiohttp', 'httpx', 'libwww-perl',\n'httpunit', 'nutch', 'go-http-client', 'biglotron', 'teoma',\n'convera', 'gigablast', 'ia_archiver', 'webmon ', 'httrack',\n'grub.org', 'netresearchserver', 'speedy', 'fluffy',\n'findlink', 'panscient', 'ips-agent', 'yanga', 'yandex',\n'yadirectfetcher', 'cyberpatrol', 'postrank', 'page2rss', \n'linkdex', 'ezooms', 'heritrix', 'findthatfile', 'europarchive.org', \n'mappydata', 'eright', 'apercite', 'aboundex', 'summify', 'ec2linkfinder', \n'facebookexternalhit', 'yeti', 'retrevopageanalyzer', 'sogou', 'wotbox', \n'ichiro', 'drupact', 'coccoc', 'integromedb', 'siteexplorer.info', \n'proximic', 'changedetection', 'cc metadata scaper', 'g00g1e.net', \n'binlar', 'a6-indexer', 'admantx', 'megaindex', 'ltx71', 'bubing', \n'qwantify', 'lipperhey', 'addthis', 'metauri', 'scrapy', 'capsulechecker', \n'sonic', 'sysomos', 'trove', 'deadlinkchecker', 'slack-imgproxy', 'embedly', \n'iskanie', 'skypeuripreview', 'google-adwords-instant', 'whatsapp', \n'electricmonk', 'yahoo link preview', 'xenu link sleuth', 'pcore-http', \n'appinsights', 'phantomjs', 'jetslide', 'newsharecounts', 'tineye', \n'linkarchiver', 'digg deeper', 'snacktory', 'okhttp', 'nuzzel', 'omgili', \n'pocketparser', 'um-ln', 'muckrack', 'netcraftsurveyagent', 'appengine-google', \n'jetty', 'upflow', 'thinklab', 'traackr.com', 'twurly', 'mastodon', 'http_get', \n'brandverity', 'check_http', 'ezid', 'genieo', 'meltwaternews', 'moreover', \n'scoutjet', 'seoscanners', 'hatena', 'google web preview', 'adscanner', \n'netvibes', 'baidu-yunguance', 'btwebclient', 'disqus', 'feedly', 'fever', \n'flamingo_searchengine', 'flipboardproxy', 'g2 web services', 'vkshare', \n'siteimprove.com', 'dareboost', 'feedspot', 'seokicks', 'tracemyfile', \n'zgrab', 'pr-cy.ru', 'datafeedwatch', 'zabbix', 'google-xrawler', 'axios', \n'amazon cloudfront', 'pulsepoint', 'cloudflare-alwaysonline', \n'google-structured-data-testing-tool', 'wordupinfosearch', 'webdatastats', \n'httpurlconnection', 'outbrain', 'w3c_validator', 'w3c-checklink', \n'w3c-mobileok', 'w3c_i18n-checker', 'feedvalidator', 'w3c_css_validator', \n'w3c_unicorn', 'google-physicalweb', 'blackboard', 'bazqux', 'twingly', \n'rivva', 'dataprovider.com', 'theoldreader.com', 'anyevent', \n'nmap scripting engine', '2ip.ru', 'clickagy', 'google favicon', \n'hubspot', 'chrome-lighthouse', 'headlesschrome', 'simplescraper', \n'fedoraplanet', 'friendica', 'nextcloud', 'tiny tiny rss', 'datanyze', \n'google-site-verification', 'trendsmapresolver', 'tweetedtimes', 'gwene', \n'simplepie', 'searchatlas', 'superfeedr', 'freewebmonitoring sitechecker', \n'pandalytics', 'seewithkids', 'cincraw', 'freshrss', 'google-certificates-bridge', \n'viber', 'evc-batch', 'virustotal', 'uptime-kuma', 'feedbin', \n'snap url preview service', 'ruxitsynthetic', 'google-read-aloud', \n'mediapartners', 'wget', 'wget', 'ahrefsgot', 'ahrefssiteaudit', \n'wesee:search', 'y!j', 'collection@infegy.com', 'deusu', 'bingpreview', \n'daum', 'pingdom', 'barkrowler', 'yak', 'ning', 'ahc', 'apache-httpclient', \n'buck', 'newspaper', 'sentry', 'fetch', 'miniflux', 'validator.nu', \n'grouphigh', 'checkmarknetwork', 'www.uptime.com', 'mixnodecache', \n'domains project', 'pagepeeker', 'vigil', 'php-curl-class', 'ptst',\n'seostar.co']\n\nlet userAgentProperty := inputs.userAgent\n\n// Check if user agent property exists in event\n// We treat missing user agent as bot traffic\nif (empty(event.properties[userAgentProperty])) {\n    return null\n}\n\n// Get the user agent value\nlet user_agent := event.properties[userAgentProperty]\n\n// Check for empty string\n// We treat empty user agent as bot traffic\nif (user_agent == '') {\n    return null\n}\n\n// Now that we know we have a valid user agent, convert to lower case\nuser_agent := lower(user_agent)\n\n// Handle custom bot patterns\nlet bot_list := known_bot_filter_list\nif (notEmpty(inputs.customBotPatterns)) {\n    let custom_patterns := splitByString(',', inputs.customBotPatterns)\n    // Add each custom pattern to the list\n    for (let pattern in custom_patterns) {\n        bot_list := arrayPushBack(bot_list, trim(pattern))\n    }\n}\n\n// Function to check if user agent contains any bot identifier\nfun isBot(ua) {\n    for (let bot_name in bot_list) {\n        if (ua =~* bot_name) {\n            return true\n        }\n    }\n    return false\n}\n\n// If bot is detected, return null to filter out the event\n// Otherwise return the original event\nif (isBot(user_agent)) {\n    return null\n}\n\nreturn event",
         "inputs_schema": [
             {
                 "key": "userAgent",
@@ -304,7 +265,8 @@
         "type": "transformation",
         "id": "plugin-downsampling-plugin",
         "name": "Downsample",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [
             {
                 "type": "string",
@@ -354,7 +316,8 @@
         "type": "transformation",
         "id": "plugin-language-url-splitter-app",
         "name": "Language URL stripper",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [
             {
                 "key": "pattern",
@@ -423,7 +386,8 @@
         "type": "transformation",
         "id": "plugin-posthog-app-url-parameters-to-event-properties",
         "name": "URL parameters to event properties",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [
             {
                 "key": "parameters",
@@ -534,7 +498,8 @@
         "type": "transformation",
         "id": "plugin-posthog-filter-out-plugin",
         "name": "Filter Out Plugin",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [
             {
                 "key": "filters",
@@ -582,7 +547,8 @@
         "type": "transformation",
         "id": "plugin-posthog-plugin-geoip",
         "name": "GeoIP",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [],
         "category": ["Custom"],
         "description": "Enrich events with GeoIP data",
@@ -596,7 +562,8 @@
         "type": "transformation",
         "id": "plugin-posthog-url-normalizer-plugin",
         "name": "URL Normalizer",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [],
         "category": ["Transformation"],
         "description": "Normalize the format of urls in your application allowing you to more easily compare them in insights.",
@@ -610,7 +577,8 @@
         "type": "transformation",
         "id": "plugin-property-filter-plugin",
         "name": "Property Filter",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [
             {
                 "templating": false,
@@ -634,7 +602,8 @@
         "type": "transformation",
         "id": "plugin-semver-flattener-plugin",
         "name": "SemVer Flattener",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [
             {
                 "key": "properties",
@@ -657,8 +626,9 @@
         "free": true,
         "type": "transformation",
         "id": "plugin-taxonomy-plugin",
+        "code_language": "hog",
         "name": "Taxonomy",
-        "hog": "return event",
+        "code": "return event",
         "inputs_schema": [
             {
                 "key": "defaultNamingConvention",
@@ -703,7 +673,8 @@
         "type": "transformation",
         "id": "plugin-timestamp-parser-plugin",
         "name": "Timestamp Parser",
-        "hog": "return event",
+        "code_language": "hog",
+        "code": "return event",
         "inputs_schema": [],
         "category": ["Transformation"],
         "description": "Parse your event timestamps into useful date properties.",
@@ -716,8 +687,9 @@
         "free": true,
         "type": "transformation",
         "id": "plugin-user-agent-plugin",
+        "code_language": "hog",
         "name": "User Agent Populator",
-        "hog": "return event",
+        "code": "return event",
         "inputs_schema": [
             {
                 "key": "overrideUserAgentDetails",

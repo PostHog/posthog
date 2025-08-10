@@ -14,7 +14,7 @@ describe('SessionMetadataStore', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-        store = new SessionMetadataStore(mockProducer)
+        store = new SessionMetadataStore(mockProducer, 'clickhouse_session_replay_events_v2_test_test')
     })
 
     it('should queue events to kafka with correct data', async () => {
@@ -410,5 +410,45 @@ describe('SessionMetadataStore', () => {
         await expect(store.storeSessionBlocks(blocks)).rejects.toThrow(error)
         expect(mockProducer.queueMessages).toHaveBeenCalled()
         expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it('should use the provided kafka topic name', async () => {
+        const customTopic = 'custom_topic_name'
+        const customStore = new SessionMetadataStore(mockProducer, customTopic)
+
+        const blocks = [
+            {
+                sessionId: 'session1',
+                teamId: 1,
+                distinctId: 'user1',
+                batchId: 'batch1',
+                blockLength: 100,
+                eventCount: 15,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                blockUrl: 's3://bucket/file1',
+                firstUrl: 'https://example.com',
+                urls: ['https://example.com'],
+                clickCount: 3,
+                keypressCount: 7,
+                mouseActivityCount: 12,
+                activeMilliseconds: 1000,
+                consoleLogCount: 1,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+                size: 512,
+                messageCount: 25,
+                snapshotSource: 'web',
+                snapshotLibrary: 'rrweb@1.0.0',
+            },
+        ]
+
+        await customStore.storeSessionBlocks(blocks)
+
+        expect(mockProducer.queueMessages).toHaveBeenCalledWith(
+            expect.objectContaining({
+                topic: customTopic,
+            })
+        )
     })
 })

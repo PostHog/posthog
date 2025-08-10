@@ -50,14 +50,17 @@ async fn create_sink(
                 let partition = OverflowLimiter::new(
                     config.overflow_per_second_limit,
                     config.overflow_burst_limit,
-                    config.overflow_forced_keys.clone(),
+                    config.ingestion_force_overflow_by_token_distinct_id.clone(),
+                    config.overflow_preserve_partition_locality,
                 );
+
                 if config.export_prometheus {
                     let partition = partition.clone();
                     tokio::spawn(async move {
                         partition.report_metrics().await;
                     });
                 }
+
                 {
                     // Ensure that the rate limiter state does not grow unbounded
                     let partition = partition.clone();
@@ -130,7 +133,9 @@ where
         HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
 
     let redis_client = Arc::new(
-        RedisClient::new(config.redis_url.clone()).expect("failed to create redis client"),
+        RedisClient::new(config.redis_url.clone())
+            .await
+            .expect("failed to create redis client"),
     );
 
     let billing_limiter = RedisLimiter::new(
@@ -146,8 +151,19 @@ where
     )
     .expect("failed to create billing limiter");
 
+    // Survey quota limiting - create for all capture modes (won't be used for recordings but required by router)
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(5),
+        redis_client.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        config.redis_key_prefix.clone(),
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .expect("failed to create survey limiter");
+
     let token_dropper = config
-        .dropped_keys
+        .drop_events_by_token_distinct_id
         .clone()
         .map(|k| TokenDropper::new(&k))
         .unwrap_or_default();
@@ -172,15 +188,26 @@ where
         sink,
         redis_client,
         billing_limiter,
+        survey_limiter,
         token_dropper,
         config.export_prometheus,
         config.capture_mode,
         config.concurrency_limit,
         event_max_bytes,
+        config.enable_historical_rerouting,
+        config.historical_rerouting_threshold_days,
+        config.historical_tokens_keys,
+        config.is_mirror_deploy,
+        config.verbose_sample_percent,
     );
 
     // run our app with hyper
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+    tracing::info!(
+        "config: is_mirror_deploy == {:?} ; log_level == {:?}",
+        config.is_mirror_deploy,
+        config.log_level
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

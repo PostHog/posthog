@@ -5,7 +5,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Breadcrumb, PipelineStage, PipelineTab, PluginType } from '~/types'
+import { Breadcrumb, PipelineStage, PipelineTab, PluginType, ProjectTreeRef } from '~/types'
 
 import type { pipelineNodeNewLogicType } from './pipelineNodeNewLogicType'
 import { loadPluginsFromUrl } from './utils'
@@ -43,7 +43,7 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
         ],
     }),
 
-    selectors(() => ({
+    selectors({
         loading: [(s) => [s.pluginsLoading], (pluginsLoading) => pluginsLoading],
         breadcrumbs: [
             (_, p) => [p.stage, p.pluginId, p.kind, p.batchExportDestination],
@@ -66,13 +66,20 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
                         name: kind
                             ? `New ${capitalizeFirstLetter(kind)} source`
                             : pluginId
-                            ? 'New'
-                            : batchDestination
-                            ? `New ${batchDestination} destination`
-                            : `New ${parsedStage}`.trim(),
+                              ? 'New'
+                              : batchDestination
+                                ? `New ${batchDestination} destination`
+                                : `New ${parsedStage}`.trim(),
                     },
                 ]
             },
         ],
-    })),
+        projectTreeRef: [
+            (s) => [s.loading],
+            (): ProjectTreeRef => ({
+                type: 'hog_function/',
+                ref: null,
+            }),
+        ],
+    }),
 ])

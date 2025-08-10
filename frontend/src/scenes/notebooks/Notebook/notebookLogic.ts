@@ -16,22 +16,24 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
-import {
-    ActivityScope,
-    CommentType,
-    NotebookNodeType,
-    NotebookSyncStatus,
-    NotebookTarget,
-    NotebookType,
-    SidePanelTab,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
 import type { notebookLogicType } from './notebookLogicType'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
-// two imports and fails so, we reimport it from a utils file
-import { EditorRange, JSONContent, NotebookEditor } from './utils'
+// two imports and fails so, we reimport it from the types file
+import {
+    NotebookTarget,
+    NotebookNodeType,
+    NotebookEditor,
+    NotebookType,
+    NotebookSyncStatus,
+    TableOfContentData,
+} from '../types'
 
 const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
@@ -77,6 +79,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'itemContext'],
+            notebookSettingsLogic,
+            ['showTableOfContents'],
         ],
         actions: [
             notebooksModel,
@@ -130,6 +134,7 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeId?: string
         }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
+        setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
@@ -220,6 +225,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 setShowHistory: (_, { showHistory }) => showHistory,
             },
         ],
+        tableOfContents: [
+            [] as TableOfContentData,
+            {
+                setTableOfContents: (_, { tableOfContents }) => tableOfContents,
+            },
+        ],
         containerSize: [
             'small' as 'small' | 'medium',
             {
@@ -244,7 +255,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: null,
                             text_content: null,
                             version: 0,
-                            user_access_level: 'editor',
+                            user_access_level: AccessControlLevel.Editor,
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response =
@@ -270,7 +281,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
-                    const notebook = migrate(response)
+                    const notebook = await migrate(response)
 
                     if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
                         // If this is the first load we need to override the content fully
@@ -341,8 +352,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         values.mode === 'canvas'
                             ? 'Canvas'
                             : values.notebook?.short_id === 'scratchpad'
-                            ? 'Scratchpad'
-                            : 'Template'
+                              ? 'Scratchpad'
+                              : 'Template'
                     lemonToast.success(`Notebook created from ${source}!`)
 
                     if (values.notebook?.short_id === 'scratchpad') {
@@ -442,7 +453,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         nodeLogicsWithChildren: [
             (s) => [s.nodeLogics, s.content],
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            // oxlint-disable-next-line @typescript-eslint/no-unused-vars
             (nodeLogics, _content) => {
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
                 return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
@@ -450,16 +461,20 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
-            (editingNodeId, showHistory, containerSize) => {
-                return showHistory || (!!editingNodeId && containerSize !== 'small')
+            (s) => [s.editingNodeId, s.showHistory, s.showTableOfContents, s.containerSize],
+            (editingNodeId, showHistory, showTableOfContents, containerSize) => {
+                return showHistory || showTableOfContents || (!!editingNodeId && containerSize !== 'small')
             },
         ],
 
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
             (shouldBeEditable, previewContent, notebook, mode) =>
-                mode === 'canvas' || (shouldBeEditable && !previewContent && notebook?.user_access_level === 'editor'),
+                mode === 'canvas' ||
+                (shouldBeEditable &&
+                    !previewContent &&
+                    !!notebook?.user_access_level &&
+                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -533,7 +548,11 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
-            if (values.mode !== 'canvas' && values.notebook?.user_access_level !== 'editor') {
+            if (
+                values.mode !== 'canvas' &&
+                !!values.notebook?.user_access_level &&
+                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+            ) {
                 actions.clearLocalContent()
                 return
             }

@@ -3,23 +3,19 @@ import { DateTime } from 'luxon'
 import {
     Action,
     ActionStep,
-    Cohort,
     Element,
     Hub,
-    InternalPerson,
     ISOTimestamp,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
     StringMatching,
-    Team,
 } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { UUIDT } from '../../../src/utils/utils'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
 import { commonUserId } from '../../helpers/plugins'
-import { getFirstTeam, insertRow, resetTestDatabase } from '../../helpers/sql'
+import { insertRow, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
 
@@ -52,7 +48,7 @@ describe('ActionMatcher', () => {
     beforeEach(async () => {
         await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
         hub = await createHub()
-        actionManager = new ActionManager(hub.db.postgres, hub)
+        actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         actionCounter = 0
@@ -111,7 +107,7 @@ describe('ActionMatcher', () => {
 
             const event = createTestEvent()
 
-            expect(await actionMatcher.match(event)).toEqual([])
+            expect(actionMatcher.match(event)).toEqual([])
         })
 
         it('returns a match in case of event property operator exact', async () => {
@@ -138,23 +134,20 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([
+            expect(actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpExact, actionDefinitionOpUndefined])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([
                 actionDefinitionOpExact,
                 actionDefinitionOpUndefined,
             ])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([
-                actionDefinitionOpExact,
-                actionDefinitionOpUndefined,
-            ])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(actionMatcher.match(eventFooNull)).toEqual([])
         })
 
         it('returns a match in case of event property operator is not', async () => {
@@ -176,17 +169,17 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpIsNot])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventFooBar)).toEqual([])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpIsNot])
+            expect(actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsNot])
         })
 
         it('returns a match in case of event property operator contains', async () => {
@@ -210,17 +203,17 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpContains])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpContains])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpContains])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpContains])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpContains])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([])
+            expect(actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpContains])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpContains])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpContains])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpContains])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpContains])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(actionMatcher.match(eventFooNull)).toEqual([])
         })
 
         it('returns a match in case of event property operator does not contain', async () => {
@@ -244,17 +237,17 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpNotContains])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpNotContains])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([actionDefinitionOpNotContains])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([actionDefinitionOpNotContains])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpNotContains])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpNotContains])
+            expect(actionMatcher.match(eventFooBar)).toEqual([])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpNotContains])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpNotContains])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([actionDefinitionOpNotContains])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([actionDefinitionOpNotContains])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpNotContains])
+            expect(actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpNotContains])
         })
 
         it('returns a match in case of event property operator regex', async () => {
@@ -283,20 +276,17 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpRegex1])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpRegex1])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpRegex2])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([
-                actionDefinitionOpRegex1,
-                actionDefinitionOpRegex2,
-            ])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpRegex2])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([])
+            expect(actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpRegex1])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpRegex1])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpRegex2])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpRegex1, actionDefinitionOpRegex2])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpRegex2])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(actionMatcher.match(eventFooNull)).toEqual([])
         })
 
         it('returns a match in case of event property operator not regex', async () => {
@@ -332,32 +322,29 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpNotRegex2])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpNotRegex2])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpNotRegex1])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([
+            expect(actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpNotRegex2])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpNotRegex2])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpNotRegex1])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpNotRegex1, actionDefinitionOpNotRegex2])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpNotRegex1])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([
                 actionDefinitionOpNotRegex1,
                 actionDefinitionOpNotRegex2,
             ])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpNotRegex1])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([
+            expect(actionMatcher.match(eventNoNothing)).toEqual([
                 actionDefinitionOpNotRegex1,
                 actionDefinitionOpNotRegex2,
             ])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([
+            expect(actionMatcher.match(eventFigNumber)).toEqual([
                 actionDefinitionOpNotRegex1,
                 actionDefinitionOpNotRegex2,
             ])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([
+            expect(actionMatcher.match(eventFooTrue)).toEqual([
                 actionDefinitionOpNotRegex1,
                 actionDefinitionOpNotRegex2,
             ])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([
-                actionDefinitionOpNotRegex1,
-                actionDefinitionOpNotRegex2,
-            ])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([
+            expect(actionMatcher.match(eventFooNull)).toEqual([
                 actionDefinitionOpNotRegex1,
                 actionDefinitionOpNotRegex2,
             ])
@@ -382,17 +369,17 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
         })
 
         it('returns a match in case of event property operator is not set', async () => {
@@ -414,17 +401,17 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([actionDefinitionOpIsNotSet])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([actionDefinitionOpIsNotSet])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([])
+            expect(actionMatcher.match(eventFooBar)).toEqual([])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([actionDefinitionOpIsNotSet])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([actionDefinitionOpIsNotSet])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(actionMatcher.match(eventFooNull)).toEqual([])
         })
 
         it('returns a match in case of event property operator greater than', async () => {
@@ -448,19 +435,19 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumberMinusOne)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumberFive)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumberSevenNines)).toEqual([actionDefinitionOpGreaterThan])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([])
+            expect(actionMatcher.match(eventFooBar)).toEqual([])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([])
+            expect(actionMatcher.match(eventFooNumberMinusOne)).toEqual([])
+            expect(actionMatcher.match(eventFooNumberFive)).toEqual([])
+            expect(actionMatcher.match(eventFooNumberSevenNines)).toEqual([actionDefinitionOpGreaterThan])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(actionMatcher.match(eventFooNull)).toEqual([])
         })
 
         it('returns a match in case of event property operator less than', async () => {
@@ -484,19 +471,19 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumberMinusOne)).toEqual([actionDefinitionOpLessThan])
-            expect(await actionMatcher.match(eventFooNumberFive)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumberSevenNines)).toEqual([])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpLessThan]) // true is a 1
-            expect(await actionMatcher.match(eventFooNull)).toEqual([])
+            expect(actionMatcher.match(eventFooBar)).toEqual([])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(actionMatcher.match(eventFooBarabara)).toEqual([])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([])
+            expect(actionMatcher.match(eventFooNumberMinusOne)).toEqual([actionDefinitionOpLessThan])
+            expect(actionMatcher.match(eventFooNumberFive)).toEqual([])
+            expect(actionMatcher.match(eventFooNumberSevenNines)).toEqual([])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpLessThan]) // true is a 1
+            expect(actionMatcher.match(eventFooNull)).toEqual([])
         })
 
         it('returns a match in case of URL contains page view', async () => {
@@ -522,8 +509,8 @@ describe('ActionMatcher', () => {
                 properties: { $current_url: 'https://example.com/' },
             })
 
-            expect(await actionMatcher.match(eventPosthog)).toEqual([])
-            expect(await actionMatcher.match(eventExample)).toEqual([actionDefinition, actionDefinitionEmptyMatching])
+            expect(actionMatcher.match(eventPosthog)).toEqual([])
+            expect(actionMatcher.match(eventExample)).toEqual([actionDefinition, actionDefinitionEmptyMatching])
         })
 
         it('returns a match in case of URL contains page views with % and _', async () => {
@@ -549,11 +536,8 @@ describe('ActionMatcher', () => {
                 properties: { $current_url: 'https://example.com/index.html' },
             })
 
-            expect(await actionMatcher.match(eventExample)).toEqual([])
-            expect(await actionMatcher.match(eventExampleHtml)).toEqual([
-                actionDefinition,
-                actionDefinitionEmptyMatching,
-            ])
+            expect(actionMatcher.match(eventExample)).toEqual([])
+            expect(actionMatcher.match(eventExampleHtml)).toEqual([actionDefinition, actionDefinitionEmptyMatching])
         })
 
         it('returns a match in case of URL matches regex page views', async () => {
@@ -584,12 +568,12 @@ describe('ActionMatcher', () => {
                 properties: { $current_url: 'https://example.com/1foo/' },
             })
 
-            expect(await actionMatcher.match(eventExampleOk1)).toEqual([actionDefinition])
-            expect(await actionMatcher.match(eventExampleOk2)).toEqual([actionDefinition])
-            expect(await actionMatcher.match(eventExampleBad1)).toEqual([])
-            expect(await actionMatcher.match(eventExampleBad2)).toEqual([])
-            expect(await actionMatcher.match(eventExampleBad3)).toEqual([])
-            expect(await actionMatcher.match(eventExampleBad4)).toEqual([])
+            expect(actionMatcher.match(eventExampleOk1)).toEqual([actionDefinition])
+            expect(actionMatcher.match(eventExampleOk2)).toEqual([actionDefinition])
+            expect(actionMatcher.match(eventExampleBad1)).toEqual([])
+            expect(actionMatcher.match(eventExampleBad2)).toEqual([])
+            expect(actionMatcher.match(eventExampleBad3)).toEqual([])
+            expect(actionMatcher.match(eventExampleBad4)).toEqual([])
         })
 
         it('returns a match in case of URL matches exactly page views', async () => {
@@ -611,9 +595,9 @@ describe('ActionMatcher', () => {
                 properties: { $current_url: 'https://www.mozilla.org/de/firefox/' },
             })
 
-            expect(await actionMatcher.match(eventExampleOk)).toEqual([actionDefinition])
-            expect(await actionMatcher.match(eventExampleBad1)).toEqual([])
-            expect(await actionMatcher.match(eventExampleBad2)).toEqual([])
+            expect(actionMatcher.match(eventExampleOk)).toEqual([actionDefinition])
+            expect(actionMatcher.match(eventExampleBad1)).toEqual([])
+            expect(actionMatcher.match(eventExampleBad2)).toEqual([])
         })
 
         it('returns a match in case of exact event name', async () => {
@@ -633,9 +617,9 @@ describe('ActionMatcher', () => {
                 event: 'WOOF',
             })
 
-            expect(await actionMatcher.match(eventExampleOk)).toEqual([actionDefinition])
-            expect(await actionMatcher.match(eventExampleBad1)).toEqual([])
-            expect(await actionMatcher.match(eventExampleBad2)).toEqual([])
+            expect(actionMatcher.match(eventExampleOk)).toEqual([actionDefinition])
+            expect(actionMatcher.match(eventExampleBad1)).toEqual([])
+            expect(actionMatcher.match(eventExampleBad2)).toEqual([])
         })
 
         it('returns a match in case of exact event name AND URL contains', async () => {
@@ -668,11 +652,11 @@ describe('ActionMatcher', () => {
                 properties: { $current_url: 'https://www.pets.co' },
             })
 
-            expect(await actionMatcher.match(eventExampleOk1)).toEqual([actionDefinition])
-            expect(await actionMatcher.match(eventExampleOk2)).toEqual([actionDefinition])
-            expect(await actionMatcher.match(eventExampleBad1)).toEqual([])
-            expect(await actionMatcher.match(eventExampleBad2)).toEqual([])
-            expect(await actionMatcher.match(eventExampleBad3)).toEqual([])
+            expect(actionMatcher.match(eventExampleOk1)).toEqual([actionDefinition])
+            expect(actionMatcher.match(eventExampleOk2)).toEqual([actionDefinition])
+            expect(actionMatcher.match(eventExampleBad1)).toEqual([])
+            expect(actionMatcher.match(eventExampleBad2)).toEqual([])
+            expect(actionMatcher.match(eventExampleBad3)).toEqual([])
         })
 
         it('returns a match in case of person property operator exact', async () => {
@@ -689,91 +673,23 @@ describe('ActionMatcher', () => {
 
             const event = createTestEvent()
 
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'bar' } })).toEqual([
+            expect(actionMatcher.match({ ...event, person_properties: { foo: 'bar' } })).toEqual([
                 actionDefinitionOpExact,
                 actionDefinitionOpUndefined,
             ])
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'bar', pol: 'pot' } })).toEqual([
+            expect(actionMatcher.match({ ...event, person_properties: { foo: 'bar', pol: 'pot' } })).toEqual([
                 actionDefinitionOpExact,
                 actionDefinitionOpUndefined,
             ])
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'baR' } })).toEqual([])
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'baz' } })).toEqual([])
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'barabara' } })).toEqual([])
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: 'rabarbar' } })).toEqual([])
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: 7 } })).toEqual([])
-            expect(await actionMatcher.match({ ...event, person_properties: {} })).toEqual([])
-            expect(await actionMatcher.match({ ...event, person_properties: { something_else: 999 } })).toEqual([])
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: true } })).toEqual([])
-            expect(await actionMatcher.match({ ...event, person_properties: { foo: null } })).toEqual([])
-        })
-
-        it('returns a match in case of cohort match', async () => {
-            const testCohort = await hub.db.createCohort({
-                name: 'Test',
-                description: 'Test',
-                created_by_id: commonUserId,
-                team_id: 2,
-            })
-
-            const actionDefinition: Action = await createTestAction([
-                {
-                    properties: [{ type: 'cohort', key: 'id', value: testCohort.id }],
-                },
-            ])
-            const actionDefinitionAllUsers: Action = await createTestAction([
-                {
-                    properties: [{ type: 'cohort', key: 'id', value: 'all' }],
-                },
-            ])
-
-            const nonCohortPerson = await hub.db.createPerson(
-                DateTime.local(),
-                {},
-                {},
-                {},
-                actionDefinition.team_id,
-                null,
-                true,
-                new UUIDT().toString(),
-                [{ distinctId: 'random' }]
-            )
-
-            const cohortPerson = await hub.db.createPerson(
-                DateTime.local(),
-                {},
-                {},
-                {},
-                actionDefinition.team_id,
-                null,
-                true,
-                new UUIDT().toString(),
-                [{ distinctId: 'cohort' }]
-            )
-            await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
-
-            const eventExamplePersonBad = createTestEvent({
-                event: 'meow',
-                distinctId: 'random',
-                person_id: nonCohortPerson.uuid,
-            })
-            const eventExamplePersonOk = createTestEvent({
-                event: 'meow',
-                distinctId: 'cohort',
-                person_id: cohortPerson.uuid,
-            })
-            const eventExamplePersonUnknown = createTestEvent({
-                event: 'meow',
-                distinctId: 'unknown',
-                person_id: undefined,
-            })
-
-            expect(await actionMatcher.match(eventExamplePersonOk)).toEqual([
-                actionDefinition,
-                actionDefinitionAllUsers,
-            ])
-            expect(await actionMatcher.match(eventExamplePersonBad)).toEqual([actionDefinitionAllUsers])
-            expect(await actionMatcher.match(eventExamplePersonUnknown)).toEqual([actionDefinitionAllUsers])
+            expect(actionMatcher.match({ ...event, person_properties: { foo: 'baR' } })).toEqual([])
+            expect(actionMatcher.match({ ...event, person_properties: { foo: 'baz' } })).toEqual([])
+            expect(actionMatcher.match({ ...event, person_properties: { foo: 'barabara' } })).toEqual([])
+            expect(actionMatcher.match({ ...event, person_properties: { foo: 'rabarbar' } })).toEqual([])
+            expect(actionMatcher.match({ ...event, person_properties: { foo: 7 } })).toEqual([])
+            expect(actionMatcher.match({ ...event, person_properties: {} })).toEqual([])
+            expect(actionMatcher.match({ ...event, person_properties: { something_else: 999 } })).toEqual([])
+            expect(actionMatcher.match({ ...event, person_properties: { foo: true } })).toEqual([])
+            expect(actionMatcher.match({ ...event, person_properties: { foo: null } })).toEqual([])
         })
 
         it('returns a match in case of element href equals', async () => {
@@ -800,13 +716,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefOuter })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefOuter })).toEqual([
                 actionDefinitionLinkHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefInner })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefInner })).toEqual([
                 actionDefinitionLinkHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href contains', async () => {
@@ -844,17 +760,17 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([
                 actionDefinitionLinkHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([
                 actionDefinitionLinkHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
                 actionDefinitionLinkHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href contains, with wildcard', async () => {
@@ -892,13 +808,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
                 actionDefinitionLinkHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href matches regex', async () => {
@@ -936,13 +852,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
                 actionDefinitionLinkHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element text and tag name equals', async () => {
@@ -976,12 +892,12 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProper })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefProper })).toEqual([
                 actionDefinitionLinkHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongTag })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongText })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongLevel })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefWrongTag })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefWrongText })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefWrongLevel })).toEqual([])
         })
 
         it('returns a match in case of element text contains', async () => {
@@ -1004,8 +920,8 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefBadText })).toEqual([])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefGoodText })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefBadText })).toEqual([])
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefGoodText })).toEqual([
                 actionDefinitionLinkHref,
             ])
         })
@@ -1048,15 +964,15 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProperNondirect })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefProperNondirect })).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectHref,
                 actionDefinitionArraySelectorProp,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongClassNondirect })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefWrongClassNondirect })).toEqual([
                 actionDefinitionDirectHref,
             ])
-            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProperDirect })).toEqual([
+            expect(actionMatcher.match({ ...event, elementsList: elementsHrefProperDirect })).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectDescendant,
                 actionDefinitionArraySelectorProp,
@@ -1094,7 +1010,7 @@ describe('ActionMatcher', () => {
                 },
             })
 
-            expect(await actionMatcher.match(eventExampleOk1)).toEqual([actionDefinition])
+            expect(actionMatcher.match(eventExampleOk1)).toEqual([actionDefinition])
         })
 
         it('properly handles is_not null string coercion', async () => {
@@ -1118,16 +1034,16 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([])
+            expect(actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooNull)).toEqual([])
         })
 
         it('properly handles exact null string coercion', async () => {
@@ -1148,16 +1064,16 @@ describe('ActionMatcher', () => {
             const eventFooTrue = createTestEvent({ properties: { foo: true } })
             const eventFooNull = createTestEvent({ properties: { foo: null } })
 
-            expect(await actionMatcher.match(eventFooBar)).toEqual([])
-            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpIsSet])
-            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
-            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
-            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
-            expect(await actionMatcher.match(eventFooNumber)).toEqual([])
-            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
-            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
-            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
-            expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBar)).toEqual([])
+            expect(actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpIsSet])
+            expect(actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(actionMatcher.match(eventFooRabarbar)).toEqual([])
+            expect(actionMatcher.match(eventFooNumber)).toEqual([])
+            expect(actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
         })
     })
 
@@ -1273,64 +1189,6 @@ describe('ActionMatcher', () => {
             expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(1)')).toBeTruthy()
             expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(1):nth-of-type(1)')).toBeFalsy()
             expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')).toBeFalsy()
-        })
-    })
-
-    describe('doesPersonBelongToCohort()', () => {
-        let team: Team
-        let cohort: Cohort
-        let person: InternalPerson
-        let personId: InternalPerson['id']
-        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-
-        beforeEach(async () => {
-            team = await getFirstTeam(hub)
-            cohort = await hub.db.createCohort({
-                name: 'testCohort',
-                description: '',
-                team_id: team.id,
-                version: 10,
-            })
-
-            person = await hub.db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, new UUIDT().toString(), [])
-
-            personId = person.id
-        })
-
-        it('returns false if person does not belong to cohort', async () => {
-            const cohort2 = await hub.db.createCohort({
-                name: 'testCohort2',
-                description: '',
-                team_id: team.id,
-            })
-            await hub.db.addPersonToCohort(cohort2.id, personId, cohort.version)
-
-            expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
-        })
-
-        it('returns true if person belongs to cohort', async () => {
-            await hub.db.addPersonToCohort(cohort.id, personId, cohort.version)
-
-            expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(true)
-        })
-
-        it('returns false if person does not belong to current version of the cohort', async () => {
-            await hub.db.addPersonToCohort(cohort.id, personId, -1)
-
-            expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
-        })
-
-        it('handles NULL version cohorts', async () => {
-            const cohort2 = await hub.db.createCohort({
-                name: 'null_cohort',
-                description: '',
-                team_id: team.id,
-                version: null,
-            })
-            expect(await actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(false)
-
-            await hub.db.addPersonToCohort(cohort2.id, personId, null)
-            expect(await actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(true)
         })
     })
 })

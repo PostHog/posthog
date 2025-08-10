@@ -13,7 +13,7 @@ import { signupLogic } from '../signupLogic'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, validatedPassword } = useValues(signupLogic)
+    const { isSignupPanel1Submitting, validatedPassword, loginUrl, emailCaseNotice } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -31,7 +31,11 @@ export function SignupPanel1(): JSX.Element | null {
                 </>
             )}
             <Form logic={signupLogic} formKey="signupPanel1" className="deprecated-space-y-4" enableFormOnSubmit>
-                <LemonField name="email" label="Email">
+                <LemonField
+                    name="email"
+                    label="Email"
+                    help={emailCaseNotice && <span className="text-warning">{emailCaseNotice}</span>}
+                >
                     <LemonInput
                         className="ph-ignore-input"
                         autoFocus
@@ -82,7 +86,7 @@ export function SignupPanel1(): JSX.Element | null {
                 // but future-proofing this (with `preflight.initiated`) in case this changes
                 <div className="text-center mt-4">
                     Already have an account?{' '}
-                    <Link to="/login" data-attr="signup-login-link" className="font-bold">
+                    <Link to={loginUrl} data-attr="signup-login-link" className="font-bold">
                         Log in
                     </Link>
                 </div>

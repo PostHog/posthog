@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from posthog.admin.admins import (
     OrganizationAdmin,
+    OrganizationDomainAdmin,
     UserAdmin,
     TeamAdmin,
     DashboardAdmin,
@@ -17,16 +18,20 @@ from posthog.admin.admins import (
     PluginAdmin,
     TextAdmin,
     CohortAdmin,
-    PersonAdmin,
     PersonDistinctIdAdmin,
     SurveyAdmin,
     DataWarehouseTableAdmin,
     ProjectAdmin,
     HogFunctionAdmin,
     GroupTypeMappingAdmin,
+    EventIngestionRestrictionConfigAdmin,
+    LinkAdmin,
+    BatchImportAdmin,
+    PersonalAPIKeyAdmin,
 )
 from posthog.models import (
     Organization,
+    OrganizationDomain,
     User,
     Team,
     Dashboard,
@@ -43,15 +48,19 @@ from posthog.models import (
     Text,
     Project,
     Cohort,
-    Person,
     PersonDistinctId,
     Survey,
     DataWarehouseTable,
     HogFunction,
     GroupTypeMapping,
+    EventIngestionRestrictionConfig,
+    Link,
+    BatchImport,
+    PersonalAPIKey,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
+admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(Team, TeamAdmin)
 admin.site.register(User, UserAdmin)
@@ -73,10 +82,14 @@ admin.site.register(Plugin, PluginAdmin)
 admin.site.register(Text, TextAdmin)
 
 admin.site.register(Cohort, CohortAdmin)
-admin.site.register(Person, PersonAdmin)
 admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
 admin.site.register(Survey, SurveyAdmin)
 
 admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
 admin.site.register(HogFunction, HogFunctionAdmin)
+admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
+admin.site.register(Link, LinkAdmin)
+admin.site.register(BatchImport, BatchImportAdmin)
+
+admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)

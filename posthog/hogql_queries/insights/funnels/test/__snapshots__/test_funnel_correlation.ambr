@@ -153,7 +153,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
@@ -319,7 +320,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
@@ -451,7 +453,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
@@ -467,7 +470,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
@@ -599,7 +603,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
@@ -615,7 +620,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.5
@@ -747,7 +753,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.6
@@ -763,7 +770,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.7
@@ -895,7 +903,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.8
@@ -911,7 +920,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized
@@ -1077,7 +1087,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.1
@@ -1209,7 +1220,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.2
@@ -1225,7 +1237,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.3
@@ -1357,7 +1370,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.4
@@ -1373,7 +1387,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.5
@@ -1505,7 +1520,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.6
@@ -1521,7 +1537,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.7
@@ -1653,7 +1670,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.8
@@ -1669,7 +1687,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
@@ -1730,7 +1749,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -1795,7 +1814,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -1812,7 +1831,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
@@ -1873,7 +1893,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -1938,7 +1958,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -1955,7 +1975,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
@@ -2011,7 +2032,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -2074,7 +2095,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -2091,7 +2112,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.1
@@ -2181,7 +2203,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -2205,7 +2227,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.2
@@ -2295,7 +2318,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -2319,7 +2342,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.3
@@ -2409,7 +2433,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -2433,7 +2457,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.4
@@ -2523,7 +2548,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -2547,7 +2572,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.5
@@ -2611,7 +2637,7 @@
                        WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                        GROUP BY groups.group_type_index,
                                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -2682,7 +2708,7 @@
                        WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                        GROUP BY groups.group_type_index,
                                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -2699,7 +2725,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.6
@@ -2789,7 +2816,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -2813,7 +2840,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.7
@@ -2903,7 +2931,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -2927,7 +2955,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2
@@ -2983,7 +3012,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -3046,7 +3075,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -3063,7 +3092,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.1
@@ -3153,7 +3183,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -3177,7 +3207,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.2
@@ -3267,7 +3298,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -3291,7 +3322,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.3
@@ -3381,7 +3413,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -3405,7 +3437,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.4
@@ -3495,7 +3528,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -3519,7 +3552,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.5
@@ -3583,7 +3617,7 @@
                        WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                        GROUP BY groups.group_type_index,
                                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -3654,7 +3688,7 @@
                        WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                        GROUP BY groups.group_type_index,
                                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -3671,7 +3705,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.6
@@ -3761,7 +3796,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -3785,7 +3820,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.7
@@ -3875,7 +3911,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -3899,7 +3935,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups
@@ -3958,7 +3995,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -4033,7 +4070,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -4050,7 +4087,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.1
@@ -4147,7 +4185,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -4171,7 +4209,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.2
@@ -4268,7 +4307,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -4292,7 +4331,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.3
@@ -4389,7 +4429,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -4413,7 +4453,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.4
@@ -4510,7 +4551,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -4534,7 +4575,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.5
@@ -4593,7 +4635,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -4668,7 +4710,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -4685,7 +4727,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
@@ -4744,7 +4787,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -4819,7 +4862,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -4836,7 +4879,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
@@ -4933,7 +4977,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -4957,7 +5001,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.2
@@ -5054,7 +5099,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -5078,7 +5123,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.3
@@ -5175,7 +5221,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -5199,7 +5245,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.4
@@ -5296,7 +5343,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -5320,7 +5367,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
@@ -5379,7 +5427,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -5454,7 +5502,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -5471,7 +5519,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
@@ -5530,7 +5579,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -5605,7 +5654,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -5622,7 +5671,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -5719,7 +5769,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -5743,7 +5793,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.2
@@ -5840,7 +5891,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -5864,7 +5915,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.3
@@ -5961,7 +6013,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -5985,7 +6037,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.4
@@ -6082,7 +6135,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -6106,7 +6159,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
@@ -6165,7 +6219,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -6240,7 +6294,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -6257,7 +6311,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
@@ -6316,7 +6371,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -6391,7 +6446,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -6408,7 +6463,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -6505,7 +6561,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -6529,7 +6585,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
@@ -6626,7 +6683,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -6650,7 +6707,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
@@ -6747,7 +6805,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -6771,7 +6829,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
@@ -6868,7 +6927,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -6892,7 +6951,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
@@ -6951,7 +7011,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -7026,7 +7086,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -7043,7 +7103,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
@@ -7102,7 +7163,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -7177,7 +7238,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -7194,7 +7255,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -7291,7 +7353,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -7315,7 +7377,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
@@ -7412,7 +7475,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -7436,7 +7499,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
@@ -7533,7 +7597,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -7557,7 +7621,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
@@ -7654,7 +7719,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -7678,7 +7743,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
@@ -7737,7 +7803,7 @@
                               if(equals(e.event, 'paid'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -7812,7 +7878,7 @@
                            if(equals(e.event, 'paid'), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -7829,6 +7895,7 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

@@ -1,0 +1,28 @@
+receivers:
+    otlp:
+        protocols:
+            grpc:
+                endpoint: 0.0.0.0:4317 # Collector receiving OTLP gRPC
+            http:
+                endpoint: 0.0.0.0:4318 # Collector receiving OTLP HTTP
+
+exporters:
+    otlp: # Using the standard OTLP exporter
+        endpoint: 'jaeger-local:4317' # Sending OTLP gRPC to Jaeger
+        tls:
+            insecure: true # For local communication to Jaeger
+
+extensions: # Declaring the extensions
+    health_check: # Default configuration is usually fine
+    zpages: # Default configuration is usually fine
+
+processors:
+    batch:
+
+service:
+    pipelines:
+        traces:
+            receivers: [otlp]
+            processors: [batch]
+            exporters: [otlp]
+    extensions: [health_check, zpages] # Enabling the declared extensions

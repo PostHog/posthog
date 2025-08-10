@@ -1,10 +1,62 @@
-import { NotebookType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import mockNotebook from '../__mocks__/notebook-12345.json'
-import { JSONContent } from '../utils'
 import { migrate } from './migrate'
+import { initKeaTests } from '~/test/init'
+import { useMocks } from '~/mocks/jest'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookType } from 'scenes/notebooks/types'
 
 describe('migrate()', () => {
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/upgrade': (req) => {
+                    const data = req.body as any
+                    if (data?.query?.source?.kind === 'RetentionQuery') {
+                        return [
+                            200,
+                            {
+                                query: {
+                                    kind: 'InsightVizNode',
+                                    source: {
+                                        version: 2,
+                                        aggregation_group_type_index: 0,
+                                        kind: 'RetentionQuery',
+                                        retentionFilter: {
+                                            meanRetentionCalculation: 'simple',
+                                            period: 'Week',
+                                            retentionReference: 'total',
+                                            retentionType: 'retention_first_time',
+                                            returningEntity: {
+                                                id: 'recording analyzed',
+                                                name: 'recording analyzed',
+                                                order: 0,
+                                                type: 'events',
+                                                uuid: '286575a9-1485-47d0-9bf6-9d439bc051b3',
+                                            },
+                                            targetEntity: {
+                                                id: 'recording analyzed',
+                                                name: 'recording analyzed',
+                                                order: 0,
+                                                type: 'events',
+                                                uuid: 'af560c55-fa85-4c38-b056-94b6e253530a',
+                                            },
+                                            totalIntervals: 7,
+                                        },
+                                    },
+                                },
+                            },
+                        ]
+                    }
+                    return [500, {}]
+                },
+            },
+        })
+
+        initKeaTests()
+    })
+
     const contentToExpected: [string, JSONContent[], JSONContent[]][] = [
         ['migrates node without changes', [{ type: 'paragraph' }], [{ type: 'paragraph' }]],
         [
@@ -240,6 +292,7 @@ describe('migrate()', () => {
                         query: {
                             kind: 'InsightVizNode',
                             source: {
+                                version: 2,
                                 kind: 'RetentionQuery',
                                 retentionFilter: {
                                     period: 'Week',
@@ -931,18 +984,18 @@ describe('migrate()', () => {
         ],
     ]
 
-    it.each(contentToExpected)('migrates %s', (_name, prevContent, nextContent) => {
+    it.each(contentToExpected)('migrates %s', async (_name, prevContent, nextContent) => {
         const prevNotebook: NotebookType = {
             ...mockNotebook,
-            user_access_level: 'editor' as const,
+            user_access_level: AccessControlLevel.Editor,
             content: { type: 'doc', content: prevContent },
         }
         const nextNotebook: NotebookType = {
             ...mockNotebook,
-            user_access_level: 'editor' as const,
+            user_access_level: AccessControlLevel.Editor,
             content: { type: 'doc', content: nextContent },
         }
 
-        expect(migrate(prevNotebook)).toEqual(nextNotebook)
+        await expect(migrate(prevNotebook)).resolves.toEqual(nextNotebook)
     })
 })

@@ -115,6 +115,8 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             prop.type == "static-cohort"
         ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
             res, params = self.get_static_cohort_condition(prop, prepend, idx)
+        elif prop.type == "dynamic-cohort":
+            res, params = self.get_dynamic_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
@@ -147,7 +149,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(full_condition)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {
                 f"{date_param}": date_value,
                 f"{seq_date_param}": seq_date_value,
@@ -186,7 +188,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(full_condition)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {
                 f"{date_param}": date_value,
                 f"{seq_date_param}": seq_date_value,
@@ -211,7 +213,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(field)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {f"{date_param}": date_value, **entity_params},
         )
 
@@ -264,7 +266,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(field)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {**entity_params, **params},
         )
 

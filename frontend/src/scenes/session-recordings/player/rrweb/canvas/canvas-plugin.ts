@@ -8,8 +8,8 @@ import {
     eventWithTime,
     IncrementalSource,
 } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
 import { debounce } from 'lib/utils'
+import posthog from 'posthog-js'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
@@ -191,8 +191,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         const currentIndex = nextPreloadIndex
             ? nextPreloadIndex
             : currentEvent
-            ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
-            : 0
+              ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
+              : 0
 
         const eventsToPreload = canvasMutationEvents
             .slice(currentIndex, currentIndex + PRELOAD_BUFFER_SIZE)
@@ -220,8 +220,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             }
         },
 
-        // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        handler: async (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
+        handler: (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
             const isCanvas = isCanvasMutation(e)
 
             // scrubbing / fast forwarding
@@ -244,5 +243,5 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 }
 
 const handleMutationError = (error: unknown): void => {
-    captureException(error)
+    posthog.captureException(error)
 }

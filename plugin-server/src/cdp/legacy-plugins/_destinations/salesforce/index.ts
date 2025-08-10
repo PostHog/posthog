@@ -2,9 +2,8 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Properties, RetryError } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
-import type { Response } from '~/src/utils/fetch'
-
 import { parseJSON } from '../../../../utils/json-parse'
+import type { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export interface EventSink {
@@ -264,7 +263,7 @@ export async function onEvent(event: ProcessedPluginEvent, meta: SalesforceMeta)
     await sendEventToSalesforce(event, meta, await getToken(meta))
 }
 
-function statusOk(res: Response, logger: SalesforceMeta['logger']): boolean {
+function statusOk(res: FetchResponse, logger: SalesforceMeta['logger']): boolean {
     logger.debug('testing response for whether it is "ok". has status: ', res.status, ' debug: ', JSON.stringify(res))
     return String(res.status)[0] === '2'
 }

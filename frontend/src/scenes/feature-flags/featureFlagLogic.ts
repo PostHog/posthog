@@ -26,16 +26,18 @@ import { userLogic } from 'scenes/userLogic'
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
+    AccessControlLevel,
     ActivityScope,
     AvailableFeature,
     Breadcrumb,
     CohortType,
     DashboardBasicType,
     EarlyAccessFeatureType,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
     FeatureFlagStatusResponse,
@@ -66,6 +68,7 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -82,7 +85,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     },
 })
 
-const NEW_FLAG: FeatureFlagType = {
+export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
     key: '',
@@ -104,13 +107,14 @@ const NEW_FLAG: FeatureFlagType = {
     surveys: null,
     performed_rollback: false,
     can_edit: true,
-    user_access_level: 'editor',
+    user_access_level: AccessControlLevel.Editor,
     tags: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
     status: 'ACTIVE',
     version: 0,
     last_modified_by: null,
+    evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
 }
 const NEW_VARIANT = {
     key: '',
@@ -131,9 +135,11 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
         ? 'Please set a key'
-        : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-        : undefined
+        : key.length > 400
+          ? 'Key must be 400 characters or less.'
+          : !key.match?.(/^[a-zA-Z0-9_-]+$/)
+            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+            : undefined
 }
 
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
@@ -246,9 +252,26 @@ export const getRecordingFilterForFlagVariant = (
 }
 
 // This helper function removes the created_at, id, and created_by fields from a flag
+// and cleans the groups and super_groups by removing the sort_key field.
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
-    return cleanedFlag
+    return {
+        ...cleanedFlag,
+        filters: {
+            ...cleanedFlag.filters,
+            groups: cleanFilterGroups(cleanedFlag.filters?.groups) || [],
+            super_groups: cleanFilterGroups(cleanedFlag.filters?.super_groups),
+        },
+    }
+}
+
+// Strip out sort_key from groups before saving. The sort_key is here for React to be able to
+// render the release conditions in the correct order.
+function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
+    if (groups === undefined || groups === null) {
+        return undefined
+    }
+    return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => rest)
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([
@@ -346,7 +369,30 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
-                actions.saveFeatureFlag(featureFlag)
+                // Use confirmation logic from dedicated file
+                const confirmationShown = checkFeatureFlagConfirmation(
+                    values.originalFeatureFlag,
+                    featureFlag,
+                    !!values.currentTeam?.feature_flag_confirmation_enabled,
+                    values.currentTeam?.feature_flag_confirmation_message || undefined,
+                    () => {
+                        // This callback is called when confirmation is completed or not needed
+                        if (featureFlag.id) {
+                            actions.saveFeatureFlag(featureFlag)
+                        } else {
+                            actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                        }
+                    }
+                )
+
+                // If no confirmation was shown, proceed immediately
+                if (!confirmationShown) {
+                    if (featureFlag.id) {
+                        actions.saveFeatureFlag(featureFlag)
+                    } else {
+                        actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                    }
+                }
             },
         },
     })),
@@ -393,7 +439,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                    const variantsSet = new Set(multivariateOptions?.variants.map((variant) => variant.key))
+                    const groups = state.filters.groups.map((group) =>
+                        !group.variant || variantsSet.has(group.variant) ? group : { ...group, variant: null }
+                    )
+                    const oldPayloads = state.filters.payloads ?? {}
+                    const payloads: Record<string, JsonType> = {}
+                    for (const variantKey of Object.keys(oldPayloads)) {
+                        if (variantsSet.has(variantKey)) {
+                            payloads[variantKey] = oldPayloads[variantKey]
+                        }
+                    }
+                    return {
+                        ...state,
+                        filters: { ...state.filters, groups, payloads, multivariate: multivariateOptions },
+                    }
                 },
                 setRemoteConfigEnabled: (state, { enabled }) => {
                     if (!state) {
@@ -429,7 +489,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         filters: {
                             ...state.filters,
                             multivariate: {
-                                ...(state.filters.multivariate || {}),
+                                ...state.filters.multivariate,
                                 variants: [...variants, NEW_VARIANT],
                             },
                         },
@@ -791,7 +851,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             },
                         ],
                     }
-                    return await api.surveys.create(newSurvey as NewSurvey)
+                    const response = await api.surveys.create(newSurvey as NewSurvey)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_CREATED,
+                        metadata: {
+                            survey_id: response.id,
+                        },
+                    })
+                    return response
                 },
             },
         ],
@@ -904,6 +972,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (values.featureFlag.experiment_set) {
                     return await api.experiments.get(values.featureFlag.experiment_set[0])
                 }
+                return null
             },
         },
     })),
@@ -959,8 +1028,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
-                callback: () => {
+                callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
+                    if (undo) {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                    } else {
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                    }
                     // Load latest change so a backwards navigation shows the flag as deleted
                     actions.loadFeatureFlag()
                     router.actions.push(urls.featureFlags())
@@ -972,7 +1046,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 undo: true,
-                callback: () => {
+                callback: (undo) => {
+                    if (undo) {
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                    } else {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                    }
                     actions.loadFeatureFlag()
                 },
             })
@@ -1043,6 +1122,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 })
             }
         },
+        createSurveySuccess: ({ newSurvey }) => {
+            if (newSurvey) {
+                lemonToast.success('Survey created successfully', {
+                    button: {
+                        label: 'View survey',
+                        action: () => router.actions.push(urls.survey(newSurvey.id)),
+                    },
+                })
+            }
+        },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
@@ -1105,8 +1194,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'remote_config'
                     : featureFlag?.filters.multivariate
-                    ? 'multivariate'
-                    : 'boolean',
+                      ? 'multivariate'
+                      : 'boolean',
         ],
         flagTypeString: [
             (s) => [s.featureFlag],
@@ -1114,8 +1203,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'Remote configuration (single payload)'
                     : featureFlag?.filters.multivariate
-                    ? 'Multiple variants with rollout percentages (A/B/n test)'
-                    : 'Release toggle (boolean)',
+                      ? 'Multiple variants with rollout percentages (A/B/n test)'
+                      : 'Release toggle (boolean)',
         ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
@@ -1155,14 +1244,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: FeatureFlagLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'feature_flag', ref: String(id) }),
+            (id): ProjectTreeRef => ({ type: 'feature_flag', ref: id === 'link' || id === 'new' ? null : String(id) }),
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.featureFlag, s.currentTeam],
-            (featureFlag, currentTeam): SidePanelSceneContext | null => {
-                // Only render the new access control on side panel if they have been migrated
-                return featureFlag?.id && currentTeam?.access_control_version === 'v2'
+            (s) => [s.featureFlag],
+            (featureFlag): SidePanelSceneContext | null => {
+                return featureFlag?.id
                     ? {
                           activity_scope: ActivityScope.FEATURE_FLAG,
                           activity_item_id: `${featureFlag.id}`,

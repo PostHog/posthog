@@ -11,8 +11,6 @@ export enum PipelineBackend {
     BatchExport = 'batch_export',
     Plugin = 'plugin',
     HogFunction = 'hog_function',
-    ManagedSource = 'managed_source',
-    SelfManagedSource = 'self_managed',
 }
 
 // Base - we're taking a discriminated union approach here, so that TypeScript can discern types for free
@@ -78,7 +76,7 @@ export type NewDestinationItemType = {
     description: string
     backend: PipelineBackend
     free: boolean
-    status?: 'stable' | 'alpha' | 'beta' | 'deprecated'
+    status?: 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 }
 
 export type NewDestinationFilters = {
@@ -117,14 +115,14 @@ export function convertToPipelineNode<S extends PipelineStage>(
 ): S extends PipelineStage.Transformation
     ? Transformation
     : S extends PipelineStage.Destination
-    ? Destination
-    : S extends PipelineStage.SiteApp
-    ? SiteApp
-    : S extends PipelineStage.ImportApp
-    ? ImportApp
-    : S extends PipelineStage.Source
-    ? Source
-    : never {
+      ? Destination
+      : S extends PipelineStage.SiteApp
+        ? SiteApp
+        : S extends PipelineStage.ImportApp
+          ? ImportApp
+          : S extends PipelineStage.Source
+            ? Source
+            : never {
     let node: PipelineNode
 
     // check if type is a hog function

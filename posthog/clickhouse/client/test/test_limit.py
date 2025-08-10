@@ -1,12 +1,11 @@
 from posthog.clickhouse.client.limit import RateLimit, ConcurrencyLimitExceeded
 from posthog.test.base import BaseTest
-from posthog.redis import get_client
+from collections.abc import Callable
 
 
 class TestRateLimit(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.redis_client = get_client()
         self.limit = RateLimit(
             max_concurrency=1,
             applicable=lambda *args, **kwargs: (kwargs.get("is_api") if "is_api" in kwargs else args[0]),
@@ -16,7 +15,7 @@ class TestRateLimit(BaseTest):
             get_task_id=lambda *args, **kwargs: f"{kwargs.get('task_id') or args[2]}",
             ttl=10,
         )
-        self.cancels: list[tuple[str, str]] = []
+        self.cancels: list[tuple[str | None, str | None]] = []
 
     def tearDown(self) -> None:
         for a, b in self.cancels:
@@ -114,3 +113,95 @@ class TestRateLimit(BaseTest):
             result += 8
 
         assert result == 11
+
+    def test_retry_mechanism_raises_exception(self):
+        """
+        Test that the retry mechanism raises an exception if despite waiting for the retry timeout, the slot is not available.
+        """
+        retry_limit = RateLimit(
+            max_concurrency=1,
+            applicable=lambda *args, **kwargs: True,
+            limit_name="test_retry_mechanism_raises_exception",
+            get_task_name=lambda *args, **kwargs: "test_retry_mechanism_raises_exception",
+            get_task_id=lambda *args, **kwargs: f"task-{kwargs.get('task_id', 1)}",
+            ttl=10,
+            retry=0.1,  # 100ms initial retry
+            retry_timeout=0.5,  # 500ms total timeout
+        )
+
+        time_helper = TimeHelper()
+        retry_limit.sleep = time_helper.sleep
+        retry_limit.get_time = time_helper.get_time
+
+        # First task should succeed immediately
+        with retry_limit.run(task_id=1):
+            pass
+
+        # Second task should retry and eventually fail due to timeout
+        retry_limit.use(task_id=2)
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            with retry_limit.run(task_id=2):
+                pass
+
+        # Verify exponential backoff
+        assert len(time_helper.sleep_times) == 3
+        for i in range(1, len(time_helper.sleep_times)):
+            assert time_helper.sleep_times[i] > time_helper.sleep_times[i - 1]  # Each retry should wait longer
+        total_sleep_time = sum(time_helper.sleep_times[:-1])
+
+        # Verify total time is within timeout
+        assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
+
+    def test_retry_mechanism_acquires_slot(self):
+        """
+        Test that the retry mechanism acquires a slot if it is available.
+        """
+        retry_limit = RateLimit(
+            max_concurrency=1,
+            applicable=lambda *args, **kwargs: True,
+            limit_name="test_retry_mechanism_acquires_slot",
+            get_task_name=lambda *args, **kwargs: "test_retry_mechanism_acquires_slot",
+            get_task_id=lambda *args, **kwargs: f"task-{kwargs.get('task_id', 1)}",
+            ttl=10,
+            retry=0.1,  # 100ms initial retry
+            retry_timeout=0.5,  # 500ms total timeout
+        )
+
+        running_task_key, task_id = retry_limit.use(task_id=1)  # consumes the slot
+
+        def on_sleep(duration):
+            if duration > 0.1:  # after second sleep, the slot is released
+                retry_limit.release(running_task_key, task_id)
+
+        time_helper = TimeHelper(on_sleep)
+
+        retry_limit.sleep = time_helper.sleep
+        retry_limit.get_time = time_helper.get_time
+
+        with retry_limit.run(task_id=2):
+            pass
+
+        # Verify exponential backoff
+        assert len(time_helper.sleep_times) == 2
+        for i in range(1, len(time_helper.sleep_times)):
+            assert time_helper.sleep_times[i] > time_helper.sleep_times[i - 1]  # Each retry should wait longer
+        total_sleep_time = sum(time_helper.sleep_times[:-1])
+
+        # Verify total time is within timeout
+        assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
+
+
+class TimeHelper:
+    def __init__(self, on_sleep: Callable[[float], None] = lambda _: None):
+        self.t = 1492.0
+        self.on_sleep = on_sleep
+        self.sleep_times: list[float] = []
+
+    def get_time(self):
+        self.t += 0.0001
+        return self.t
+
+    def sleep(self, duration: float):
+        self.sleep_times.append(duration)
+        self.on_sleep(duration)
+        self.t += duration

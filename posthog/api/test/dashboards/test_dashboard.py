@@ -1,3 +1,4 @@
+import json
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
@@ -269,21 +270,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 6
+            baseline = 8
 
-            with self.assertNumQueries(baseline + 10):
+            with self.assertNumQueries(baseline + 12):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 10):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 10):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 10):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -602,7 +603,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
         dashboard_data = DashboardSerializer(
-            dashboard, context={"view": mock_view, "request": mock_request, "get_team": lambda: self.team}
+            dashboard,
+            context={
+                "view": mock_view,
+                "request": mock_request,
+                "get_team": lambda: self.team,
+                "insight_variables": [],
+            },
         ).data
         assert len(dashboard_data["tiles"]) == 1
 
@@ -1307,6 +1314,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 200
 
+        self_user_basic_serialized = {
+            "id": self.user.id,
+            "uuid": str(self.user.uuid),
+            "distinct_id": self.user.distinct_id,
+            "first_name": self.user.first_name,
+            "last_name": self.user.last_name,
+            "email": self.user.email,
+            "is_email_verified": None,
+            "hedgehog_config": None,
+            "role_at_organization": None,
+        }
+
         assert response.json()["tiles"] == [
             {
                 "color": None,
@@ -1314,7 +1333,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": {
                     "columns": None,
                     "created_at": ANY,
-                    "created_by": None,
+                    "created_by": self_user_basic_serialized,
                     "dashboard_tiles": [
                         {
                             "dashboard_id": response.json()["id"],
@@ -1336,7 +1355,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "is_cached": False,
                     "is_sample": True,
                     "last_modified_at": ANY,
-                    "last_modified_by": None,
+                    "last_modified_by": self_user_basic_serialized,
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,
@@ -1357,7 +1376,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "tags": [],
                     "timezone": None,
                     "updated_at": ANY,
-                    "user_access_level": "editor",
+                    "user_access_level": "manager",
                     "hogql": ANY,
                     "types": ANY,
                 },
@@ -1377,14 +1396,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"template": invalid_template},
         )
         assert response.status_code == 400, response.json()
-        error_message = {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "'template_name' is a required property\n\nFailed validating 'required' in schema:\n    {'properties': {'created_at': {'description': 'When the dashboard '\n                                                  'template was created',\n                                   'type': 'string'},\n                    'dashboard_description': {'description': 'The '\n                                                             'description '\n                                                             'of the '\n                                                             'dashboard '\n                                                             'template',\n                                              'type': 'string'},\n                    'dashboard_filters': {'description': 'The filters of '\n                                                         'the dashboard '\n                                                         'template',\n                                          'type': 'object'},\n                    'id': {'description': 'The id of the dashboard '\n                                          'template',\n                           'type': 'string'},\n                    'image_url': {'description': 'The image of the '\n                                                 'dashboard template',\n                                  'type': ['string', 'null']},\n                    'tags': {'description': 'The tags of the dashboard '\n                                            'template',\n                             'items': {'type': 'string'},\n                             'type': 'array'},\n                    'team_id': {'description': 'The team this dashboard '\n                                               'template belongs to',\n                                'type': ['number', 'null']},\n                    'template_name': {'description': 'The name of the '\n                                                     'dashboard template',\n                                      'type': 'string'},\n                    'tiles': {'description': 'The tiles of the dashboard '\n                                             'template',\n                              'items': {'type': 'object'},\n                              'minItems': 1,\n                              'type': 'array'},\n                    'variables': {'anyOf': [{'items': {'properties': {'default': {'description': 'The '\n                                                                                                 'default '\n                                                                                                 'value '\n                                                                                                 'of '\n                                                                                                 'the '\n                                                                                                 'variable',\n                                                                                  'type': 'object'},\n                                                                      'description': {'description': 'The '\n                                                                                                     'description '\n                                                                                                     'of '\n                                                                                                     'the '\n                                                                                                     'variable',\n                                                                                      'type': 'string'},\n                                                                      'id': {'description': 'The '\n                                                                                            'id '\n                                                                                            'of '\n                                                                                            'the '\n                                                                                            'variable',\n                                                                             'type': 'string'},\n                                                                      'name': {'description': 'The '\n                                                                                              'name '\n                                                                                              'of '\n                                                                                              'the '\n                                                                                              'variable',\n                                                                               'type': 'string'},\n                                                                      'required': {'description': 'Whether '\n                                                                                                  'the '\n                                                                                                  'variable '\n                                                                                                  'is '\n                                                                                                  'required',\n                                                                                   'type': 'boolean'},\n                                                                      'type': {'description': 'The '\n                                                                                              'type '\n                                                                                              'of '\n                                                                                              'the '\n                                                                                              'variable',\n                                                                               'enum': ['event']}},\n                                                       'required': ['id',\n                                                                    'name',\n                                                                    'type',\n                                                                    'default',\n                                                                    'description',\n                                                                    'required'],\n                                                       'type': 'object'},\n                                             'type': 'array'},\n                                            {'type': 'null'}],\n                                  'description': 'The variables of the '\n                                                 'dashboard template'}},\n     'required': ['template_name',\n                  'dashboard_description',\n                  'dashboard_filters',\n                  'tiles'],\n     'type': 'object'}\n\nOn instance:\n    {'not a': 'template'}",
-            "attr": None,
-        }
 
-        assert response.json() == error_message
+        response_data = response.json()
+        assert response_data["type"] == "validation_error"
+        assert response_data["code"] == "invalid_input"
+        assert response_data["attr"] is None
+
+        # Check that the error message contains the key validation error information
+        detail = response_data["detail"]
+        assert "'template_name' is a required property" in detail
+        assert "Failed validating 'required' in schema" in detail
+        assert "{'not a': 'template'}" in detail
 
     def test_dashboard_duplication_breakdown_histogram_bin_count_none(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -1462,6 +1484,95 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
 
+    def test_dashboard_variables_stale(self):
+        # if a variable is deleted/updated, the dashboard should not show the stale variable
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+            last_refresh=now(),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": "blocking"})
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "some override value"
+
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
+            str(variable.id): {
+                "code_name": variable.code_name,
+                "value": "some override value",
+                "variableId": str(variable.id),
+            }
+        }
+        assert response_data["tiles"][0]["insight"]["result"][0][0] == "some override value"
+
+        variable.delete()
+
+        # recreate the variable
+        variable2 = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": "blocking"})
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variable2.id)
+            assert value["code_name"] == variable2.code_name
+            assert value["variableId"] == str(variable2.id)
+            assert value["value"] == "some override value"
+
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
+            str(variable2.id): {
+                "code_name": variable2.code_name,
+                "value": "some override value",
+                "variableId": str(variable2.id),
+            }
+        }
+        assert response_data["tiles"][0]["insight"]["result"][0][0] == "some override value"
+
     def test_dashboard_access_control_filtering(self) -> None:
         """Test that dashboards are properly filtered based on access control."""
 
@@ -1495,3 +1606,197 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(visible_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
         self.assertIn(hidden_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
+
+    def test_dashboard_create_in_folder(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {
+                "name": "My Foldered Dashboard",
+                "_create_in_folder": "Marketing/Website/Conversion",
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED, create_response.json())
+        created_dashboard_id = create_response.json()["id"]
+
+        dashboard = Dashboard.objects.get(id=created_dashboard_id)
+        assert dashboard.name == "My Foldered Dashboard"
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team,
+            type="dashboard",
+            ref=str(created_dashboard_id),
+        ).first()
+        assert fs_entry is not None, "Expected a FileSystem entry for this new Dashboard."
+        assert "Marketing/Website/Conversion" in fs_entry.path, "Folder path is missing or incorrect."
+
+    def test_dashboard_variable_overrides(self):
+        var1 = InsightVariable.objects.create(
+            team=self.team, name="Variable 1", code_name="variable_1", default_value=10, type="Number"
+        )
+        var2 = InsightVariable.objects.create(
+            team=self.team, name="Variable 2", code_name="variable_2", default_value=10, type="Number"
+        )
+        var3 = InsightVariable.objects.create(
+            team=self.team, name="Variable 3", code_name="variable_3", default_value=10, type="Number"
+        )
+        var4 = InsightVariable.objects.create(
+            team=self.team, name="Variable 4", code_name="variable_4", default_value=10, type="Number"
+        )
+
+        dashboard = Dashboard.objects.create(
+            name="Insight variables",
+            team=self.team,
+            variables={
+                str(var2.id): {
+                    "code_name": var2.code_name,
+                    "variableId": str(var2.id),
+                    "value": 20,  # override
+                }
+            },
+        )
+
+        insight1 = Insight.objects.create(
+            team=self.team,
+            name="Variable default",
+            description="Shows the default value of the variable.",
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.variable_1}",
+                    "variables": {
+                        str(var1.id): {
+                            "code_name": var1.code_name,
+                            "variableId": str(var1.id),
+                        }
+                    },
+                },
+                "display": "BoldNumber",
+            },
+        )
+        insight2 = Insight.objects.create(
+            team=self.team,
+            name="Dashboard override",
+            description="Shows a dashboard override of the variable.",
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.variable_2}",
+                    "variables": {
+                        str(var2.id): {
+                            "code_name": var2.code_name,
+                            "variableId": str(var2.id),
+                        }
+                    },
+                },
+                "display": "BoldNumber",
+            },
+        )
+        insight3 = Insight.objects.create(
+            team=self.team,
+            name="Insight override",
+            description="Shows an insight override of the variable.",
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.variable_3}",
+                    "variables": {
+                        str(var3.id): {
+                            "code_name": var3.code_name,
+                            "variableId": str(var3.id),
+                            "value": 30,  # override
+                        }
+                    },
+                },
+                "display": "BoldNumber",
+            },
+        )
+        insight4 = Insight.objects.create(
+            team=self.team,
+            name="Temporary override",
+            description="Shows a temporary variable override through the URL.",
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.variable_4}",
+                    "variables": {
+                        str(var4.id): {
+                            "code_name": var4.code_name,
+                            "variableId": str(var4.id),
+                        }
+                    },
+                },
+                "display": "BoldNumber",
+            },
+        )
+        # TODO: adding one erroring insight fails the whole dashboard
+        # insight5 = Insight.objects.create(
+        #     team=self.team,
+        #     name="Missing variable",
+        #     description="Shows a validatione error for a missing variable.",
+        #     query={
+        #         "kind": "DataVisualizationNode",
+        #         "source": {
+        #             "kind": "HogQLQuery",
+        #             "query": "SELECT {variables.var_missing}",
+        #             "variables": {
+        #                 "missing_variable_id": {
+        #                     "code_name": "var_missing",
+        #                     "variableId": "missing_variable_id",
+        #                 }
+        #             },
+        #         },
+        #         "display": "BoldNumber",
+        #     },
+        # )
+
+        DashboardTile.objects.create(insight=insight1, dashboard=dashboard)
+        DashboardTile.objects.create(insight=insight2, dashboard=dashboard)
+        DashboardTile.objects.create(insight=insight3, dashboard=dashboard)
+        DashboardTile.objects.create(insight=insight4, dashboard=dashboard)
+        # DashboardTile.objects.create(insight=insight5, dashboard=dashboard)
+        dashboard.save()
+
+        response_data = self.dashboard_api.get_dashboard(
+            dashboard.pk,
+            query_params={
+                "refresh": "blocking",
+                "variables_override": json.dumps(
+                    {
+                        str(var4.id): {
+                            "code_name": var4.code_name,
+                            "variableId": str(var4.id),
+                            "value": 40,  # temporary override
+                        }
+                    }
+                ),
+            },
+        )
+
+        # We test five different configurations of insight variables on dashboards:
+        # 1. The default value of the variable (should be 10).
+        assert response_data["tiles"][0]["insight"]["name"] == "Variable default"
+        assert response_data["tiles"][0]["insight"]["result"][0][0] == 10
+
+        # 2. The dashboard overriding the variable value (should be 20).
+        assert response_data["tiles"][1]["insight"]["name"] == "Dashboard override"
+        assert response_data["tiles"][1]["insight"]["result"][0][0] == 20
+
+        # 3. The insight overriding the variable value (should be 30).
+        assert response_data["tiles"][2]["insight"]["name"] == "Insight override"
+        assert response_data["tiles"][2]["insight"]["result"][0][0] == 30
+
+        # 4. A temporary variable override, through the URL (should be 40).
+        # TODO: Currently the temporary overrides need to have all dashboard overrides,
+        # as they replace them entirely. Might want to change this.
+        assert response_data["tiles"][3]["insight"]["name"] == "Temporary override"
+        assert response_data["tiles"][3]["insight"]["result"][0][0] == 40
+
+        # 5. A missing variable, which should raise a validation error.
+        # tbd

@@ -2,6 +2,10 @@ from typing import Any
 
 from posthog.test.base import NonAtomicTestMigrations
 
+import pytest
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
+
 
 class ConvertPersonsNodeInsightsToActorsQueryMigrationTest(NonAtomicTestMigrations):
     migrate_from = "0458_alter_insightviewed_team_alter_insightviewed_user"

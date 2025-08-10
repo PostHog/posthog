@@ -23,7 +23,6 @@ class TeamInline(admin.TabularInline):
         "autocapture_opt_out",
         "signup_token",
         "is_demo",
-        "access_control",
         "test_account_filters",
         "path_cleaning_filters",
         "timezone",
@@ -33,7 +32,7 @@ class TeamInline(admin.TabularInline):
         "plugins_opt_in",
         "opt_out_capture",
     )
-    readonly_fields = [*TeamAdmin.readonly_fields, "displayed_name"]
+    readonly_fields = [*TeamAdmin.readonly_fields[:-1], "displayed_name"]
 
     def displayed_name(self, team: Team):
         return format_html(

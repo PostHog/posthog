@@ -12,7 +12,8 @@ export const timestampParserPlugin: LegacyTransformationPlugin = {
         description: 'Parse your event timestamps into useful date properties.',
         icon_url: 'https://raw.githubusercontent.com/posthog/timestamp-parser-plugin/main/logo.png',
         category: ['Transformation'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [],
     },
 }

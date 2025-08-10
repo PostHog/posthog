@@ -1,0 +1,23 @@
+fun returnCallable(a) {
+  return x -> x * a
+}
+
+let double := returnCallable(2)
+let triple := returnCallable(3)
+
+print(double(2)) // 4
+print(triple(2)) // 6
+
+print('----------')
+
+fun outer() {
+  let x := 'outside'
+  fun inner() {
+    print(x)
+  }
+
+  return inner
+}
+
+let closure := outer()
+closure()

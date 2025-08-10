@@ -15,14 +15,15 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { InternalMultipleChoiceSurvey } from 'lib/components/InternalSurvey/InternalMultipleChoiceSurvey'
+import { InternalMultipleChoiceSurvey } from 'scenes/session-recordings/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 } from 'lib/constants'
+import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject, objectsEqual } from 'lib/utils'
 import { ReactNode, useState } from 'react'
+
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -134,14 +135,17 @@ function LogCaptureSettings(): JSX.Element {
             <h3>Log capture</h3>
             <SupportedPlatforms
                 android={{ version: '1.0.0' }}
-                ios={false}
+                ios={{ version: '3.26.0' }}
                 flutter={false}
                 web={{ version: '1.18.0' }}
-                reactNative={{ version: '3.9.0' }}
+                reactNative={{
+                    version: '3.9.0',
+                    note: <>Android only</>,
+                }}
             />
             <p>
-                This setting controls if browser console logs will be captured as a part of recordings. The console logs
-                will be shown in the recording player to help you debug any issues.
+                This setting controls if browser console logs or app logs will be captured as a part of recordings. The
+                logs will be shown in the recording player to help you debug any issues.
             </p>
             <p>
                 Log capture is also available for{' '}
@@ -638,7 +642,7 @@ export function ReplayGeneral(): JSX.Element {
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
-                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID_2} />}
+                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />

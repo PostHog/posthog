@@ -3,13 +3,13 @@ import { actions, connect, events, kea, key, listeners, LogicWrapper, path, prop
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -86,13 +86,21 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             options,
         }),
-        saveAs: (redirectToViewMode?: boolean, persist?: boolean) => ({ redirectToViewMode, persist }),
-        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true) => ({
+        saveAs: (redirectToViewMode?: boolean, persist?: boolean, folder?: string | null) => ({
+            redirectToViewMode,
+            persist,
+            folder,
+        }),
+        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true, folder?: string | null) => ({
             name,
             redirectToViewMode,
             persist,
+            folder,
         }),
-        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        saveInsight: (redirectToViewMode: boolean = true, folder: string | null = null) => ({
+            redirectToViewMode,
+            folder,
+        }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
         loadInsight: (
@@ -115,6 +123,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         setAccessDeniedToInsight: true,
+        handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
+        onRejectSuggestedInsight: true,
+        onReapplySuggestedInsight: true,
+        setPreviousQuery: (previousQuery: Node | null) => ({ previousQuery }),
+        setSuggestedQuery: (suggestedQuery: Node | null) => ({ suggestedQuery }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -168,7 +181,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         return { ...values.insight, ...metadataUpdate }
                     }
 
-                    const beforeUpdates = {}
+                    const beforeUpdates: Record<string, any> = {}
                     for (const key of Object.keys(metadataUpdate)) {
                         beforeUpdates[key] = values.savedInsight[key]
                     }
@@ -177,7 +190,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     await breakpoint(300)
 
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    dashboardsModel.actions.updateDashboardInsight(response)
+                    dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
                     refreshTreeItem('insight', values.insight.short_id)
@@ -188,7 +201,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             action: async () => {
                                 const response = await insightsApi.update(values.insight.id as number, beforeUpdates)
                                 savedInsightsLogic.findMounted()?.actions.loadInsights()
-                                dashboardsModel.actions.updateDashboardInsight(response)
+                                dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                                 actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
                                 lemonToast.success('Insight change reverted')
                             },
@@ -296,6 +309,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 saveInsightFailure: () => false,
             },
         ],
+        previousQuery: [
+            null as Node | null,
+            {
+                setPreviousQuery: (_, { previousQuery }) => previousQuery,
+                saveInsight: () => null,
+            },
+        ],
+        suggestedQuery: [
+            null as Node | null,
+            {
+                setSuggestedQuery: (_, { suggestedQuery }) => suggestedQuery,
+                saveInsight: () => null,
+            },
+        ],
     })),
     selectors({
         query: [
@@ -313,6 +340,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             () => [router.selectors.location],
             ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
         ],
+        isInViewMode: [() => [router.selectors.location], ({ pathname }) => /\/insights\/[a-zA-Z0-9]+$/.test(pathname)],
         derivedName: [
             (s) => [s.query, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
             (query, aggregationLabel, cohortsById, mathDefinitions) =>
@@ -325,17 +353,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight, s.featureFlags],
-            (insight, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return insight.user_access_level
-                        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
-                        : true
-                }
-                return (
-                    insight.effective_privilege_level == undefined ||
-                    insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
-                )
+            (s) => [s.insight],
+            (insight) => {
+                return insight.user_access_level
+                    ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                    : true
             },
         ],
         insightChanged: [
@@ -371,7 +393,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
     }),
     listeners(({ actions, values }) => ({
-        saveInsight: async ({ redirectToViewMode }) => {
+        saveInsight: async ({ redirectToViewMode, folder }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
@@ -394,7 +416,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                 savedInsight = insightNumericId
                     ? await insightsApi.update(insightNumericId, insightRequest)
-                    : await insightsApi.create(insightRequest)
+                    : await insightsApi.create({
+                          ...insightRequest,
+                          _create_in_folder: folder ?? getLastNewFolder(),
+                      })
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 // remove draft query from local storage
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
@@ -416,15 +441,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
             })
 
-            dashboardsModel.actions.updateDashboardInsight(savedInsight)
+            dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 
             // reload dashboards with updated insight
             // since filters on dashboard might be different from filters on insight
             // we need to trigger dashboard reload to pick up results for updated insight
             savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
                 dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
-                    action: 'update',
-                    refresh: 'lazy_async',
+                    action: DashboardLoadAction.Update,
+                    manualDashboardRefresh: false,
                 })
             )
 
@@ -447,7 +472,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         saveInsightSuccess: async () => {
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstInsight)
         },
-        saveAs: async ({ redirectToViewMode, persist }) => {
+        saveAs: async ({ redirectToViewMode, persist, folder }) => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
@@ -464,14 +489,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 errors: {
                     name: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode, persist),
+                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode, persist, folder),
             })
         },
-        saveAsConfirmation: async ({ name, redirectToViewMode, persist }) => {
+        saveAsConfirmation: async ({ name, redirectToViewMode, persist, folder }) => {
             const insight = await insightsApi.create({
                 name,
                 query: values.query,
                 saved: true,
+                _create_in_folder: folder ?? getLastNewFolder(),
             })
 
             if (router.values.location.pathname.includes(urls.sqlEditor())) {
@@ -489,6 +515,38 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 router.actions.push(urls.insightView(insight.short_id))
             } else {
                 router.actions.push(urls.insightEdit(insight.short_id))
+            }
+        },
+        onRejectSuggestedInsight: () => {
+            if (values.previousQuery) {
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    insightDataLogicInstance.actions.setQuery(values.previousQuery)
+                }
+                actions.setPreviousQuery(null)
+            } else {
+            }
+        },
+        handleInsightSuggested: ({ suggestedInsight }) => {
+            if (suggestedInsight) {
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    const currentQuery = insightDataLogicInstance.values.query
+                    actions.setPreviousQuery(currentQuery)
+                    actions.setSuggestedQuery(suggestedInsight)
+                }
+            }
+        },
+        onReapplySuggestedInsight: () => {
+            // Reapply the Max AI suggestion
+            if (values.suggestedQuery) {
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    const currentQuery = insightDataLogicInstance.values.query
+                    actions.setPreviousQuery(currentQuery)
+                    insightDataLogicInstance.actions.setQuery(values.suggestedQuery)
+                }
+            } else {
             }
         },
     })),

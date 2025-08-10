@@ -80,6 +80,10 @@ SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"
 ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
-CORS_ORIGIN_ALLOW_ALL = True
+if os.getenv("CORS_ALLOWED_ORIGINS", False):
+    CORS_ORIGIN_ALLOW_ALL = False
+    CORS_ALLOWED_ORIGINS = get_list(os.getenv("CORS_ALLOWED_ORIGINS", ""))
+else:
+    CORS_ORIGIN_ALLOW_ALL = True
 
 BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))

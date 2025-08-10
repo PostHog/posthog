@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import { pipelineDefaultEnabledLogic } from 'scenes/pipeline/pipelineDefaultEnabledLogic'
 
-import { ProductKey } from '~/types'
+import { ProductKey, OnboardingStepKey } from '~/types'
 
-import { OnboardingStepKey } from './onboardingLogic'
 import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 type ConfigType = 'toggle' | 'select'
 type PluginType = 'plugin'
@@ -49,9 +49,9 @@ export const OnboardingProductConfiguration = ({
         configOptionsRef.current = configOptions
     }, [configOptions])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setConfigOptions(options.filter((option): option is ProductConfigOption => !!option))
-    }, [])
+    })
 
     const combinedList: ConfigOption[] = [
         ...configOptions

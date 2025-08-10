@@ -1,6 +1,6 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -15,7 +15,7 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
         case ReplayTabs.Home:
             return 'Recordings'
         case ReplayTabs.Playlists:
-            return 'Playlists'
+            return 'Collections'
         case ReplayTabs.Templates:
             return 'Figure out what to watch'
         case ReplayTabs.Settings:
@@ -24,8 +24,6 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
             return capitalizeFirstLetter(tab)
     }
 }
-
-export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit of ${SESSION_RECORDINGS_PLAYLIST_FREE_COUNT} saved playlists`
 
 export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
@@ -100,7 +98,6 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         return {
             '/replay/:tab': ({ tab }) => {
                 // we saw a page get stuck in a redirect loop between recent and home
-                // see https://posthog.sentry.io/issues/6176801992/?notification_uuid=093e1a3f-c266-4c17-9610-68816996d304&project=1899813&referrer=assigned_activity-email
                 // so, we're extra careful that the value being set is a valid tab
                 const candidateTab = tab as ReplayTabs
                 const validTab = Object.values(ReplayTabs).includes(candidateTab) ? candidateTab : ReplayTabs.Home

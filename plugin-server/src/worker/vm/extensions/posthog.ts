@@ -3,8 +3,7 @@ import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { Hub, PluginConfig, RawEventMessage } from '~/src/types'
-
+import { Hub, PluginConfig, RawEventMessage } from '../../../types'
 import { UUIDT } from '../../../utils/utils'
 import { ApiExtension, createApi } from './api'
 
@@ -30,7 +29,7 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     const partitionKey = partitionKeyHash.digest('hex')
 
     await hub.kafkaProducer.queueMessages({
-        topic: hub.KAFKA_CONSUMPTION_TOPIC!,
+        topic: hub.CDP_PLUGIN_CAPTURE_EVENTS_TOPIC,
         messages: [
             {
                 key: partitionKey,

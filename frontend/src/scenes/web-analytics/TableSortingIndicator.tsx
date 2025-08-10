@@ -3,7 +3,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconSort } from 'lib/lemon-ui/icons'
-import { ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ProductTab } from './common'
 
 import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
 
@@ -18,6 +19,9 @@ const SORT_BY_TO_LABEL: Record<WebAnalyticsOrderByFields, string> = {
     [WebAnalyticsOrderByFields.UniqueConversions]: 'Unique conversions',
     [WebAnalyticsOrderByFields.ConversionRate]: 'Conversion rate',
     [WebAnalyticsOrderByFields.ConvertingUsers]: 'Converting users',
+    [WebAnalyticsOrderByFields.RageClicks]: 'Rage clicks',
+    [WebAnalyticsOrderByFields.DeadClicks]: 'Dead clicks',
+    [WebAnalyticsOrderByFields.Errors]: 'Errors',
 }
 
 export const TableSortingIndicator = (): JSX.Element | null => {

@@ -4,11 +4,10 @@ import { Form } from 'kea-forms'
 import api from 'lib/api'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
+import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 
-import { IntegrationType } from '~/types'
+import { IntegrationType, OnboardingStepKey } from '~/types'
 
-import { type OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import {
     ErrorTrackingAlertIntegrationType,

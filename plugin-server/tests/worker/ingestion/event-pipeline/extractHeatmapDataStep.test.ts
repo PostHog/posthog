@@ -140,7 +140,7 @@ describe('extractHeatmapDataStep()', () => {
                 kafkaProducer: mockProducer,
                 teamManager: {
                     // @ts-expect-error this is a mock, this is all right
-                    fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
+                    getTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
                 },
             },
         }
@@ -218,7 +218,7 @@ describe('extractHeatmapDataStep()', () => {
 
     it('drops if the associated team has explicit opt out', async () => {
         // @ts-expect-error this is a mock, this is all right
-        runner.hub.teamManager.fetchTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
+        runner.hub.teamManager.getTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
 
         const response = await extractHeatmapDataStep(runner, event)
         expect(response[0]).toEqual(event)
@@ -254,9 +254,26 @@ describe('extractHeatmapDataStep()', () => {
             const response = await extractHeatmapDataStep(runner, event)
             expect(response).toEqual([event, []])
             expect(response[0].properties.$heatmap_data).toBeUndefined()
+
+            expect(runner.hub.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(runner.hub.kafkaProducer.queueMessages).toHaveBeenCalledWith(
+                expect.objectContaining({ topic: 'clickhouse_ingestion_warnings_test' })
+            )
         })
 
         it.each([
+            [
+                {
+                    '    ': [
+                        {
+                            x: 1020,
+                            y: 363,
+                            target_fixed: 'why would i even be a string?',
+                            type: 'mousemove',
+                        },
+                    ],
+                },
+            ],
             [
                 {
                     '    ': [

@@ -1,9 +1,14 @@
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
     get_dependent_cohorts,
+    print_cohort_hogql_query,
     simplified_cohort_filter_properties,
+    sort_cohorts_topologically,
 )
+from posthog.hogql.hogql import HogQLContext
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
+
+MISSING_COHORT_ID = 12345
 
 
 def _create_cohort(**kwargs):
@@ -327,6 +332,50 @@ class TestCohortUtils(BaseTest):
             },
         )
 
+    def test_print_cohort_hogql_query_includes_settings(self):
+        """Test that cohort queries include HogQL global settings"""
+        # Create a cohort with a HogQL query (simulating a funnel-to-cohort conversion)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Funnel Cohort",
+            query={
+                "kind": "ActorsQuery",
+                "source": {
+                    "kind": "FunnelsActorsQuery",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "$pageview"},
+                            {"kind": "EventsNode", "event": "$identify"},
+                        ],
+                        "interval": "day",
+                        "dateRange": {"date_from": "-30d"},
+                        "funnelsFilter": {
+                            "funnelVizType": "steps",
+                            "funnelWindowInterval": 1,
+                            "funnelWindowIntervalUnit": "day",
+                        },
+                    },
+                    "funnelStep": 2,
+                },
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        # Generate the SQL
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        # Assert that settings are included
+        self.assertIn("SETTINGS", sql)
+        self.assertIn("transform_null_in=1", sql)
+
+        # Also check for other critical settings
+        self.assertIn("readonly=2", sql)
+        self.assertIn("max_execution_time=60", sql)
+        self.assertIn("allow_experimental_object_type=1", sql)
+        self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
+
 
 class TestDependentCohorts(BaseTest):
     def test_dependent_cohorts_for_simple_cohort(self):
@@ -544,3 +593,37 @@ class TestDependentCohorts(BaseTest):
 
         self.assertEqual(get_dependent_cohorts(cohort2), [cohort1])
         self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])
+
+
+class TestSortCohortsTopologically(BaseTest):
+    def test_sort_cohorts_topologically_with_missing_cohort(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort_with_missing_ref",
+            groups=[{"properties": [{"key": "id", "value": MISSING_COHORT_ID, "type": "cohort"}]}],
+        )
+
+        cohort_ids = {cohort.pk}
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.pk: cohort}
+
+        result = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
+
+        self.assertEqual(result, [cohort.pk])
+
+    def test_sort_cohorts_topologically_with_missing_cohort_in_cache(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort_with_missing_ref",
+            groups=[{"properties": [{"key": "id", "value": MISSING_COHORT_ID, "type": "cohort"}]}],
+        )
+
+        dependent_cohorts = get_dependent_cohorts(cohort)
+        all_cohort_ids = {dep.id for dep in dependent_cohorts}
+        all_cohort_ids.add(cohort.id)
+
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in dependent_cohorts}
+        seen_cohorts_cache[cohort.id] = cohort
+
+        result = sort_cohorts_topologically(all_cohort_ids, seen_cohorts_cache)
+
+        self.assertEqual(result, [cohort.pk])

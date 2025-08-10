@@ -1,0 +1,378 @@
+<events_input_format>
+You'll receive a list of events with columns:
+
+- event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
+- event_index: Index of the event in the session - helps understand sequence
+- event: Type of event (e.g., $pageview, $autocapture) - signals user actions or system events
+- timestamp: When the event occurred - helps track sequence and time between actions
+- elements_chain_href: URL fragment interacted with - shows specific link or element targets
+- elements_chain_texts: Text content of elements the user interacted with
+- elements_chain_elements: Types of elements the user interacted with (clicked buttons, forms, etc.)
+- $window_id: Unique identifier for browser window/tab - helps track multi-window workflows (use simplified references from window_mapping)
+- $current_url: Page URL where the interaction happened on (use simplified references from url_mapping)
+- $event_type: Type of interaction (e.g., click, submit) - specifies how the user interacted
+- $elements_chain_ids: IDs of the elements that are part of the interaction
+- $exception_types: Type of the exception occured, if applicable
+- $exception_values: Short description of the exception occured, if applicable
+
+Event columns are provided in the order the data for each event. So, the first element of the event is the event name, the second element is the timestamp, etc.
+
+Use these events to reconstruct the user journey. Events are provided in a chronological order. Focus on what these events reveal about user intentions rather than the raw event data itself.
+
+Don't include raw `elements_chain_texts` data in your summary, but use it to improve your understanding of user goals.
+</events_input_format>
+
+<events_input>
+```
+{{ EVENTS_DATA|safe }}
+```
+</events_input>
+
+<url_mapping_input_format>
+URLs mapping table shows the actual URLs for simplified URL references in the events data.
+
+When analyzing events, use these mappings to understand the actual pages visited. For example, if an event shows 'url_1', refer to this mapping to find the actual URL. In your summary and tags, always use the actual page/feature names, not the simplified URL references. Always refer to the URL with the simplest version e.g. `posthog.com` or `posthog.com/replay`, instead of mentioning the full URL with long query parameters.
+</url_mapping_input_format>
+
+<url_mapping_input>
+```
+{{ URL_MAPPING|safe }}
+```
+</url_mapping_input>
+
+<window_mapping_input_format>
+Window IDs mapping table shows the actual browser windows/tabs IDs for simplified references in the events data.
+
+Window IDs help track user activity across different browser windows or tabs. For example:
+
+- If events switch from 'window_1' to 'window_2', the user switched to a different browser window/tab
+- Multiple events with the same window ID indicate continuous activity in the same window/tab
+- Frequent window switches might indicate comparing content or multitasking
+
+Use this information to understand user navigation patterns and parallel browsing behavior.
+</window_mapping_input_format>
+
+<window_mapping_input>
+```
+{{ WINDOW_ID_MAPPING|safe }}
+```
+</window_mapping_input>
+
+<session_metadata_input_format>
+Use session metadata to understand user engagement context:
+
+- active_seconds: Total time user actively engaged with the application
+- inactive_seconds: Periods when user wasn't interacting with the application
+- click_count, keypress_count, mouse_activity_count: Interaction density
+- start_url: Entry point to the application, often indicates initial user intent
+
+Use these metrics to calibrate your analysis of user objectives and engagement quality.
+</session_metadata_input_format>
+
+<session_metadata_input>
+```
+{{ SESSION_METADATA|safe }}
+```
+</session_metadata_input>
+
+<identify_objectives_instructions>
+CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
+{% if FOCUS_AREA %}
+
+# Step 0: Focus Area
+
+IMPORTANT: While following all the guidelines below, pay special attention to answering this question or focus area:
+
+```
+{{ FOCUS_AREA|safe }}
+```
+
+This additional focus should influence your analysis throughout all steps, particularly affecting:
+- Which segments you examine most closely
+- Which key actions you prioritize
+- How you assess the success of segments and the overall session
+- The details you emphasize in your summaries
+
+Keep this focus in mind throughout your analysis, but still follow the structured approach below.
+{% endif %}
+
+# Step 1: Segment the Session Timeline
+
+First, analyze the entire session and divide it into sequential chronological segments. Follow these guidelines:
+
+1.1. Segment the session timeline into distinct chronological phases, based on session length and complexity (as described in the `session_metadata_input_format`):
+
+- Each segment must represent a consecutive period in the timeline
+- Create the minimum possible number of segments based on the session duration
+- Segments should follow the natural progression of the user journey
+- Segment boundaries should be based on meaningful transitions in user activity
+- IMPORTANT: Analyze the full timeline from first to last event to avoid recency or primacy bias.
+{% if FOCUS_AREA %}
+- When segmenting, consider the focus area (Step #0).
+- Create more granular segments for activities related to the focus area
+{% endif %}
+
+1.2. For each segment, provide:
+
+- A concise, descriptive name that captures the user's primary activities in that timeframe
+  ✓ GOOD NAMES: "Logged into application," "Filtered products," "Created a project"
+  ✗ BAD NAMES: "Page loading," "Error occurence," "Session start"
+- Start and end `event_id`s to clearly mark the segment boundaries
+
+1.3. Segment Boundary Guidelines:
+
+✓ Create new segments when the user clearly transitions to a different area/activity
+✓ Use natural breakpoints such as page changes, significant pauses, or task completions
+✓ Keep segments to a reasonable size (typically 3-7 minutes of activity)
+
+✗ DO NOT create segments based on technical events rather than user activity
+✗ DO NOT make segments too granular (single actions) or too broad (half the session)
+✗ DO NOT create overlapping segments (each event belongs to one primary segment)
+
+1.4. Pay special attention to:
+
+- URL patterns and page transitions (use `url_mapping_input` to interpret actual pages visited)
+- Clusters of related actions happening in sequence
+- Periods of focused activity on a specific task
+- Transitions between different sections of the application
+
+# Step 2: Consolidate Segments
+
+AGGRESSIVELY consolidate similar segments.
+{% if FOCUS_AREA %}
+
+However, be careful not to over-consolidate segments that relate directly to the focus area (Step #0). Preserve more granular distinctions for segments specifically relevant to this focus area.
+{% endif %}
+
+# Step 3: Identify Key Actions Within Each Segment
+
+After segmenting the timeline, identify the most significant actions within each segment. Prioritize conversion-related events and critical interruptions.
+
+3.1. Key Action Prioritization:
+
+- HIGH PRIORITY:
+  {% if FOCUS_AREA %}
+  - Any events directly related to the focus area (Step #0).
+  {% endif %}
+  - Conversion events (sign-ups, subscriptions, purchases, plan upgrades/downgrades, etc.)
+  - Events that prevented conversions (technical failures, UX issues, abandoned flows, etc.)
+  - Critical flow interruptions (technical errors, repeated failed attempts, frustration indicators, etc.)
+- MEDIUM PRIORITY:
+  - Events leading to or indicating session abandonment
+  - Major feature interactions or significant user decisions
+  - Feature failures, based on the error identification guidelines below or repeated unsuccessful attempts
+- LOW PRIORITY:
+  - Standard navigation or routine interactions
+
+3.2. Key Actions Guidelines:
+
+- Include the most important key actions per segment that follow the prioritization above.
+- Actions must be listed in chronological order within each segment.
+- Each key action is a user action/sequence of actions, and should be classified based on the issue types below (exception, confusion, abandonment).
+- Each key action is an actual event or the first event in a sequence of events from the timeline.
+
+3.3. Issue Identification Guidelines (CRITICAL):
+
+- NEVER flag issues for:
+  ✗ Normal page navigation
+  ✗ Sequential UI interactions (changing filters, adjusting parameters)
+  ✗ Any other action without direct evidence of technical error or user frustration
+  ✗ Non-blocking background errors (tracking failures, minor rendering glitches, etc.)
+
+- Flag event issues with EXPLICIT evidence of:
+  
+  Exceptions (`exception: null | blocking | non-blocking`):
+  ✓ Event name or type contains: 'exception', 'failed', 'error', etc.
+  ✓ `exception_types` or `exception_values` provide exception context
+  ✓ `elements_chain_texts` contains error messages (e.g., "Try again", "Failed to load", etc.)
+  ✓ Mark as `blocking` when the error prevented user from continuing their intended flow
+  ✓ Mark as `non-blocking` when the user could continue despite the error
+  ✓ Set as `null` when no technical exception occurred
+  
+  Confusion (`confusion: true | false`):
+  ✓ Back-and-forth navigation loops indicating search for functionality
+  ✓ Multiple rapid identical form submissions 
+  ✓ Repeated attempts to complete the same action without success
+  ✓ Rageclicks (multiple rapid clicks on the same element with no visible response)
+  ✓ Deadclicks (clicks on non-interactive elements)
+  
+  Abandonment (`abandonment: true/false`):
+  ✓ Form abandonment after significant time investment (started typing but left without submitting)
+  ✓ Conversion flow abandonment (e.g., leaving checkout, subscription, or signup flow midway, etc.)
+  ✓ Feature exploration followed by exit without completion
+  ✓ Session termination during a multi-step process
+
+- Issue description requirements:
+  - For exceptions: Specify error nature (API failure, validation error, timeout, etc.) and impact (blocking/non-blocking)
+  - For confusion: Describe the specific pattern indicating confusion and potential cause
+  - For abandonment: Describe the abandoned flow/task and approximate progress before abandonment
+  - Include potential causes when identifiable
+  - Explain impact on user flow and business goals
+  - Provide more detail than regular action descriptions, including potential business impact
+
+3.4. Action Description Guidelines:
+
+- For conversion events: Clearly indicate the conversion type and outcome
+- For conversion-blocking failures: Explain what prevented completion (technical error, UX issue, etc.) and any user recovery attempts
+- For critical flow interruptions: Describe both the interruption and its impact on user progress
+- For all actions: Keep descriptions concise but informative (4-8 words)
+- For multi-step processes:
+  - Describe the overall completed action rather than individual steps
+  - Only highlight individual steps when they represent failures, abandonment points, or critical conversion moments
+- Focus on describing user intent rather than technical event details
+
+# Step 4: Consolidate Key Actions
+
+AGGRESSIVELY consolidate repeated similar actions, multi-step processes, or related errors. Include up to 3 key actions for short segments or up to 5 actions for long segments. If you need to include more than 5 actions - consolidate events.
+{% if FOCUS_AREA %}
+
+When consolidating, preserve the granularity of actions directly relevant to the focus area (Step #0). These actions should be given priority to remain distinct rather than being consolidated, especially if they provide insight related to the focus area.
+{% endif %}
+
+4.1. Combine into ONE key action:
+
+- Multiple errors representing the same interruption in the user flow (e.g., "Multiple login failures due to server errors" vs listing each individual error)
+- Setup/execution sequences (e.g., "Published content" vs "clicked publish", "confirmed dialog", etc.)
+- Repetitive navigation within same area (e.g., "Explored settings options" vs listing each setting click)
+- Multiple steps to complete a form
+- And similar multi-step actions
+- Consecutive attempts to perform the same action should be ONE key action
+
+# Step 5: Determine Segment Outcomes
+
+For each segment, determine a segment outcome:
+
+5.1. Segment Success Status:
+
+- Mark a segment as successful (`success: true`) when:
+  - User completed a meaningful conversion or successfully used a feature (use `Key Action Prioritization` guide to identify the most important actions)
+  - User completed the core actions they attempted during that segment, confirmed by clear evidence in the events data
+  - User resolved or worked around any failures encountered
+- Mark a segment as unsuccessful (`success: false`) when:
+  - User started a conversion, but abandoned it
+  - User experienced a technical failure that prevented them from achieving their goals
+  - User showed signs of frustration (rageclicks, repeated attempts, abandonment)
+  - User experienced a flow interruption that impeded progress
+
+5.2. Segment Summary:
+
+- Write a brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
+- The summary should be concise and to the point (1-2 short sentences up to 15 words in total)
+- Reflect on the segment success status and the key actions to provide a detailed summary
+{% if FOCUS_AREA %}
+- For segments relevant to the focus area (Step #0), ensure the summary directly addresses how the segment relates to them.
+{% endif %}
+
+# Step 6: Assess the Session Journey and Outcome
+
+After analyzing the chronological segments and key actions, evaluate the overall user journey and session outcome.
+
+6.1. Journey Flow Analysis:
+
+- Identify the user's entry context (referring to `start_url` from the session metadata) and exit context by the last URL in the session
+- Track progression through the application, noting transitions between major sections
+- Highlight any non-linear patterns (going back to previous areas, abandoning flows)
+
+6.2. Critical Issues Impact:
+
+- Identify technical or flow-related errors that directly impacted conversion attempts or feature interactions
+- Note any user experience issues that may have contributed to abandoned conversions
+- Assess whether errors led to session abandonment
+{% if FOCUS_AREA %}
+- Particularly highlight any issues that directly relate to the focus area (Step #0).
+{% endif %}
+
+6.3. Session Success Determination:
+
+- Mark the session as successful (true) when:
+  - User completed one or more significant conversion actions, even if they experienced:
+    * Multiple non-blocking exceptions
+    * Minor confusion moments
+    * Abandonment of secondary/non-critical flows
+  - User accomplished their apparent primary goals despite obstacles
+  - Session shows logical progression to completion of key user objectives
+  
+- Mark the session as unsuccessful (false) when:
+  - User experienced blocking technical errors that prevented completion of primary conversion attempts with no successful workaround
+  - User abandoned critical conversion flows (signup, checkout, upgrade, etc.) at a late stage
+  - Session ended abruptly during an important process that was the primary goal
+  - User showed clear signs of significant frustration (multiple rageclicks, repeated failed attempts) on critical paths with no successful resolution
+
+6.4. Final Outcome Description:
+
+- Provide a short focused summary (1-2 sentences, up to 30 words in total) of the overall user journey
+- For successful sessions: emphasize completed conversions despite any minor issues encountered
+- For unsuccessful sessions: clearly identify the critical blocking issue that prevented the primary goal completion
+- Always prioritize conversion completions over minor issues when determining session success
+
+# Step 7: Self-Consistency Check
+
+Before finalizing your analysis, verify:
+
+7.1. Chronological Segment Consistency:
+
+- Are segments properly sequential with no time gaps or overlaps?
+- Does each segment represent a distinct phase in the user journey?
+- Have you aggressively consolidated similar segments?
+- Do segment boundaries align with natural transitions in user activity?
+- Is the entire session timeline covered from first to last event?
+
+7.2. Key Action Prioritization Verification:
+
+- Are conversion events and conversion-blocking issues properly identified in each segment?
+- Are critical interruptions to user flow highlighted appropriately?
+- Do selected key actions accurately represent the most significant events in each segment?
+- Are event IDs copied EXACTLY from the event data (never invented)?
+- Are issue flags (abandonment, confusion, exception) supported by explicit evidence in the event data?
+- Have you properly distinguished between technical exceptions, user confusion, and flow abandonment?
+- Have you aggressively consolidated similar actions and issues?
+
+7.3. Conversion Focus Verification:
+
+- Have all potential conversion opportunities been identified?
+- Is the analysis of conversion success/failure accurate?
+- Are the reasons for conversion abandonment clearly identified?
+- Have you distinguished between user choice and technical blockers for failed conversions?
+
+7.4. Narrative Flow Verification:
+
+- Does the sequence of segments tell a coherent story of the user's session?
+- Is the progression from segment to segment logical and easy to follow?
+- Does the session outcome assessment match the evidence from the key actions?
+- Are critical issues properly connected to their impact on the user journey?
+
+7.5. Balanced Coverage Verification:
+
+- Is the entire session represented proportionally in the segments and key actions?
+- Are early, middle, and late events given appropriate attention?
+- Is the analysis free from recency or primacy bias?
+- If most key actions are from early in the session, or the summary misses large portions of the timeline, revisit events to ensure important activities aren't overlooked
+{% if FOCUS_AREA %}
+
+7.6. Focus Area Verification:
+- Does your analysis adequately address the focus area (Step #0)?
+- Have you preserved appropriate detail for segments and actions related to this focus area?
+- Do your segment and session summaries properly relate to this focus area?
+{% endif %}
+
+Revise your analysis if any inconsistencies are found.
+</identify_objectives_instructions>
+
+<output_format>
+Provide your summary in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+
+IMPORTANT:
+- Always use quotes around indicator strings that contain special characters
+- Replace comparison operators with words:
+  - Instead of ">3" use "more than 3" 
+  - Instead of "<1" use "less than 1"
+  - Instead of ">=5" use "5 or more"
+- Avoid using special YAML characters (>, <, :, &, *, ?, |, -, @, `) at the beginning of unquoted strings
+- When in doubt, wrap the entire indicator string in single or double quotes
+</output_format>
+
+<output_example>
+```
+{{ SUMMARY_EXAMPLE|safe }}
+```
+</output_example>

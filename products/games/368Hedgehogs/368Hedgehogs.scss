@@ -1,0 +1,81 @@
+.Game368Hedgehogs {
+    --board-size: 6;
+
+    .cmg-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        font-family: system-ui, sans-serif;
+        user-select: none;
+    }
+
+    .cmg-title {
+        margin-bottom: 1rem;
+        color: #fff;
+        text-shadow: 0 2px 4px rgb(0 0 0 / 40%);
+    }
+
+    .cmg-board {
+        display: grid;
+        grid-template-rows: repeat(var(--board-size), 64px);
+        grid-template-columns: repeat(var(--board-size), 64px);
+        gap: 4px;
+        padding: 4px;
+        background: #0d1b2a;
+        border-radius: 12px;
+    }
+
+    .cmg-cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 64px;
+        height: 64px;
+        font-size: 40px;
+        background: #1b263b;
+        border-radius: 8px;
+        transition: background 0.2s;
+    }
+
+    .cmg-cell img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+
+    .cmg-cell:hover {
+        background: #24344d;
+    }
+
+    .cmg-piece-holder {
+        height: 140px;
+        padding-top: 32px;
+    }
+
+    .cmg-piece {
+        display: flex;
+        gap: 4px;
+        cursor: grab;
+    }
+
+    .piece-cell {
+        pointer-events: none; /* block is the draggable target */
+    }
+
+    .vanish {
+        animation: Game368Hedgehogs__vanish 0.2s forwards;
+    }
+}
+
+/* Vanish animation */
+@keyframes Game368Hedgehogs__vanish {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(0.3);
+    }
+}

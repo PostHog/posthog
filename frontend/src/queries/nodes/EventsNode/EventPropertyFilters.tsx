@@ -15,7 +15,7 @@ import { isHogQLQuery, isSessionAttributionExplorerQuery } from '~/queries/utils
 import { AnyPropertyFilter } from '~/types'
 
 interface EventPropertyFiltersProps<
-    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery
+    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery,
 > {
     query: Q
     setQuery?: (query: Q) => void
@@ -24,7 +24,7 @@ interface EventPropertyFiltersProps<
 
 let uniqueNode = 0
 export function EventPropertyFilters<
-    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery
+    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery,
 >({ query, setQuery, taxonomicGroupTypes }: EventPropertyFiltersProps<Q>): JSX.Element {
     const [id] = useState(() => uniqueNode++)
     const properties =
@@ -33,8 +33,8 @@ export function EventPropertyFilters<
         isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)
             ? []
             : 'event' in query && query.event
-            ? [query.event]
-            : []
+              ? [query.event]
+              : []
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return !properties || Array.isArray(properties) ? (
@@ -54,7 +54,7 @@ export function EventPropertyFilters<
             }
             onChange={(value: AnyPropertyFilter[]) => {
                 if (isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)) {
-                    setQuery?.({ ...query, filters: { ...(query.filters ?? {}), properties: value } })
+                    setQuery?.({ ...query, filters: { ...query.filters, properties: value } })
                 } else {
                     setQuery?.({ ...query, properties: value })
                 }

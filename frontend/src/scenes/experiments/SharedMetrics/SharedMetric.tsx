@@ -18,13 +18,14 @@ import { sharedMetricLogic } from './sharedMetricLogic'
 export const scene: SceneExport = {
     component: SharedMetric,
     logic: sharedMetricLogic,
-    paramsToProps: ({ params: { id } }) => ({
-        sharedMetricId: id === 'new' ? 'new' : parseInt(id),
+    paramsToProps: ({ params: { id, action } }) => ({
+        sharedMetricId: id === 'new' ? null : parseInt(id),
+        action: action || (id === 'new' ? 'create' : 'update'),
     }),
 }
 
 export function SharedMetric(): JSX.Element {
-    const { sharedMetricId, sharedMetric } = useValues(sharedMetricLogic)
+    const { sharedMetric, action } = useValues(sharedMetricLogic)
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -59,7 +60,7 @@ export function SharedMetric(): JSX.Element {
                         <div className="font-semibold flex justify-between items-center">
                             <span>Trend</span>
                             {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--accent)" />
+                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                             )}
                         </div>
                         <div className="text-secondary text-sm leading-relaxed">
@@ -81,7 +82,7 @@ export function SharedMetric(): JSX.Element {
                         <div className="font-semibold flex justify-between items-center">
                             <span>Funnel</span>
                             {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--accent)" />
+                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                             )}
                         </div>
                         <div className="text-secondary text-sm leading-relaxed">
@@ -147,7 +148,7 @@ export function SharedMetric(): JSX.Element {
                 )}
             </div>
             <div className="flex justify-between mt-4">
-                {sharedMetricId !== 'new' && (
+                {action === 'update' && (
                     <LemonButton
                         size="medium"
                         type="primary"
@@ -179,11 +180,12 @@ export function SharedMetric(): JSX.Element {
                     size="medium"
                     type="primary"
                     onClick={() => {
-                        if (sharedMetricId === 'new') {
+                        if (['create', 'duplicate'].includes(action)) {
                             createSharedMetric()
-                        } else {
-                            updateSharedMetric()
+                            return
                         }
+
+                        updateSharedMetric()
                     }}
                 >
                     Save

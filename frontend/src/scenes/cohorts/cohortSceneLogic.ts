@@ -19,11 +19,6 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
             (cohortsById, cohortId): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.PersonsManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    },
-                    {
                         key: 'cohorts',
                         name: 'Cohorts',
                         path: urls.cohorts(),
@@ -37,7 +32,7 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: CohortLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'cohort', ref: String(id) }),
+            (id): ProjectTreeRef => ({ type: 'cohort', ref: id === 'new' ? null : String(id) }),
         ],
     }),
 ])

@@ -14,7 +14,8 @@ export const intercomPlugin: LegacyDestinationPlugin = {
         description: 'Send event data to Intercom on PostHog events.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-intercom-plugin/main/logo.png',
         category: [],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 templating: false,

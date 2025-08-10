@@ -1,4 +1,6 @@
 .ScrollableShadows {
+    --scrollable-shadows-offset-top: 0px;
+
     position: relative;
     display: flex;
     overflow: hidden;
@@ -6,7 +8,7 @@
     &::before,
     &::after {
         position: absolute;
-        top: 0;
+        top: var(--scrollable-shadows-offset-top);
         left: 0;
         z-index: 1;
         width: 100%;

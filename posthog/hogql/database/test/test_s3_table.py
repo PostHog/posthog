@@ -147,6 +147,26 @@ class TestS3Table(BaseTest):
             f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
 
+        clickhouse = self._select(
+            query="SELECT aapl_stock.High, aapl_stock.Low FROM events LEFT JOIN aapl_stock ON aapl_stock.High = events.event LIMIT 10",
+            dialect="clickhouse",
+        )
+
+        self.assertEqual(
+            clickhouse,
+            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL LEFT JOIN (SELECT * FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_3)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+        )
+
+        clickhouse = self._select(
+            query="SELECT aapl_stock.High, aapl_stock.Low FROM events RIGHT JOIN aapl_stock ON aapl_stock.High = events.event LIMIT 10",
+            dialect="clickhouse",
+        )
+
+        self.assertEqual(
+            clickhouse,
+            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL RIGHT JOIN (SELECT * FROM s3(%(hogql_val_4_sensitive)s, %(hogql_val_5)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+        )
+
     def test_s3_table_select_alias_escaped(self):
         self._init_database()
 

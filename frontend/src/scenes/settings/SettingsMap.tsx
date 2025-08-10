@@ -1,7 +1,16 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/configuration/alerting/ErrorTrackingAlerting'
+import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/configuration/ExceptionAutocaptureSettings'
+import { ErrorTrackingAutoAssignment } from '@posthog/products-error-tracking/frontend/configuration/rules/ErrorTrackingAutoAssignment'
+import { ErrorTrackingCustomGrouping } from '@posthog/products-error-tracking/frontend/configuration/rules/ErrorTrackingCustomGrouping'
+import { ErrorTrackingSymbolSets } from '@posthog/products-error-tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
+import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
+import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
+import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
+import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
-import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -11,19 +20,19 @@ import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadC
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
+import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { Realm } from '~/types'
 
-import {
-    AutocaptureSettings,
-    ExceptionAutocaptureSettings,
-    WebVitalsAutocaptureSettings,
-} from './environment/AutocaptureSettings'
+import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -35,9 +44,9 @@ import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
+import { INTEGRATION_KINDS } from '~/types'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
-import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -58,7 +67,6 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
-import { UserGroups } from './environment/UserGroups'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -66,8 +74,9 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
+import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -80,7 +89,9 @@ import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
+import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
+import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -160,6 +171,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TeamTimezone />,
             },
             {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
@@ -212,6 +228,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
+                flag: '!CRM_ITERATION_ONE',
             },
             {
                 id: 'persons-join-mode',
@@ -229,6 +246,52 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-revenue-analytics',
+        title: 'Revenue analytics',
+        flag: 'REVENUE_ANALYTICS',
+        settings: [
+            {
+                id: 'revenue-base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
+                id: 'revenue-analytics-filter-test-accounts',
+                title: 'Filter test accounts out of revenue analytics',
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-goals',
+                title: 'Revenue goals',
+                component: <GoalsConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-events',
+                title: 'Revenue events',
+                component: <EventConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-external-data-sources',
+                title: 'External data sources',
+                component: <ExternalDataSourceConfiguration />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-marketing-analytics',
+        title: 'Marketing analytics',
+        flag: 'WEB_ANALYTICS_MARKETING',
+        settings: [
+            {
+                id: 'marketing-settings',
+                title: 'Marketing settings',
+                component: <MarketingAnalyticsSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
         settings: [
@@ -241,12 +304,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
-            },
-            {
-                id: 'revenue-base-currency',
-                title: 'Revenue base currency',
-                component: <RevenueBaseCurrencySettings />,
-                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -271,6 +328,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <SessionsV2JoinModeSettings />,
                 flag: 'SETTINGS_SESSIONS_V2_JOIN',
             },
+            {
+                id: 'web-analytics-pre-aggregated-tables',
+                title: 'Pre-aggregated tables',
+                component: <PreAggregatedTablesSetting />,
+                flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-crm',
+        title: 'CRM',
+        flag: 'CRM_ITERATION_ONE',
+        settings: [
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
+            },
         ],
     },
     {
@@ -284,25 +360,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
-                id: 'replay-network',
-                title: 'Network capture',
-                component: <NetworkCaptureSettings />,
+                id: 'replay-triggers',
+                title: 'Recording conditions',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-masking',
-                title: 'Masking',
+                title: 'Privacy and masking',
                 component: <ReplayMaskingSettings />,
+            },
+            {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
                 allowForTeam: (t) => !!t?.recording_domains?.length,
-            },
-            {
-                id: 'replay-triggers',
-                title: 'Replay triggers',
-                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-ai-config',
@@ -347,26 +423,49 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ExceptionAutocaptureSettings />,
             },
             {
-                id: 'error-tracking-user-groups',
-                title: 'User groups',
-                description: 'Allow collections of users to be assigned to issues',
-                component: <UserGroups />,
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                component: <ErrorTrackingAlerting />,
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment rules',
+                component: <ErrorTrackingAutoAssignment />,
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Custom grouping rules',
+                component: <ErrorTrackingCustomGrouping />,
             },
             {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
-                flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <ErrorTrackingSymbolSets />,
             },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
+        settings: [
             {
-                id: 'error-tracking-alerting',
-                title: 'Alerting',
-                component: <ErrorTrackingAlerting />,
+                id: 'csp-reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <CSPReportingSettings />,
             },
         ],
     },
@@ -405,12 +504,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-error-tracking',
                 title: 'Error tracking integrations',
                 component: <ErrorTrackingIntegrations />,
-                flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <OtherIntegrations />,
+                component: (
+                    <OtherIntegrations
+                        integrationKinds={INTEGRATION_KINDS.filter((kind) => !['slack', 'linear'].includes(kind))}
+                    />
+                ),
             },
             {
                 id: 'integration-ip-allowlist',
@@ -525,6 +627,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 component: <OrganizationAI />,
             },
+            {
+                id: 'organization-experiment-stats-method',
+                title: 'Default experiment statistical method',
+                description:
+                    'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
+                component: <OrganizationExperimentStatsMethod />,
+            },
         ],
     },
     {
@@ -557,7 +666,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-roles',
                 title: 'Roles',
-                component: <RoleBasedAccess />,
+                component: <RolesAccessControls />,
             },
         ],
     },
@@ -587,6 +696,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-security',
+        title: 'Security settings',
+        settings: [
+            {
+                id: 'organization-security',
+                title: 'Security settings',
+                component: <OrganizationSecuritySettings />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -604,6 +725,16 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],
+    },
+    {
+        level: 'organization',
+        id: 'organization-startup-program',
+        hideSelfHost: true,
+        title: 'Startup program',
+        to: urls.startups(),
+        settings: [],
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        flag: 'STARTUP_PROGRAM_INTENT',
     },
 
     // USER
@@ -643,6 +774,30 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-feature-previews',
+        title: 'Feature previews',
+        settings: [
+            {
+                id: 'feature-previews',
+                title: 'Feature previews',
+                component: <FeaturePreviewsSettings />,
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-notifications',
+        title: 'Notifications',
+        settings: [
+            {
+                id: 'notifications',
+                title: 'Notifications',
+                component: <UpdateEmailPreferences />,
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -650,11 +805,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
-            },
-            {
-                id: 'notifications',
-                title: 'Notifications',
-                component: <UpdateEmailPreferences />,
             },
             {
                 id: 'optout',
@@ -679,6 +829,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'user-delete',
+                title: 'Delete account',
+                component: <UserDangerZone />,
             },
         ],
     },

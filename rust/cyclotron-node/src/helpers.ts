@@ -8,7 +8,6 @@ export function convertToInternalPoolConfig(poolConfig: CyclotronPoolConfig): Cy
         acquire_timeout_seconds: poolConfig.acquireTimeoutSeconds,
         max_lifetime_seconds: poolConfig.maxLifetimeSeconds,
         idle_timeout_seconds: poolConfig.idleTimeoutSeconds,
-        should_compress_vm_state: poolConfig.shouldCompressVmState,
     }
 }
 

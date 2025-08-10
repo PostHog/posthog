@@ -1,10 +1,10 @@
 import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import merge from 'lodash.merge'
+import { uuid } from 'lib/utils'
+
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     ActionsNode,
     AnyEntityNode,
@@ -15,17 +15,16 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMeanMetricTypeProps,
     ExperimentMetric,
-    ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
-    type FunnelsQuery,
     NodeKind,
-    type TrendsQuery,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
+    Experiment,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -37,6 +36,8 @@ import {
     type QueryBasedInsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
+
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -80,7 +81,7 @@ export function transformFiltersForWinningVariant(
     }
 }
 
-function seriesToFilter(
+function seriesToFilterLegacy(
     series: AnyEntityNode,
     featureFlagKey: string,
     variantKey: string
@@ -109,7 +110,109 @@ function seriesToFilter(
     return null
 }
 
+function seriesToFilter(series: AnyEntityNode): UniversalFiltersGroupValue | null {
+    if (series.kind === NodeKind.EventsNode) {
+        return {
+            id: series.event ?? null,
+            name: series.event as string,
+            type: 'events',
+            properties: series.properties ?? [],
+        }
+    }
+
+    if (series.kind === NodeKind.ActionsNode) {
+        return {
+            id: series.id,
+            name: series.name,
+            type: 'actions',
+        }
+    }
+
+    return null
+}
+/**
+ * Gets the Filters to ExperimentMetrics, Can't quite use `exposureConfigToFilter` or
+ * `metricToFilter` because the format is not quite the same, but we can use `seriesToFilter`
+ *
+ * TODO: refactor the *ToFilter functions so we can use bits of them.
+ */
 export function getViewRecordingFilters(
+    experiment: Experiment,
+    metric: ExperimentMetric,
+    variantKey: string
+): UniversalFiltersGroupValue[] {
+    const filters: UniversalFiltersGroupValue[] = []
+    /**
+     * We need to check the exposure criteria as the first on the filter chain.
+     * exposure criteria can only be events, not actions
+     */
+    const exposureCriteria = experiment.exposure_criteria?.exposure_config
+    if (exposureCriteria && exposureCriteria.event !== '$feature_flag_called') {
+        filters.push({
+            id: exposureCriteria.event,
+            name: exposureCriteria.event,
+            type: 'events',
+            properties: [
+                ...(exposureCriteria.properties || []),
+                {
+                    key: `$feature/${experiment.feature_flag_key}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    } else {
+        filters.push({
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$feature_flag',
+                    type: PropertyFilterType.Event,
+                    value: experiment.feature_flag_key,
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    }
+
+    /**
+     * for mean metrics, we add the single action/event to the filters
+     */
+    if (
+        metric.metric_type === ExperimentMetricType.MEAN &&
+        (metric.source.kind === NodeKind.EventsNode || metric.source.kind === NodeKind.ActionsNode)
+    ) {
+        const meanFilter = seriesToFilter(metric.source)
+        if (meanFilter) {
+            filters.push(meanFilter)
+        }
+    }
+
+    /**
+     * for funnel metrics, we need to add each element in the series as a filter
+     */
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        metric.series.forEach((series) => {
+            const funnelMetric = seriesToFilter(series)
+            if (funnelMetric) {
+                filters.push(funnelMetric)
+            }
+        })
+    }
+
+    return filters
+}
+
+export function getViewRecordingFiltersLegacy(
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
@@ -138,7 +241,7 @@ export function getViewRecordingFilters(
         return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
-            const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
+            const exposure_filter = seriesToFilterLegacy(metric.exposure_query.series[0], featureFlagKey, variantKey)
             if (exposure_filter) {
                 filters.push(exposure_filter)
             }
@@ -163,14 +266,14 @@ export function getViewRecordingFilters(
                 ],
             })
         }
-        const count_filter = seriesToFilter(metric.count_query.series[0], featureFlagKey, variantKey)
+        const count_filter = seriesToFilterLegacy(metric.count_query.series[0], featureFlagKey, variantKey)
         if (count_filter) {
             filters.push(count_filter)
         }
         return filters
     }
     metric.funnels_query.series.forEach((series) => {
-        const filter = seriesToFilter(series, featureFlagKey, variantKey)
+        const filter = seriesToFilterLegacy(series, featureFlagKey, variantKey)
         if (filter) {
             filters.push(filter)
         }
@@ -189,6 +292,9 @@ export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): 
     throw new Error('Feature flag must use multiple variants with control as the first variant.')
 }
 
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
     return {
         kind: NodeKind.ExperimentTrendsQuery,
@@ -248,9 +354,13 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultFunnelMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
         metric_type: ExperimentMetricType.FUNNEL,
         series: [
             {
@@ -262,9 +372,13 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
     }
 }
 
+/**
+ * @deprecated
+ */
 export function getDefaultCountMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
         metric_type: ExperimentMetricType.MEAN,
         source: {
             kind: NodeKind.EventsNode,
@@ -274,18 +388,9 @@ export function getDefaultCountMetric(): ExperimentMetric {
     }
 }
 
-export function getDefaultContinuousMetric(): ExperimentMetric {
-    return {
-        kind: NodeKind.ExperimentMetric,
-        metric_type: ExperimentMetricType.MEAN,
-        source: {
-            kind: NodeKind.EventsNode,
-            event: '$pageview',
-            math: ExperimentMetricMathType.Sum,
-        },
-    }
-}
-
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
@@ -295,9 +400,7 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     }
 }
 
-export function getExperimentMetricFromInsight(
-    insight: QueryBasedInsightModel | null
-): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
+export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel | null): ExperimentMetric | undefined {
     if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
         return undefined
     }
@@ -305,46 +408,54 @@ export function getExperimentMetricFromInsight(
     const metricName = (insight?.name || insight?.derived_name) ?? undefined
 
     if (isFunnelsQuery(insight.query.source)) {
-        const defaultFunnelsQuery = getDefaultFunnelsMetric().funnels_query
-
-        const funnelsQuery: FunnelsQuery = merge(defaultFunnelsQuery, {
-            series: insight.query.source.series,
-            funnelsFilter: {
-                funnelAggregateByHogQL: insight.query.source.funnelsFilter?.funnelAggregateByHogQL,
-                funnelWindowInterval: insight.query.source.funnelsFilter?.funnelWindowInterval,
-                funnelWindowIntervalUnit: insight.query.source.funnelsFilter?.funnelWindowIntervalUnit,
-                layout: insight.query.source.funnelsFilter?.layout,
-                breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
-                breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
-            },
-            filterTestAccounts: insight.query.source.filterTestAccounts,
-        })
-
         return {
-            kind: NodeKind.ExperimentFunnelsQuery,
-            funnels_query: funnelsQuery,
+            kind: NodeKind.ExperimentMetric,
+            uuid: uuid(),
+            metric_type: ExperimentMetricType.FUNNEL,
             name: metricName,
+            series: insight.query.source.series.map((series) => ({
+                ...series,
+                // Ensure we have proper node structure
+                kind: series.kind || NodeKind.EventsNode,
+                event: series.kind === NodeKind.EventsNode ? series.event : undefined,
+                name: series.name || (series.kind === NodeKind.EventsNode ? series.event : undefined),
+            })) as ExperimentFunnelMetricStep[],
         }
     }
 
+    /**
+     * TODO: add support for trends queries. IsValidQueryForExperiment
+     * has a isFunnelsQuery check, so this is never called. Trend queries
+     * get undefined.
+     */
     if (isTrendsQuery(insight.query.source)) {
-        const defaultTrendsQuery = getDefaultTrendsMetric().count_query
-
-        const trendsQuery: TrendsQuery = merge(defaultTrendsQuery, {
-            series: insight.query.source.series,
-            filterTestAccounts: insight.query.source.filterTestAccounts,
-        })
+        // For trends queries, convert the first series to a mean metric
+        const firstSeries = insight.query.source.series?.[0]
+        if (!firstSeries) {
+            return undefined
+        }
 
         return {
-            kind: NodeKind.ExperimentTrendsQuery,
-            count_query: trendsQuery,
+            kind: NodeKind.ExperimentMetric,
+            uuid: uuid(),
+            metric_type: ExperimentMetricType.MEAN,
             name: metricName,
+            source: {
+                ...firstSeries,
+                kind: NodeKind.EventsNode,
+                event: firstSeries.name,
+                name: firstSeries.name,
+                math: firstSeries.math || ExperimentMetricMathType.TotalCount,
+            },
         }
     }
 
     return undefined
 }
 
+/**
+ * Used when setting a custom exposure criteria
+ */
 export function exposureConfigToFilter(exposure_config: ExperimentEventExposureConfig): FilterType {
     if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
         return {
@@ -365,6 +476,9 @@ export function exposureConfigToFilter(exposure_config: ExperimentEventExposureC
     return {}
 }
 
+/**
+ * Used when setting a custom exposure criteria
+ */
 export function filterToExposureConfig(
     entity: Record<string, any> | undefined
 ): ExperimentEventExposureConfig | undefined {
@@ -385,69 +499,9 @@ export function filterToExposureConfig(
     return undefined
 }
 
-export function metricToFilter(metric: ExperimentMetric): FilterType {
-    const createSourceNode = (source: any, type: string): ExperimentMetricSource => {
-        return {
-            id: type === 'events' ? source.event : source.id,
-            name: type === 'events' ? source.event : source.name,
-            kind: source.kind,
-            type,
-            math: source.math,
-            math_property: source.math_property,
-            math_hogql: source.math_hogql,
-            properties: source.properties,
-            ...(type === 'data_warehouse' && {
-                timestamp_field: source.timestamp_field,
-                events_join_key: source.events_join_key,
-                data_warehouse_join_key: source.data_warehouse_join_key,
-            }),
-        } as ExperimentMetricSource
-    }
-
-    // Handle funnel metrics
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
-        const funnelSteps = metric.series.map((step, index: number) => {
-            const type = step.kind === NodeKind.EventsNode ? 'events' : 'actions'
-            return {
-                ...createSourceNode(step, type),
-                order: index,
-                type,
-            }
-        })
-
-        return {
-            events: funnelSteps.filter((step) => step.type === 'events'),
-            actions: funnelSteps.filter((step) => step.type === 'actions'),
-            data_warehouse: [],
-        }
-    }
-
-    // Handle mean metrics
-    if (metric.metric_type === ExperimentMetricType.MEAN) {
-        if (metric.source.kind === NodeKind.EventsNode) {
-            return {
-                events: [createSourceNode(metric.source, 'events')],
-                actions: [],
-                data_warehouse: [],
-            }
-        } else if (metric.source.kind === NodeKind.ActionsNode) {
-            return {
-                events: [],
-                actions: [createSourceNode(metric.source, 'actions')],
-                data_warehouse: [],
-            }
-        } else if (metric.source.kind === NodeKind.ExperimentDataWarehouseNode) {
-            return {
-                events: [],
-                actions: [],
-                data_warehouse: [createSourceNode(metric.source, 'data_warehouse')],
-            }
-        }
-    }
-
-    return { events: [], actions: [], data_warehouse: [] }
-}
-
+/**
+ * TODO: review for refactor.
+ */
 export function filterToMetricConfig(
     metricType: ExperimentMetricType,
     actions: Record<string, any>[] | undefined,
@@ -468,7 +522,7 @@ export function filterToMetricConfig(
                         event: event.id,
                         properties: event.properties,
                         order: event.order,
-                    } as EventsNode & { order: number })
+                    }) as EventsNode & { order: number }
             ) || []
 
         const actionSteps =
@@ -480,7 +534,7 @@ export function filterToMetricConfig(
                         name: action.name,
                         properties: action.properties,
                         order: action.order,
-                    } as ActionsNode & { order: number })
+                    }) as ActionsNode & { order: number }
             ) || []
 
         const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
@@ -549,6 +603,7 @@ export function filterToMetricConfig(
                 math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
                 math_property: data_warehouse[0].math_property,
                 math_hogql: data_warehouse[0].math_hogql,
+                properties: data_warehouse[0].properties,
             },
         }
     }
@@ -559,88 +614,9 @@ export function filterToMetricConfig(
     )
 }
 
-export function metricToQuery(
-    metric: ExperimentMetric,
-    filterTestAccounts: boolean
-): FunnelsQuery | TrendsQuery | undefined {
-    const commonTrendsQueryProps: Partial<TrendsQuery> = {
-        kind: NodeKind.TrendsQuery,
-        interval: 'day',
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
-        trendsFilter: {
-            display: ChartDisplayType.ActionsLineGraph,
-        },
-        filterTestAccounts,
-    }
-
-    switch (metric.metric_type) {
-        case ExperimentMetricType.MEAN:
-            switch (metric.source.math) {
-                case ExperimentMetricMathType.Sum:
-                    return {
-                        ...commonTrendsQueryProps,
-                        series: [
-                            {
-                                kind: NodeKind.EventsNode,
-                                event: (metric.source as EventsNode).event,
-                                name: (metric.source as EventsNode).name,
-                                math: ExperimentMetricMathType.Sum,
-                                math_property: (metric.source as EventsNode).math_property,
-                            },
-                        ],
-                    } as TrendsQuery
-                default:
-                    return {
-                        ...commonTrendsQueryProps,
-                        series: [
-                            {
-                                kind: NodeKind.EventsNode,
-                                name: (metric.source as EventsNode).name,
-                                event: (metric.source as EventsNode).event,
-                            },
-                        ],
-                    } as TrendsQuery
-            }
-        case ExperimentMetricType.FUNNEL: {
-            const filter = metricToFilter(metric)
-            const { events, actions } = filter
-            // NOTE: hack for now
-            // insert a pageview event at the beginning of the funnel to simulate the exposure criteria
-            events?.unshift({
-                kind: NodeKind.EventsNode,
-                id: '$pageview',
-                event: '$pageview',
-                name: '$pageview',
-                custom_name: 'Placeholder for experiment exposure',
-                properties: [],
-            })
-            return {
-                kind: NodeKind.FunnelsQuery,
-                filterTestAccounts,
-                dateRange: {
-                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    explicitDate: true,
-                },
-                funnelsFilter: {
-                    layout: FunnelLayout.horizontal,
-                },
-                series: actionsAndEventsToSeries(
-                    { actions: actions, events, data_warehouse: [] } as any,
-                    true,
-                    MathAvailability.None
-                ),
-            } as FunnelsQuery
-        }
-        default:
-            return undefined
-    }
-}
-
+/**
+ * returns the math availability for a metric type
+ */
 export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
@@ -650,11 +626,148 @@ export function getMathAvailability(metricType: ExperimentMetricType): MathAvail
     }
 }
 
+/**
+ * returns the allowed math types that can be used when creating a metric
+ */
 export function getAllowedMathTypes(metricType: ExperimentMetricType): ExperimentMetricMathType[] {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
-            return [ExperimentMetricMathType.TotalCount, ExperimentMetricMathType.Sum]
+            return [
+                ExperimentMetricMathType.TotalCount,
+                ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.Avg,
+                ExperimentMetricMathType.Min,
+                ExperimentMetricMathType.Max,
+                ExperimentMetricMathType.UniqueSessions,
+                ExperimentMetricMathType.HogQL,
+            ]
         default:
             return [ExperimentMetricMathType.TotalCount]
+    }
+}
+
+/**
+ * Check if a query is a legacy experiment metric.
+ *
+ * We use `unknown` here because in some cases, the query is not typed.
+ */
+export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTrendsQuery | ExperimentFunnelsQuery => {
+    /**
+     * since query could be an object literal type, we need to check for the kind property
+     */
+    return (
+        !!query &&
+        typeof query === 'object' &&
+        'kind' in query &&
+        (query.kind === NodeKind.ExperimentTrendsQuery || query.kind === NodeKind.ExperimentFunnelsQuery)
+    )
+}
+
+/**
+ * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
+ * to run experiments.
+ *
+ * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
+ */
+export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
+    // saved_metrics has a different structure and so we need to check for it separately
+    if (saved_metrics.some(isLegacySharedMetric)) {
+        return true
+    }
+    return [...metrics, ...metrics_secondary].some(isLegacyExperimentQuery)
+}
+
+export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
+
+/**
+ * Builds a TrendsQuery for counting events in the last 14 days for experiment metric preview
+ */
+export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
+    let series: AnyEntityNode[] = []
+
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const source = metric.source
+        if (source.kind === NodeKind.EventsNode) {
+            series = [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: source.event || undefined,
+                    event: source.event || undefined,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        } else if (source.kind === NodeKind.ActionsNode) {
+            series = [
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: source.id,
+                    name: source.name,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
+            series = [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: source.table_name,
+                    id_field: source.data_warehouse_join_key,
+                    table_name: source.table_name,
+                    timestamp_field: source.timestamp_field,
+                    distinct_id_field: source.events_join_key,
+                    name: source.name,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        }
+    } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        const lastStep = metric.series[metric.series.length - 1]
+        if (lastStep) {
+            if (lastStep.kind === NodeKind.EventsNode) {
+                series = [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: lastStep.event || undefined,
+                        event: lastStep.event,
+                        math: ExperimentMetricMathType.TotalCount,
+                        ...(lastStep.properties &&
+                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                    },
+                ]
+            } else if (lastStep.kind === NodeKind.ActionsNode) {
+                series = [
+                    {
+                        kind: NodeKind.ActionsNode,
+                        id: lastStep.id,
+                        name: lastStep.name,
+                        math: ExperimentMetricMathType.TotalCount,
+                        ...(lastStep.properties &&
+                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                    },
+                ]
+            }
+        }
+    }
+
+    if (series.length === 0) {
+        return null
+    }
+
+    return {
+        kind: NodeKind.TrendsQuery,
+        series,
+        trendsFilter: {
+            formulaNodes: [],
+            display: ChartDisplayType.BoldNumber,
+        },
+        dateRange: {
+            date_from: '-14d',
+            date_to: null,
+            explicitDate: false,
+        },
+        interval: 'day',
+        filterTestAccounts,
     }
 }

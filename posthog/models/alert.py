@@ -3,9 +3,9 @@ from datetime import datetime, UTC, timedelta
 
 from django.db import models
 from django.core.exceptions import ValidationError
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import pydantic
 
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
 from posthog.schema import InsightThreshold, AlertState, AlertCalculationInterval
@@ -20,7 +20,7 @@ ALERT_STATE_CHOICES = [
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         query = insight.query
         while query.get("source"):
             query = query["source"]

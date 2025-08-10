@@ -9,7 +9,7 @@ import { isActorsQuery } from '~/queries/utils'
 
 export interface HogQLEditorProps {
     onChange: (value: string) => void
-    value: string | undefined
+    value: string | undefined | null
     metadataSource?: AnyDataNode
     disablePersonProperties?: boolean
     disableAutoFocus?: boolean

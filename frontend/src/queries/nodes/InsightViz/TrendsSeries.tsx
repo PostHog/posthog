@@ -19,7 +19,7 @@ import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
+    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -48,8 +48,8 @@ export function TrendsSeries(): JSX.Element | null {
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
-        ? MathAvailability.ActorsOnly
-        : MathAvailability.All
+          ? MathAvailability.ActorsOnly
+          : MathAvailability.All
 
     return (
         <>
@@ -89,9 +89,10 @@ export function TrendsSeries(): JSX.Element | null {
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
-                    TaxonomicFilterGroupType.DataWarehouse,
+                    ...(isTrends ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
                 hideDeleteBtn={series?.length === 1}
+                addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
             />
         </>
     )

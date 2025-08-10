@@ -60,13 +60,14 @@ from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
     send_two_factor_auth_disabled_email,
     send_two_factor_auth_enabled_email,
+    send_password_changed_email,
 )
 from posthog.user_permissions import UserPermissions
 
@@ -313,14 +314,14 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             EmailVerifier.create_token_and_send_email_verification(instance)
 
+        if validated_data.get("notification_settings"):
+            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
+
         # Update password
         current_password = validated_data.pop("current_password", None)
         password = self.validate_password_change(
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
-
-        if validated_data.get("notification_settings"):
-            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
 
         updated_attrs = list(validated_data.keys())
         instance = cast(User, super().update(instance, validated_data))
@@ -330,6 +331,7 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
+            send_password_changed_email.delay(instance.id)
 
         report_user_updated(instance, updated_attrs)
 
@@ -383,13 +385,14 @@ class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, UserNoOrgMembershipDeletePermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff"]
     queryset = User.objects.filter(is_active=True)
@@ -399,6 +402,7 @@ class UserViewSet(
         lookup_value = self.kwargs[self.lookup_field]
         request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
         if lookup_value == "@me":
+            self.check_object_permissions(self.request, request_user)
             return request_user
 
         if not request_user.is_staff:
@@ -407,6 +411,12 @@ class UserViewSet(
             )
 
         return super().get_object()
+
+    def get_authenticators(self):
+        if self.request and self.request.method == "DELETE":  # Do not support deleting own user account via the API
+            return [SessionAuthentication()]
+
+        return super().get_authenticators()
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -480,6 +490,23 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @action(
+        methods=["PATCH"],
+        detail=False,
+    )
+    def cancel_email_change_request(self, request, **kwargs):
+        instance = request.user
+
+        if not instance.pending_email:
+            raise serializers.ValidationError(
+                "No active email change requests found.", code="email_change_request_not_found"
+            )
+
+        instance.pending_email = None
+        instance.save()
+
+        return Response(self.get_serializer(instance=instance).data)
+
     @action(methods=["POST"], detail=True)
     def scene_personalisation(self, request, **kwargs):
         instance = self.get_object()
@@ -518,7 +545,14 @@ class UserViewSet(
         rawkey = unhexlify(key.encode("ascii"))
         b32key = b32encode(rawkey).decode("utf-8")
         self.request.session["django_two_factor-qr_secret_key"] = b32key
-        return Response({"success": True})
+
+        # Return the secret key so the frontend can generate QR code and show it for manual entry
+        return Response(
+            {
+                "success": True,
+                "secret": b32key,
+            }
+        )
 
     # Deprecated - use two_factor_validate instead
     @action(methods=["POST"], detail=True)

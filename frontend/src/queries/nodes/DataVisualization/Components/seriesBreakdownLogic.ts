@@ -235,7 +235,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
             actions.setQuery({
                 ...values.query,
                 chartSettings: {
-                    ...(values.query.chartSettings ?? {}),
+                    ...values.query.chartSettings,
                     seriesBreakdownColumn: value,
                 },
             })

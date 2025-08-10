@@ -9,17 +9,16 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { NotebookTarget } from '~/types'
-
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
-import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
+import { NotebookExpandButton, NotebookSyncInfo, NotebookTableOfContentsButton } from './Notebook/NotebookMeta'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 import { notebookSceneLogic, NotebookSceneLogicProps } from './notebookSceneLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
+import { NotebookTarget } from './types'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -47,6 +46,7 @@ export function NotebookScene(): JSX.Element {
             // NOTE: We don't do this in the logic afterMount as the logic can get cached by the router
             createNotebook(NotebookTarget.Scene)
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [notebookId])
 
     if (accessDeniedToNotebook) {
@@ -112,6 +112,7 @@ export function NotebookScene(): JSX.Element {
                             : ''}
                         Guide
                     </LemonButton>
+                    <NotebookTableOfContentsButton type="secondary" size="small" />
                     <NotebookExpandButton type="secondary" size="small" />
                     <LemonButton
                         type="secondary"

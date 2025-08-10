@@ -41,4 +41,5 @@ export function InsightScene(): JSX.Element {
 export const scene: SceneExport = {
     component: InsightScene,
     logic: insightSceneLogic,
+    settingSectionId: 'environment-product-analytics',
 }

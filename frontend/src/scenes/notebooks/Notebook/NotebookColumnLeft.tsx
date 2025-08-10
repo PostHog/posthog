@@ -10,9 +10,10 @@ import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { NotebookHistory } from './NotebookHistory'
 import { notebookLogic } from './notebookLogic'
+import { NotebookTableOfContents } from './NotebookTableOfContents'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
-    const { editingNodeLogic, isShowingLeftColumn, showHistory } = useValues(notebookLogic)
+    const { editingNodeLogic, isShowingLeftColumn, showHistory, showTableOfContents } = useValues(notebookLogic)
 
     return (
         <div
@@ -27,6 +28,8 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
                         <NotebookNodeSettingsWidget logic={editingNodeLogic} />
                     ) : showHistory ? (
                         <NotebookHistory />
+                    ) : showTableOfContents ? (
+                        <NotebookTableOfContents />
                     ) : null
                 ) : null}
             </div>

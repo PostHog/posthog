@@ -17,6 +17,7 @@ from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
@@ -26,8 +27,9 @@ from posthog.hogql.functions.mapping import (
     validate_function_args,
 )
 from posthog.hogql.functions.recording_button import recording_button
+from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.sparkline import sparkline
-from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
+from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
@@ -70,16 +72,17 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types_from_table(
-    expr: ast.Expr, table_name: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
 ) -> ast.Expr:
     if context.database is None:
         raise QueryError("Database needs to be defined")
 
-    if not context.database.has_table(table_name):
-        raise QueryError(f'Table "{table_name}" does not exist')
+    if not context.database.has_table(table_chain):
+        raise QueryError(f'Table "{".".join(table_chain)}" does not exist')
 
     select_node = ast.SelectQuery(
-        select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]))
+        select=[ast.Field(chain=["*"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table_chain))),
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
@@ -213,7 +216,7 @@ class Resolver(CloningVisitor):
             elif isinstance(new_expr.type, ast.CallType):
                 from posthog.hogql.printer import print_prepared_ast
 
-                alias = print_prepared_ast(node=new_expr, context=self.context, dialect="hogql")
+                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
             else:
                 alias = None
 
@@ -316,13 +319,12 @@ class Resolver(CloningVisitor):
 
         if isinstance(node.table, ast.Field):
             table_name_chain = [str(n) for n in node.table.chain]
-            table_name_dot_notation = ".".join(table_name_chain)
             table_name_alias = "__".join(table_name_chain)
             table_alias: str = node.alias or table_name_alias
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            database_table = self.database.get_table(table_name_dot_notation)
+            database_table = self.database.get_table_by_chain(table_name_chain)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -375,8 +377,8 @@ class Resolver(CloningVisitor):
             else:
                 is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
 
-            if is_global:
-                node.next_join.join_type = "GLOBAL JOIN"
+            if is_global and node.next_join is not None:
+                node.next_join.join_type = f"GLOBAL {node.next_join.join_type}"
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -426,7 +428,7 @@ class Resolver(CloningVisitor):
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        if node.kind in HOGQLX_COMPONENTS:
+        if node.kind in HOGQLX_TAGS or node.kind in HOGQLX_COMPONENTS:
             return self.visit(convert_to_hx(node))
         return self.visit(expand_hogqlx_query(node, self.context.team_id))
 
@@ -484,8 +486,15 @@ class Resolver(CloningVisitor):
                 return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recording_button":
                 return self.visit(recording_button(node=node, args=node.args))
+            if node.name == "explain_csp_report":
+                return self.visit(explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":
-                return self.visit(matches_action(node=node, args=node.args, context=self.context))
+                events_alias, _ = self._get_events_table_current_scope()
+                if events_alias is None:
+                    raise QueryError("matchesAction can only be used with the events table")
+                return self.visit(
+                    matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
+                )
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
@@ -641,6 +650,7 @@ class Resolver(CloningVisitor):
                 #
                 # from rich.pretty import pprint
                 # pprint(self.context.database, max_depth=3)
+                # breakpoint()
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
@@ -673,6 +683,9 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
+            # TODO: This will never return None, it always raises an exception
+            # once it finds the unsupported field/type
+            # There's no reason to have the `if loop_type is None` check here
             loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
@@ -843,6 +856,21 @@ class Resolver(CloningVisitor):
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
         return node
+
+    # Used to find events table in current scope for action functions
+    def _get_events_table_current_scope(self) -> tuple[Optional[str], Optional[EventsTable]]:
+        scope = self.scopes[-1]
+        for alias, table_type in scope.tables.items():
+            if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+                return alias, table_type.table
+
+            if isinstance(table_type, ast.TableAliasType):
+                if isinstance(table_type.table_type, ast.TableType) and isinstance(
+                    table_type.table_type.table, EventsTable
+                ):
+                    return alias, table_type.table_type.table
+
+        return None, None
 
     def _is_events_table(self, node: ast.Expr) -> bool:
         while isinstance(node, ast.Alias):

@@ -1,5 +1,6 @@
 from typing import Any, Union
 
+import posthoganalytics
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
@@ -45,6 +46,15 @@ class MultitenantSAMLAuth(SAMLAuth):
     Implements our own version of SAML auth that supports multitenancy. Instead of relying on instance-based config via env vars,
     each organization can have multiple verified domains each with its own SAML configuration.
     """
+
+    def auth_complete(self, *args, **kwargs):
+        try:
+            return super().auth_complete(*args, **kwargs)
+        except Exception:
+            import json
+
+            posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
+            raise
 
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
         try:
@@ -170,6 +180,15 @@ class MultitenantSAMLAuth(SAMLAuth):
 
 
 class CustomGoogleOAuth2(GoogleOAuth2):
+    def auth_extra_arguments(self):
+        extra_args = super().auth_extra_arguments()
+        email = self.strategy.request.GET.get("email")
+
+        if email:
+            extra_args["login_hint"] = email
+
+        return extra_args
+
     def get_user_id(self, details, response):
         """
         Retrieve and migrate Google OAuth user identification.

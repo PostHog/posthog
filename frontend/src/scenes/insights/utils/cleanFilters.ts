@@ -12,6 +12,7 @@ import { clamp } from 'lib/utils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import {
+    isCalendarHeatmapFilter,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -23,6 +24,7 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 
 import {
     AnyFilterType,
+    CalendarHeatmapFilterType,
     ChartDisplayType,
     Entity,
     EntityTypes,
@@ -82,7 +84,7 @@ export const getClampedStepRangeFilter = ({
     }
 
     return {
-        ...(stepRange || {}),
+        ...stepRange,
         funnel_from_step,
         funnel_to_step,
     }
@@ -98,12 +100,11 @@ export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): Funn
         const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
         return {
             ...event,
-            ...{ funnel_from_step },
-            ...{
-                funnel_to_step: event.funnel_to_step
-                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
-                    : lastIndex,
-            },
+            funnel_from_step,
+
+            funnel_to_step: event.funnel_to_step
+                ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
+                : lastIndex,
         }
     })
     return exclusions.length > 0 ? exclusions : undefined
@@ -147,7 +148,7 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
         cleanedParams['breakdown'] = '$geoip_country_code'
         // this isn't a react hook
-        // eslint-disable-next-line react-hooks/rules-of-hooks
+        // oxlint-disable-next-line react-hooks/rules-of-hooks
         useMostRelevantBreakdownType(cleanedParams, filters)
         return
     }
@@ -311,7 +312,7 @@ export function cleanFilters(
             show_mean: filters.show_mean,
             ...(filters.mean_retention_calculation && filters.mean_retention_calculation !== RETENTION_MEAN_NONE
                 ? { mean_retention_calculation: filters.mean_retention_calculation }
-                : {}),
+                : { mean_retention_calculation: 'simple' }),
             cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
@@ -422,8 +423,8 @@ export function cleanFilters(
             insight: isLifecycleFilter(filters)
                 ? InsightType.LIFECYCLE
                 : isStickinessFilter(filters)
-                ? InsightType.STICKINESS
-                : InsightType.TRENDS,
+                  ? InsightType.STICKINESS
+                  : InsightType.TRENDS,
             ...filters,
             interval: autocorrectInterval(filters),
             ...(isTrendsFilter(filters) ? { display: filters.display || ChartDisplayType.ActionsLineGraph } : {}),
@@ -478,8 +479,8 @@ export function cleanFilters(
         trendLikeFilter['shown_as'] = isStickinessFilter(filters)
             ? ShownAsValue.STICKINESS
             : isLifecycleFilter(filters)
-            ? ShownAsValue.LIFECYCLE
-            : undefined
+              ? ShownAsValue.LIFECYCLE
+              : undefined
 
         if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
             trendLikeFilter['compare'] = false
@@ -527,6 +528,13 @@ export function cleanFilters(
     } else if ((filters as any).insight === 'SESSIONS') {
         // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
+    } else if (isCalendarHeatmapFilter(filters)) {
+        const calendarHeatmapFilter: Partial<CalendarHeatmapFilterType> = {
+            insight: InsightType.CALENDAR_HEATMAP,
+            ...filters,
+            ...commonFilters,
+        }
+        return calendarHeatmapFilter
     }
 
     throw new Error(`Unknown insight type "${(filters as any).insight}" given to cleanFilters`)

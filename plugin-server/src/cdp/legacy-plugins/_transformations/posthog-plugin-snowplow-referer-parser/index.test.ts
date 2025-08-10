@@ -177,3 +177,14 @@ test('test processEvent translates utm links correctly revised', () => {
         expect(processedDirectEvent.properties?.referrer_parser).toBe('direct_and_own_domains')
     })
 })
+
+test('test processEvent with bad values should not throw', () => {
+    const demoEvent = {
+        ...demoEvents[0],
+        properties: { ...demoEvents[0].properties, $referrer: { foo: 'bar' }, $current_url: false },
+    }
+
+    const processedEvent = processEvent(demoEvent, demoMeta)
+
+    expect(processedEvent.properties?.$current_url).toMatchInlineSnapshot(`false`)
+})

@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
+import posthoganalytics
 import structlog
 from django.http import HttpResponse
 from django.utils.timezone import now
@@ -15,6 +16,7 @@ from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.tasks import exporter
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
@@ -37,8 +39,27 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "export_context",
             "filename",
             "expires_after",
+            "exception",
         ]
-        read_only_fields = ["id", "created_at", "has_content", "filename"]
+        read_only_fields = ["id", "created_at", "has_content", "filename", "exception"]
+
+    def to_representation(self, instance):
+        """Override to show stuck exports as having an exception."""
+        data = super().to_representation(instance)
+
+        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
+        # has no content, and has no recorded exception)
+        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
+        if (
+            timeout_threshold
+            and instance.created_at < timeout_threshold
+            and not instance.has_content
+            and not instance.exception
+        ):
+            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
+            data["exception"] = timeout_message
+
+        return data
 
     def validate(self, data: dict) -> dict:
         if not data.get("export_format"):
@@ -59,7 +80,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return data
 
     def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
-        return self._create_asset(self.validated_data, user=None, reason=reason)
+        # force_async here to avoid blocking patches to the /sharing endpoint
+        return self._create_asset(self.validated_data, user=None, reason=reason, force_async=True)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
@@ -70,6 +92,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         validated_data: dict,
         user: User | None,
         reason: str | None,
+        force_async: bool = False,
     ) -> ExportedAsset:
         if user is not None:
             validated_data["created_by"] = user
@@ -81,7 +104,30 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 {"export_format": [f"Export format {instance.export_format} is not supported."]}
             )
 
-        exporter.export_asset.delay(instance.id)
+        team = instance.team
+
+        blocking_exports = posthoganalytics.feature_enabled(
+            "blocking-exports",
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        if blocking_exports and not force_async:
+            exporter.export_asset(instance.id)
+        else:
+            exporter.export_asset.delay(instance.id)
 
         if user is not None:
             report_user_action(user, "export created", instance.get_analytics_metadata())

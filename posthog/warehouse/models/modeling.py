@@ -137,6 +137,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
                 break
             elif isinstance(join.table, ast.SelectSetQuery):
                 queries.extend(list(extract_select_queries(join.table)))
+                break
 
             parent_name = join.table.chain[0]  # type: ignore
 

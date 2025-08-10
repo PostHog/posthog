@@ -5,6 +5,7 @@ from ee.models.rbac.organization_resource_access import OrganizationResourceAcce
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 
+# DEPRECATED - do not use
 class OrganizationResourceAccessSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationResourceAccess

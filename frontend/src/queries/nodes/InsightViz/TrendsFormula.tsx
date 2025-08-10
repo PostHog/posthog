@@ -43,7 +43,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                 setLocalValues([emptyNode])
             }
         }
-    }, [formulaNodes, hasFormula])
+    }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const updateFormulas = (newValues: TrendsFormulaNode[]): void => {
         // Filter out empty values when updating the query but keep them in local state
@@ -123,21 +123,21 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                     <div className="flex items-center gap-2">
                         <LemonInput
                             className="flex-1"
-                            placeholder="Formula name (optional)"
-                            size="small"
-                            value={value.custom_name || ''}
-                            onChange={(value) => handleCustomNameChange(index, value)}
-                            onBlur={() => handleCustomNameBlur(index)}
-                            onPressEnter={handleFormulaEnter}
-                        />
-                        <LemonInput
-                            className="flex-1"
                             placeholder="Example: (A + B) / 100"
                             size="small"
                             autoFocus={index === localValues.length - 1}
                             value={value.formula}
                             onChange={(value) => handleFormulaChange(index, value)}
                             onBlur={(e) => handleFormulaBlur(index, e)}
+                            onPressEnter={handleFormulaEnter}
+                        />
+                        <LemonInput
+                            className="flex-1"
+                            placeholder="Formula name (optional)"
+                            size="small"
+                            value={value.custom_name || ''}
+                            onChange={(value) => handleCustomNameChange(index, value)}
+                            onBlur={() => handleCustomNameBlur(index)}
                             onPressEnter={handleFormulaEnter}
                         />
                         {localValues.length > 1 && (

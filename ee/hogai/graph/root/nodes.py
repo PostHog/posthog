@@ -1,6 +1,5 @@
-import datetime
 import math
-from typing import Literal, TypeVar, cast
+from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -11,46 +10,279 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
     trim_messages,
 )
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
+from langgraph.errors import NodeInterrupt
+from posthoganalytics import capture_exception
 from pydantic import BaseModel
-from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 
-from .prompts import (
-    ROOT_HARD_LIMIT_REACHED_PROMPT,
-    ROOT_SYSTEM_PROMPT,
-)
-from ..base import AssistantNode
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
+
+# Import moved inside functions to avoid circular imports
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+)
+from posthog.models.organization import OrganizationMembership
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
-    HumanMessage,
     FailureMessage,
+    FunnelsQuery,
+    HogQLQuery,
+    HumanMessage,
+    MaxInsightContext,
+    MaxUIContext,
+    RetentionQuery,
+    TrendsQuery,
 )
-import importlib
-import pkgutil
-import products
 
-# TRICKY: Dynamically import max_tools from all products
-for module_info in pkgutil.iter_modules(products.__path__):
-    if module_info.name in ("conftest", "test"):
-        continue  # We mustn't import test modules in prod
-    try:
-        importlib.import_module(f"products.{module_info.name}.backend.max_tools")
-    except ModuleNotFoundError:
-        pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
+from ..base import AssistantNode
+from .prompts import (
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
+    ROOT_DASHBOARD_CONTEXT_PROMPT,
+    ROOT_DASHBOARDS_CONTEXT_PROMPT,
+    ROOT_HARD_LIMIT_REACHED_PROMPT,
+    ROOT_INSIGHT_CONTEXT_PROMPT,
+    ROOT_INSIGHTS_CONTEXT_PROMPT,
+    ROOT_SYSTEM_PROMPT,
+    ROOT_UI_CONTEXT_PROMPT,
+)
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
+# Map query kinds to their respective full UI query classes
+# NOTE: Update this and SupportedQueryTypes when adding new query types
+MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
+    "TrendsQuery": TrendsQuery,
+    "FunnelsQuery": FunnelsQuery,
+    "RetentionQuery": RetentionQuery,
+    "HogQLQuery": HogQLQuery,
+}
+
+SLASH_COMMAND_INIT = "/init"
+SLASH_COMMAND_REMEMBER = "/remember"
+
+RouteName = Literal["insights", "root", "end", "search_documentation", "insights_search", "billing"]
+
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 
-class RootNode(AssistantNode):
+class RootNodeUIContextMixin(AssistantNode):
+    """Mixin that provides UI context formatting capabilities for root nodes."""
+
+    def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str:
+        """
+        Format UI context into template variables for the prompt.
+
+        Args:
+            ui_context: UI context data or None
+
+        Returns:
+            Dict of context variables for prompt template
+        """
+        if not ui_context:
+            return ""
+
+        query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
+
+        # Extract global filters and variables override from UI context
+        filters_override = ui_context.filters_override.model_dump() if ui_context.filters_override else None
+        variables_override = ui_context.variables_override if ui_context.variables_override else None
+
+        # Format dashboard context with insights
+        dashboard_context = ""
+        if ui_context.dashboards:
+            dashboard_contexts = []
+
+            for dashboard in ui_context.dashboards:
+                dashboard_insights = ""
+                if dashboard.insights:
+                    insight_texts = []
+                    for insight in dashboard.insights:
+                        # Get formatted insight
+                        dashboard_filters = (
+                            dashboard.filters.model_dump()
+                            if hasattr(dashboard, "filters") and dashboard.filters
+                            else None
+                        )
+                        formatted_insight = self._run_and_format_insight(
+                            config,
+                            insight,
+                            query_runner,
+                            dashboard_filters,
+                            filters_override,
+                            variables_override,
+                            heading="####",
+                        )
+                        if formatted_insight:
+                            insight_texts.append(formatted_insight)
+
+                    dashboard_insights = "\n\n".join(insight_texts)
+
+                # Use the dashboard template
+                dashboard_text = (
+                    PromptTemplate.from_template(ROOT_DASHBOARD_CONTEXT_PROMPT, template_format="mustache")
+                    .format_prompt(
+                        name=dashboard.name or f"Dashboard {dashboard.id}",
+                        description=dashboard.description if dashboard.description else None,
+                        insights=dashboard_insights,
+                    )
+                    .to_string()
+                )
+                dashboard_contexts.append(dashboard_text)
+
+            if dashboard_contexts:
+                joined_dashboards = "\n\n".join(dashboard_contexts)
+                # Use the dashboards template
+                dashboard_context = (
+                    PromptTemplate.from_template(ROOT_DASHBOARDS_CONTEXT_PROMPT, template_format="mustache")
+                    .format_prompt(dashboards=joined_dashboards)
+                    .to_string()
+                )
+
+        # Format standalone insights context
+        insights_context = ""
+        if ui_context.insights:
+            insights_results = []
+            for insight in ui_context.insights:
+                result = self._run_and_format_insight(
+                    config, insight, query_runner, None, filters_override, variables_override, heading="##"
+                )
+                if result:
+                    insights_results.append(result)
+
+            if insights_results:
+                joined_results = "\n\n".join(insights_results)
+                # Use the insights template
+                insights_context = (
+                    PromptTemplate.from_template(ROOT_INSIGHTS_CONTEXT_PROMPT, template_format="mustache")
+                    .format_prompt(insights=joined_results)
+                    .to_string()
+                )
+
+        # Format events and actions context
+        events_context = self._format_entity_context(ui_context.events, "events", "Event")
+        actions_context = self._format_entity_context(ui_context.actions, "actions", "Action")
+
+        if dashboard_context or insights_context or events_context or actions_context:
+            return self._render_user_context_template(
+                dashboard_context, insights_context, events_context, actions_context
+            )
+        return ""
+
+    def _run_and_format_insight(
+        self,
+        config: RunnableConfig,
+        insight: MaxInsightContext,
+        query_runner: AssistantQueryExecutor,
+        dashboard_filters: Optional[dict] = None,
+        filters_override: Optional[dict] = None,
+        variables_override: Optional[dict] = None,
+        heading: Optional[str] = None,
+    ) -> str | None:
+        """
+        Run and format a single insight for AI consumption.
+
+        Args:
+            insight: Insight object with query and metadata
+            query_runner: AssistantQueryExecutor instance for execution
+            dashboard_filters: Optional dashboard filters to apply to the query
+
+        Returns:
+            Formatted insight string or empty string if failed
+        """
+        try:
+            query_kind = cast(str | None, getattr(insight.query, "kind", None))
+            serialized_query = insight.query.model_dump_json(exclude_none=True)
+
+            if not query_kind or query_kind not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
+                return None  # Skip unsupported query types
+
+            query_obj = cast(SupportedQueryTypes, insight.query)
+
+            if dashboard_filters or filters_override or variables_override:
+                query_dict = insight.query.model_dump(mode="json")
+                if dashboard_filters:
+                    query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
+                if filters_override:
+                    query_dict = apply_dashboard_filters_to_dict(query_dict, filters_override, self._team)
+                if variables_override:
+                    query_dict = apply_dashboard_variables_to_dict(query_dict, variables_override, self._team)
+
+                QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
+                query_obj = QueryModel.model_validate(query_dict)
+
+            raw_results, _ = query_runner.run_and_format_query(query_obj)
+
+            result = (
+                PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
+                .format_prompt(
+                    heading=heading or "",
+                    name=insight.name or f"ID {insight.id}",
+                    description=insight.description,
+                    query_schema=serialized_query,
+                    query=raw_results,
+                )
+                .to_string()
+            )
+            return result
+
+        except Exception as err:
+            # Skip insights that fail to run
+            capture_exception(
+                err, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+            )
+            return None
+
+    def _format_entity_context(self, entities, context_tag: str, entity_type: str) -> str:
+        """
+        Format entity context (events or actions) into XML context string.
+
+        Args:
+            entities: List of entities (events or actions) or None
+            context_tag: XML tag name (e.g., "events" or "actions")
+            entity_type: Entity type for display (e.g., "Event" or "Action")
+
+        Returns:
+            Formatted context string or empty string if no entities
+        """
+        if not entities:
+            return ""
+
+        entity_details = []
+        for entity in entities:
+            name = entity.name or f"{entity_type} {entity.id}"
+            entity_detail = f'"{name}'
+            if entity.description:
+                entity_detail += f": {entity.description}"
+            entity_detail += '"'
+            entity_details.append(entity_detail)
+
+        if entity_details:
+            return f"<{context_tag}_context>{entity_type} names the user is referring to:\n{', '.join(entity_details)}\n</{context_tag}_context>"
+        return ""
+
+    def _render_user_context_template(
+        self, dashboard_context: str, insights_context: str, events_context: str, actions_context: str
+    ) -> str:
+        """Render the user context template with the provided context strings."""
+        template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
+        return template.format_prompt(
+            ui_context_dashboard=dashboard_context,
+            ui_context_insights=insights_context,
+            ui_context_events=events_context,
+            ui_context_actions=actions_context,
+        ).to_string()
+
+
+class RootNode(RootNodeUIContextMixin):
     MAX_TOOL_CALLS = 4
     """
     Determines the maximum number of tool calls allowed in a single generation.
@@ -61,38 +293,55 @@ class RootNode(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        from ee.hogai.tool import get_contextual_tool_class
+
         history, new_window_id = self._construct_and_update_messages_window(state, config)
 
         prompt = (
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
+                    (
+                        "system",
+                        CORE_MEMORY_PROMPT
+                        + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
+                        + " If users ask to save, update, or delete the core memory, say you have done it."
+                        + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
+                    ),
                     *[
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]().format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
-                        if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL
+                        if get_contextual_tool_class(tool_name) is not None
                     ],
                 ],
                 template_format="mustache",
             )
             + history
         )
-        chain = prompt | self._get_model(state, config)
 
-        utc_now = datetime.datetime.now(datetime.UTC)
-        project_now = utc_now.astimezone(self._team.timezone_info)
+        ui_context = self._format_ui_context(self._get_ui_context(state), config)
+        has_billing_access, billing_context_prompt = self._get_billing_info(config)
+
+        chain = prompt | self._get_model(
+            state, config, extra_tools=["retrieve_billing_information"] if has_billing_access else []
+        )
 
         message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
-                "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
-                "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
-                "project_timezone": self._team.timezone_info.tzname(utc_now),
+                "project_datetime": self.project_now,
+                "project_timezone": self.project_timezone,
+                "project_name": self._team.name,
+                "organization_name": self._team.organization.name,
+                "user_full_name": self._user.get_full_name(),
+                "user_email": self._user.email,
+                "ui_context": ui_context,
+                "billing_context": billing_context_prompt,
             },
             config,
         )
@@ -112,25 +361,71 @@ class RootNode(AssistantNode):
             ],
         )
 
-    def _get_model(self, state: AssistantState, config: RunnableConfig):
-        # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
-        # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
-        base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
+    def _get_billing_info(self, config: RunnableConfig) -> tuple[bool, str]:
+        """Get billing information including access, prompt, and whether to include the tool.
+        Returns:
+            Tuple[bool, str]: (has_access, prompt)
+        """
+        has_billing_context = self._get_billing_context(config) is not None
+
+        if not has_billing_context:
+            return False, ""
+
+        has_access = self._user.organization_memberships.get(organization=self._team.organization).level in (
+            OrganizationMembership.Level.ADMIN,
+            OrganizationMembership.Level.OWNER,
+        )
+        prompt = ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT if has_access else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT
+
+        return has_access, prompt
+
+    def _get_model(self, state: AssistantState, config: RunnableConfig, extra_tools: list[str] | None = None):
+        if extra_tools is None:
+            extra_tools = []
+        # Research suggests temperature is not _massively_ correlated with creativity (https://arxiv.org/html/2405.00492v1).
+        # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
+        # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
+        # only made evals less useful precisely because of the false determinism.
+        base_model = MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            streaming=True,
+            stream_usage=True,
+            user=self._user,
+            team=self._team,
+        )
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
         if self._is_hard_limit_reached(state):
             return base_model
 
-        available_tools: list[type[BaseModel]] = [create_and_query_insight]
+        from ee.hogai.tool import (
+            create_and_query_insight,
+            get_contextual_tool_class,
+            search_documentation,
+            search_insights,
+        )
+
+        available_tools: list[type[BaseModel]] = [search_insights]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
-        for tool_name in self._get_contextual_tools(config).keys():
-            try:
-                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
-            except ValueError:
+        tool_names = self._get_contextual_tools(config).keys()
+        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
+        if not is_editing_insight:
+            # This is the default tool, which can be overriden by the MaxTool based tool with the same name
+            available_tools.append(create_and_query_insight)
+        for tool_name in tool_names:
+            ToolClass = get_contextual_tool_class(tool_name)
+            if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass())  # type: ignore
+            available_tools.append(ToolClass(team=self._team, user=self._user))  # type: ignore
+
+        if "retrieve_billing_information" in extra_tools:
+            from ee.hogai.tool import retrieve_billing_information
+
+            available_tools.append(retrieve_billing_information)
+
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
@@ -241,7 +536,7 @@ class RootNode(AssistantNode):
 
 
 class RootNodeTools(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
             # Reset tools.
@@ -253,36 +548,70 @@ class RootNodeTools(AssistantNode):
         if len(tools_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
 
+        tool_names = self._get_contextual_tools(config).keys()
+        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         tool_call = tools_calls[0]
-        if tool_call.name == "create_and_query_insight":
+
+        from ee.hogai.tool import get_contextual_tool_class
+
+        if tool_call.name == "create_and_query_insight" and not is_editing_insight:
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_insight_type=tool_call.args["query_kind"],
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name == "search_documentation":
+        elif tool_call.name in ["search_documentation", "retrieve_billing_information"]:
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(cast(AssistantContextualTool, tool_call.name)):
-            result = ToolClass().invoke(tool_call.model_dump(), config)  # type: ignore
-            assert isinstance(result, LangchainToolMessage)
+        elif tool_call.name == "search_insights":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                search_insights_query=tool_call.args["search_query"],
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        elif ToolClass := get_contextual_tool_class(tool_call.name):
+            tool_class = ToolClass(team=self._team, user=self._user, state=state)
+            result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            if not isinstance(result, LangchainToolMessage):
+                raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
+
+            # If this is a navigation tool call, pause the graph execution
+            # so that the frontend can re-initialise Max with a new set of contextual tools.
+            if tool_call.name == "navigate":
+                navigate_message = AssistantToolCallMessage(
+                    content=str(result.content) if result.content else "",
+                    ui_payload={tool_call.name: result.artifact},
+                    id=str(uuid4()),
+                    tool_call_id=tool_call.id,
+                    visible=True,
+                )
+                # Raising a `NodeInterrupt` ensures the assistant graph stops here and
+                # surfaces the navigation confirmation to the client. The next user
+                # interaction will resume the graph with potentially different
+                # contextual tools.
+                raise NodeInterrupt(navigate_message)
+
+            new_state = tool_class._state  # latest state, in case the tool has updated it
+            last_message = new_state.messages[-1]
+            if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
+                return PartialAssistantState(
+                    # we send all messages from the tool call onwards
+                    messages=new_state.messages[len(state.messages) :],
+                    root_tool_calls_count=tool_call_count + 1,
+                )
+
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content=result.content,
+                        content=str(result.content) if result.content else "",
                         ui_payload={tool_call.name: result.artifact},
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
+                        visible=True,
                     )
                 ],
-                root_tool_call_id=None,  # Tool handled already
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
         else:
@@ -290,8 +619,20 @@ class RootNodeTools(AssistantNode):
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
+
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
-        if state.root_tool_call_id:
-            return "insights" if state.root_tool_insight_type else "search_documentation"
+        if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
+            tool_calls = getattr(last_message, "tool_calls", None)
+            if tool_calls and len(tool_calls) > 0:
+                tool_call = tool_calls[0]
+                tool_call_name = tool_call.name
+                if tool_call_name == "retrieve_billing_information":
+                    return "billing"
+            if state.root_tool_insight_plan:
+                return "insights"
+            elif state.search_insights_query:
+                return "insights_search"
+            else:
+                return "search_documentation"
         return "end"

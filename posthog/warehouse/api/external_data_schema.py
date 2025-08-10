@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any, Optional
 
 import structlog
@@ -11,11 +12,8 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.hogql.database.database import create_hogql_database
-from posthog.temporal.data_imports.pipelines.bigquery import (
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-    get_schemas as get_bigquery_schemas,
-)
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
+from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     external_data_workflow_exists,
@@ -27,18 +25,10 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import (
-    filter_mssql_incremental_fields,
-    filter_mysql_incremental_fields,
-    filter_postgres_incremental_fields,
-    filter_snowflake_incremental_fields,
-    get_snowflake_schemas,
-    get_sql_schemas_for_source_type,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel
-from posthog.warehouse.types import IncrementalField
 
 logger = structlog.get_logger(__name__)
 
@@ -82,8 +72,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ]
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
-        if schema.status == ExternalDataSchema.Status.CANCELLED:
+        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
+
+        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
+            return "Billing limits too low"
 
         return schema.status
 
@@ -123,6 +116,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             sync_type is not None
             and sync_type != ExternalDataSchema.SyncType.FULL_REFRESH
             and sync_type != ExternalDataSchema.SyncType.INCREMENTAL
+            and sync_type != ExternalDataSchema.SyncType.APPEND
         ):
             raise ValidationError("Invalid sync type")
 
@@ -130,7 +124,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         trigger_refresh = False
         # Update the validated_data with incremental fields
-        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL or sync_type == ExternalDataSchema.SyncType.APPEND:
             incremental_field_changed = (
                 instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
                 or instance.sync_type_config.get("incremental_field_last_value") is None
@@ -146,7 +140,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     # Get the max_value and set it on incremental_field_last_value
                     max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
                     if max_value:
-                        instance.update_incremental_field_last_value(max_value, save=False)
+                        instance.update_incremental_field_value(max_value, save=False)
                     else:
                         # if we can't get the max value, reset the table
                         payload["incremental_field_last_value"] = None
@@ -172,7 +166,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 instance.sync_frequency_interval = sync_frequency_interval
 
         if sync_time_of_day is not None:
-            if sync_time_of_day != instance.sync_time_of_day:
+            try:
+                new_time = dt.datetime.strptime(str(sync_time_of_day), "%H:%M:%S").time()
+            except ValueError:
+                raise ValidationError("Invalid sync time of day")
+
+            if new_time != instance.sync_time_of_day:
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = sync_time_of_day
                 instance.sync_time_of_day = sync_time_of_day
@@ -189,10 +188,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 unpause_external_data_schedule(str(instance.id))
         else:
             if should_sync is True:
-                sync_external_data_job_workflow(instance, create=True)
+                sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
 
         if was_sync_frequency_updated or was_sync_time_of_day_updated:
-            sync_external_data_job_workflow(instance, create=False)
+            sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})
@@ -299,133 +298,36 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def incremental_fields(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
         source: ExternalDataSource = instance.source
-        incremental_columns: list[IncrementalField] = []
 
-        if source.source_type in [
-            ExternalDataSource.Type.POSTGRES,
-            ExternalDataSource.Type.MYSQL,
-            ExternalDataSource.Type.MSSQL,
-        ]:
-            # TODO(@Gilbert09): Move all this into a util and replace elsewhere
-            host = source.job_inputs.get("host")
-            port = source.job_inputs.get("port")
-            user = source.job_inputs.get("user")
-            password = source.job_inputs.get("password")
-            database = source.job_inputs.get("database")
-            pg_schema = source.job_inputs.get("schema")
+        if not source.job_inputs:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing job inputs"})
 
-            using_ssh_tunnel = str(source.job_inputs.get("ssh_tunnel_enabled", False)) == "True"
-            ssh_tunnel_host = source.job_inputs.get("ssh_tunnel_host")
-            ssh_tunnel_port = source.job_inputs.get("ssh_tunnel_port")
-            ssh_tunnel_auth_type = source.job_inputs.get("ssh_tunnel_auth_type")
-            ssh_tunnel_auth_type_username = source.job_inputs.get("ssh_tunnel_auth_type_username")
-            ssh_tunnel_auth_type_password = source.job_inputs.get("ssh_tunnel_auth_type_password")
-            ssh_tunnel_auth_type_passphrase = source.job_inputs.get("ssh_tunnel_auth_type_passphrase")
-            ssh_tunnel_auth_type_private_key = source.job_inputs.get("ssh_tunnel_auth_type_private_key")
+        if not source.source_type:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing source type"})
 
-            using_ssl = str(source.job_inputs.get("using_ssl", True)) == "True"
+        source_type_enum = ExternalDataSource.Type(source.source_type)
 
-            ssh_tunnel = SSHTunnel(
-                enabled=using_ssh_tunnel,
-                host=ssh_tunnel_host,
-                port=ssh_tunnel_port,
-                auth_type=ssh_tunnel_auth_type,
-                username=ssh_tunnel_auth_type_username,
-                password=ssh_tunnel_auth_type_password,
-                passphrase=ssh_tunnel_auth_type_passphrase,
-                private_key=ssh_tunnel_auth_type_private_key,
+        new_source = SourceRegistry.get_source(source_type_enum)
+        config = new_source.parse_config(source.job_inputs)
+        schemas = new_source.get_schemas(config, self.team_id)
+
+        schema: SourceSchema | None = None
+
+        for s in schemas:
+            if s.name == instance.name:
+                schema = s
+                break
+
+        if schema is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
 
-            db_schemas = get_sql_schemas_for_source_type(
-                source.source_type,
-                host=host,
-                port=port,
-                database=database,
-                user=user,
-                password=password,
-                schema=pg_schema,
-                ssh_tunnel=ssh_tunnel,
-                using_ssl=using_ssl,
-            )
+        data = {
+            "incremental_fields": schema.incremental_fields,
+            "incremental_available": schema.supports_incremental,
+            "append_available": schema.supports_append,
+            "full_refresh_available": True,
+        }
 
-            columns = db_schemas.get(instance.name, [])
-            if source.source_type == ExternalDataSource.Type.POSTGRES:
-                incremental_fields_func = filter_postgres_incremental_fields
-            elif source.source_type == ExternalDataSource.Type.MYSQL:
-                incremental_fields_func = filter_mysql_incremental_fields
-            elif source.source_type == ExternalDataSource.Type.MSSQL:
-                incremental_fields_func = filter_mssql_incremental_fields
-
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in incremental_fields_func(columns)
-            ]
-        elif source.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            # TODO(@Gilbert09): Move all this into a util and replace elsewhere
-            account_id = source.job_inputs.get("account_id")
-            user = source.job_inputs.get("user")
-            password = source.job_inputs.get("password")
-            database = source.job_inputs.get("database")
-            warehouse = source.job_inputs.get("warehouse")
-            sf_schema = source.job_inputs.get("schema")
-            role = source.job_inputs.get("role")
-
-            auth_type = source.job_inputs.get("auth_type", "password")
-            auth_type_username = source.job_inputs.get("user")
-            auth_type_password = source.job_inputs.get("password")
-            auth_type_passphrase = source.job_inputs.get("passphrase")
-            auth_type_private_key = source.job_inputs.get("private_key")
-
-            sf_schemas = get_snowflake_schemas(
-                account_id=account_id,
-                database=database,
-                warehouse=warehouse,
-                user=auth_type_username,
-                password=auth_type_password,
-                schema=sf_schema,
-                role=role,
-                auth_type=auth_type,
-                passphrase=auth_type_passphrase,
-                private_key=auth_type_private_key,
-            )
-
-            columns = sf_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_snowflake_incremental_fields(columns)
-            ]
-        elif source.source_type == ExternalDataSource.Type.BIGQUERY:
-            dataset_id = source.job_inputs.get("dataset_id")
-            project_id = source.job_inputs.get("project_id")
-            private_key = source.job_inputs.get("private_key")
-            private_key_id = source.job_inputs.get("private_key_id")
-            client_email = source.job_inputs.get("client_email")
-            token_uri = source.job_inputs.get("token_uri")
-
-            bq_schemas = get_bigquery_schemas(
-                dataset_id=dataset_id,
-                project_id=project_id,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
-                logger=logger,
-            )
-
-            columns = bq_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_bigquery_incremental_fields(columns)
-            ]
-        else:
-            mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)
-            if mapping is None:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f'Source type "{source.source_type}" not found'},
-                )
-            mapping_fields = mapping.get(instance.name, [])
-
-            incremental_columns = mapping_fields
-
-        return Response(status=status.HTTP_200_OK, data=incremental_columns)
+        return Response(status=status.HTTP_200_OK, data=data)

@@ -13,12 +13,13 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
+from posthog.tasks.insight_query_metadata import fill_insights_missing_query_metadata
 from posthog.tasks.integrations import refresh_integrations
-from posthog.tasks.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
-    calculate_external_data_rows_synced,
     check_async_migration_health,
     check_flags_to_rollback,
     clean_stale_partials,
@@ -35,9 +36,7 @@ from posthog.tasks.tasks import (
     ee_persist_finished_recordings,
     ee_persist_finished_recordings_v2,
     find_flags_with_enriched_analytics,
-    graphile_worker_queue_size,
     ingestion_lag,
-    monitoring_check_clickhouse_schema_drift,
     pg_plugin_server_query_timing,
     pg_row_count,
     pg_table_cache_hit_rate,
@@ -45,7 +44,6 @@ from posthog.tasks.tasks import (
     redis_celery_queue_depth,
     redis_heartbeat,
     replay_count_metrics,
-    schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -54,7 +52,8 @@ from posthog.tasks.tasks import (
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
-    ee_count_items_in_playlists,
+    count_items_in_playlists,
+    schedule_all_subscriptions,
 )
 from posthog.utils import get_crontab
 
@@ -85,14 +84,6 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
-    # Monitoring tasks
-    add_periodic_task_with_expiry(
-        sender,
-        60,
-        monitoring_check_clickhouse_schema_drift.s(),
-        "check clickhouse schema drift",
-    )
-
     if not settings.DEBUG:
         add_periodic_task_with_expiry(sender, 10, redis_celery_queue_depth.s(), "10 sec queue probe")
 
@@ -125,6 +116,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="0", day_of_week="mon"),
         send_all_periodic_digest_reports.s(),
         name="send all weekly digest reports",
+    )
+
+    # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
+    sender.add_periodic_task(
+        crontab(hour="9", minute="30"),
+        send_hog_functions_daily_digest.s(),
+        name="send HogFunctions daily digest",
     )
 
     # PostHog Cloud cron jobs
@@ -194,13 +192,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="0", hour="*"),
         pg_plugin_server_query_timing.s(),
         name="PG plugin server query timing",
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        60,
-        graphile_worker_queue_size.s(),
-        name="Graphile Worker queue size",
     )
 
     sender.add_periodic_task(
@@ -325,7 +316,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         add_periodic_task_with_expiry(
             sender,
             settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS or TWENTY_FOUR_HOURS,
-            ee_count_items_in_playlists.s(),
+            count_items_in_playlists.s(),
             "ee_count_items_in_playlists",
         )
 
@@ -348,13 +339,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired exported assets",
         )
 
-    # Every 20 minutes try to retrieve and calculate total rows synced in period
-    sender.add_periodic_task(
-        crontab(minute="*/20"),
-        calculate_external_data_rows_synced.s(),
-        name="calculate external data rows synced",
-    )
-
     # Check integrations to refresh every minute
     add_periodic_task_with_expiry(
         sender,
@@ -367,4 +351,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    sender.add_periodic_task(
+        crontab(minute="0", hour="*/12"),
+        fill_insights_missing_query_metadata.s(),
+        name="fill insights missing query metadata",
     )

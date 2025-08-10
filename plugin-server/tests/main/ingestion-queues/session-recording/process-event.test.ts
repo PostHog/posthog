@@ -588,7 +588,7 @@ describe('session recording process event', () => {
                 null,
                 null
             )
-        }).toThrowError()
+        }).toThrow()
     })
 
     it(`snapshot event with no event summary timestamps is ignored`, () => {
@@ -618,7 +618,7 @@ describe('session recording process event', () => {
                 null,
                 null
             )
-        }).toThrowError()
+        }).toThrow()
     })
 
     test.each([
@@ -672,7 +672,6 @@ describe('session recording process event', () => {
     ])('simple console log processing', ({ payload, expectedMessage }) => {
         const consoleLogEntries = gatherConsoleLogEvents(12345, 'session_id', [
             consoleMessageFor(payload),
-            // see https://posthog.sentry.io/issues/4525043303
             // null events always ignored
             null as unknown as RRWebEvent,
         ])

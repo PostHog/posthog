@@ -17,7 +17,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import series_event_name
+from posthog.hogql_queries.insights.trends.utils import series_event_name, is_groups_math
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -63,7 +63,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
-        events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
+        events_query = self._get_events_subquery(False, breakdown=breakdown)
 
         if self._trends_display.is_total_value():
             wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
@@ -126,7 +126,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return parse_expr(
             """
             arrayMap(
-                number -> {date_from_start_of_interval} + {plus_interval}, -- NOTE: flipped the order around to use start date
+                number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
                 range(
                     0,
                     coalesce(
@@ -139,24 +139,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             ) as date
         """,
-            placeholders={
-                **self.query_date_range.to_placeholders(),
-                "plus_interval": self.query_date_range.number_interval_periods(),
-            },
+            placeholders=self.query_date_range.to_placeholders(),
         )
 
     def _get_events_subquery(
         self,
         no_modifications: Optional[bool],
-        is_actors_query: bool,
         breakdown: Breakdown,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
             ignore_breakdowns=False,
             breakdown=breakdown,
-            is_actors_query=is_actors_query,
-            actors_query_time_frame=actors_query_time_frame,
         )
 
         default_query = ast.SelectQuery(
@@ -258,8 +251,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             assert wrapper.group_by is not None
 
             if not self._trends_display.is_total_value():
-                default_query.select.append(day_start)
-                default_query.group_by.append(ast.Field(chain=["day_start"]))
+                assert wrapper.group_by is not None
+                assert isinstance(wrapper.select_from, ast.JoinExpr)
+                assert isinstance(wrapper.select_from.table, ast.SelectQuery)
+                assert wrapper.select_from.table.group_by is not None
+
+                # can't use "default_query" directly anymore, must use "wrapper.select_from.table"
+                wrapper.select_from.table.select.append(day_start)
+                wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
@@ -285,9 +284,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             if not self._trends_display.is_total_value():
                 assert wrapper.group_by is not None
+                assert isinstance(wrapper.select_from, ast.JoinExpr)
+                assert isinstance(wrapper.select_from.table, ast.SelectQuery)
+                assert wrapper.select_from.table.group_by is not None
 
-                default_query.select.append(day_start)
-                default_query.group_by.append(ast.Field(chain=["day_start"]))
+                # can't use "default_query" directly anymore, must use "wrapper.select_from.table"
+                wrapper.select_from.table.select.append(day_start)
+                wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
@@ -498,7 +501,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.ctes = {
                 "min_max": ast.CTE(
                     name="min_max",
-                    expr=self._get_events_subquery(no_modifications=False, is_actors_query=False, breakdown=breakdown),
+                    expr=self._get_events_subquery(no_modifications=False, breakdown=breakdown),
                     cte_type="subquery",
                 )
             }
@@ -530,7 +533,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 if isinstance(breakdown_alias.get("histogram_bin_count"), int)
             ]
 
-            query.select.extend(
+            assert query.select_from is not None and isinstance(query.select_from.table, ast.SelectQuery)
+            query.select_from.table.select.extend(
                 [
                     # Using arrays would be more efficient here, _but_ only if there's low cardinality in breakdown_values
                     # If cardinality is high it'd blow up memory
@@ -662,10 +666,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _events_filter(
         self,
-        is_actors_query: bool,
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
@@ -744,11 +746,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     filters.append(breakdown_filter)
 
         # Ignore empty groups
-        if series.math == "unique_group" and series.math_group_type_index is not None:
+        if is_groups_math(series=series):
             filters.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    left=ast.Field(chain=["e", f"$group_{int(cast(int, self.series.math_group_type_index))}"]),
                     right=ast.Constant(value=""),
                 )
             )

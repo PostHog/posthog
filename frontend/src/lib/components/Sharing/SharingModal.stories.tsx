@@ -40,26 +40,25 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                 '/api/environments/:id/dashboards/:dashboard_id/sharing/',
                 '/api/environments/:id/session_recordings/:recording_id/sharing/',
             ].reduce(
-                (acc, url) => ({
-                    ...acc,
-                    [url]: {
-                        created_at: '2022-06-28T12:30:51.459746Z',
-                        enabled: true,
-                        access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
-                    },
-                }),
+                (acc, url) =>
+                    Object.assign(acc, {
+                        [url]: {
+                            created_at: '2022-06-28T12:30:51.459746Z',
+                            enabled: true,
+                            access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+                        },
+                    }),
                 {}
             ),
             '/api/environments/:id/insights/': { results: [fakeInsight] },
         },
-        patch: {
-            ...[
-                '/api/environments/:id/insights/:insight_id/sharing/',
-                '/api/environments/:id/dashboards/:dashboard_id/sharing/',
-                '/api/environments/:id/session_recordings/:recording_id/sharing/',
-            ].reduce(
-                (acc, url) => ({
-                    ...acc,
+        patch: [
+            '/api/environments/:id/insights/:insight_id/sharing/',
+            '/api/environments/:id/dashboards/:dashboard_id/sharing/',
+            '/api/environments/:id/session_recordings/:recording_id/sharing/',
+        ].reduce(
+            (acc, url) =>
+                Object.assign(acc, {
                     [url]: (req: any) => {
                         return [
                             200,
@@ -72,9 +71,8 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                         ]
                     },
                 }),
-                {}
-            ),
-        },
+            {}
+        ),
     })
 
     return (

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, cast
 from warnings import warn
 from datetime import datetime
 from django.db import models
@@ -43,6 +43,10 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     field_name = models.CharField(max_length=400)
     configuration = models.JSONField(default=dict, null=True)
 
+    @property
+    def joining_table_name_chain(self) -> list[str | int]:
+        return cast(list[str | int], self.joining_table_name.split("."))
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
@@ -73,7 +77,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         ast.Alias(alias=alias, expr=ast.Field(chain=chain))
                         for alias, chain in join_to_add.fields_accessed.items()
                     ],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=[self.joining_table_name])),
+                    select_from=ast.JoinExpr(table=ast.Field(chain=self.joining_table_name_chain)),
                 ),
                 join_type="LEFT JOIN",
                 alias=join_to_add.to_table,
@@ -196,12 +200,38 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return _join_function_for_experiments
 
+    def join_for_persons_revenue_analytics_table(self) -> ast.JoinExpr:
+        from posthog.hogql import ast
+
+        left = self.__parse_table_key_expression(self.source_table_key, self.source_table_name)
+        right = self.__parse_table_key_expression(self.joining_table_key, self.joining_table_name)
+
+        join_expr = ast.JoinExpr(
+            table=ast.Field(chain=self.joining_table_name_chain),
+            join_type="LEFT JOIN",
+            alias=self.joining_table_name,
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=left,
+                    right=right,
+                ),
+                constraint_type="ON",
+            ),
+        )
+
+        return join_expr
+
     def __parse_table_key_expression(self, table_key: str, table_name: str) -> ast.Expr:
         expr = parse_expr(table_key)
         if isinstance(expr, ast.Field):
             expr.chain = [table_name, *expr.chain]
         elif isinstance(expr, ast.Call) and isinstance(expr.args[0], ast.Field):
             expr.args[0].chain = [table_name, *expr.args[0].chain]
+        elif (
+            isinstance(expr, ast.Alias) and isinstance(expr.expr, ast.Call) and isinstance(expr.expr.args[0], ast.Field)
+        ):
+            expr.expr.args[0].chain = [table_name, *expr.expr.args[0].chain]
         else:
             raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 

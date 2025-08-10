@@ -7,12 +7,14 @@ from collections import defaultdict, namedtuple
 from contextlib import contextmanager
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
+from collections.abc import Iterable
 from collections.abc import Callable, Iterator
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
+from django.db.models import Q, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
@@ -220,6 +222,20 @@ def generate_random_token_personal() -> str:
     return "phx_" + generate_random_token(35)  # "x" standing for nothing in particular
 
 
+def generate_random_token_secret() -> str:
+    # Similar to personal API keys, but for retrieving feature flag definitions for local evaluation.
+    return "phs_" + generate_random_token(35)  # "s" standing for "secret"
+
+
+def mask_key_value(value: str) -> str:
+    """Turn 'phx_123456abcd' into 'phx_...abcd'."""
+    if len(value) < 16:
+        # If the token is less than 16 characters, mask the whole token.
+        # This should never happen, but want to be safe.
+        return "********"
+    return f"{value[:4]}...{value[-4:]}"
+
+
 def int_to_base(number: int, base: int) -> str:
     if base > 62:
         raise ValueError("Cannot convert integer to base above 62")
@@ -401,3 +417,89 @@ class RootTeamMixin(models.Model):
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)
+
+
+def convert_funnel_query(legacy_metric):
+    # Extract and simplify series
+    series = []
+    for step in legacy_metric["funnels_query"]["series"]:
+        step_copy = {}
+        for key, value in step.items():
+            if key != "name":  # Skip the name field
+                step_copy[key] = value
+        series.append(step_copy)
+
+    new_metric = {"kind": "ExperimentMetric", "series": series, "metric_type": "funnel"}
+    if name := legacy_metric.get("name"):
+        new_metric["name"] = name
+
+    return new_metric
+
+
+def convert_trends_query(legacy_metric):
+    source = legacy_metric["count_query"]["series"][0].copy()
+
+    # Remove math_property_type if it exists
+    if "math_property_type" in source:
+        del source["math_property_type"]
+
+    # Remove name if there's no math field
+    if "math" not in source and "name" in source:
+        del source["name"]
+
+    new_metric = {"kind": "ExperimentMetric", "source": source, "metric_type": "mean"}
+
+    if name := legacy_metric.get("name"):
+        new_metric["name"] = name
+
+    return new_metric
+
+
+"""
+Converts the old JSON structure to the new format.
+Transformation rules:
+1. ExperimentFunnelsQuery -> ExperimentMetric with metric_type "funnel"
+    - Remove name fields from series items (except when needed)
+2. ExperimentTrendsQuery -> ExperimentMetric with metric_type "mean"
+    - Remove math_property_type
+    - Remove name if there's no math field
+"""
+
+
+def convert_legacy_metric(metric):
+    if metric.get("kind") == "ExperimentMetric":
+        return metric  # Already new format
+    if metric.get("kind") == "ExperimentFunnelsQuery":
+        return convert_funnel_query(metric)
+    if metric.get("kind") == "ExperimentTrendsQuery":
+        return convert_trends_query(metric)
+    raise ValueError(f"Unknown metric kind: {metric.get('kind')}")
+
+
+def convert_legacy_metrics(metrics):
+    return [convert_legacy_metric(m) for m in (metrics or [])]
+
+
+def build_unique_relationship_check(related_objects: Iterable[str]):
+    """Checks that exactly one object field is populated"""
+    built_check_list: list[Union[Q, Q]] = []
+    for field in related_objects:
+        built_check_list.append(
+            Q(
+                *[(f"{other_field}__isnull", other_field != field) for other_field in related_objects],
+                _connector="AND",
+            )
+        )
+    return Q(*built_check_list, _connector="OR")
+
+
+def build_partial_uniqueness_constraint(field: str, related_field: str, constraint_name: str):
+    """
+    Enforces uniqueness on {field}_{related_field}.
+    All permutations of null columns must be explicit as Postgres ignores uniqueness across null columns.
+    """
+    return UniqueConstraint(
+        fields=[field, related_field],
+        name=constraint_name,
+        condition=Q((f"{related_field}__isnull", False)),
+    )

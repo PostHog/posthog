@@ -6,6 +6,10 @@ on:
             - master
             - main
 
+concurrency:
+    group: foss-sync
+    cancel-in-progress: false
+
 jobs:
     repo-sync:
         name: Sync posthog-foss with posthog
@@ -48,5 +52,3 @@ jobs:
                   remove: '["-r ee/"]'
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-                  repository: 'posthog/posthog-foss'
-                  ref: master

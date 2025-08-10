@@ -11,6 +11,7 @@ import {
     DatabaseSchemaViewTable,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { databaseTableListLogicType } from './databaseTableListLogicType'
 
@@ -24,7 +25,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
                 loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> =>
-                    await performQuery({ kind: NodeKind.DatabaseSchemaQuery } as DatabaseSchemaQuery),
+                    await performQuery(
+                        setLatestVersionsOnQuery({ kind: NodeKind.DatabaseSchemaQuery }) as DatabaseSchemaQuery
+                    ),
             },
         ],
     }),
@@ -59,10 +62,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     return {}
                 }
 
-                return Object.values(database.tables).reduce((acc, cur) => {
-                    acc[cur.name] = database.tables[cur.name]
-                    return acc
-                }, {} as Record<string, DatabaseSchemaTable>)
+                return Object.values(database.tables).reduce(
+                    (acc, cur) => {
+                        acc[cur.name] = database.tables[cur.name]
+                        return acc
+                    },
+                    {} as Record<string, DatabaseSchemaTable>
+                )
             },
         ],
         posthogTables: [
@@ -84,10 +90,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
 
                 return Object.values(database.tables)
                     .filter((n) => n.type === 'posthog')
-                    .reduce((acc, cur) => {
-                        acc[cur.name] = database.tables[cur.name]
-                        return acc
-                    }, {} as Record<string, DatabaseSchemaTable>)
+                    .reduce(
+                        (acc, cur) => {
+                            acc[cur.name] = database.tables[cur.name]
+                            return acc
+                        },
+                        {} as Record<string, DatabaseSchemaTable>
+                    )
             },
         ],
         dataWarehouseTables: [
@@ -113,10 +122,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     .filter(
                         (n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse' || n.type == 'view'
                     )
-                    .reduce((acc, cur) => {
-                        acc[cur.name] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
-                        return acc
-                    }, {} as Record<string, DatabaseSchemaDataWarehouseTable>)
+                    .reduce(
+                        (acc, cur) => {
+                            acc[cur.name] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
+                            return acc
+                        },
+                        {} as Record<string, DatabaseSchemaDataWarehouseTable>
+                    )
             },
         ],
         dataWarehouseTablesMapById: [
@@ -130,10 +142,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     .filter(
                         (n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse' || n.type == 'view'
                     )
-                    .reduce((acc, cur) => {
-                        acc[cur.id] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
-                        return acc
-                    }, {} as Record<string, DatabaseSchemaDataWarehouseTable>)
+                    .reduce(
+                        (acc, cur) => {
+                            acc[cur.id] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
+                            return acc
+                        },
+                        {} as Record<string, DatabaseSchemaDataWarehouseTable>
+                    )
             },
         ],
         views: [
@@ -165,33 +180,31 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 views,
                 managedViews
             ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable> => {
-                if (!database || !database.tables) {
+                if (!database?.tables) {
                     return {}
                 }
 
-                const allViews = [...views, ...managedViews]
-
-                return allViews.reduce((acc, cur) => {
-                    acc[cur.name] = database.tables[cur.name] as
-                        | DatabaseSchemaViewTable
-                        | DatabaseSchemaManagedViewTable
-                    return acc
-                }, {} as Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable>)
+                return [...views, ...managedViews].reduce(
+                    (acc, cur) => {
+                        acc[cur.name] = database.tables[cur.name] as
+                            | DatabaseSchemaViewTable
+                            | DatabaseSchemaManagedViewTable
+                        return acc
+                    },
+                    {} as Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable>
+                )
             },
         ],
         viewsMapById: [
-            (s) => [s.database],
-            (database): Record<string, DatabaseSchemaViewTable> => {
-                if (!database || !database.tables) {
-                    return {}
-                }
-
-                return Object.values(database.tables)
-                    .filter((n): n is DatabaseSchemaViewTable => n.type === 'view')
-                    .reduce((acc, cur) => {
-                        acc[cur.id] = database.tables[cur.name] as DatabaseSchemaViewTable
+            (s) => [s.viewsMap],
+            (viewsMap): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable> => {
+                return Object.values(viewsMap).reduce(
+                    (acc, cur) => {
+                        acc[cur.id] = cur
                         return acc
-                    }, {} as Record<string, DatabaseSchemaViewTable>)
+                    },
+                    {} as Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable>
+                )
             },
         ],
     }),

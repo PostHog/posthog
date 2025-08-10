@@ -81,6 +81,7 @@ def log_notebook_activity(
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Notebook
@@ -93,6 +94,8 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
+            "_create_in_folder",
         ]
         read_only_fields = fields
 
@@ -113,6 +116,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -256,7 +260,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.filter(deleted=False, visibility=Notebook.Visibility.DEFAULT)
             queryset = self._filter_list_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)

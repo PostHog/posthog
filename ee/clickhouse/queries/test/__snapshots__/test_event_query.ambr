@@ -1,16 +1,6 @@
 # serializer version: 1
 # name: TestEventQuery.test_account_filters
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = NULL
-  '''
-# ---
-# name: TestEventQuery.test_account_filters.1
-  '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
@@ -19,7 +9,7 @@
     AND version = 0
   '''
 # ---
-# name: TestEventQuery.test_account_filters.2
+# name: TestEventQuery.test_account_filters.1
   '''
   SELECT e.timestamp as timestamp,
          if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id

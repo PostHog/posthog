@@ -40,7 +40,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             {
                 clearLocalConfig: () => null,
                 patchHedgehogConfig: (state, { config }) => ({
-                    ...(state ?? {}),
+                    ...state,
                     ...config,
                 }),
             },
@@ -95,8 +95,8 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             (s) => [s.localConfig, s.remoteConfig],
             (localConfig, remoteConfig): Partial<HedgehogConfig> => {
                 return {
-                    ...(remoteConfig ?? {}),
-                    ...(localConfig ?? {}),
+                    ...remoteConfig,
+                    ...localConfig,
                 }
             },
         ],

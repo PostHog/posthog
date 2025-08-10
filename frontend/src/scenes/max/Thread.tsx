@@ -1,6 +1,8 @@
 import {
     IconCollapse,
     IconExpand,
+    IconEye,
+    IconHide,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -9,15 +11,24 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonButtonPropsBase, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonPropsBase,
+    LemonInput,
+    LemonSkeleton,
+    ProfilePicture,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { twMerge } from 'tailwind-merge'
@@ -32,8 +43,13 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
+import { ProductKey } from '~/types'
 
+import { ContextSummary } from './Context'
+import { MarkdownMessage } from './MarkdownMessage'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
@@ -43,15 +59,76 @@ import {
     isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { MAX_SLASH_COMMANDS } from './slash-commands'
 
-export function Thread(): JSX.Element | null {
-    const { threadGrouped } = useValues(maxLogic)
+export function Thread({ className }: { className?: string }): JSX.Element | null {
+    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
-        <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
-            {threadGrouped.map((group, index) => (
-                <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
-            ))}
+        <div
+            className={twMerge(
+                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow',
+                className
+            )}
+        >
+            {conversationLoading ? (
+                <>
+                    <MessageGroupSkeleton groupType="human" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-80" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-65" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-40" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-20" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-10" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-5" />
+                </>
+            ) : threadGrouped.length > 0 ? (
+                threadGrouped.map((group: ThreadMessage[], index: number) => (
+                    <MessageGroup
+                        // Reset the components when the thread changes
+                        key={`${conversationId}-${index}`}
+                        messages={group}
+                        isFinal={index === threadGrouped.length - 1}
+                    />
+                ))
+            ) : (
+                conversationId && (
+                    <div className="flex flex-1 items-center justify-center">
+                        <ProductIntroduction
+                            isEmpty
+                            productName="Max"
+                            productKey={ProductKey.MAX}
+                            thingName="message"
+                            titleOverride="Start chatting with Max"
+                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog's documentation."
+                            docsURL="https://posthog.com/docs/data/max-ai"
+                        />
+                    </div>
+                )
+            )}
+        </div>
+    )
+}
+
+function MessageGroupContainer({
+    groupType,
+    children,
+    className,
+}: {
+    groupType: 'human' | 'ai'
+    children: React.ReactNode
+    className?: string
+}): JSX.Element {
+    return (
+        <div
+            className={twMerge(
+                'relative flex gap-1.5',
+                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
+                className
+            )}
+        >
+            {children}
         </div>
     )
 }
@@ -59,21 +136,17 @@ export function Thread(): JSX.Element | null {
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
-    index: number
 }
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
+    const { tools } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
+    const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
 
     return (
-        <div
-            className={clsx(
-                'relative flex gap-2',
-                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'
-            )}
-        >
+        <MessageGroupContainer groupType={groupType}>
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
                     user={
@@ -87,21 +160,53 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
             </Tooltip>
             <div
                 className={clsx(
-                    'flex flex-col gap-2 min-w-0 w-full',
+                    'flex flex-col gap-1.5 min-w-0 w-full',
                     groupType === 'human' ? 'items-end' : 'items-start'
                 )}
             >
                 {messages.map((message, messageIndex) => {
                     const key = message.id || messageIndex
-
                     if (isHumanMessage(message)) {
+                        const maybeCommand = MAX_SLASH_COMMANDS.find(
+                            (cmd) => cmd.name === message.content.split(' ', 1)[0]
+                        )
+
                         return (
                             <MessageTemplate
                                 key={key}
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
-                                <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
+                                {message.ui_context && Object.keys(message.ui_context).length > 0 && (
+                                    <ContextSummary
+                                        insights={message.ui_context.insights}
+                                        dashboards={message.ui_context.dashboards}
+                                        events={message.ui_context.events}
+                                        actions={message.ui_context.actions}
+                                        useCurrentPageContext={false}
+                                    />
+                                )}
+                                {maybeCommand ? (
+                                    <div className="flex items-center">
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    This is a Max command:
+                                                    <br />
+                                                    <i>{maybeCommand.description}</i>
+                                                </>
+                                            }
+                                        >
+                                            <span className="text-base mr-1.5">{maybeCommand.icon}</span>
+                                        </Tooltip>
+                                        <span className="font-mono">{message.content}</span>
+                                    </div>
+                                ) : (
+                                    <MarkdownMessage
+                                        content={message.content || '*No text.*'}
+                                        id={message.id || 'no-text'}
+                                    />
+                                )}
                             </MessageTemplate>
                         )
                     } else if (
@@ -118,21 +223,31 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                             />
                         )
                     } else if (isVisualizationMessage(message)) {
-                        return <VisualizationAnswer key={messageIndex} message={message} status={message.status} />
+                        return (
+                            <VisualizationAnswer
+                                key={messageIndex}
+                                message={message}
+                                status={message.status}
+                                isEditingInsight={isEditingInsight}
+                            />
+                        )
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <span>{message.content}…</span>
-                                    <Spinner className="text-xl" />
+                                    <img
+                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                    />
+                                    <span className="font-medium">{message.content}…</span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
-                                    <LemonMarkdown
+                                    <MarkdownMessage
                                         key={substepIndex}
+                                        id={message.id || messageIndex.toString()}
                                         className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                    >
-                                        {substep}
-                                    </LemonMarkdown>
+                                        content={substep}
+                                    />
                                 ))}
                             </MessageTemplate>
                         )
@@ -148,7 +263,22 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     </MessageTemplate>
                 )}
             </div>
-        </div>
+        </MessageGroupContainer>
+    )
+}
+
+function MessageGroupSkeleton({
+    groupType,
+    className,
+}: {
+    groupType: 'human' | 'ai'
+    className?: string
+}): JSX.Element {
+    return (
+        <MessageGroupContainer className={clsx('items-center', className)} groupType={groupType}>
+            <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
+            <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
+        </MessageGroupContainer>
     )
 }
 
@@ -167,7 +297,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
     return (
         <div
             className={twMerge(
-                'flex flex-col gap-px w-full break-words',
+                'flex flex-col gap-px w-full break-words scroll-mt-12',
                 type === 'human' ? 'items-end' : 'items-start',
                 className
             )}
@@ -233,9 +363,10 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             ref={ref}
             action={action}
         >
-            <LemonMarkdown>
-                {message.content || '*Max has failed to generate an answer. Please try again.*'}
-            </LemonMarkdown>
+            <MarkdownMessage
+                content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                id={message.id || 'error'}
+            />
         </MessageTemplate>
     )
 })
@@ -245,9 +376,9 @@ interface AssistantMessageFormProps {
 }
 
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
-    const { askMax } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic)
     return (
-        <div className="flex flex-wrap gap-2 mt-1">
+        <div className="flex flex-wrap gap-1.5 mt-1">
             {form.options.map((option) => (
                 <LemonButton
                     key={option.value}
@@ -266,14 +397,27 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
     )
 }
 
-function VisualizationAnswer({
+const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
+    isEditingInsight,
 }: {
     message: VisualizationMessage
     status?: MessageStatus
+    isEditingInsight: boolean
 }): JSX.Element | null {
+    const { insight } = useValues(insightSceneLogic)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
+    const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
+    // Get insight props for the logic
+    const insightProps = { dashboardItemId: insight?.short_id }
+
+    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
+    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+
+    useEffect(() => {
+        setIsCollapsed(isEditingInsight)
+    }, [isEditingInsight])
 
     const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
         if (message.answer) {
@@ -291,28 +435,58 @@ function VisualizationAnswer({
         ? null
         : query && (
               <>
-                  <MessageTemplate type="ai" className="w-full" boxClassName="flex flex-col min-h-60 w-full">
-                      <Query query={query} readOnly embedded />
-                      <div className="flex items-center justify-between mt-2">
-                          <LemonButton
-                              sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                              onClick={() => setIsSummaryShown(!isSummaryShown)}
-                              size="xsmall"
-                              className="-m-1 shrink"
-                              tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                          >
-                              <h5 className="m-0 leading-none">
-                                  <TopHeading query={query} />
-                              </h5>
-                          </LemonButton>
-                          <LemonButton
-                              to={urls.insightNew({ query })}
-                              sideIcon={<IconOpenInNew />}
-                              size="xsmall"
-                              targetBlank
-                          >
-                              Open as new insight
-                          </LemonButton>
+                  <MessageTemplate
+                      type="ai"
+                      className="w-full"
+                      boxClassName={clsx('flex flex-col w-full', !isCollapsed && 'min-h-60')}
+                  >
+                      {!isCollapsed && <Query query={query} readOnly embedded />}
+                      <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
+                          <div className="flex items-center gap-1.5">
+                              <LemonButton
+                                  sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                                  onClick={() => setIsSummaryShown(!isSummaryShown)}
+                                  size="xsmall"
+                                  className="-m-1 shrink"
+                                  tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                              >
+                                  <h5 className="m-0 leading-none">
+                                      <TopHeading query={query} />
+                                  </h5>
+                              </LemonButton>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                              {isEditingInsight && suggestedQuery && (
+                                  <LemonButton
+                                      onClick={() => {
+                                          if (previousQuery) {
+                                              onRejectSuggestedInsight()
+                                          } else {
+                                              onReapplySuggestedInsight()
+                                          }
+                                      }}
+                                      sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
+                                      size="xsmall"
+                                      tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                                  />
+                              )}
+                              {!isEditingInsight && (
+                                  <LemonButton
+                                      to={urls.insightNew({ query })}
+                                      icon={<IconOpenInNew />}
+                                      size="xsmall"
+                                      targetBlank
+                                      tooltip="Open as new insight"
+                                  />
+                              )}
+                              <LemonButton
+                                  icon={isCollapsed ? <IconEye /> : <IconHide />}
+                                  onClick={() => setIsCollapsed(!isCollapsed)}
+                                  size="xsmall"
+                                  className="-m-1 shrink"
+                                  tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
+                              />
+                          </div>
                       </div>
                       {isSummaryShown && (
                           <>
@@ -328,10 +502,10 @@ function VisualizationAnswer({
                   </MessageTemplate>
               </>
           )
-}
+})
 
 function RetriableFailureActions(): JSX.Element {
-    const { retryLastMessage } = useActions(maxLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     return (
         <LemonButton
@@ -340,7 +514,7 @@ function RetriableFailureActions(): JSX.Element {
             size="xsmall"
             tooltip="Try again"
             onClick={() => retryLastMessage()}
-            className="ml-1 -mb-1"
+            className="ml-1"
         >
             Try again
         </LemonButton>
@@ -348,8 +522,10 @@ function RetriableFailureActions(): JSX.Element {
 }
 
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
-    const { traceId } = useValues(maxLogic)
-    const { retryLastMessage } = useActions(maxLogic)
+    const { traceId } = useValues(maxThreadLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
+    const { submitZendeskTicket } = useActions(supportLogic)
+    const { user } = useValues(userLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
@@ -367,16 +543,29 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     }
 
     function submitFeedback(): void {
-        if (!feedback || !traceId) {
+        if (!feedback || !traceId || !user) {
             return // Input is empty
         }
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
+        // Also create a support ticket for thumbs down feedback, for the support hero to see
+        submitZendeskTicket({
+            name: user.first_name,
+            email: user.email,
+            kind: 'feedback',
+            target_area: 'max-ai',
+            severity_level: 'medium',
+            message: [
+                feedback,
+                '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
+                `Trace: https://us.posthog.com/project/2/llm-observability/traces/${traceId}`,
+            ].join('\n'),
+        })
     }
 
     return (
         <>
-            <div className="flex items-center ml-1 -mb-1">
+            <div className="flex items-center ml-1">
                 {rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
@@ -404,6 +593,18 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => retryLastMessage()}
                     />
                 )}
+                {(user?.is_staff || location.hostname === 'localhost') && traceId && (
+                    <LemonButton
+                        to={`${
+                            location.hostname !== 'localhost' ? 'https://us.posthog.com/project/2' : ''
+                        }${urls.llmObservabilityTrace(traceId)}`}
+                        icon={<IconEye />}
+                        type="tertiary"
+                        size="xsmall"
+                        tooltip="View trace in LLM observability"
+                        targetBlank
+                    />
+                )}
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
@@ -417,11 +618,13 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                             icon={<IconX />}
                             type="tertiary"
                             size="xsmall"
-                            onClick={() => setFeedbackInputStatus('hidden')}
+                            onClick={() => {
+                                setFeedbackInputStatus('hidden')
+                            }}
                         />
                     </div>
                     {feedbackInputStatus === 'pending' && (
-                        <div className="flex w-full gap-2 items-center mt-1.5">
+                        <div className="flex w-full gap-1.5 items-center mt-1.5">
                             <LemonInput
                                 placeholder="Help us improve Max…"
                                 fullWidth

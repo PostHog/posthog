@@ -104,7 +104,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent
@@ -212,7 +213,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent
@@ -320,7 +322,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter
@@ -438,7 +441,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent
@@ -556,7 +560,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent
@@ -674,7 +679,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter
@@ -775,7 +781,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent
@@ -876,7 +883,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent
@@ -977,6 +985,7 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---

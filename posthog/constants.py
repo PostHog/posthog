@@ -16,7 +16,8 @@ class AvailableFeature(StrEnum):
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    ADVANCED_PERMISSIONS = "advanced_permissions"
+    ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
+    ACCESS_CONTROL = "access_control"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
@@ -40,6 +41,8 @@ class AvailableFeature(StrEnum):
     ALERTS = "alerts"
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
+    ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
+    ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -304,10 +307,15 @@ class FlagRequestType(StrEnum):
     REMOTE_CONFIG = "remote-config"
 
 
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
+
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
+MAX_AI_TASK_QUEUE = "max-ai-task-queue"
 DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
+DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 TEST_TASK_QUEUE = "test-task-queue"
@@ -315,3 +323,32 @@ TEST_TASK_QUEUE = "test-task-queue"
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+# Sync with frontend/src/scenes/surveys/constants.tsx
+DEFAULT_SURVEY_APPEARANCE = {
+    "fontFamily": "inherit",
+    "backgroundColor": "#eeeded",
+    "submitButtonColor": "black",
+    "submitButtonTextColor": "white",
+    "ratingButtonColor": "white",
+    "ratingButtonActiveColor": "black",
+    "borderColor": "#c9c6c6",
+    "placeholder": "Start typing...",
+    "whiteLabel": False,
+    "displayThankYouMessage": True,
+    "thankYouMessageHeader": "Thank you for your feedback!",
+    "position": "bottom-right",
+    "widgetType": "tab",
+    "widgetLabel": "Feedback",
+    "widgetColor": "black",
+    "zIndex": "2147482647",
+    "disabledButtonOpacity": "0.6",
+    "maxWidth": "300px",
+    "textSubtleColor": "#939393",
+    "inputBackground": "white",
+    "boxPadding": "20px 24px",
+    "boxShadow": "0 4px 12px rgba(0, 0, 0, 0.15)",
+    "borderRadius": "10px",
+    "shuffleQuestions": False,
+    "surveyPopupDelaySeconds": None,
+}

@@ -27,17 +27,20 @@ pub const ISSUE_FAILED: &str = "prop_defs_issue_failed";
 pub const CHUNK_SIZE: &str = "prop_defs_chunk_size";
 pub const DUPLICATES_IN_BATCH: &str = "prop_defs_duplicates_in_batch";
 pub const SINGLE_UPDATE_ISSUE_TIME: &str = "prop_defs_single_update_issue_time_ms";
+pub const CHANNEL_MESSAGES_IN_FLIGHT: &str = "prop_defs_channel_messages_in_flight";
+pub const CHANNEL_CAPACITY: &str = "prop_defs_channel_capacity";
+
+pub const ISOLATED_PROPDEFS_DB_SELECTED: &str = "isolated_propdefs_db_selected";
 
 //
-// property-defs-rs "v2" (mirror deploy) metric keys below
+// property-defs-rs "v2" batch write path metric keys below
 //
-
-pub const V2_ISOLATED_DB_SELECTED: &str = "propdefs_v2_isolated_db_selected";
 
 pub const V2_EVENT_DEFS_BATCH_WRITE_TIME: &str = "propdefs_v2_eventdefs_batch_ms";
 pub const V2_EVENT_DEFS_BATCH_ATTEMPT: &str = "propdefs_v2_eventdefs_batch_attempt";
 pub const V2_EVENT_DEFS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_eventdefs_batch_rows";
 pub const V2_EVENT_DEFS_BATCH_CACHE_TIME: &str = "propdefs_v2_eventdefs_batch_cache_time_ms";
+pub const V2_EVENT_DEFS_CACHE_REMOVED: &str = "propdefs_v2_eventdefs_cache_removed";
 pub const V2_EVENT_DEFS_CACHE_HIT: &str = "propdefs_v2_eventdefs_cache_hit";
 pub const V2_EVENT_DEFS_CACHE_MISS: &str = "propdefs_v2_eventdefs_cache_miss";
 pub const V2_EVENT_DEFS_BATCH_SIZE: &str = "propdefs_v2_eventdefs_batch_size";
@@ -46,14 +49,16 @@ pub const V2_EVENT_PROPS_BATCH_WRITE_TIME: &str = "propdefs_v2_eventprops_batch_
 pub const V2_EVENT_PROPS_BATCH_ATTEMPT: &str = "propdefs_v2_eventprops_batch_attempt";
 pub const V2_EVENT_PROPS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_eventprops_batch_rows";
 pub const V2_EVENT_PROPS_BATCH_CACHE_TIME: &str = "propdefs_v2_eventprops_batch_cache_time_ms";
+pub const V2_EVENT_PROPS_CACHE_REMOVED: &str = "propdefs_v2_eventprops_cache_removed";
 pub const V2_EVENT_PROPS_CACHE_HIT: &str = "propdefs_v2_eventprops_cache_hit";
 pub const V2_EVENT_PROPS_CACHE_MISS: &str = "propdefs_v2_eventprops_cache_miss";
-pub const V2_EVENT_PROPS_BATCH_SIZE: &str = "propdefs_v2_event_props_batch_size";
+pub const V2_EVENT_PROPS_BATCH_SIZE: &str = "propdefs_v2_eventprops_batch_size";
 
 pub const V2_PROP_DEFS_BATCH_WRITE_TIME: &str = "propdefs_v2_propdefs_batch_ms";
 pub const V2_PROP_DEFS_BATCH_ATTEMPT: &str = "propdefs_v2_propdefs_batch_attempt";
 pub const V2_PROP_DEFS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_propdefs_batch_rows";
 pub const V2_PROP_DEFS_BATCH_CACHE_TIME: &str = "propdefs_v2_propdefs_batch_cache_time_ms";
+pub const V2_PROP_DEFS_CACHE_REMOVED: &str = "propdefs_v2_propdefs_cache_removed";
 pub const V2_PROP_DEFS_CACHE_HIT: &str = "propdefs_v2_propdefs_cache_hit";
 pub const V2_PROP_DEFS_CACHE_MISS: &str = "propdefs_v2_propdefs_cache_miss";
 pub const V2_PROP_DEFS_BATCH_SIZE: &str = "propdefs_v2_propdefs_batch_size";

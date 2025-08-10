@@ -8,7 +8,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ErrorTrackingTile } from 'scenes/web-analytics/common'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
@@ -39,7 +39,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 }
 
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
-    const aggregations = (record as ErrorTrackingIssue).aggregations
+    const aggregations = (record as ErrorTrackingIssue).aggregations!
     const count = aggregations[columnName as 'occurrences' | 'users']
     return <span className="text-lg font-medium">{humanFriendlyLargeNumber(count)}</span>
 }

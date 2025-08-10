@@ -126,6 +126,7 @@ def log_playlist_activity(
 
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     recordings_counts = serializers.SerializerMethodField()
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = SessionRecordingPlaylist
@@ -143,6 +144,8 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "last_modified_at",
             "last_modified_by",
             "recordings_counts",
+            "type",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -153,6 +156,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "last_modified_at",
             "last_modified_by",
             "recordings_counts",
+            "type",
         ]
 
     created_by = UserBasicSerializer(read_only=True)
@@ -193,11 +197,24 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         created_by = validated_data.pop("created_by", request.user)
+        # because 'type' is in read_only_fields, it won't be in validated_data.
+        # Get it from initial_data to allow setting it on creation.
+        playlist_type = self.initial_data.get("type", None)
+        if not playlist_type or playlist_type not in ["collection", "filters"]:
+            raise ValidationError("Must provide a valid playlist type: either filters or collection")
+
+        if playlist_type == "collection" and len(validated_data.get("filters", {})) > 0:
+            raise ValidationError("You cannot create a collection with filters")
+
+        if playlist_type == "filters" and len(validated_data.get("filters", {})) == 0:
+            raise ValidationError("You must provide a valid filters when creating a saved filter")
+
         playlist = SessionRecordingPlaylist.objects.create(
             team=team,
             created_by=created_by,
             last_modified_by=request.user,
-            **validated_data,
+            type=playlist_type,  # Explicitly set the type using the value from initial_data
+            **validated_data,  # Pass remaining validated data (which won't include 'type')
         )
 
         log_playlist_activity(
@@ -222,6 +239,12 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         if validated_data.keys() & SessionRecordingPlaylist.MATERIAL_PLAYLIST_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
+
+        if instance.type == "collection" and len(validated_data.get("filters", {})) > 0:
+            # Allow empty filters object, only reject if it has actual filter keys
+            raise ValidationError("You cannot update a collection to add filters")
+        if instance.type == "filters" and len(validated_data.get("filters", {})) == 0:
+            raise ValidationError("You cannot remove all filters when updating a saved filter")
 
         updated_playlist = super().update(instance, validated_data)
         changes = changes_between("SessionRecordingPlaylist", previous=before_update, current=updated_playlist)
@@ -272,8 +295,14 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         filters = request.GET.dict()
 
         for key in filters:
+            request_value = filters[key]
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "type":
+                if request_value == SessionRecordingPlaylist.PlaylistType.COLLECTION:
+                    queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.COLLECTION)
+                elif request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
+                    queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
             elif key == "date_from":
@@ -303,10 +332,14 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             .values_list("recording_id", flat=True)
         )
 
-        # this is slightly misleading... we don't pass the filters here,
-        # so this only loads the pinned recordings metadata
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
+
+        if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
+            # For collections, override the date filter to get ALL recordings
+            query.date_from = None
+            query.date_to = None
+
         query.session_ids = playlist_items
 
         return list_recordings_response(
@@ -331,6 +364,9 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
+            if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
+                raise serializers.ValidationError("Cannot add recordings to a playlist that is type 'filters'.")
+
             recording, _ = SessionRecording.objects.get_or_create(
                 session_id=session_recording_id,
                 team=self.team,
@@ -350,7 +386,110 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
             return response.Response({"success": True})
 
-        raise NotImplementedError()
+        raise ValidationError("Only POST and DELETE methods are supported")
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="recordings/bulk_add",
+    )
+    def bulk_add_recordings(
+        self,
+        request: request.Request,
+        *args: Any,
+        **kwargs: Any,
+    ) -> response.Response:
+        playlist = self.get_object()
+
+        # Get session_recording_ids from request body
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > 20:
+            raise ValidationError("Cannot process more than 20 recordings at once")
+
+        if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
+            raise ValidationError("Cannot add recordings to a playlist that is type 'filters'.")
+
+        added_count = 0
+        for session_recording_id in session_recording_ids:
+            try:
+                recording, _ = SessionRecording.objects.get_or_create(
+                    session_id=session_recording_id,
+                    team=self.team,
+                    defaults={"deleted": False},
+                )
+                playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
+                    playlist=playlist, recording=recording
+                )
+                if created:
+                    added_count += 1
+            except Exception as e:
+                logger.warning(
+                    "failed_to_add_recording_to_playlist",
+                    session_recording_id=session_recording_id,
+                    playlist_id=playlist.short_id,
+                    error=str(e),
+                )
+
+        logger.info(
+            "bulk_recordings_added_to_playlist",
+            playlist_id=playlist.short_id,
+            added_count=added_count,
+            total_requested=len(session_recording_ids),
+        )
+
+        return response.Response(
+            {"success": True, "added_count": added_count, "total_requested": len(session_recording_ids)}
+        )
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="recordings/bulk_delete",
+    )
+    def bulk_delete_recordings(
+        self,
+        request: request.Request,
+        *args: Any,
+        **kwargs: Any,
+    ) -> response.Response:
+        playlist = self.get_object()
+
+        # Get session_recording_ids from request body
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > 20:
+            raise ValidationError("Cannot process more than 20 recordings at once")
+
+        deleted_count = 0
+        for session_recording_id in session_recording_ids:
+            try:
+                playlist_item = SessionRecordingPlaylistItem.objects.get(
+                    playlist=playlist, recording=session_recording_id
+                )
+                playlist_item.delete()
+                deleted_count += 1
+            except SessionRecordingPlaylistItem.DoesNotExist:
+                pass  # Already deleted or never existed
+
+        logger.info(
+            "bulk_recordings_deleted_from_playlist",
+            playlist_id=playlist.short_id,
+            deleted_count=deleted_count,
+            total_requested=len(session_recording_ids),
+        )
+
+        return response.Response(
+            {"success": True, "deleted_count": deleted_count, "total_requested": len(session_recording_ids)}
+        )
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -359,8 +498,6 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         user = request.user
         team = self.team
 
-        if not playlist.filters:
-            raise ValidationError("Playlist filters are required to mark a playlist as viewed.")
         if user.is_anonymous:
             raise ValidationError("Only authenticated users can mark a playlist as viewed.")
 

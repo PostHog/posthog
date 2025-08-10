@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -20,9 +20,11 @@ import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { supportLogic } from '../Support/supportLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 interface NotFoundProps {
-    object: string // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
+    // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
+    object: string
     caption?: React.ReactNode
     meta?: {
         urlId?: string
@@ -37,12 +39,12 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
 
     const appContext = getAppContext()
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         posthog.capture('not_found_shown', { object })
-    }, [])
+    })
 
     return (
-        <div className="NotFoundComponent">
+        <div className="NotFoundComponent" data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}>
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}
             <h1 className="text-3xl font-bold mt-4 mb-0">
                 {appContext?.suggested_users_with_access

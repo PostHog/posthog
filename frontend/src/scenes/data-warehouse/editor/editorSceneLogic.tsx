@@ -1,10 +1,12 @@
 import { IconDatabase, IconDocument } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
@@ -17,7 +19,12 @@ import { urls } from 'scenes/urls'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
-import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import {
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaTable,
+} from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, PipelineStage, ProductKey } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -27,19 +34,40 @@ import type { editorSceneLogicType } from './editorSceneLogicType'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { queryDatabaseLogic } from './sidebar/queryDatabaseLogic'
 
-const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable>([], {
+const FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
     keys: [{ name: 'name', weight: 2 }],
     threshold: 0.3,
     ignoreLocation: true,
     includeMatches: true,
-})
+}
 
-const savedQueriesfuse = new Fuse<DataWarehouseSavedQuery>([], {
-    keys: [{ name: 'name', weight: 2 }],
-    threshold: 0.3,
-    ignoreLocation: true,
-    includeMatches: true,
-})
+const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable>([], FUSE_OPTIONS)
+const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
+const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
+
+const checkIsSavedQuery = (
+    view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable
+): view is DataWarehouseSavedQuery => 'last_run_at' in view
+const checkIsManagedView = (
+    view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable
+): view is DatabaseSchemaManagedViewTable => 'type' in view && view.type === 'managed_view'
+
+export const renderTableCount = (count: undefined | number): null | JSX.Element => {
+    if (!count) {
+        return null
+    }
+
+    return (
+        <span className="text-xs mr-1 italic text-[color:var(--color-text-secondary-3000)]">
+            {`(${new Intl.NumberFormat('en', {
+                notation: 'compact',
+                compactDisplay: 'short',
+            })
+                .format(count)
+                .toLowerCase()})`}
+        </span>
+    )
+}
 
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
@@ -50,7 +78,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'initialDataWarehouseSavedQueryLoading'],
             databaseTableListLogic,
-            ['posthogTables', 'dataWarehouseTables', 'allTables', 'databaseLoading', 'views', 'viewsMapById'],
+            [
+                'posthogTables',
+                'dataWarehouseTables',
+                'allTables',
+                'databaseLoading',
+                'views',
+                'viewsMapById',
+                'managedViews',
+            ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             queryDatabaseLogic,
@@ -64,18 +102,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     })),
     actions({
-        setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
         reportAIQueryPrompted: true,
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
         reportAIQueryPromptOpen: true,
+        setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
     }),
     reducers({
-        sidebarOverlayOpen: [
+        wasPanelActive: [
             false,
             {
-                setSidebarOverlayOpen: (_, { isOpen }) => isOpen,
-                selectSchema: (_, { schema }) => schema !== null,
+                setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
             },
         ],
     }),
@@ -96,7 +133,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     selectors(({ actions }) => ({
         contents: [
             (s) => [
-                s.relevantSavedQueries,
+                s.relevantViews,
                 s.initialDataWarehouseSavedQueryLoading,
                 s.relevantDataWarehouseTables,
                 s.dataWarehouseTablesBySourceType,
@@ -104,7 +141,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 navigation3000Logic.selectors.searchTerm,
             ],
             (
-                relevantSavedQueries,
+                relevantViews,
                 initialDataWarehouseSavedQueryLoading,
                 relevantDataWarehouseTables,
                 dataWarehouseTablesBySourceType,
@@ -121,6 +158,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                   key: table.id,
                                   icon: <IconDatabase />,
                                   name: table.name,
+                                  endElement: renderTableCount(table.row_count),
                                   url: '',
                                   searchMatch: matches
                                       ? {
@@ -129,9 +167,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                         }
                                       : null,
                                   onClick: () => {
-                                      actions.selectSchema(table)
+                                      multitabEditorLogic({
+                                          key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                      }).actions.createTab(`SELECT * FROM ${table.name}`)
                                   },
                                   menuItems: [
+                                      {
+                                          label: 'Open schema',
+                                          onClick: () => {
+                                              actions.selectSchema(table)
+                                          },
+                                      },
                                       {
                                           label: 'Add join',
                                           onClick: () => {
@@ -156,7 +202,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         return items.length < 2 && !databaseLoading && !searchTerm?.length
                     },
                     emptyComponent: (
-                        <div className="p-4 text-center flex flex-col justify-center items-center border-t">
+                        <div
+                            data-attr="sql-editor-source-empty-state"
+                            className="p-4 text-center flex flex-col justify-center items-center border-t"
+                        >
                             <div className="mb-4 flex justify-center gap-6">
                                 <DataWarehouseSourceIcon type="Postgres" size="small" />
                                 <DataWarehouseSourceIcon type="Stripe" size="small" />
@@ -189,59 +238,96 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     key: 'data-warehouse-views',
                     noun: ['view', 'views'],
                     loading: initialDataWarehouseSavedQueryLoading,
-                    items: relevantSavedQueries.map(([savedQuery, matches]) => ({
-                        key: savedQuery.id,
-                        name: savedQuery.name,
-                        url: '',
-                        icon: savedQuery.last_run_at ? (
-                            <Tooltip title="Materialized view">
-                                <IconDatabase />
-                            </Tooltip>
-                        ) : (
-                            <Tooltip title="View">
-                                <IconDocument />
-                            </Tooltip>
-                        ),
-                        searchMatch: matches
-                            ? {
-                                  matchingFields: matches.map((match) => match.key),
-                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                              }
-                            : null,
-                        onClick: () => {
-                            actions.selectSchema(savedQuery)
-                        },
-                        menuItems: [
-                            {
-                                label: 'Edit view definition',
-                                onClick: () => {
-                                    multitabEditorLogic({
+                    items: relevantViews.map(([view, matches]) => {
+                        const isSavedQuery = checkIsSavedQuery(view)
+                        const isManagedView = checkIsManagedView(view)
+
+                        const onClick = (): void => {
+                            isManagedView
+                                ? multitabEditorLogic({
+                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                  }).actions.createTab(`SELECT * FROM ${view.name}`)
+                                : isSavedQuery
+                                  ? multitabEditorLogic({
                                         key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                    }).actions.editView(savedQuery.query.query, savedQuery)
+                                    }).actions.editView(view.query.query, view)
+                                  : null
+                        }
+
+                        const savedViewMenuItems = isSavedQuery
+                            ? [
+                                  {
+                                      label: 'Edit view definition',
+                                      onClick: () => {
+                                          multitabEditorLogic({
+                                              key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                          }).actions.editView(view.query.query, view)
+                                      },
+                                  },
+                                  {
+                                      label: 'Delete',
+                                      status: 'danger',
+                                      onClick: () => {
+                                          LemonDialog.open({
+                                              title: 'Delete view',
+                                              description:
+                                                  'Are you sure you want to delete this view? The query will be lost.',
+                                              primaryButton: {
+                                                  status: 'danger',
+                                                  children: 'Delete',
+                                                  onClick: () => actions.deleteDataWarehouseSavedQuery(view.id),
+                                              },
+                                          })
+                                      },
+                                  },
+                              ]
+                            : []
+
+                        return {
+                            key: view.id,
+                            name: view.name,
+                            url: '',
+                            icon:
+                                isSavedQuery && view.last_run_at ? (
+                                    <Tooltip title="Materialized view">
+                                        <IconDatabase />
+                                    </Tooltip>
+                                ) : (
+                                    <Tooltip title="View">
+                                        <IconDocument />
+                                    </Tooltip>
+                                ),
+                            searchMatch: matches
+                                ? {
+                                      matchingFields: matches.map((match) => match.key),
+                                      nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                  }
+                                : null,
+                            onClick,
+                            menuItems: [
+                                {
+                                    label: 'Open schema',
+                                    onClick: () => {
+                                        actions.selectSchema(view)
+                                    },
                                 },
-                            },
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    actions.selectSourceTable(savedQuery.name)
-                                    actions.toggleJoinTableModal()
+                                {
+                                    label: 'Add join',
+                                    onClick: () => {
+                                        actions.selectSourceTable(view.name)
+                                        actions.toggleJoinTableModal()
+                                    },
                                 },
-                            },
-                            {
-                                label: 'Delete',
-                                status: 'danger',
-                                onClick: () => {
-                                    actions.deleteDataWarehouseSavedQuery(savedQuery.id)
+                                ...savedViewMenuItems,
+                                {
+                                    label: 'Copy view name',
+                                    onClick: () => {
+                                        void copyToClipboard(view.name)
+                                    },
                                 },
-                            },
-                            {
-                                label: 'Copy view name',
-                                onClick: () => {
-                                    void copyToClipboard(savedQuery.name)
-                                },
-                            },
-                        ],
-                    })),
+                            ],
+                        }
+                    }),
                 } as SidebarCategory,
             ],
         ],
@@ -294,17 +380,26 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     key: 'data-warehouse-tables',
                     noun: ['PostHog', 'PostHog'],
                     loading: databaseLoading,
-                    icon: <DataWarehouseSourceIcon type="PostHog" sizePx={18} disableTooltip />,
+                    icon: <DataWarehouseSourceIcon type="PostHog" size="xsmall" disableTooltip />,
                     items: posthogTables.map((table) => ({
                         key: table.id,
                         name: table.name,
+                        endElement: renderTableCount(table.row_count),
                         url: '',
                         icon: <IconDatabase />,
                         searchMatch: null,
                         onClick: () => {
-                            actions.selectSchema(table)
+                            multitabEditorLogic({
+                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                            }).actions.createTab(`SELECT * FROM ${table.name}`)
                         },
                         menuItems: [
+                            {
+                                label: 'Open schema',
+                                onClick: () => {
+                                    actions.selectSchema(table)
+                                },
+                            },
                             {
                                 label: 'Add join',
                                 onClick: () => {
@@ -339,13 +434,22 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     items: tables.map((table) => ({
                         key: table.id,
                         name: table.name,
+                        endElement: renderTableCount(table.row_count),
                         url: '',
                         icon: <IconDatabase />,
                         searchMatch: null,
                         onClick: () => {
-                            actions.selectSchema(table)
+                            multitabEditorLogic({
+                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                            }).actions.createTab(`SELECT * FROM ${table.name}`)
                         },
                         menuItems: [
+                            {
+                                label: 'Open schema',
+                                onClick: () => {
+                                    actions.selectSchema(table)
+                                },
+                            },
                             {
                                 label: 'Add join',
                                 onClick: () => {
@@ -377,17 +481,44 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 return []
             },
         ],
-        relevantSavedQueries: [
-            (s) => [s.dataWarehouseSavedQueries, navigation3000Logic.selectors.searchTerm],
-            (dataWarehouseSavedQueries, searchTerm): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
+        relevantViews: [
+            (s) => [s.dataWarehouseSavedQueries, s.managedViews, navigation3000Logic.selectors.searchTerm],
+            (
+                dataWarehouseSavedQueries,
+                managedViews,
+                searchTerm
+            ): [DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return savedQueriesfuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                    return [savedQueriesFuse, managedViewsFuse].flatMap((fuse) =>
+                        fuse
+                            .search(searchTerm)
+                            .map(
+                                (result) =>
+                                    [result.item, result.matches] as [
+                                        DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
+                                        FuseSearchMatch[],
+                                    ]
+                            )
+                    )
                 }
-                return dataWarehouseSavedQueries.map((savedQuery) => [savedQuery, null])
+
+                return [...dataWarehouseSavedQueries, ...managedViews].map((item) => [item, null])
             },
         ],
+    })),
+    urlToAction(() => ({
+        [urls.sqlEditor()]: () => {
+            panelLayoutLogic.actions.showLayoutPanel(true)
+            panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+            panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+        },
+        '*': () => {
+            if (router.values.location.pathname !== urls.sqlEditor()) {
+                panelLayoutLogic.actions.clearActivePanelIdentifier()
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
+                panelLayoutLogic.actions.showLayoutPanel(false)
+            }
+        },
     })),
     subscriptions({
         allTables: (allTables: DatabaseSchemaTable[]) => {
@@ -395,7 +526,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             dataWarehouseTablesfuse.setCollection(tables)
         },
         dataWarehouseSavedQueries: (dataWarehouseSavedQueries) => {
-            savedQueriesfuse.setCollection(dataWarehouseSavedQueries)
+            savedQueriesFuse.setCollection(dataWarehouseSavedQueries)
+        },
+        managedViews: (managedViews) => {
+            managedViewsFuse.setCollection(managedViews)
         },
     }),
 ])

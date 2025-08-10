@@ -10,6 +10,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     context::AppContext,
     emit::Emitter,
+    error::get_user_message,
     parse::{format::ParserFn, Parsed},
     source::DataSource,
     spawn_liveness_loop,
@@ -48,11 +49,17 @@ struct Checkpoint {
 
 impl Job {
     pub async fn new(mut model: JobModel, context: Arc<AppContext>) -> Result<Self, Error> {
+        let is_restarting = model.state.is_some();
+
         let source = model
             .import_config
             .source
-            .construct(&model.secrets, context.clone())
-            .await?;
+            .construct(&model.secrets, context.clone(), is_restarting)
+            .await
+            .with_context(|| "Failed to construct data source for job".to_string())?;
+
+        // Some sources need to prepare for the job before we can start processing it
+        source.prepare_for_job().await?;
 
         let transform = Box::new(
             model
@@ -66,7 +73,8 @@ impl Job {
             .import_config
             .sink
             .construct(context.clone(), &model)
-            .await?;
+            .await
+            .with_context(|| format!("Failed to construct sink for job {}", model.id))?;
 
         let mut state = model
             .state
@@ -79,10 +87,16 @@ impl Job {
             // If we have no parts, we assume this is the first time picking up the job,
             // and populate the parts list
             let mut parts = Vec::new();
-            let keys = source.keys().await?;
+            let keys = source
+                .keys()
+                .await
+                .with_context(|| "Failed to get source keys".to_string())?;
             for key in keys {
-                let size = source.size(&key).await?;
-                debug!("Got size for part {}: {}", key, size);
+                let size = source
+                    .size(&key)
+                    .await
+                    .with_context(|| format!("Failed to get size for part {}", key))?;
+                debug!("Got size for part {}: {:?}", key, size);
                 parts.push(PartState {
                     key,
                     current_offset: 0,
@@ -122,20 +136,46 @@ impl Job {
             Ok(Some(chunk)) => chunk,
             Ok(None) => {
                 // We're done fetching and parsing, so we can complete the job
+                if let Err(e) = self.source.cleanup_after_job().await {
+                    warn!("Failed to cleanup after job: {:?}", e);
+                }
                 self.successfully_complete().await?;
                 return Ok(None);
             }
             Err(e) => {
+                if let Err(e) = self.source.cleanup_after_job().await {
+                    warn!("Failed to cleanup after job: {:?}", e);
+                }
+                let user_facing_error_message = get_user_message(&e);
                 // If we fail to fetch and parse, we need to pause the job (assuming manual intervention is required) and
                 // return an Ok(None) - this pod can continue to process other jobs, it just can't work on this one
-                error!("Failed to fetch and parse chunk: {:?}", e);
-                self.model
-                    .lock()
-                    .await
-                    .pause(
-                        self.context.clone(),
-                        format!("Failed to fetch and parse chunk: {:?}", e),
+
+                let current_date_range = {
+                    let state = self.state.lock().await;
+                    state
+                        .parts
+                        .iter()
+                        .find(|p| !p.is_done())
+                        .and_then(|p| self.source.get_date_range_for_key(&p.key))
+                };
+
+                let mut model = self.model.lock().await;
+                let error_message = if let Some(date_range) = &current_date_range {
+                    format!(
+                        "Failed to fetch and parse chunk for date range {}: {:?}",
+                        date_range, e
                     )
+                } else {
+                    format!("Failed to fetch and parse chunk: {:?}", e)
+                };
+                let display_message = if let Some(date_range) = &current_date_range {
+                    format!("{} (Date range: {})", user_facing_error_message, date_range)
+                } else {
+                    user_facing_error_message.to_string()
+                };
+                error!(job_id = %model.id, error = ?e, "Pausing job due to error: {}", error_message);
+                model
+                    .pause(self.context.clone(), error_message, Some(display_message))
                     .await?;
                 return Ok(None);
             }
@@ -163,6 +203,42 @@ impl Job {
             return Ok(None); // We're done fetching
         };
 
+        let key = next_part.key.clone();
+        self.source.prepare_key(&key).await?;
+
+        if next_part.total_size.is_none() {
+            if let Some(actual_size) = self.source.size(&key).await? {
+                next_part.total_size = Some(actual_size);
+                info!("Updated total size for key {}: {}", key, actual_size);
+
+                {
+                    let mut model = self.model.lock().await;
+                    if let Some(model_state) = &mut model.state {
+                        if let Some(model_part) =
+                            model_state.parts.iter_mut().find(|p| p.key == key)
+                        {
+                            model_part.total_size = Some(actual_size);
+                        }
+                    }
+                }
+
+                if actual_size == 0 {
+                    info!(
+                        "No data available for this key: {} try to get the next chunk",
+                        key
+                    );
+                    next_part.current_offset = actual_size;
+                    return Ok(Some((
+                        next_part.key.clone(),
+                        Parsed {
+                            consumed: 0,
+                            data: vec![],
+                        },
+                    )));
+                }
+            }
+        }
+
         info!("Fetching part chunk {:?}", next_part);
 
         let next_chunk = self
@@ -170,12 +246,15 @@ impl Job {
             .get_chunk(
                 &next_part.key,
                 next_part.current_offset,
-                self.context.config.chunk_size,
+                self.context.config.chunk_size as u64,
             )
             .await
             .context(format!("Fetching part chunk {:?}", next_part))?;
 
-        let is_last_chunk = next_part.current_offset + next_chunk.len() > next_part.total_size;
+        let is_last_chunk = match next_part.total_size {
+            Some(total_size) => next_part.current_offset + next_chunk.len() as u64 > total_size,
+            None => false,
+        };
 
         let chunk_bytes = next_chunk.len();
 
@@ -201,7 +280,7 @@ impl Job {
         }
 
         // Update the in-memory part state (the read will be committed to the DB once the write is done)
-        next_part.current_offset += parsed.consumed;
+        next_part.current_offset += parsed.consumed as u64;
 
         Ok(Some((next_part.key.clone(), parsed)))
     }
@@ -253,7 +332,11 @@ impl Job {
 
     async fn successfully_complete(self) -> Result<(), Error> {
         let mut model = self.model.lock().await;
-        model.complete(&self.context.db).await
+        let result = model.complete(&self.context.db).await;
+        if result.is_ok() {
+            info!(job_id = %model.id, "Batch import job complete");
+        }
+        result
     }
 
     // Writes the new partstate to the DB, and sets the job status to paused, such that if there's an issue with the sink commit, the job
@@ -269,14 +352,20 @@ impl Job {
             return Err(Error::msg(format!("No part found with key {}", key)));
         };
 
-        part.current_offset += consumed;
+        part.current_offset += consumed as u64;
 
         let status_message = format!(
             "Starting commit of part {} to offset {}, consumed {} additional bytes",
             key, part.current_offset, consumed
         );
 
-        model.pause(self.context.clone(), status_message).await
+        model
+            .pause(
+                self.context.clone(),
+                status_message,
+                Some("Job paused while committing events".to_string()),
+            )
+            .await
     }
 
     // Unpauses the job
@@ -295,5 +384,130 @@ impl Job {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+
+    struct MockDataSource {
+        keys: Vec<String>,
+        date_ranges: HashMap<String, String>,
+    }
+
+    impl MockDataSource {
+        fn new() -> Self {
+            let mut date_ranges = HashMap::new();
+            date_ranges.insert(
+                "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00".to_string(),
+                "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC".to_string(),
+            );
+            date_ranges.insert(
+                "2023-01-01T01:00:00+00:00_2023-01-01T02:00:00+00:00".to_string(),
+                "2023-01-01 01:00 UTC to 2023-01-01 02:00 UTC".to_string(),
+            );
+
+            Self {
+                keys: vec![
+                    "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00".to_string(),
+                    "2023-01-01T01:00:00+00:00_2023-01-01T02:00:00+00:00".to_string(),
+                ],
+                date_ranges,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl DataSource for MockDataSource {
+        async fn keys(&self) -> Result<Vec<String>, Error> {
+            Ok(self.keys.clone())
+        }
+
+        async fn size(&self, _key: &str) -> Result<Option<u64>, Error> {
+            Ok(Some(100))
+        }
+
+        async fn get_chunk(&self, _key: &str, _offset: u64, _size: u64) -> Result<Vec<u8>, Error> {
+            Err(Error::msg("Mock error for testing"))
+        }
+
+        fn get_date_range_for_key(&self, key: &str) -> Option<String> {
+            self.date_ranges.get(key).cloned()
+        }
+    }
+
+    struct MockDataSourceWithoutDateRange {
+        keys: Vec<String>,
+    }
+
+    impl MockDataSourceWithoutDateRange {
+        fn new() -> Self {
+            Self {
+                keys: vec!["some-key".to_string()],
+            }
+        }
+    }
+
+    #[async_trait]
+    impl DataSource for MockDataSourceWithoutDateRange {
+        async fn keys(&self) -> Result<Vec<String>, Error> {
+            Ok(self.keys.clone())
+        }
+
+        async fn size(&self, _key: &str) -> Result<Option<u64>, Error> {
+            Ok(Some(100))
+        }
+
+        async fn get_chunk(&self, _key: &str, _offset: u64, _size: u64) -> Result<Vec<u8>, Error> {
+            Err(Error::msg("Mock error for testing"))
+        }
+    }
+
+    #[test]
+    fn test_error_message_includes_date_range_when_available() {
+        let mock_source = MockDataSource::new();
+        let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
+
+        let date_range = mock_source.get_date_range_for_key(key);
+        assert_eq!(
+            date_range,
+            Some("2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC".to_string())
+        );
+
+        let error_message = format!(
+            "Failed to fetch and parse chunk for date range {}: Mock error",
+            date_range.unwrap()
+        );
+        assert_eq!(
+            error_message,
+            "Failed to fetch and parse chunk for date range 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC: Mock error"
+        );
+    }
+
+    #[test]
+    fn test_error_message_without_date_range() {
+        let mock_source = MockDataSourceWithoutDateRange::new();
+        let key = "some-key";
+
+        let date_range = mock_source.get_date_range_for_key(key);
+        assert!(date_range.is_none());
+
+        let error_message = "Failed to fetch and parse chunk: Mock error";
+        assert_eq!(error_message, "Failed to fetch and parse chunk: Mock error");
+    }
+
+    #[test]
+    fn test_display_message_includes_date_range() {
+        let user_message = "Connection failed";
+        let date_range = "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC";
+
+        let display_message = format!("{} (Date range: {})", user_message, date_range);
+        assert_eq!(
+            display_message,
+            "Connection failed (Date range: 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC)"
+        );
     }
 }

@@ -6,15 +6,12 @@ from unittest.mock import ANY, MagicMock, call, patch
 
 from django.core.cache import cache
 from django.http import HttpResponse
-from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.cloud_utils import get_api_host
-from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
@@ -347,7 +344,7 @@ def team_api_test_factory():
             assert deleted_team_activity_response.status_code == status.HTTP_404_NOT_FOUND
 
             # we can't query by API but can prove the log was recorded
-            activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).all()]
+            activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).order_by("scope").all()]
             expected_activity = [
                 {
                     "_state": ANY,
@@ -427,18 +424,23 @@ def team_api_test_factory():
             )
             expected_capture_calls = [
                 call(
-                    self.user.distinct_id,
-                    "membership level changed",
+                    distinct_id=self.user.distinct_id,
+                    event="membership level changed",
                     properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
                     groups=mock.ANY,
                 ),
-                call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),
+                call(
+                    distinct_id=self.user.distinct_id,
+                    event="team deleted",
+                    properties={},
+                    groups=mock.ANY,
+                ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
                 expected_capture_calls.append(
                     call(
-                        self.user.distinct_id,
-                        "project deleted",
+                        distinct_id=self.user.distinct_id,
+                        event="project deleted",
                         properties={"project_name": "Default project"},
                         groups=mock.ANY,
                     )
@@ -572,8 +574,8 @@ def team_api_test_factory():
                             "changes": [
                                 {
                                     "action": "changed",
-                                    "after": None,
-                                    "before": None,
+                                    "after": self.team.api_token,
+                                    "before": "xyz",
                                     "field": "api_token",
                                     "type": "Team",
                                 },
@@ -593,12 +595,262 @@ def team_api_test_factory():
                 ]
             )
 
-        def test_reset_token_insufficient_priviledges(self):
+        def test_reset_token_insufficient_privileges(self):
             self.team.api_token = "xyz"
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/reset_token/")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        @freeze_time("2022-02-08")
+        def test_generate_secret_token(self):
+            from posthog.models.utils import mask_key_value
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self._assert_activity_log_is_empty()
+
+            # Ensure there is no secret API token
+            self.team.secret_api_token = None
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            response_data = response.json()
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            new_secret_api_token = self.team.secret_api_token or ""
+            self.assertTrue(new_secret_api_token.startswith("phs_"))
+            self.assertEqual(response_data["secret_api_token"], new_secret_api_token)
+            self.assertIsNone(self.team.secret_api_token_backup)
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "created",
+                                    "after": {
+                                        "secret_api_token": mask_key_value(new_secret_api_token),
+                                    },
+                                    "before": {"secret_api_token": None},
+                                    "field": "secret_api_token",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
+        @freeze_time("2022-02-08")
+        def test_rotate_secret_token(self):
+            from posthog.models.utils import mask_key_value
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self._assert_activity_log_is_empty()
+
+            # Set the secret API token
+            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token = secret_api_token
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            response_data = response.json()
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
+            self.assertNotEqual(response_data["secret_api_token"], self.team.secret_api_token_backup)
+            self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
+            self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
+            # Backup token should now be the old secret API token
+            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "changed",
+                                    "after": {
+                                        "secret_api_token": mask_key_value(self.team.secret_api_token),
+                                        "secret_api_token_backup": "phs_...F11C",
+                                    },
+                                    "before": {
+                                        "secret_api_token": "phs_...F11C",
+                                        "secret_api_token_backup": None,
+                                    },
+                                    "field": "secret_api_token",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
+        @freeze_time("2022-02-08")
+        def test_rotate_secret_token_overwrites_backup_token(self):
+            from posthog.models.utils import mask_key_value
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self._assert_activity_log_is_empty()
+
+            # Set the secret API token
+            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token = secret_api_token
+            self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            response_data = response.json()
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
+            self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
+            self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
+            # Backup token should now be the old secret API token
+            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "changed",
+                                    "after": {
+                                        "secret_api_token": mask_key_value(self.team.secret_api_token),
+                                        "secret_api_token_backup": "phs_...F11C",
+                                    },
+                                    "before": {
+                                        "secret_api_token": "phs_...F11C",
+                                        "secret_api_token_backup": "phs_...6789",
+                                    },
+                                    "field": "secret_api_token",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
+        @freeze_time("2022-02-08")
+        def test_delete_secret_backup_token(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self._assert_activity_log_is_empty()
+
+            # Set the secret API token
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
+            response_data = response.json()
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response_data["secret_api_token"], "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+            self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertIsNone(self.team.secret_api_token_backup)
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "deleted",
+                                    "after": None,
+                                    "before": "phs_...6789",
+                                    "field": "secret_api_token_backup",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
+        def test_rotate_secret_token_insufficient_privileges(self):
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            # Make sure it's unchanged
+            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+            self.assertIsNone(self.team.secret_api_token_backup)
+
+        def test_delete_secret_token_backup_insufficient_privileges(self):
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            # Make sure it's unchanged
+            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+            self.assertEqual(self.team.secret_api_token_backup, "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
         def test_update_primary_dashboard(self):
             d = Dashboard.objects.create(name="Test", team=self.team)
@@ -807,10 +1059,10 @@ def team_api_test_factory():
                     "Ensure this value is greater than or equal to 0.",
                 ],
                 [
-                    "greater than 15000",
-                    "15001",
+                    "greater than 30000",
+                    "30001",
                     "max_value",
-                    "Ensure this value is less than or equal to 15000.",
+                    "Ensure this value is less than or equal to 30000.",
                 ],
                 ["too many digits", "0.5", "invalid_input", "A valid integer is required."],
             ]
@@ -1107,6 +1359,7 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_201_CREATED
             product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            assert product_intent.onboarding_completed_at is None
             mock_report_user_action.assert_called_once_with(
                 self.user,
                 "user showed product intent",
@@ -1114,8 +1367,8 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
+                    "$set_once": {},
                     "intent_context": "onboarding product selected",
-                    "$set_once": {"first_onboarding_product_selected": "product_analytics"},
                     "is_first_intent_for_product": True,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
@@ -1151,6 +1404,7 @@ def team_api_test_factory():
                 product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
                 assert product_intent.updated_at == datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC)
                 assert product_intent.created_at == original_created_at
+                assert product_intent.onboarding_completed_at is None
                 mock_check_and_update_activation.assert_called_once()
                 mock_report_user_action.assert_called_once_with(
                     self.user,
@@ -1159,8 +1413,8 @@ def team_api_test_factory():
                         "product_key": "product_analytics",
                         "$current_url": "https://posthogtest.com/my-url",
                         "$session_id": "test_session_id",
+                        "$set_once": {},
                         "intent_context": "unknown",
-                        "$set_once": {"first_onboarding_product_selected": "product_analytics"},
                         "is_first_intent_for_product": False,
                         "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                         "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
@@ -1168,27 +1422,6 @@ def team_api_test_factory():
                     },
                     team=self.team,
                 )
-
-        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
-        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
-        @patch("posthog.event_usage.report_user_action")
-        @freeze_time("2024-01-05T00:00:00Z")
-        def test_doesnt_send_event_for_already_activated_intent(
-            self,
-            mock_report_user_action: MagicMock,
-            mock_check_and_update_activation: MagicMock,
-        ) -> None:
-            ProductIntent.objects.create(
-                team=self.team, product_type="product_analytics", activated_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
-            )
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/add_product_intent/",
-                {"product_type": "product_analytics"},
-                headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
-            )
-            assert response.status_code == status.HTTP_201_CREATED
-            mock_check_and_update_activation.assert_not_called()
-            mock_report_user_action.assert_not_called()
 
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
@@ -1217,7 +1450,7 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
-                    "intent_context": None,
+                    "intent_context": "unknown",
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
@@ -1264,7 +1497,7 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
-                    "intent_context": None,
+                    "intent_context": "unknown",
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
@@ -1366,81 +1599,6 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
-        @override_settings(
-            CACHES={
-                "default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                },
-            }
-        )
-        def test_authenticate_wizard_requires_hash(self):
-            response = self.client.post(f"/api/environments/{self.team.id}/authenticate_wizard", data={}, format="json")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        @override_settings(
-            CACHES={
-                "default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                },
-            }
-        )
-        def test_authenticate_wizard_invalid_hash(self):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/authenticate_wizard",
-                data={"hash": "nonexistent"},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        @override_settings(
-            CACHES={
-                "default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                },
-            }
-        )
-        def test_authenticate_wizard_successful(self):
-            cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
-            cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
-
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/authenticate_wizard",
-                data={"hash": "valid_hash"},
-                format="json",
-            )
-            self.assertEqual(response.status_code, 200, response.content)
-            self.assertEqual(response.json(), {"success": True})
-
-            updated_data = cache.get(cache_key)
-            self.assertIsNotNone(updated_data)
-            self.assertEqual(updated_data["project_api_key"], self.team.api_token)
-            self.assertEqual(updated_data["host"], get_api_host())
-            self.assertEqual(updated_data["user_distinct_id"], self.user.distinct_id)
-
-        @override_settings(
-            CACHES={
-                "default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                },
-            }
-        )
-        @patch("posthog.rate_limit.SetupWizardAuthenticationRateThrottle.rate", new="2/day")
-        def test_authenticate_wizard_rate_limited(self):
-            cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
-            cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
-
-            url = f"/api/environments/{self.team.id}/authenticate_wizard"
-            data = {"hash": "valid_hash"}
-
-            response_1 = self.client.post(url, data=data, format="json")
-            self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-
-            response_2 = self.client.post(url, data=data, format="json")
-            self.assertEqual(response_2.status_code, status.HTTP_200_OK)
-
-            response_3 = self.client.post(url, data=data, format="json")
-            self.assertEqual(response_3.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-
     return TestTeamAPI
 
 
@@ -1481,6 +1639,7 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
         completed_snippet_onboarding=True,
         is_demo=True,
         timezone=timezone,
+        base_currency="USD",
     )
 
 

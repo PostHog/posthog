@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
-    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
+    isPostHogProperty,
     KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
 } from '~/taxonomy/taxonomy'
@@ -237,11 +237,15 @@ export function PropertiesTable({
                 const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
                     [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
                     [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+                    [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
                     [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
                     [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
                     [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
                     [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
+                    [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
+                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.LogAttributes,
+                    [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
@@ -289,10 +293,7 @@ export function PropertiesTable({
                     return false
                 }
                 if (hidePostHogPropertiesInTable) {
-                    const isPostHogProperty = key.startsWith('$') || PROPERTY_KEYS.includes(key)
-                    const isNonDollarPostHogProperty =
-                        isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
-                    return !isPostHogProperty && !isNonDollarPostHogProperty
+                    return !isPostHogProperty(key, isCloudOrDev)
                 }
                 return true
             })
@@ -306,7 +307,7 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues])
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (Array.isArray(properties)) {
         return (

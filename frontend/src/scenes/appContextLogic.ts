@@ -1,7 +1,7 @@
-import * as Sentry from '@sentry/react'
 import { afterMount, connect, kea, path } from 'kea'
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
 
 import { UserType } from '~/types'
 
@@ -33,13 +33,11 @@ export const appContextLogic = kea<appContextLogicType>([
             void api.get('api/users/@me/').then((remoteUser: UserType) => {
                 if (remoteUser.uuid !== preloadedUser.uuid) {
                     console.error(`Preloaded user ${preloadedUser.uuid} does not match remote user ${remoteUser.uuid}`)
-                    Sentry.captureException(
+                    posthog.captureException(
                         new Error(`Preloaded user ${preloadedUser.uuid} does not match remote user ${remoteUser.uuid}`),
                         {
-                            tags: {
-                                posthog_app_context: JSON.stringify(getAppContext()),
-                                remote_user: JSON.stringify(remoteUser),
-                            },
+                            posthog_app_context: JSON.stringify(getAppContext()),
+                            remote_user: JSON.stringify(remoteUser),
                         }
                     )
 

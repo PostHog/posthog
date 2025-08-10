@@ -6,6 +6,8 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+from django.urls import URLPattern, re_path
+import orjson
 import os
 import re
 import secrets
@@ -13,7 +15,7 @@ import string
 import time
 import uuid
 import zlib
-from collections.abc import Generator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
@@ -42,7 +44,7 @@ from django.utils import timezone
 from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
-from sentry_sdk import configure_scope
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -58,7 +60,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User
+    from posthog.models import Team, User, Dashboard, InsightVariable
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -77,23 +79,6 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-
-
-def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
-    date_formats = {
-        "default": "%-d-%b-%Y",
-        "minute": "%-d-%b %H:%M",
-        "hour": "%-d-%b %H:%M",
-        "week": "%-d-%b – %-d-%b",
-        "month": "%b %Y",
-    }
-    labels_format = date_formats.get(interval, date_formats["default"])
-
-    if interval == "week":
-        end_date = date + datetime.timedelta(days=6)
-        return f"{date.strftime('%-d-%b')} – {end_date.strftime('%-d-%b')}"
-
-    return date.strftime(labels_format)
 
 
 class PotentialSecurityProblemException(Exception):
@@ -284,6 +269,9 @@ def get_delta_mapping_for(
             delta_mapping["day"] = 1
         elif position == "End":
             delta_mapping["day"] = 31
+    elif kind == "M":
+        if number:
+            delta_mapping["minutes"] = int(number)
     elif kind == "q":
         if number:
             delta_mapping["weeks"] = 13 * int(number)
@@ -352,10 +340,6 @@ def render_template(
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        context["sentry_dsn"] = sentry_dsn
-    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
-        context["sentry_environment"] = sentry_environment
     if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
         context["stripe_public_key"] = stripe_public_key
 
@@ -363,6 +347,19 @@ def render_template(
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
+        # Add vite dev scripts for development only when explicitly using Vite
+        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
+            context["vite_dev_scripts"] = """
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <!-- Vite development server -->
+    <script type="module" src="http://localhost:8234/@vite/client"></script>
+    <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
@@ -399,7 +396,7 @@ def render_template(
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.rbac.user_access_control import UserAccessControl
+        from posthog.rbac.user_access_control import UserAccessControl, ACCESS_CONTROL_RESOURCES
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -425,6 +422,14 @@ def render_template(
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            posthog_app_context["effective_resource_access_control"] = {
+                resource: user_access_control.effective_access_level_for_resource(resource)
+                for resource in ACCESS_CONTROL_RESOURCES
+            }
+            posthog_app_context["resource_access_control"] = {
+                resource: user_access_control.access_level_for_resource(resource)
+                for resource in ACCESS_CONTROL_RESOURCES
+            }
             user_serialized = UserSerializer(
                 request.user,
                 context={
@@ -640,11 +645,17 @@ def get_compare_period_dates(
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
-        new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
-        new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
+        new_date_to = (new_date_from + diff).replace(
+            minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     elif interval != "minute":
-        # Align previous period time range to day boundaries
-        new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Align previous period time range to same boundaries as current period
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
         # Handle date_from = -7d, -14d etc. specially
         if (
             interval == "day"
@@ -662,7 +673,9 @@ def get_compare_period_dates(
             # As a quick fix for the most common week-by-week case, we just always add a day to counteract the woes
             # of relative date ranges:
             new_date_from += datetime.timedelta(days=1)
-        new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
+        new_date_to = (new_date_from + diff).replace(
+            hour=date_to.hour, minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     return new_date_from, new_date_to
 
 
@@ -752,7 +765,7 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception:
                 # Increment a separate counter for JSON parsing failures after all decompression attempts
-                # We do this because we're no longer tracking these fallbacks in Sentry (since they're not actionable defects),
+                # We do this because we're no longer tracking these fallbacks in error tracking (since they're not actionable defects),
                 # but we still want to know how often they occur.
                 KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_unspecified_gzip_fallback").inc()
                 raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")
@@ -775,23 +788,25 @@ def load_data_from_request(request):
         if data:
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
-    # add the data in sentry's scope in case there's an exception
-    with configure_scope() as scope:
+    # add the data in the scope in case there's an exception
+    with posthoganalytics.new_context():
         if isinstance(data, dict):
-            scope.set_context("data", data)
-        scope.set_tag(
+            posthoganalytics.tag("data", data)
+        posthoganalytics.tag(
             "origin",
             request.headers.get("origin", request.headers.get("remote_host", "unknown")),
         )
-        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        posthoganalytics.tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+        posthoganalytics.tag("library.version", request.GET.get("ver", "unknown"))
 
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    ).lower()
+        compression = (
+            request.GET.get("compression")
+            or request.POST.get("compression")
+            or request.headers.get("content-encoding", "")
+        ).lower()
 
-    return decompress(data, compression)
+        return decompress(data, compression)
 
 
 class SingletonDecorator:
@@ -873,17 +888,12 @@ def is_celery_alive() -> bool:
 
 def is_plugin_server_alive() -> bool:
     try:
-        ping = get_client().get("@posthog-plugin-server/ping")
-        return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
+        from posthog.plugins.plugin_server_api import get_plugin_server_status
+
+        plugin_server_status = get_plugin_server_status()
+        return plugin_server_status.status_code == 200
     except BaseException:
         return False
-
-
-def get_plugin_server_version() -> Optional[str]:
-    cache_key_value = get_client().get("@posthog-plugin-server/version")
-    if cache_key_value:
-        return cache_key_value.decode("utf-8")
-    return None
 
 
 def get_plugin_server_job_queues() -> Optional[list[str]]:
@@ -930,7 +940,7 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current Cloud instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or `EU`.
     """
     return settings.CLOUD_DEPLOYMENT
 
@@ -1141,18 +1151,25 @@ def filters_override_requested_by_client(request: Request) -> Optional[dict]:
     return None
 
 
-def variables_override_requested_by_client(request: Request) -> Optional[dict[str, dict]]:
-    raw_variables = request.query_params.get("variables_override")
+def variables_override_requested_by_client(
+    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+) -> Optional[dict[str, dict]]:
+    from posthog.api.insight_variable import map_stale_to_latest
 
-    if raw_variables is not None:
+    raw_variables_override_param = request.query_params.get("variables_override") if request else None
+
+    request_variables = {}
+    dashboard_variables = dashboard.variables if dashboard else {}
+
+    if raw_variables_override_param is not None:
         try:
-            return json.loads(raw_variables)
+            request_variables = json.loads(raw_variables_override_param)
         except Exception:
             raise serializers.ValidationError(
                 {"variables_override": "Invalid JSON passed in variables_override parameter"}
             )
 
-    return None
+    return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
@@ -1182,6 +1199,14 @@ def str_to_bool(value: Any) -> bool:
     if not value:
         return False
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
+
+
+def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    """Safely convert a value to integer, returning default if conversion fails."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
 
 
 def get_helm_info_env() -> dict:
@@ -1560,3 +1585,40 @@ def get_from_dict_or_attr(obj: Any, key: str):
         return getattr(obj, key, None)
     else:
         raise AttributeError(f"Object {obj} has no key {key}")
+
+
+def is_relative_url(url: str | None) -> bool:
+    """
+    Returns True if `url` is a relative URL (e.g. "/foo/bar" or "/")
+    """
+    if url is None:
+        return False
+
+    parsed = urlparse(url)
+
+    return (
+        parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
+    )
+
+
+def to_json(obj: dict) -> bytes:
+    # pydantic doesn't sort keys reliably, so use orjson to serialize to json
+    option = orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS
+    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
+
+    return json_string
+
+
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
+    """Catches path with or without trailing slash, taking into account query param and hash."""
+    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+
+
+def get_current_user_from_thread() -> Optional["User"]:
+    from threading import current_thread
+
+    request = getattr(current_thread(), "request", None)
+    if request and hasattr(request, "user"):
+        return request.user
+    return None

@@ -11,6 +11,9 @@ from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
+from posthog.models.personal_api_key import PersonalAPIKey
+from django.db.models.signals import post_save
+from django.core.cache import cache
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
@@ -19,9 +22,6 @@ from posthog.models.utils import (
     UUIDModel,
     create_with_slug,
     sane_repr,
-)
-from posthog.plugins.plugin_server_api import (
-    reset_available_product_features_cache_on_workers,
 )
 
 if TYPE_CHECKING:
@@ -43,6 +43,7 @@ class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
+    surveys: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
     api_queries_read_bytes: Optional[OrganizationUsageResource]
@@ -117,26 +118,51 @@ class Organization(UUIDModel):
         # This includes installing plugins from the repository and managing plugin installations for all other orgs.
         ROOT = 9, "root"
 
+    class DefaultExperimentStatsMethod(models.TextChoices):
+        BAYESIAN = "bayesian", "Bayesian"
+        FREQUENTIST = "frequentist", "Frequentist"
+
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
         related_name="organizations",
         related_query_name="organization",
     )
+
+    # General settings
     name = models.CharField(max_length=64)
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Security / management settings
+    session_cookie_age = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
+    )
+    is_member_join_email_enabled = models.BooleanField(default=True)
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
+    enforce_2fa = models.BooleanField(null=True, blank=True)
+    members_can_invite = models.BooleanField(default=True, null=True, blank=True)
+    members_can_use_personal_api_keys = models.BooleanField(default=True)
+    allow_publicly_shared_resources = models.BooleanField(default=True)
+
+    # Misc
     plugins_access_level = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
     for_internal_metrics = models.BooleanField(default=False)
-    is_member_join_email_enabled = models.BooleanField(default=True)
-    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
-    enforce_2fa = models.BooleanField(null=True, blank=True)
-
+    default_experiment_stats_method = models.CharField(
+        max_length=20,
+        choices=DefaultExperimentStatsMethod.choices,
+        default=DefaultExperimentStatsMethod.BAYESIAN,
+        help_text="Default statistical method for new experiments in this organization.",
+        null=True,
+        blank=True,
+    )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing
@@ -166,6 +192,8 @@ class Organization(UUIDModel):
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
 
     objects: OrganizationManager = OrganizationManager()
+
+    is_platform = models.BooleanField(default=False, null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -254,18 +282,6 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
-@receiver(models.signals.post_save, sender=Organization)
-def ensure_available_product_features_sync(sender, instance: Organization, **kwargs):
-    updated_fields = kwargs.get("update_fields") or []
-    if "available_product_features" in updated_fields:
-        logger.info(
-            "Notifying plugin-server to reset available product features cache.",
-            {"organization_id": instance.id},
-        )
-
-        reset_available_product_features_cache_on_workers(organization_id=str(instance.id))
-
-
 class OrganizationMembership(UUIDModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
@@ -327,6 +343,48 @@ class OrganizationMembership(UUIDModel):
             if membership_being_updated.level > self.level:
                 raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
+    def get_scoped_api_keys(self):
+        """
+        Get API keys that are scoped to this organization or its teams.
+        Returns a dictionary with information about the keys.
+        """
+        from posthog.models.team import Team
+
+        # Get teams that belong to this organization
+        team_ids = list(Team.objects.filter(organization_id=self.organization_id).values_list("id", flat=True))
+
+        # Find API keys scoped to either the organization or any of its teams
+        # Also include keys with no scoped teams or orgs (they apply to all orgs/teams)
+
+        personal_api_keys = PersonalAPIKey.objects.filter(user=self.user).filter(
+            Q(scoped_organizations__contains=[str(self.organization_id)])
+            | Q(scoped_teams__overlap=team_ids)
+            | (
+                (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]))
+                & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
+            )
+        )
+
+        # Get keys with more details
+        keys_data = []
+        has_keys = personal_api_keys.exists()
+
+        # Check if any keys were used in the last week
+        one_week_ago = timezone.now() - timedelta(days=7)
+        has_keys_active_last_week = personal_api_keys.filter(last_used_at__gte=one_week_ago).exists()
+
+        # Get detailed information about each key
+        for key in personal_api_keys:
+            keys_data.append({"name": key.label, "last_used_at": key.last_used_at})
+
+        return {
+            "personal_api_keys": personal_api_keys,
+            "has_keys": has_keys,
+            "has_keys_active_last_week": has_keys_active_last_week,
+            "keys": keys_data,
+            "team_ids": team_ids,
+        }
+
     __repr__ = sane_repr("organization", "user", "level")
 
 
@@ -359,3 +417,12 @@ def organization_membership_saved(sender: Any, instance: OrganizationMembership,
     except OrganizationMembership.DoesNotExist:
         # The instance is new, or we are setting up test data
         pass
+
+
+@receiver(post_save, sender=Organization)
+def cache_organization_session_age(sender, instance, **kwargs):
+    """Cache organization's session_cookie_age in Redis when it changes."""
+    if instance.session_cookie_age is not None:
+        cache.set(f"org_session_age:{instance.id}", instance.session_cookie_age)
+    else:
+        cache.delete(f"org_session_age:{instance.id}")

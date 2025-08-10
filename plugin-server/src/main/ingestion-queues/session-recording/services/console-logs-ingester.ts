@@ -1,5 +1,8 @@
 import { Counter } from 'prom-client'
 
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
@@ -41,7 +44,8 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 export class ConsoleLogsIngester {
     constructor(
         private readonly producer: KafkaProducerWrapper,
-        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
+        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker,
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate = null
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -128,6 +132,11 @@ export class ConsoleLogsIngester {
             )
         ) {
             return drop('high_water_mark')
+        }
+
+        // Check if we should process this event based on the switchover date
+        if (eventPassesMetadataSwitchoverTest(event.metadata.timestamp, this.metadataSwitchoverDate)) {
+            return drop('after_switchover')
         }
 
         const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])

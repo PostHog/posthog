@@ -1,6 +1,7 @@
 from django.db import models
 
 
+# DEPRECATED - do not use
 class FeatureFlagRoleAccess(models.Model):
     feature_flag = models.ForeignKey(
         "posthog.FeatureFlag",

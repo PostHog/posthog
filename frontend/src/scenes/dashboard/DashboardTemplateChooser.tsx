@@ -51,6 +51,7 @@ export function DashboardTemplateChooser({
                             addDashboard({
                                 name: 'New Dashboard',
                                 show: true,
+                                _create_in_folder: 'Unfiled/Dashboards',
                             })
                         }}
                         index={0}

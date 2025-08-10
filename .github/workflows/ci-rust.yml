@@ -1,5 +1,4 @@
 name: Rust CI
-
 on:
     workflow_dispatch:
     push:
@@ -64,7 +63,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -116,7 +115,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -136,7 +135,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
@@ -167,7 +166,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
+                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags')|| '--workspace --exclude feature-flags'}}
                   echo "Cargo test completed"
 
     linting:
@@ -197,7 +196,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -238,11 +237,11 @@ jobs:
 
             - name: Install cargo-binstall
               if: needs.changes.outputs.rust == 'true'
-              uses: cargo-bins/cargo-binstall@89e50159140fdba08fc64e36186a014c5c253d33 # main
+              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
               if: needs.changes.outputs.rust == 'true'
-              run: cargo binstall --no-confirm cargo-shear
+              run: cargo binstall --no-confirm cargo-shear@1.1.12
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'

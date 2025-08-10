@@ -10,6 +10,7 @@ import { Theme, themes } from './themes'
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     connect(() => ({
+        logic: [sceneLogic],
         values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -82,12 +83,8 @@ export const themeLogic = kea<themeLogicType>([
                 if (theme) {
                     return !!theme?.dark
                 }
-                // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
-                if (
-                    sceneConfig?.layout === 'plain' ||
-                    sceneConfig?.allowUnauthenticated ||
-                    sceneConfig?.onlyUnauthenticated
-                ) {
+                // NOTE: Unauthenticated users always get the light mode until we have full support for dark mode there
+                if (sceneConfig?.allowUnauthenticated || sceneConfig?.onlyUnauthenticated) {
                     return false
                 }
 

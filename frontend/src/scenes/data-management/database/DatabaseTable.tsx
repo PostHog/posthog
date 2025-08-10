@@ -33,12 +33,14 @@ type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEd
 const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
     integer: 'Integer',
     float: 'Float',
+    decimal: 'Decimal',
     string: 'String',
     datetime: 'DateTime',
     date: 'Date',
     boolean: 'Boolean',
     array: 'Array',
     json: 'JSON',
+    unknown: 'Unknown',
 }
 const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ value: n, label: editSchemaOptions[n] }))
 
@@ -86,7 +88,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                     </LemonButton>
                 </>
             ),
-        [joinsLoading, join]
+        [joinsLoading, join] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     return <More overlay={overlay()} />

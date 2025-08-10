@@ -1,8 +1,7 @@
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import posthog from 'posthog-js'
 import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
-
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '../types'
 
 export const fromNodeTypeToLabel: Omit<
     Record<NotebookNodeType, string>,
@@ -12,6 +11,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
     | NotebookNodeType.Embed
+    | NotebookNodeType.Latex
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',

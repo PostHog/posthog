@@ -31,6 +31,7 @@ interface NavbarItemBase {
     featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     tag?: 'alpha' | 'beta' | 'new'
     sideAction?: Omit<SideAction, 'divider' | 'data-attr' | 'tooltipPlacement'> & { identifier: string }
+    tooltipDocLink?: string
     /** @deprecated */
     onClick?: () => void
 }
@@ -145,6 +146,8 @@ export interface BasicListItem {
     ref?: React.MutableRefObject<HTMLElement | null>
     /** If this item is inside an accordion, this is the depth of the accordion. */
     depth?: number
+    /** Element to render at the end of the row */
+    endElement?: string | JSX.Element
 }
 
 export type ExtraListItemContext = string | Dayjs

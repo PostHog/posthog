@@ -1,4 +1,10 @@
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@posthog/rrweb-types'
+import {
+    customEvent,
+    EventType as RRWebEventType,
+    eventWithTime,
+    fullSnapshotEvent,
+    pluginEvent,
+} from '@posthog/rrweb-types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -7,7 +13,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     InspectorListItemPerformance,
     performanceEventDataLogic,
@@ -16,16 +21,21 @@ import {
     filterInspectorListItems,
     itemToMiniFilter,
 } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
-import { MiniFilterKey, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import {
+    MiniFilterKey,
+    miniFiltersLogic,
+    SharedListMiniFilter,
+} from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     convertUniversalFiltersToRecordingsQuery,
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
-    FilterableInspectorListItemTypes,
+    CommentType,
     MatchedRecordingEvent,
     PerformanceEvent,
     RecordingConsoleLogV2,
@@ -67,6 +77,19 @@ export type RecordingComment = {
     timeInRecording: number
 }
 
+const _filterableItemTypes = ['events', 'console', 'network', 'comment', 'doctor'] as const
+const _itemTypes = [
+    ..._filterableItemTypes,
+    'performance',
+    'offline-status',
+    'browser-visibility',
+    'inactivity',
+    'inspector-summary',
+] as const
+
+export type InspectorListItemType = (typeof _itemTypes)[number]
+export type FilterableInspectorListItemTypes = (typeof _filterableItemTypes)[number]
+
 export type InspectorListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
@@ -74,12 +97,11 @@ export type InspectorListItemBase = {
     highlightColor?: 'danger' | 'warning' | 'primary'
     windowId?: string
     windowNumber?: number | '?' | undefined
+    type: InspectorListItemType
 }
 
-export type InspectorListItemType = InspectorListItem['type']
-
 export type InspectorListItemEvent = InspectorListItemBase & {
-    type: FilterableInspectorListItemTypes.EVENTS
+    type: 'events'
     data: RecordingEventType
 }
 
@@ -88,13 +110,20 @@ export type InspectorListItemInactivity = InspectorListItemBase & {
     durationMs: number
 }
 
-export type InspectorListItemComment = InspectorListItemBase & {
+export type InspectorListItemNotebookComment = InspectorListItemBase & {
     type: 'comment'
+    source: 'notebook'
     data: RecordingComment
 }
 
+export type InspectorListItemComment = InspectorListItemBase & {
+    type: 'comment'
+    source: 'comment'
+    data: CommentType
+}
+
 export type InspectorListItemConsole = InspectorListItemBase & {
-    type: FilterableInspectorListItemTypes.CONSOLE
+    type: 'console'
     data: RecordingConsoleLogV2
 }
 
@@ -109,7 +138,7 @@ export type InspectorListBrowserVisibility = InspectorListItemBase & {
 }
 
 export type InspectorListItemDoctor = InspectorListItemBase & {
-    type: FilterableInspectorListItemTypes.DOCTOR
+    type: 'doctor'
     tag: string
     data?: Record<string, any>
     window_id?: string
@@ -130,6 +159,7 @@ export type InspectorListItem =
     | InspectorListItemDoctor
     | InspectorListBrowserVisibility
     | InspectorListItemComment
+    | InspectorListItemNotebookComment
     | InspectorListItemSummary
     | InspectorListItemInactivity
 
@@ -150,7 +180,7 @@ function isFullSnapshotEvent(x: unknown): x is fullSnapshotEvent {
 }
 
 function snapshotDescription(snapshot: eventWithTime): string {
-    const snapshotTypeName = EventType[snapshot.type]
+    const snapshotTypeName = RRWebEventType[snapshot.type]
     let suffix = ''
     if (_isCustomSnapshot(snapshot)) {
         suffix = ': ' + (snapshot as customEvent).data.tag
@@ -201,15 +231,25 @@ function getPayloadFor(customEvent: customEvent, tag: string): Record<string, an
     return customEvent.data.payload as Record<string, any>
 }
 
-function commentTimestamp(
-    comment: RecordingComment,
+function notebookCommentTimestamp(
+    timeInRecording: number,
     start: Dayjs | null
 ): {
     timeInRecording: number
     timestamp: dayjs.Dayjs | undefined
 } {
-    const timestamp = start?.add(comment.timeInRecording, 'ms')
-    return { timestamp, timeInRecording: comment.timeInRecording }
+    const timestamp = start?.add(timeInRecording, 'ms')
+    return { timestamp, timeInRecording }
+}
+
+function commentTimestamp(
+    commentTime: Dayjs,
+    start: Dayjs | null
+): {
+    timeInRecording: number
+    timestamp: dayjs.Dayjs | undefined
+} {
+    return { timestamp: commentTime, timeInRecording: commentTime.valueOf() - (start?.valueOf() ?? 0) }
 }
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
@@ -220,7 +260,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         actions: [
             miniFiltersLogic,
             ['setMiniFilter', 'setSearchQuery'],
-            eventUsageLogic,
+            sessionRecordingEventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataLogic(props),
             ['loadFullEventData', 'setTrackedWindow'],
@@ -239,17 +279,18 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'start',
                 'end',
                 'durationMs',
+                'sessionNotebookComments',
                 'sessionComments',
+                'sessionCommentsLoading',
                 'windowIdForTimestamp',
                 'sessionPlayerMetaData',
                 'segments',
+                'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
-            sessionRecordingDataLogic(props),
-            ['trackedWindow'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -294,7 +335,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (!matchingEventsMatchType?.eventUUIDs) {
                             console.error('UUID matching events type must include its event ids')
                         }
-                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x }) as MatchedRecordingEvent)
                     }
 
                     const filters = matchingEventsMatchType?.filters
@@ -308,7 +349,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
-                    return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                    return response.results.map((x) => ({ uuid: x }) as MatchedRecordingEvent)
                 },
             },
         ],
@@ -318,7 +359,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (s) => [s.miniFilters],
             (miniFilters): boolean => {
                 return (
-                    miniFilters.some((mf) => mf.type === FilterableInspectorListItemTypes.EVENTS && mf.enabled) &&
+                    miniFilters.some((mf) => mf.type === 'events' && mf.enabled) &&
                     props.matchingEventsMatchType?.matchType !== 'none'
                 )
             },
@@ -440,7 +481,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const { timestamp, timeInRecording } = timeRelativeToStart(snapshot, start)
 
                             items.push({
-                                type: FilterableInspectorListItemTypes.DOCTOR,
+                                type: 'doctor',
                                 timestamp,
                                 timeInRecording,
                                 tag: niceify(tag),
@@ -455,7 +496,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const { timestamp, timeInRecording } = timeRelativeToStart(snapshot, start)
 
                             items.push({
-                                type: FilterableInspectorListItemTypes.DOCTOR,
+                                type: 'doctor',
                                 timestamp,
                                 timeInRecording,
                                 tag: 'full snapshot event',
@@ -470,7 +511,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 })
 
                 items.push({
-                    type: FilterableInspectorListItemTypes.DOCTOR,
+                    type: 'doctor',
                     timestamp: start,
                     timeInRecording: 0,
                     tag: 'count of snapshot types by window',
@@ -530,14 +571,73 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        notebookCommentItems: [
+            (s) => [s.sessionNotebookComments, s.windowIdForTimestamp, s.windowNumberForID, s.start],
+            (
+                sessionNotebookComments,
+                windowIdForTimestamp,
+                windowNumberForID,
+                start
+            ): InspectorListItemNotebookComment[] => {
+                const items: InspectorListItemNotebookComment[] = []
+                for (const comment of sessionNotebookComments || []) {
+                    const { timestamp, timeInRecording } = notebookCommentTimestamp(comment.timeInRecording, start)
+                    if (timestamp) {
+                        items.push({
+                            highlightColor: 'primary',
+                            type: 'comment',
+                            source: 'notebook',
+                            timeInRecording: timeInRecording,
+                            timestamp: timestamp,
+                            search: comment.comment,
+                            data: comment,
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
+                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
+                        })
+                    }
+                }
+                return items
+            },
+        ],
+
+        commentItems: [
+            (s) => [s.sessionComments, s.windowIdForTimestamp, s.windowNumberForID, s.start],
+            (sessionComments, windowIdForTimestamp, windowNumberForID, start): InspectorListItemComment[] => {
+                const items: InspectorListItemComment[] = []
+                for (const comment of sessionComments || []) {
+                    if (!comment.item_context?.time_in_recording) {
+                        continue
+                    }
+
+                    const { timestamp, timeInRecording } = commentTimestamp(
+                        dayjs(comment.item_context.time_in_recording),
+                        start
+                    )
+                    if (timestamp) {
+                        const item: InspectorListItemComment = {
+                            timestamp,
+                            timeInRecording,
+                            type: 'comment',
+                            source: 'comment',
+                            highlightColor: 'primary',
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
+                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
+                            data: comment,
+                            search: comment.content,
+                        }
+                        items.push(item)
+                    }
+                }
+                return items
+            },
+        ],
+
         allContextItems: [
             (s) => [
                 s.start,
                 s.offlineStatusChanges,
                 s.doctorEvents,
                 s.browserVisibilityChanges,
-                s.sessionComments,
-                s.windowIdForTimestamp,
                 s.windowNumberForID,
                 s.sessionPlayerMetaData,
                 s.segments,
@@ -547,8 +647,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 offlineStatusChanges,
                 doctorEvents,
                 browserVisibilityChanges,
-                sessionComments,
-                windowIdForTimestamp,
                 windowNumberForID,
                 sessionPlayerMetaData,
                 segments
@@ -589,24 +687,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push(event)
                 }
 
-                for (const comment of sessionComments || []) {
-                    const { timestamp, timeInRecording } = commentTimestamp(comment, start)
-                    if (timestamp) {
-                        items.push({
-                            highlightColor: 'primary',
-                            type: 'comment',
-                            timeInRecording: timeInRecording,
-                            timestamp: timestamp,
-                            search: comment.comment,
-                            data: comment,
-                            windowId: windowIdForTimestamp(timestamp.valueOf()),
-                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
-                        })
-                    }
-                }
-
-                // now we've calculated everything else
-                // always start with a context row that has a little summary
+                // now we've calculated everything else,
+                // we always start with a context row
+                // that lets us show a little summary
                 if (start) {
                     items.push({
                         type: 'inspector-summary',
@@ -635,6 +718,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.matchingEventUUIDs,
                 s.windowNumberForID,
                 s.allContextItems,
+                s.commentItems,
+                s.notebookCommentItems,
+                s.sessionPlayerData,
             ],
             (
                 start,
@@ -643,7 +729,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 eventsData,
                 matchingEventUUIDs,
                 windowNumberForID,
-                allContextItems
+                allContextItems,
+                commentItems,
+                notebookCommentItems,
+                sessionPlayerData
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -663,7 +752,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                     const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
                     items.push({
-                        type: FilterableInspectorListItemTypes.NETWORK,
+                        type: 'network',
                         timestamp,
                         timeInRecording,
                         search: event.name || '',
@@ -678,7 +767,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 for (const event of consoleLogs || []) {
                     const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
                     items.push({
-                        type: FilterableInspectorListItemTypes.CONSOLE,
+                        type: 'console',
                         timestamp,
                         timeInRecording,
                         search: event.content,
@@ -712,16 +801,19 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                     const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
                     items.push({
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         timestamp,
                         timeInRecording,
                         search: search,
-                        data: event,
+                        data: {
+                            ...event,
+                            distinct_id: sessionPlayerData.person?.distinct_ids?.[0] || event.distinct_id,
+                        },
                         highlightColor: isMatchingEvent
                             ? 'primary'
                             : event.event === '$exception'
-                            ? 'danger'
-                            : undefined,
+                              ? 'danger'
+                              : undefined,
                         windowId: event.properties?.$window_id,
                         windowNumber: windowNumberForID(event.properties?.$window_id),
                     })
@@ -729,6 +821,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 for (const event of allContextItems || []) {
                     items.push(event)
+                }
+
+                for (const comment of commentItems || []) {
+                    items.push(comment)
+                }
+
+                for (const notebookComment of notebookCommentItems || []) {
+                    items.push(notebookComment)
                 }
 
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
@@ -779,7 +879,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 })
 
                 // need to collapse adjacent inactivity items
-                // they look werong next to each other
+                // they look wrong next to each other
                 return filteredItems.reduce((acc, item, index) => {
                     if (item.type === 'inactivity') {
                         const previousItem = filteredItems[index - 1]
@@ -797,7 +897,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         seekbarItems: [
             (s) => [
                 s.allItems,
-                s.miniFiltersForTypeByKey,
+                s.miniFiltersByKey,
                 s.showOnlyMatching,
                 s.allowMatchingEventsFilter,
                 s.trackedWindow,
@@ -805,7 +905,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             (
                 allItems,
-                miniFiltersForTypeByKey,
+                miniFiltersByKey,
                 showOnlyMatching,
                 allowMatchingEventsFilter,
                 trackedWindow,
@@ -813,7 +913,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
-                    miniFiltersByKey: miniFiltersForTypeByKey(FilterableInspectorListItemTypes.EVENTS),
+                    miniFiltersByKey: Object.entries(miniFiltersByKey).reduce(
+                        (acc, [key, value]) => {
+                            if (key.startsWith('events') || key.startsWith('comment')) {
+                                acc[key] = value
+                            }
+                            return acc
+                        },
+                        {} as { [key: string]: SharedListMiniFilter }
+                    ),
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
@@ -822,12 +930,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 let items: (InspectorListItemEvent | InspectorListItemComment)[] = eventFilteredItems.filter(
                     (item): item is InspectorListItemEvent | InspectorListItemComment => {
-                        if (item.type === FilterableInspectorListItemTypes.EVENTS) {
+                        if (item.type === 'events') {
                             return !(allowMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
                         }
 
                         if (item.type === 'comment') {
-                            return !allowMatchingEventsFilter
+                            return true
                         }
 
                         return false
@@ -837,8 +945,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 if (items.length > MAX_SEEKBAR_ITEMS) {
                     items = items.filter((item) => {
                         const isPrimary = item.highlightColor === 'primary'
-                        const isPageView =
-                            item.type === FilterableInspectorListItemTypes.EVENTS && item.data.event === '$pageview'
+                        const isPageView = item.type === 'events' && item.data.event === '$pageview'
                         const isComment = item.type === 'comment'
                         return isPrimary || isPageView || isComment
                     })
@@ -861,6 +968,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.consoleLogs,
                 s.allPerformanceEvents,
                 s.doctorEvents,
+                s.sessionComments,
+                s.sessionCommentsLoading,
             ],
             (
                 sessionEventsDataLoading,
@@ -869,32 +978,43 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 events,
                 logs,
                 performanceEvents,
-                doctorEvents
+                doctorEvents,
+                sessionComments,
+                sessionCommentsLoading
             ): Record<FilterableInspectorListItemTypes, 'loading' | 'ready' | 'empty'> => {
                 const dataForEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
                 const dataForConsoleState =
                     sessionPlayerMetaDataLoading || snapshotsLoading || !logs
                         ? 'loading'
                         : logs.length
-                        ? 'ready'
-                        : 'empty'
+                          ? 'ready'
+                          : 'empty'
                 const dataForNetworkState =
                     sessionPlayerMetaDataLoading || snapshotsLoading || !performanceEvents
                         ? 'loading'
                         : performanceEvents.length
-                        ? 'ready'
-                        : 'empty'
+                          ? 'ready'
+                          : 'empty'
                 const dataForDoctorState =
                     sessionPlayerMetaDataLoading || snapshotsLoading || !performanceEvents
                         ? 'loading'
                         : doctorEvents.length
-                        ? 'ready'
-                        : 'empty'
+                          ? 'ready'
+                          : 'empty'
+
+                // TODO include notebook comments here?
+                const dataForCommentState = sessionCommentsLoading
+                    ? 'loading'
+                    : sessionComments?.length
+                      ? 'ready'
+                      : 'empty'
+
                 return {
-                    [FilterableInspectorListItemTypes.EVENTS]: dataForEventsState,
-                    [FilterableInspectorListItemTypes.CONSOLE]: dataForConsoleState,
-                    [FilterableInspectorListItemTypes.NETWORK]: dataForNetworkState,
-                    [FilterableInspectorListItemTypes.DOCTOR]: dataForDoctorState,
+                    ['events']: dataForEventsState,
+                    ['console']: dataForConsoleState,
+                    ['network']: dataForNetworkState,
+                    ['comment']: dataForCommentState,
+                    ['doctor']: dataForDoctorState,
                 }
             },
         ],
@@ -961,6 +1081,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     'performance-assets-css': [],
                     'performance-assets-img': [],
                     'performance-other': [],
+                    comment: [],
                     doctor: [],
                 }
 
@@ -982,22 +1103,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (s) => [s.allItems],
             (allItems): Record<MiniFilterKey, InspectorListItem[]> => {
                 const itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]> = {
-                    [FilterableInspectorListItemTypes.EVENTS]: [],
-                    [FilterableInspectorListItemTypes.CONSOLE]: [],
-                    [FilterableInspectorListItemTypes.NETWORK]: [],
-                    [FilterableInspectorListItemTypes.DOCTOR]: [],
+                    ['events']: [],
+                    ['console']: [],
+                    ['network']: [],
+                    ['doctor']: [],
+                    ['comment']: [],
                     context: [],
                 }
 
                 for (const item of allItems) {
                     itemsByType[
-                        [
-                            FilterableInspectorListItemTypes.EVENTS,
-                            FilterableInspectorListItemTypes.CONSOLE,
-                            FilterableInspectorListItemTypes.NETWORK,
-                            FilterableInspectorListItemTypes.DOCTOR,
-                        ].includes(item.type as FilterableInspectorListItemTypes)
-                            ? item.type
+                        ['events', 'console', 'network', 'doctor', 'comment'].includes(
+                            item.type as FilterableInspectorListItemTypes
+                        )
+                            ? (item.type as FilterableInspectorListItemTypes | 'context')
                             : 'context'
                     ].push(item)
                 }
@@ -1008,16 +1127,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         hasEventsToDisplay: [
             (s) => [s.allItemsByItemType],
-            (allItemsByItemType): boolean => allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0,
+            (allItemsByItemType): boolean => allItemsByItemType['events']?.length > 0,
         ],
     })),
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 const item = values.items[index]
-                eventUsageLogic.actions.reportRecordingInspectorItemExpanded(item.type, index)
+                actions.reportRecordingInspectorItemExpanded(item.type, index)
 
-                if (item.type === FilterableInspectorListItemTypes.EVENTS) {
+                if (item.type === 'events') {
                     actions.loadFullEventData(item.data)
                 }
             }

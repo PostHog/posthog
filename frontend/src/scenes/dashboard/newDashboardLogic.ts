@@ -24,6 +24,7 @@ export interface NewDashboardForm {
     show: boolean
     useTemplate: string
     restrictionLevel: DashboardRestrictionLevel
+    _create_in_folder?: string | null
 }
 
 const defaultFormValues: NewDashboardForm = {
@@ -60,6 +61,8 @@ export function applyTemplate(
                         mathAvailability = MathAvailability.ActorsOnly
                     } else if (queryKind === NodeKind.FunnelsQuery) {
                         mathAvailability = MathAvailability.FunnelsOnly
+                    } else if (queryKind === NodeKind.CalendarHeatmapQuery) {
+                        mathAvailability = MathAvailability.CalendarHeatmapOnly
                     }
                     return (
                         queryKind === NodeKind.RetentionQuery
@@ -171,7 +174,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 name: !name ? 'Please give your dashboard a name.' : null,
                 restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),
-            submit: async ({ name, description, useTemplate, restrictionLevel, show }, breakpoint) => {
+            submit: async (
+                { name, description, useTemplate, restrictionLevel, show, _create_in_folder },
+                breakpoint
+            ) => {
                 actions.setIsLoading(true)
                 try {
                     const result: DashboardType = await api.create(
@@ -181,6 +187,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                             description: description,
                             use_template: useTemplate,
                             restriction_level: restrictionLevel,
+                            ...(typeof _create_in_folder === 'string' ? { _create_in_folder } : {}),
                         } as Partial<DashboardType>
                     )
                     actions.hideNewDashboardModal()
@@ -232,12 +239,16 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             }
 
             try {
+                actions.hideNewDashboardModal()
                 const result: DashboardType = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
-                    { template: dashboardJSON, creation_context: creationContext }
+                    {
+                        template: dashboardJSON,
+                        creation_context: creationContext,
+                        _create_in_folder: 'Unfiled/Dashboards',
+                    }
                 )
 
-                actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
                 const queryBasedDashboard = getQueryBasedDashboard(result)
                 queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)

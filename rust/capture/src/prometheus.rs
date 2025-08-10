@@ -15,6 +15,11 @@ pub fn report_overflow_partition(quantity: u64) {
     counter!("capture_partition_key_capacity_exceeded_total").increment(quantity);
 }
 
+pub fn report_internal_error_metrics(err_type: &'static str, stage_tag: &'static str) {
+    let tags = [("error", err_type), ("stage", stage_tag)];
+    counter!("capture_internal_error_by_stage_and_type", &tags).increment(1);
+}
+
 pub fn setup_metrics_recorder() -> PrometheusHandle {
     // Ok I broke it at the end, but the limit on our ingress is 60 and that's a nicer way of reaching it
     const EXPONENTIAL_SECONDS: &[f64] = &[

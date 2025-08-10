@@ -29,6 +29,7 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
             {
                 type: 'context',
                 elements: [
+                    { type: 'plain_text', text: 'Status: {event.properties.status}' },
                     { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
                     {
                         type: 'mrkdwn',
@@ -41,7 +42,7 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
                 type: 'actions',
                 elements: [
                     {
-                        url: '{project.url}/error_tracking/{event.distinct_id}',
+                        url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}',
                         text: { text: 'View Issue', type: 'plain_text' },
                         type: 'button',
                     },

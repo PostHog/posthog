@@ -1,11 +1,13 @@
 import './AccountPopover.scss'
 
 import {
+    IconCake,
     IconCheckCircle,
     IconConfetti,
     IconCopy,
     IconFeatures,
     IconGear,
+    IconInfo,
     IconLeave,
     IconLive,
     IconPlusSmall,
@@ -13,9 +15,10 @@ import {
     IconServer,
     IconShieldLock,
 } from '@posthog/icons'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
+import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -26,13 +29,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
-
-import {
-    AccessLevelIndicator,
-    NewOrganizationButton,
-    OtherOrganizationButton,
-} from '~/layout/navigation/OrganizationSwitcher'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { NewOrganizationButton, OtherOrganizationButton } from '~/layout/navigation/OrganizationSwitcher'
+import { getTreeItemsGames } from '~/products'
 
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
@@ -40,6 +39,7 @@ import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
 import { OrganizationBasicType, SidePanelTab } from '../../../types'
 import { navigationLogic } from '../navigationLogic'
+import { AccessLevelIndicator } from '../AccessLevelIndicator'
 
 function AccountPopoverSection({
     title,
@@ -65,7 +65,7 @@ function AccountInfo(): JSX.Element {
     return (
         <div className="AccountInfo">
             <LemonButton
-                to={urls.settings('user')}
+                to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
                 onClick={closeAccountPopover}
                 data-attr="top-menu-item-me"
                 fullWidth
@@ -213,17 +213,34 @@ function DjangoAdmin(): JSX.Element {
 }
 
 function FeaturePreviewsButton(): JSX.Element {
-    const { closeAccountPopover } = useActions(navigationLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { closeAccountPopover, acknowledgeFeaturePreviewChange } = useActions(navigationLogic)
+    const { featurePreviewChangeAcknowledged } = useValues(navigationLogic)
 
     return (
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
-                openSidePanel(SidePanelTab.FeaturePreviews)
+                acknowledgeFeaturePreviewChange()
+                router.actions.push(urls.settings('user-feature-previews'))
             }}
+            className={!featurePreviewChangeAcknowledged ? 'animate-mark' : ''}
             icon={<IconFeatures />}
             fullWidth
+            // TODO: Remove this in a while so all users have acknowledged the change
+            tooltipForceMount={!featurePreviewChangeAcknowledged}
+            tooltipPlacement="right"
+            tooltip={
+                !featurePreviewChangeAcknowledged ? (
+                    <>
+                        <div className="flex items-center gap-2">
+                            <IconInfo className="size-4" />
+                            <span>
+                                <span className="font-bold">Feature previews</span> now live in settings.
+                            </span>
+                        </div>
+                    </>
+                ) : null
+            }
         >
             Feature previews
         </LemonButton>
@@ -261,7 +278,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={
-                            featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD]
+                            featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
                                 ? urls.organizationBillingSection('overview')
                                 : urls.organizationBilling()
                         }
@@ -269,7 +286,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >
-                        {featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD] ? 'Billing & Usage' : 'Billing'}
+                        {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
@@ -312,6 +329,24 @@ export function AccountPopoverOverlay(): JSX.Element {
                 </LemonButton>
                 <FeaturePreviewsButton />
             </AccountPopoverSection>
+            {featureFlags[FEATURE_FLAGS.GAME_CENTER] ? (
+                <AccountPopoverSection>
+                    <LemonSelect
+                        options={getTreeItemsGames().map((game) => ({ label: game.path, value: game.href || '' }))}
+                        value=""
+                        renderButtonContent={() => 'Games'}
+                        onChange={(value) => {
+                            router.actions.push(String(value))
+                            closeAccountPopover()
+                        }}
+                        dropdownPlacement="right-start"
+                        dropdownMatchSelectWidth={false}
+                        fullWidth
+                        icon={<IconCake />}
+                        type="tertiary"
+                    />
+                </AccountPopoverSection>
+            ) : null}
             {user?.is_staff && (
                 <AccountPopoverSection>
                     <DjangoAdmin />

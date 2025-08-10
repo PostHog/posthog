@@ -6,14 +6,15 @@ export const posthogFilterOutPlugin: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'stable',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-posthog-filter-out-plugin',
         name: 'Filter Out Plugin',
         description: 'Filter out events where property values satisfy the given condition',
         icon_url: 'https://raw.githubusercontent.com/posthog/posthog-filter-out-plugin/main/logo.png',
         category: ['Transformation'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'filters',

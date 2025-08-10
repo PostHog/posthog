@@ -1,4 +1,4 @@
-import { UUIDT } from '~/src/utils/utils'
+import { UUIDT } from '~/utils/utils'
 
 import { forSnapshot } from './snapshots'
 

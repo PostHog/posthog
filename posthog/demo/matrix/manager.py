@@ -251,9 +251,11 @@ class MatrixManager:
             columns_to_rename={"id": "uuid"},
         )
         bulk_persons: dict[str, Person] = {}
+        person_fields = {f.name for f in Person._meta.get_fields()}
         for row in clickhouse_persons:
-            properties = json.loads(row.pop("properties", "{}"))
-            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **row)
+            filtered_row = {k: v for k, v in row.items() if k in person_fields}
+            properties = json.loads(filtered_row.pop("properties", "{}"))
+            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **filtered_row)
         # This sets the pk in the bulk_persons dict so we can use them later
         Person.objects.bulk_create(bulk_persons.values())
         # Person distinct IDs
@@ -265,14 +267,16 @@ class MatrixManager:
             {"person_id": "person_uuid"},
         )
         bulk_person_distinct_ids = []
+        person_distinct_id_fields = {f.name for f in PersonDistinctId._meta.get_fields()}
         for row in clickhouse_distinct_ids:
             person_uuid = row.pop("person_uuid")
             try:
+                filtered_row = {k: v for k, v in row.items() if k in person_distinct_id_fields}
                 bulk_person_distinct_ids.append(
                     PersonDistinctId(
                         team_id=target_team_id,
                         person_id=bulk_persons[person_uuid].pk,
-                        **row,
+                        **filtered_row,
                     )
                 )
             except KeyError:
@@ -281,16 +285,22 @@ class MatrixManager:
             print(f"{pre_existing_id_count} IDS UNACCOUNTED FOR")
         PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
-        clickhouse_groups = query_with_columns(SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"])
+        clickhouse_groups = query_with_columns(
+            SELECT_GROUPS_OF_TEAM,
+            list_params,
+            ["team_id", "_timestamp", "_offset", "is_deleted"],
+        )
         bulk_groups = []
+        group_fields = {f.name for f in Group._meta.get_fields()}
         for row in clickhouse_groups:
-            group_properties = json.loads(row.pop("group_properties", "{}"))
+            filtered_row = {k: v for k, v in row.items() if k in group_fields}
+            group_properties = json.loads(filtered_row.pop("group_properties", "{}"))
             bulk_groups.append(
                 Group(
                     team_id=target_team_id,
                     version=0,
                     group_properties=group_properties,
-                    **row,
+                    **filtered_row,
                 )
             )
         try:
@@ -321,9 +331,6 @@ class MatrixManager:
                     person_id=str(subject.in_posthog_id),
                 )
             self._save_past_sim_events(team, subject.past_events)
-        # We only want to queue future events if there are any
-        if subject.future_events and self.matrix.end > self.matrix.now:
-            self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod
     def _save_past_sim_events(team: Team, events: list[SimEvent]):
@@ -353,12 +360,6 @@ class MatrixManager:
                 group3_created_at=event.group3_created_at,
                 group4_created_at=event.group4_created_at,
             )
-
-    @staticmethod
-    def _save_future_sim_events(team: Team, events: list[SimEvent]):
-        """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
-
-        # TODO: This used the plugin server's Graphile Worker-based event buffer, but the event buffer is no more
 
     @staticmethod
     def _save_sim_group(

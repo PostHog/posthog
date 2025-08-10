@@ -1,22 +1,24 @@
 import { IconInfo } from '@posthog/icons'
-import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
+import { actions, connect, kea, path, reducers, selectors, useValues } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { RevenueEventsSettings } from 'products/revenue_analytics/frontend/settings/RevenueEventsSettings'
+import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
 import React from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
+import { Comments } from 'scenes/data-management/comments/Comments'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
@@ -31,10 +33,13 @@ export enum DataManagementTab {
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
     Annotations = 'annotations',
+    Comments = 'comments',
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
+    MarketingAnalytics = 'marketing-analytics',
 }
+
 const tabs: Record<
     DataManagementTab,
     {
@@ -43,12 +48,14 @@ const tabs: Record<
         content: JSX.Element
         buttons?: React.ReactNode
         flag?: FeatureFlagKey
+        tooltipDocLink?: string
     }
 > = {
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
         label: 'Events',
         content: <EventDefinitionsTable />,
+        tooltipDocLink: 'https://posthog.com/docs/data/events',
     },
     [DataManagementTab.Actions]: {
         url: urls.actions(),
@@ -65,6 +72,7 @@ const tabs: Record<
         ),
         buttons: <NewActionButton />,
         content: <ActionsTable />,
+        tooltipDocLink: 'https://posthog.com/docs/data/actions',
     },
     [DataManagementTab.PropertyDefinitions]: {
         url: urls.propertyDefinitions(),
@@ -80,12 +88,21 @@ const tabs: Record<
             </TitleWithIcon>
         ),
         content: <PropertyDefinitionsTable />,
+        tooltipDocLink: 'https://posthog.com/docs/new-to-posthog/understand-posthog#properties',
     },
     [DataManagementTab.Annotations]: {
         url: urls.annotations(),
         content: <Annotations />,
         label: 'Annotations',
         buttons: <NewAnnotationButton />,
+        tooltipDocLink: 'https://posthog.com/docs/data/annotations',
+    },
+    [DataManagementTab.Comments]: {
+        url: urls.comments(),
+        content: <Comments />,
+        label: 'Comments',
+        buttons: undefined,
+        tooltipDocLink: 'https://posthog.com/docs/data/comments',
     },
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),
@@ -96,6 +113,7 @@ const tabs: Record<
                 caption="Only actions taken in the UI are captured in History. Automatic creation of definitions by ingestion is not shown here."
             />
         ),
+        tooltipDocLink: 'https://posthog.com/docs/data#history',
     },
     [DataManagementTab.Revenue]: {
         url: urls.revenueSettings(),
@@ -107,14 +125,27 @@ const tabs: Record<
                 </LemonTag>
             </>
         ),
-        content: <RevenueEventsSettings />,
-        flag: FEATURE_FLAGS.WEB_REVENUE_TRACKING,
+        content: <RevenueAnalyticsSettings />,
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
         label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
+        tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
+    },
+    [DataManagementTab.MarketingAnalytics]: {
+        url: urls.marketingAnalytics(),
+        label: (
+            <>
+                Marketing{' '}
+                <LemonTag type="warning" size="small" className="ml-2">
+                    BETA
+                </LemonTag>
+            </>
+        ),
+        content: <MarketingAnalyticsSettings />,
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     },
 }
 
@@ -172,7 +203,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                 // otherwise we can't use a url with parameters as a landing page
                 return
             }
-            return tabUrl
+            return [tabUrl, router.values.searchParams, router.values.hashParams]
         },
     })),
     urlToAction(({ actions, values }) => {
@@ -189,27 +220,18 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
     }),
 ])
 
-export function DataManagementScene(): JSX.Element {
+export function DataManagementScene(): JSX.Element | null {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
-    const { setTab } = useActions(dataManagementSceneLogic)
 
-    const lemonTabs: LemonTab<DataManagementTab>[] = enabledTabs.map((key) => ({
-        key: key as DataManagementTab,
-        label: <span data-attr={`data-management-${key}-tab`}>{tabs[key].label}</span>,
-        content: tabs[key].content,
-    }))
-
-    return (
-        <>
-            <PageHeader
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-                buttons={<>{tabs[tab].buttons}</>}
-            />
-
-            <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={lemonTabs} />
-        </>
-    )
+    if (enabledTabs.includes(tab)) {
+        return (
+            <>
+                <PageHeader buttons={<>{tabs[tab].buttons}</>} />
+                {tabs[tab].content}
+            </>
+        )
+    }
+    return null
 }
 
 export const scene: SceneExport = {

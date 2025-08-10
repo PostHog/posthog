@@ -2,6 +2,9 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
@@ -31,7 +34,8 @@ const dataIngestedCounter = new Counter({
 export class ReplayEventsIngester {
     constructor(
         private readonly producer: KafkaProducerWrapper,
-        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
+        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker,
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate = null
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -120,6 +124,10 @@ export class ReplayEventsIngester {
         }
 
         try {
+            if (eventPassesMetadataSwitchoverTest(event.metadata.timestamp, this.metadataSwitchoverDate)) {
+                return drop('after_switchover_date')
+            }
+
             const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
 
             const { event: replayRecord } = createSessionReplayEvent(

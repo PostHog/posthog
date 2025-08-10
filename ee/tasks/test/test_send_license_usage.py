@@ -70,9 +70,9 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
             data={"date": "2021-10-09", "key": self.license.key, "events_count": 3},
         )
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
             "send license usage data",
-            {
+            distinct_id=self.user.distinct_id,
+            properties={
                 "date": "2021-10-09",
                 "events_count": 3,
                 "license_keys": [self.license.key],
@@ -130,9 +130,13 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         with self.assertRaises(Exception):
             send_license_usage()
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
             "send license usage data error",
-            {"error": "", "date": "2021-10-09", "organization_name": "Test"},
+            distinct_id=self.user.distinct_id,
+            properties={
+                "error": "",
+                "date": "2021-10-09",
+                "organization_name": "Test",
+            },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
@@ -249,9 +253,9 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         send_license_usage()
 
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
             "send license usage data error",
-            {
+            distinct_id=self.user.distinct_id,
+            properties={
                 "error": "",
                 "date": "2021-10-09",
                 "organization_name": "Test",

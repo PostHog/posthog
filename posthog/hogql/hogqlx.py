@@ -2,7 +2,45 @@ from typing import Any
 
 from posthog.hogql import ast
 
-HOGQLX_COMPONENTS = ["Sparkline", "a", "em", "strong", "RecordingButton"]
+## ::NB:: Sync this list with frontend/src/queries/nodes/HogQLX/render.tsx
+## Sanitization is done on the client side, as we can never be sure what tuple('__hx_tag', 'tag_name') comes our way.
+HOGQLX_COMPONENTS = ["Sparkline", "RecordingButton", "ExplainCSPReport"]
+HOGQLX_TAGS_SPECIAL = [
+    "a",
+    "blink",
+    "marquee",
+    "redacted",
+]
+HOGQLX_TAGS_NO_ATTRIBUTES = [
+    "em",
+    "strong",
+    "span",
+    "div",
+    "p",
+    "pre",
+    "code",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "blockquote",
+    "hr",
+    "b",
+    "i",
+    "u",
+]
+HOGQLX_TAGS = HOGQLX_TAGS_SPECIAL + HOGQLX_TAGS_NO_ATTRIBUTES
 
 
 def convert_tag_to_hx(node: ast.HogQLXTag) -> ast.Tuple:

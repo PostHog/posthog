@@ -22,7 +22,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
             icon={<IconTableChart />}
             to={urls.insightNew({ query })}
             sideAction={
-                response?.hogql
+                response && 'hogql' in response && response.hogql
                     ? {
                           dropdown: {
                               overlay: (

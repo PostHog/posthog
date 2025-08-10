@@ -38,5 +38,3 @@ export const billingProductAddonLogic = kea<billingProductAddonLogicType>([
         ],
     }),
 ])
-
-export {}

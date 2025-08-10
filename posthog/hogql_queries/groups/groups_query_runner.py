@@ -1,6 +1,6 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_order_expr
+from posthog.hogql.parser import parse_order_expr, parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -82,7 +82,7 @@ class GroupsQueryRunner(QueryRunner):
         return ast.SelectQuery(
             select=[
                 ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
-                *[ast.Field(chain=list(col.split("."))) for col in self.columns[1:]],
+                *[parse_expr(col) for col in self.columns[1:]],
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
             where=where,

@@ -1,6 +1,6 @@
 export interface RoleBasedMessage {
     role: string
-    content: string | { type: string; content: string }
+    content: string | { type: string; content: string } | object[]
 }
 
 export interface OpenAIToolCall {
@@ -37,6 +37,12 @@ export interface AnthropicToolCallMessage {
     id: string
     name: string
     input: Record<string, any>
+}
+
+export interface AnthropicThinkingMessage {
+    type: 'thinking'
+    thinking: string
+    signature: string
 }
 
 export interface AnthropicToolResultMessage {

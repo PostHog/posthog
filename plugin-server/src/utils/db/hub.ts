@@ -1,15 +1,13 @@
-import ClickHouse from '@posthog/clickhouse'
-import * as fs from 'fs'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
-import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
@@ -19,14 +17,16 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { OrganizationManager } from '../../worker/ingestion/organization-manager'
-import { TeamManager } from '../../worker/ingestion/team-manager'
+import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { RustyHook } from '../../worker/rusty-hook'
+import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
 import { getObjectStorage } from '../object_storage'
-import { TeamManagerLazy } from '../team-manager-lazy'
+import { PubSub } from '../pubsub'
+import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
@@ -76,26 +76,6 @@ export async function createHub(
     }
     const instanceId = new UUIDT()
 
-    logger.info('🤔', `Connecting to ClickHouse...`)
-    const clickhouse = new ClickHouse({
-        // We prefer to run queries on the offline cluster.
-        host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
-        port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
-        protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
-        user: serverConfig.CLICKHOUSE_USER,
-        password: serverConfig.CLICKHOUSE_PASSWORD || undefined,
-        dataObjects: true,
-        queryOptions: {
-            database: serverConfig.CLICKHOUSE_DATABASE,
-            output_format_json_quote_64bit_integers: false,
-        },
-        ca: serverConfig.CLICKHOUSE_CA
-            ? fs.readFileSync(path.join(serverConfig.BASE_DIR, serverConfig.CLICKHOUSE_CA)).toString()
-            : undefined,
-        rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
-    })
-    logger.info('👍', `ClickHouse ready`)
-
     logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
@@ -123,31 +103,34 @@ export async function createHub(
         postgres,
         redisPool,
         kafkaProducer,
-        clickhouse,
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManagerLazy = new TeamManagerLazy(postgres)
-    const teamManager = new TeamManager(postgres, teamManagerLazy)
-    const organizationManager = new OrganizationManager(postgres, teamManager, teamManagerLazy)
+    const teamManager = new TeamManager(postgres)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
+    const pubSub = new PubSub(serverConfig)
+    await pubSub.start()
     const rustyHook = new RustyHook(serverConfig)
-
-    const actionManager = new ActionManager(postgres, serverConfig)
+    const actionManager = new ActionManager(postgres, pubSub)
+    const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
-
+    const groupRepository = new PostgresGroupRepository(postgres)
+    const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+    const geoipService = new GeoIPService(serverConfig)
+    await geoipService.get()
+    const encryptedFields = new EncryptedFields(serverConfig)
+    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
 
-    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
+    const hub: Hub = {
         ...serverConfig,
         instanceId,
         capabilities,
         db,
         postgres,
         redisPool,
-        clickhouse,
         kafka,
         kafkaProducer,
         objectStorage: objectStorage,
@@ -161,41 +144,42 @@ export async function createHub(
         pluginSchedule: null,
 
         teamManager,
-        teamManagerLazy,
-        organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
         rustyHook,
         actionMatcher,
+        groupRepository,
+        clickhouseGroupRepository,
         actionManager,
-        geoipService: new GeoIPService(serverConfig),
+        actionManagerCDP,
+        geoipService,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
-        eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
-            process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
-        ),
         appMetrics: new AppMetrics(
             kafkaProducer,
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
             serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         ),
-        encryptedFields: new EncryptedFields(serverConfig),
+        encryptedFields,
         celery: new Celery(serverConfig),
         cookielessManager,
+        pubSub,
+        integrationManager,
     }
 
-    return {
-        ...hub,
-        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
-    }
+    return hub
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {
+    logger.info('💤', 'Closing hub...')
     if (!isTestEnv()) {
         await hub.appMetrics?.flush()
     }
+    logger.info('💤', 'Closing kafka, redis, postgres...')
+    await hub.pubSub.stop()
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
@@ -204,25 +188,8 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         ;(hub as any).eventsProcessor = undefined
         ;(hub as any).appMetrics = undefined
     }
+    logger.info('💤', 'Hub closed!')
 }
-
-export type KafkaConfig = Pick<
-    PluginsServerConfig,
-    | 'KAFKA_HOSTS'
-    | 'KAFKA_PRODUCER_HOSTS'
-    | 'KAFKA_SECURITY_PROTOCOL'
-    | 'KAFKA_PRODUCER_SECURITY_PROTOCOL'
-    | 'KAFKA_CLIENT_ID'
-    | 'KAFKA_PRODUCER_CLIENT_ID'
-    | 'KAFKA_CLIENT_RACK'
-    | 'KAFKAJS_LOG_LEVEL'
-    | 'KAFKA_CLIENT_CERT_B64'
-    | 'KAFKA_CLIENT_CERT_KEY_B64'
-    | 'KAFKA_TRUSTED_CERT_B64'
-    | 'KAFKA_SASL_MECHANISM'
-    | 'KAFKA_SASL_USER'
-    | 'KAFKA_SASL_PASSWORD'
->
 
 export function createKafkaClient({
     KAFKA_HOSTS,
@@ -234,7 +201,7 @@ export function createKafkaClient({
     KAFKA_SASL_MECHANISM,
     KAFKA_SASL_USER,
     KAFKA_SASL_PASSWORD,
-}: KafkaConfig) {
+}: PluginsServerConfig) {
     let kafkaSsl: ConnectionOptions | boolean | undefined
     if (KAFKA_CLIENT_CERT_B64 && KAFKA_CLIENT_CERT_KEY_B64 && KAFKA_TRUSTED_CERT_B64) {
         kafkaSsl = {

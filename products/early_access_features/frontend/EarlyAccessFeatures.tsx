@@ -14,6 +14,7 @@ import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 export const scene: SceneExport = {
     component: EarlyAccessFeatures,
     logic: earlyAccessFeaturesLogic,
+    settingSectionId: 'environment-feature-flags',
 }
 
 const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
@@ -37,7 +38,6 @@ export function EarlyAccessFeatures(): JSX.Element {
                         New feature
                     </LemonButton>
                 }
-                delimited
             />
             <ProductIntroduction
                 productName="Early access features"
@@ -76,8 +76,8 @@ export function EarlyAccessFeatures(): JSX.Element {
                                             stage === 'beta'
                                                 ? 'warning'
                                                 : stage === 'general-availability'
-                                                ? 'success'
-                                                : 'default'
+                                                  ? 'success'
+                                                  : 'default'
                                         }
                                         className="uppercase cursor-default"
                                     >

@@ -19,8 +19,6 @@
 }
 
 .Resizer {
-    --resizer-thickness: 8px;
-
     position: absolute;
     z-index: var(--z-resizer);
     user-select: none; // Fixes inadvertent selection of scene text when resizing
@@ -58,7 +56,7 @@
         }
 
         &::before {
-            background: var(--border-primary);
+            background: var(--color-border-primary);
             transition: 100ms ease transform;
         }
 
@@ -91,7 +89,7 @@
 
     &:hover .Resizer__handle::after,
     &--resizing .Resizer__handle::after {
-        outline: 3px solid var(--accent);
+        outline: 3px solid var(--color-accent);
         opacity: 0.25;
     }
 

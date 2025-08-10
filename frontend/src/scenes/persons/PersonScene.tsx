@@ -25,23 +25,16 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    NotebookNodeType,
-    PersonsTabType,
-    PersonType,
-    ProductKey,
-    PropertyDefinitionType,
-} from '~/types'
+
+import { ActivityScope, PersonsTabType, PersonType, ProductKey, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -115,6 +108,8 @@ export function PersonScene(): JSX.Element | null {
         urlId,
         distinctId,
         primaryDistinctId,
+        eventsQuery,
+        exceptionsQuery,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -129,7 +124,7 @@ export function PersonScene(): JSX.Element | null {
         throw new Error(personError)
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" meta={{ urlId }} />
+        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
 
     const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
@@ -214,21 +209,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    hiddenColumns: ['person'],
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        personId: person.id,
-                                        after: '-24h',
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <Query query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -266,6 +247,11 @@ export function PersonScene(): JSX.Element | null {
                                 </div>
                             </>
                         ),
+                    },
+                    {
+                        key: PersonsTabType.EXCEPTIONS,
+                        label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
+                        content: <Query query={exceptionsQuery} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,

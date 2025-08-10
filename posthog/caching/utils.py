@@ -129,20 +129,20 @@ class ThresholdMode(Enum):
 
 staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
     ThresholdMode.DEFAULT: {
-        None: timedelta(minutes=1),
-        "minute": timedelta(seconds=15),
-        "hour": timedelta(minutes=15),
-        "day": timedelta(hours=2),
-        "week": timedelta(hours=12),
-        "month": timedelta(days=1),
-    },
-    ThresholdMode.LAZY: {
-        None: timedelta(hours=1),
-        "minute": timedelta(hours=1),
+        None: timedelta(hours=6),
+        "minute": timedelta(minutes=5),
         "hour": timedelta(hours=1),
         "day": timedelta(hours=6),
         "week": timedelta(days=1),
-        "month": timedelta(days=2),
+        "month": timedelta(days=1),
+    },
+    ThresholdMode.LAZY: {
+        None: timedelta(hours=12),
+        "minute": timedelta(minutes=15),
+        "hour": timedelta(hours=2),
+        "day": timedelta(hours=12),
+        "week": timedelta(days=1),
+        "month": timedelta(days=1),
     },
     ThresholdMode.AI: {
         None: timedelta(hours=1),

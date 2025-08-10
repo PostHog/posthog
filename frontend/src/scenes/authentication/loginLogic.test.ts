@@ -4,6 +4,7 @@ import { handleLoginRedirect, loginLogic } from 'scenes/authentication/loginLogi
 
 import { initKea } from '~/initKea'
 import { initKeaTests } from '~/test/init'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 describe('loginLogic', () => {
     describe('redirect vulnerability', () => {
@@ -11,11 +12,10 @@ describe('loginLogic', () => {
             // Note, initKeaTests() is not called here because that uses a memory history, which doesn't throw on origin redirect
             initKea({ beforePlugins: [testUtilsPlugin] })
         })
-        it('should throw an exception on redirecting to a different origin', () => {
+        it('should ignore redirect attempt to a different origin', () => {
             router.actions.push(`${origin}/login?next=//google.com`)
-            expect(() => {
-                handleLoginRedirect()
-            }).toThrow()
+            handleLoginRedirect()
+            expect(router.values.location.pathname).toEqual('/')
         })
     })
 
@@ -37,8 +37,8 @@ describe('loginLogic', () => {
             ['javascript:something', '/'],
             ['/bla', '/bla'],
             [`${origin}/bla`, '/bla'],
-            [`http://some-other.origin/bla`, '/bla'],
-            ['//foo.bar', '//foo.bar'],
+            [`http://some-other.origin/bla`, '/'],
+            ['//foo.bar', '/'],
             ['/bla?haha', '/bla?haha'],
             ['/bla?haha#hoho', '/bla?haha#hoho'],
         ]
@@ -57,7 +57,7 @@ describe('loginLogic', () => {
                 handleLoginRedirect()
                 const newPath =
                     router.values.location.pathname + router.values.location.search + router.values.location.hash
-                expect(newPath).toEqual(result)
+                expect(removeProjectIdIfPresent(newPath)).toEqual(result)
             })
         }
     })

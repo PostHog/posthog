@@ -78,7 +78,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
         _create_person(
             team_id=team.pk,
             distinct_ids=[f"person{i}"],
-            properties={"group": i, "email": f"{i}@hey.com"},
+            properties={"group": str(i), "email": f"{i}@hey.com"},
         )
 
     cohort1 = Cohort.objects.create(
@@ -91,7 +91,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
                         "type": "OR",
                         "values": [
                             {"key": "group", "value": "none", "type": "person"},
-                            {"key": "group", "value": [1, 2, 3], "type": "person"},
+                            {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                         ],
                     }
                 ],
@@ -111,7 +111,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
                         "values": [
                             {
                                 "key": "group",
-                                "value": [1, 2, 3, 4, 5, 6],
+                                "value": ["1", "2", "3", "4", "5", "6"],
                                 "type": "person",
                             },
                         ],

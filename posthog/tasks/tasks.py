@@ -1,8 +1,8 @@
 import time
 from typing import Optional
 from uuid import UUID
-import posthoganalytics
 
+import posthoganalytics
 import requests
 from celery import shared_task
 from django.conf import settings
@@ -18,7 +18,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
-from posthog.ph_client import get_ph_client
+from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
@@ -310,69 +310,6 @@ KNOWN_CELERY_TASK_IDENTIFIERS = {
 
 
 @shared_task(ignore_result=True)
-def graphile_worker_queue_size() -> None:
-    from django.db import connections
-    from statshog.defaults.django import statsd
-
-    connection = connections["graphile"] if "graphile" in connections else connections["default"]
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-        SELECT count(*)
-        FROM graphile_worker.jobs
-        WHERE (jobs.locked_at is null or jobs.locked_at < (now() - INTERVAL '4 hours'))
-        AND run_at <= now()
-        AND attempts < max_attempts
-        """
-        )
-
-        queue_size = cursor.fetchone()[0]
-        statsd.gauge("graphile_worker_queue_size", queue_size)
-
-        # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
-        # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
-        # Jobs not yet eligible for execution are filtered out with run_at <= now()
-        cursor.execute(
-            """
-        SELECT task_identifier, count(*) as c, EXTRACT(EPOCH FROM MIN(run_at)) as oldest FROM graphile_worker.jobs
-        WHERE attempts < max_attempts
-        AND run_at <= now()
-        GROUP BY task_identifier
-        """
-        )
-
-        seen_task_identifier = set()
-        with pushed_metrics_registry("celery_graphile_worker_queue_size") as registry:
-            processing_lag_gauge = Gauge(
-                "posthog_celery_graphile_lag_seconds",
-                "Oldest scheduled run on pending Graphile jobs per task identifier, zero if queue empty.",
-                labelnames=["task_identifier"],
-                registry=registry,
-            )
-            waiting_jobs_gauge = Gauge(
-                "posthog_celery_graphile_waiting_jobs",
-                "Number of Graphile jobs in the queue, per task identifier.",
-                labelnames=["task_identifier"],
-                registry=registry,
-            )
-            for task_identifier, count, oldest in cursor.fetchall():
-                seen_task_identifier.add(task_identifier)
-                waiting_jobs_gauge.labels(task_identifier=task_identifier).set(count)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(time.time() - float(oldest))
-                statsd.gauge(
-                    "graphile_waiting_jobs",
-                    count,
-                    tags={"task_identifier": task_identifier},
-                )
-
-            # The query will not return rows for empty queues, creating missing points.
-            # Let's emit updates for known queues even if they are empty.
-            for task_identifier in KNOWN_CELERY_TASK_IDENTIFIERS - seen_task_identifier:
-                waiting_jobs_gauge.labels(task_identifier=task_identifier).set(0)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(0)
-
-
-@shared_task(ignore_result=True)
 def clickhouse_row_count() -> None:
     from statshog.defaults.django import statsd
 
@@ -567,19 +504,11 @@ def clean_stale_partials() -> None:
 
 
 @shared_task(ignore_result=True)
-def monitoring_check_clickhouse_schema_drift() -> None:
-    from posthog.tasks.check_clickhouse_schema_drift import (
-        check_clickhouse_schema_drift,
-    )
-
-    check_clickhouse_schema_drift()
-
-
-@shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
     enqueue_cohorts_to_calculate(parallel_count)
+    reset_stuck_cohorts()
 
 
 class Polling:
@@ -716,7 +645,7 @@ def calculate_decide_usage() -> None:
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
-    ph_client = get_ph_client()
+    ph_client = get_regional_ph_client()
 
     if ph_client:
         capture_decide_usage_for_all_teams(ph_client)
@@ -902,7 +831,7 @@ def ee_persist_finished_recordings_v2() -> None:
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
 )
-def ee_count_items_in_playlists() -> None:
+def count_items_in_playlists() -> None:
     try:
         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             enqueue_recordings_that_match_playlist_filters,
@@ -915,10 +844,107 @@ def ee_count_items_in_playlists() -> None:
 
 
 @shared_task(ignore_result=True)
-def calculate_external_data_rows_synced() -> None:
+def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
+    from posthog.tasks.environments_rollback import environments_rollback_migration
+
+    environments_rollback_migration(organization_id, environment_mappings, user_id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+def background_delete_model_task(
+    model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
+) -> None:
+    """
+    Background task to delete records from a model in batches.
+
+    Args:
+        model_name: Django model name in format 'app_label.model_name'
+        team_id: Team ID to filter records for deletion
+        batch_size: Number of records to delete per batch
+        records_to_delete: Maximum number of records to delete (None means delete all)
+    """
+    import logging
+    from django.apps import apps
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+    logger.setLevel(logging.INFO)
+
     try:
-        from posthog.tasks.warehouse import capture_external_data_rows_synced
-    except ImportError:
-        pass
-    else:
-        capture_external_data_rows_synced()
+        # Parse model name
+        app_label, model_label = model_name.split(".")
+        model = apps.get_model(app_label, model_label)
+
+        # Determine team field name
+        team_field = "team_id" if hasattr(model, "team_id") else "team"
+
+        # Get total count for logging - use raw SQL for better performance
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) FROM {model._meta.db_table} WHERE {team_field} = %s", [team_id])
+            total_count = cursor.fetchone()[0]
+        logger.info(f"Starting background deletion for {model_name}, team_id={team_id}, total={total_count}")
+
+        # Determine how many records to actually delete
+        if records_to_delete is not None:
+            records_to_delete = min(records_to_delete, total_count)
+            logger.info(f"Will delete up to {records_to_delete} records due to records_to_delete limit")
+        else:
+            records_to_delete = total_count
+
+        # At this point, records_to_delete is guaranteed to be an int
+        records_to_delete_int: int = records_to_delete  # type: ignore
+
+        deleted_count = 0
+        batch_num = 0
+
+        while deleted_count < records_to_delete_int:
+            # Calculate how many more records we can delete
+            remaining_to_delete = records_to_delete_int - deleted_count
+            current_batch_size = min(batch_size, remaining_to_delete)
+
+            # Use raw SQL for both SELECT and DELETE to avoid Django ORM overhead
+            with connection.cursor() as cursor:
+                # Get batch of IDs to delete - no offset needed since we're deleting as we go
+                cursor.execute(
+                    f"""
+                    SELECT id FROM {model._meta.db_table}
+                    WHERE {team_field} = %s
+                    LIMIT %s
+                    """,
+                    [team_id, current_batch_size],
+                )
+                batch_ids = [row[0] for row in cursor.fetchall()]
+
+            if not batch_ids:
+                logger.info(f"No more records to delete for {model_name}, team_id={team_id}")
+                break
+
+            # Delete the batch using raw SQL for better performance
+            with connection.cursor() as cursor:
+                # Use IN clause with parameterized query
+                placeholders = ",".join(["%s"] * len(batch_ids))
+                cursor.execute(f"DELETE FROM {model._meta.db_table} WHERE id IN ({placeholders})", batch_ids)
+                deleted_in_batch = cursor.rowcount
+
+            deleted_count += deleted_in_batch
+            batch_num += 1
+
+            logger.info(
+                f"Deleted batch {batch_num} for {model_name}, "
+                f"team_id={team_id}, batch_size={deleted_in_batch}, "
+                f"total_deleted={deleted_count}/{records_to_delete_int}"
+            )
+
+            # If we got fewer records than requested, we're done
+            if len(batch_ids) < current_batch_size:
+                break
+
+            time.sleep(0.2)  # Sleep to avoid overwhelming the database
+
+        logger.info(
+            f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)
+        raise

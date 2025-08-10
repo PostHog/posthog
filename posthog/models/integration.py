@@ -2,7 +2,9 @@ from dataclasses import dataclass
 import hashlib
 import hmac
 import time
-from datetime import timedelta
+import jwt
+import json
+from datetime import timedelta, datetime
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
@@ -11,6 +13,7 @@ from prometheus_client import Counter
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from rest_framework import status
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -22,10 +25,11 @@ from posthog.cache_utils import cache_for
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
+from products.messaging.backend.providers import MailjetProvider, TwilioProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -57,11 +61,16 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
+        GOOGLE_SHEETS = "google-sheets"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
+        GITHUB = "github"
+        META_ADS = "meta-ads"
+        TWILIO = "twilio"
+        CLICKUP = "clickup"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -96,6 +105,8 @@ class Integration(models.Model):
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
         if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
+        if self.kind == "github":
+            return dot_get(self.config, "account.name", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -134,10 +145,13 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-sheets",
         "snapchat",
         "linkedin-ads",
+        "meta-ads",
         "intercom",
         "linear",
+        "clickup",
     ]
     integration: Integration
 
@@ -184,6 +198,19 @@ class OauthIntegration:
                 id_path="instance_url",
                 name_path="instance_url",
             )
+        elif kind == "salesforce-sandbox":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            return OauthConfig(
+                authorize_url="https://test.salesforce.com/services/oauth2/authorize",
+                token_url="https://test.salesforce.com/services/oauth2/token",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="full refresh_token",
+                id_path="instance_url",
+                name_path="instance_url",
+            )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Hubspot app not configured")
@@ -217,6 +244,23 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-sheets":
+            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
+                raise NotImplementedError("Google Sheets app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
+                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
+                scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -274,13 +318,47 @@ class OauthIntegration:
                 additional_authorize_params={"actor": "application"},
                 token_url="https://api.linear.app/oauth/token",
                 token_info_url="https://api.linear.app/graphql",
-                token_info_graphql_query="{ viewer { organization { id name } } }",
-                token_info_config_fields=["data.viewer.organization.id", "data.viewer.organization.name"],
+                token_info_graphql_query="{ viewer { organization { id name urlKey } } }",
+                token_info_config_fields=[
+                    "data.viewer.organization.id",
+                    "data.viewer.organization.name",
+                    "data.viewer.organization.urlKey",
+                ],
                 client_id=settings.LINEAR_APP_CLIENT_ID,
                 client_secret=settings.LINEAR_APP_CLIENT_SECRET,
                 scope="read issues:create",
                 id_path="data.viewer.organization.id",
                 name_path="data.viewer.organization.name",
+            )
+        elif kind == "meta-ads":
+            if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Meta Ads app not configured")
+
+            return OauthConfig(
+                authorize_url=f"https://www.facebook.com/{MetaAdsIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me",
+                token_info_config_fields=["id", "name", "email"],
+                client_id=settings.META_ADS_APP_CLIENT_ID,
+                client_secret=settings.META_ADS_APP_CLIENT_SECRET,
+                scope="ads_read ads_management business_management read_insights",
+                id_path="id",
+                name_path="name",
+            )
+        elif kind == "clickup":
+            if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
+                raise NotImplementedError("ClickUp app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.clickup.com/api",
+                token_url="https://api.clickup.com/api/v2/oauth/token",
+                token_info_url="https://api.clickup.com/api/v2/user",
+                token_info_config_fields=["user.id", "user.email"],
+                client_id=settings.CLICKUP_APP_CLIENT_ID,
+                client_secret=settings.CLICKUP_APP_CLIENT_SECRET,
+                scope="",
+                id_path="user.id",
+                name_path="user.email",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -310,7 +388,6 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
-
         res = requests.post(
             oauth_config.token_url,
             data={
@@ -325,7 +402,28 @@ class OauthIntegration:
         config: dict = res.json()
 
         if res.status_code != 200 or not config.get("access_token"):
-            raise Exception("Oauth error")
+            # Hack to try getting sandbox auth token instead of their salesforce production account
+            if kind == "salesforce":
+                oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
+                res = requests.post(
+                    oauth_config.token_url,
+                    data={
+                        "client_id": oauth_config.client_id,
+                        "client_secret": oauth_config.client_secret,
+                        "code": params["code"],
+                        "redirect_uri": OauthIntegration.redirect_uri(kind),
+                        "grant_type": "authorization_code",
+                    },
+                )
+
+                config = res.json()
+
+                if res.status_code != 200 or not config.get("access_token"):
+                    logger.error(f"Oauth error for {kind}", response=res.text)
+                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
+            else:
+                logger.error(f"Oauth error for {kind}", response=res.text)
+                raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
@@ -363,6 +461,11 @@ class OauthIntegration:
             "id_token": config.pop("id_token", None),
         }
 
+        # Handle case where Salesforce doesn't provide expires_in in initial response
+        if not config.get("expires_in") and kind == "salesforce":
+            # Default to 1 hour for Salesforce if not provided (conservative)
+            config["expires_in"] = 3600
+
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -388,7 +491,15 @@ class OauthIntegration:
         refresh_token = self.integration.sensitive_config.get("refresh_token")
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
-        if not refresh_token or not expires_in or not refreshed_at:
+
+        if not refresh_token:
+            return False
+
+        if not expires_in and self.integration.kind == "salesforce":
+            # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
+            expires_in = 3600
+
+        if not expires_in or not refreshed_at:
             return False
 
         # To be really safe we refresh if its half way through the expiry
@@ -422,7 +533,14 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
-            self.integration.config["expires_in"] = config.get("expires_in")
+
+            # Handle case where Salesforce doesn't provide expires_in in refresh response
+            expires_in = config.get("expires_in")
+            if not expires_in and self.integration.kind == "salesforce":
+                # Default to 1 hour for Salesforce if not provided (conservative)
+                expires_in = 3600
+
+            self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
@@ -632,7 +750,7 @@ class GoogleAdsIntegration:
             )
 
             if response.status_code != 200:
-                return []
+                return accounts
 
             data = response.json()
 
@@ -732,8 +850,15 @@ class GoogleCloudIntegration:
         """
         Refresh the access token for the integration if necessary
         """
+        if self.integration.kind == "google-pubsub":
+            scope = "https://www.googleapis.com/auth/pubsub"
+        elif self.integration.kind == "google-cloud-storage":
+            scope = "https://www.googleapis.com/auth/devstorage.read_write"
+        else:
+            raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
+
         credentials = service_account.Credentials.from_service_account_info(
-            self.integration.sensitive_config, scopes=["https://www.googleapis.com/auth/pubsub"]
+            self.integration.sensitive_config, scopes=[scope]
         )
 
         try:
@@ -792,11 +917,113 @@ class LinkedInAdsIntegration:
         return response.json()
 
 
-class MailIntegration:
+class ClickUpIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
+        if integration.kind != "clickup":
+            raise Exception("ClickUpIntegration init called with Integration with wrong 'kind'")
+
         self.integration = integration
+
+    def list_clickup_spaces(self, workspace_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/team/{workspace_id}/space",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list spaces: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_folderless_lists(self, space_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/space/{space_id}/list",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list lists: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_folders(self, space_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/space/{space_id}/folder",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list folders: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_workspaces(self) -> dict:
+        response = requests.request(
+            "GET",
+            "https://api.clickup.com/api/v2/team",
+            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list workspaces: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+
+class EmailIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "email":
+            raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @property
+    def mailjet_provider(self) -> MailjetProvider:
+        return MailjetProvider()
+
+    @classmethod
+    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
+        mailjet = MailjetProvider()
+        mailjet.create_email_domain(domain, team_id=team_id)
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="email",
+            integration_id=domain,
+            defaults={
+                "config": {
+                    "domain": domain,
+                    "mailjet_verified": False,
+                    "aws_ses_verified": False,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
 
     @classmethod
     def integration_from_keys(
@@ -809,7 +1036,6 @@ class MailIntegration:
             defaults={
                 "config": {
                     "api_key": api_key,
-                    # TODO: Add support for other email vendors
                     "vendor": "mailjet",
                 },
                 "sensitive_config": {
@@ -818,12 +1044,26 @@ class MailIntegration:
                 "created_by": created_by,
             },
         )
-
         if integration.errors:
             integration.errors = ""
             integration.save()
 
         return integration
+
+    def verify(self):
+        domain = self.integration.config.get("domain")
+
+        verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+
+        if verification_result.get("status") == "success":
+            updated_config = {"mailjet_verified": True}
+
+            # Merge the new config with existing config
+            updated_config = {**self.integration.config, **updated_config}
+            self.integration.config = updated_config
+            self.integration.save()
+
+        return verification_result
 
 
 class LinearIntegration:
@@ -835,14 +1075,270 @@ class LinearIntegration:
 
         self.integration = integration
 
-    def list_teams(self) -> list[dict]:
-        query = f"{{ teams {{ nodes {{ id name }} }} }}"
+    def url_key(self) -> str:
+        return dot_get(self.integration.config, "data.viewer.organization.urlKey")
 
+    def list_teams(self) -> list[dict]:
+        body = self.query(f"{{ teams {{ nodes {{ id name }} }} }}")
+        teams = dot_get(body, "data.teams.nodes")
+        return teams
+
+    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
+        title: str = json.dumps(config.pop("title"))
+        description: str = json.dumps(config.pop("description"))
+        linear_team_id = config.pop("team_id")
+
+        issue_create_query = f'mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: "{linear_team_id}" }}) {{ success issue {{ identifier }} }} }}'
+        body = self.query(issue_create_query)
+        linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
+
+        attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
+        link_attachment_query = f'mutation AttachmentCreate {{ attachmentCreate(input: {{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }}) {{ success }} }}'
+        self.query(link_attachment_query)
+
+        return {"id": linear_issue_id}
+
+    def query(self, query):
         response = requests.post(
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
             json={"query": query},
         )
+        return response.json()
 
-        teams = dot_get(response.json(), "data.teams.nodes")
-        return teams
+
+class GitHubIntegration:
+    integration: Integration
+
+    @classmethod
+    def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
+        jwt_token = jwt.encode(
+            {
+                "iat": int(time.time()) - 300,  # 5 minutes in the past
+                "exp": int(time.time()) + 300,  # 5 minutes in the future
+                "iss": settings.GITHUB_APP_CLIENT_ID,
+            },
+            settings.GITHUB_APP_PRIVATE_KEY,
+            algorithm="RS256",
+        )
+
+        return requests.request(
+            method,
+            f"https://api.github.com/app/{endpoint}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {jwt_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+    @classmethod
+    def integration_from_installation_id(
+        cls, installation_id: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
+        installation_info = cls.client_request(f"installations/{installation_id}").json()
+        access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
+
+        config = {
+            "installation_id": installation_id,
+            "expires_in": datetime.fromisoformat(access_token["expires_at"]).timestamp() - int(time.time()),
+            "refreshed_at": int(time.time()),
+            "repository_selection": access_token["repository_selection"],
+            "account": {
+                "type": dot_get(installation_info, "account.type", None),
+                "name": dot_get(installation_info, "account.login", installation_id),
+            },
+        }
+
+        sensitive_config = {"access_token": access_token["token"]}
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="github",
+            integration_id=installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "github":
+            raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be really safe we refresh if its half way through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self):
+        """
+        Refresh the access token for the integration if necessary
+        """
+        response = self.client_request(f"installations/{self.integration.integration_id}/access_tokens", method="POST")
+        config = response.json()
+
+        if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
+            logger.warning(f"Failed to refresh token for {self}", response=response.text)
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        else:
+            logger.info(f"Refreshed access token for {self}")
+            expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
+            self.integration.config["expires_in"] = expires_in
+            self.integration.config["refreshed_at"] = int(time.time())
+            self.integration.sensitive_config["access_token"] = config["token"]
+            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        self.integration.save()
+
+    def organization(self) -> str:
+        return dot_get(self.integration.config, "account.name")
+
+    def list_repositories(self, page: int = 1) -> list[dict]:
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        repositories = response.json()["repositories"]
+        return [repo["name"] for repo in repositories]
+
+    def create_issue(self, config: dict[str, str]):
+        title: str = config.pop("title")
+        body: str = config.pop("body")
+        repository: str = config.pop("repository")
+
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/issues",
+            json={"title": title, "body": body},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        issue = response.json()
+
+        return {"number": issue["number"], "repository": repository}
+
+
+class MetaAdsIntegration:
+    integration: Integration
+    api_version: str = "v23.0"
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "meta-ads":
+            raise Exception("MetaAdsIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    def refresh_access_token(self):
+        oauth_config = OauthIntegration.oauth_config_for_kind(self.integration.kind)
+
+        # check if refresh is necessary (less than 7 days)
+        if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
+            if (
+                time.time()
+                > self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
+            ):
+                return
+
+        res = requests.post(
+            oauth_config.token_url,
+            data={
+                "client_id": oauth_config.client_id,
+                "client_secret": oauth_config.client_secret,
+                "fb_exchange_token": self.integration.sensitive_config["access_token"],
+                "grant_type": "fb_exchange_token",
+                "set_token_expires_in_60_days": True,
+            },
+        )
+
+        config: dict = res.json()
+
+        if res.status_code != 200 or not config.get("access_token"):
+            logger.warning(f"Failed to refresh token for {self}", response=res.text)
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        else:
+            logger.info(f"Refreshed access token for {self}")
+            self.integration.sensitive_config["access_token"] = config["access_token"]
+            self.integration.errors = ""
+            self.integration.config["expires_in"] = config.get("expires_in")
+            self.integration.config["refreshed_at"] = int(time.time())
+            # not used in CDP yet
+            # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        self.integration.save()
+
+
+class TwilioIntegration:
+    integration: Integration
+    twilio_provider: TwilioProvider
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "twilio":
+            raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+        self.twilio_provider = TwilioProvider(
+            account_sid=self.integration.config["account_sid"],
+            auth_token=self.integration.sensitive_config["auth_token"],
+        )
+
+    def list_twilio_phone_numbers(self) -> list[dict]:
+        twilio_phone_numbers = self.twilio_provider.get_phone_numbers()
+
+        if not twilio_phone_numbers:
+            raise Exception(f"There was an internal error")
+
+        return twilio_phone_numbers
+
+    def integration_from_keys(self) -> Integration:
+        account_info = self.twilio_provider.get_account_info()
+
+        if not account_info.get("sid"):
+            raise ValidationError({"account_info": "Failed to get account info"})
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=self.integration.team_id,
+            kind="twilio",
+            integration_id=account_info["sid"],
+            defaults={
+                "config": {
+                    "account_sid": account_info["sid"],
+                },
+                "sensitive_config": {
+                    "auth_token": self.integration.sensitive_config["auth_token"],
+                },
+                "created_by": self.integration.created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration

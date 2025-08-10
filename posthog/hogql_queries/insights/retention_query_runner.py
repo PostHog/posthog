@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta
+
+from posthog.hogql.ast import Alias
+from posthog.hogql.base import Expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
@@ -31,6 +34,8 @@ from posthog.schema import (
     EntityType,
 )
 from posthog.schema import RetentionQuery, RetentionType, Breakdown
+from posthog.hogql.constants import get_breakdown_limit_for_context
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7
@@ -189,32 +194,23 @@ class RetentionQueryRunner(QueryRunner):
         self, property_name: str, breakdown_type: str, group_type_index: int | None = None
     ) -> ast.Expr:
         if breakdown_type == "person":
-            properties_chain = ["person", "properties", property_name]
+            if property_name.startswith("$virt_"):
+                # Virtual properties exist as expression fields on the persons table
+                properties_chain = ["person", property_name]
+            else:
+                properties_chain = ["person", "properties", property_name]
         elif breakdown_type == "group":
             properties_chain = [f"groups_{group_type_index}", "properties", property_name]
         else:
             # Default to event properties
             properties_chain = ["events", "properties", property_name]
 
-        # Just use the field chain directly, HogQL will handle the property access efficiently
-        return ast.Call(
-            name="toString",
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Call(
-                            name="nullIf",
-                            args=[
-                                ast.Field(chain=cast(list[str | int], properties_chain)),
-                                ast.Constant(value=""),
-                            ],
-                        ),
-                        ast.Constant(value=""),
-                    ],
-                ),
-            ],
-        )
+        # Convert the property to String first, then handle NULLs.
+        # This avoids potential type mismatches (e.g., mixing Float64 and String for NULLs).
+        property_field = ast.Field(chain=cast(list[str | int], properties_chain))
+        to_string_expr = ast.Call(name="toString", args=[property_field])
+        # Replace NULL with empty string ''
+        return ast.Call(name="ifNull", args=[to_string_expr, ast.Constant(value="")])
 
     def actor_query(
         self,
@@ -255,6 +251,18 @@ class RetentionQueryRunner(QueryRunner):
                 "start_entity_expr": start_entity_expr,
                 "filter_timestamp": self.events_timestamp_filter,
             },
+        )
+
+        minimum_occurrences = self.query.retentionFilter.minimumOccurrences or 1
+        minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
+            minimum_occurrences=minimum_occurrences,
+            start_of_interval_sql=start_of_interval_sql,
+            return_entity_expr=return_entity_expr,
+        )
+        return_event_timestamps = self._get_return_event_timestamps_expr(
+            minimum_occurrences=minimum_occurrences,
+            start_of_interval_sql=start_of_interval_sql,
+            return_entity_expr=return_entity_expr,
         )
 
         if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
@@ -322,26 +330,6 @@ class RetentionQueryRunner(QueryRunner):
                 # start events between date_from and date_to (represented by start of interval)
                 # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
                 ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
-                # return events between date_from and date_to (represented by start of interval)
-                ast.Alias(
-                    alias="return_event_timestamps",
-                    expr=parse_expr(
-                        """
-                            arraySort(
-                                groupUniqArrayIf(
-                                    {start_of_interval_timestamp},
-                                    {returning_entity_expr} and
-                                    {filter_timestamp}
-                                )
-                            )
-                        """,
-                        {
-                            "start_of_interval_timestamp": start_of_interval_sql,
-                            "returning_entity_expr": return_entity_expr,
-                            "filter_timestamp": self.events_timestamp_filter,
-                        },
-                    ),
-                ),
                 # get all intervals between date_from and date_to (represented by start of interval)
                 ast.Alias(
                     alias="date_range",
@@ -362,6 +350,9 @@ class RetentionQueryRunner(QueryRunner):
                         },
                     ),
                 ),
+                *minimum_occurrences_aliases,
+                # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
+                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
                 # exploded (0 based) indices of matching intervals for start event
                 ast.Alias(
                     alias="start_interval_index",
@@ -562,45 +553,80 @@ class RetentionQueryRunner(QueryRunner):
         )
 
         if self.breakdowns_in_query:
-            breakdown_value_to_counts: dict[str, list[tuple[int, int, int]]] = {}
-            for row in response.results:
+            # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
+            breakdown_totals: dict[str, int] = {}
+            original_results = response.results or []
+            for row in original_results:
+                start_interval, intervals_from_base, breakdown_value, count = row
+                if intervals_from_base == 0:
+                    breakdown_totals[breakdown_value] = breakdown_totals.get(breakdown_value, 0) + count
+
+            # Step 2: Rank breakdowns and determine top N and 'Other'
+            breakdown_limit = (
+                self.query.breakdownFilter.breakdown_limit
+                if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit is not None
+                else get_breakdown_limit_for_context(self.limit_context)
+            )
+            # Sort by count descending, then by breakdown value ascending for stability
+            sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]), reverse=False)
+            other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
+
+            # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'
+            aggregated_data: dict[str, dict[int, dict[int, float]]] = {}
+            for row in original_results:
                 start_interval, intervals_from_base, breakdown_value, count = row
 
-                if breakdown_value not in breakdown_value_to_counts:
-                    breakdown_value_to_counts[breakdown_value] = []
+                target_breakdown = breakdown_value
+                if breakdown_value in other_values:
+                    target_breakdown = BREAKDOWN_OTHER_STRING_LABEL
 
-                breakdown_value_to_counts[breakdown_value].append((start_interval, intervals_from_base, count))
+                # Apply sampling correction when aggregating into the final structure
+                corrected_count = correct_result_for_sampling(count, self.query.samplingFactor)
+                aggregated_data[target_breakdown] = aggregated_data.get(target_breakdown, {})
+                breakdown_data = aggregated_data[target_breakdown]
 
-            results: list[dict[str, Any]] = []
-            for breakdown_value, intervals in breakdown_value_to_counts.items():
-                result_dict = {
-                    (start_interval, intervals_from_base): {
-                        "count": correct_result_for_sampling(count, self.query.samplingFactor),
-                    }
-                    for (start_interval, intervals_from_base, count) in intervals
-                }
+                breakdown_data[start_interval] = breakdown_data.get(start_interval, {})
+                interval_data = breakdown_data[start_interval]
+                interval_data[intervals_from_base] = interval_data.get(intervals_from_base, 0.0) + corrected_count
 
-                breakdown_results = [
-                    {
-                        "values": [
-                            {
-                                **result_dict.get((start_interval, return_interval), {"count": 0}),
-                                "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
-                            }
-                            for return_interval in range(self.query_date_range.lookahead)
-                        ],
-                        "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
-                        "date": self.get_date(start_interval),
-                        "breakdown_value": breakdown_value,
-                    }
-                    for start_interval in range(self.query_date_range.intervals_between)
-                ]
+            # Step 4: Format final output
+            final_results: list[dict[str, Any]] = []
+            # Keep track of the order based on the ranking
+            ordered_breakdown_keys = [item[0] for item in sorted_breakdowns[:breakdown_limit]]
+            if other_values:
+                ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
-                results.extend(breakdown_results)
+            for breakdown_value in ordered_breakdown_keys:
+                intervals_data: dict[int, dict[int, float]] = aggregated_data.get(breakdown_value, {})
+
+                breakdown_results = []
+                for start_interval in range(self.query_date_range.intervals_between):
+                    result_dict: dict[int, float] = intervals_data.get(start_interval, {})
+                    values = [
+                        {
+                            "count": result_dict.get(return_interval, 0.0),
+                            "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
+                        }
+                        for return_interval in range(self.query_date_range.lookahead)
+                    ]
+
+                    breakdown_results.append(
+                        {
+                            "values": values,
+                            "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
+                            "date": self.get_date(start_interval),
+                            "breakdown_value": breakdown_value,
+                        }
+                    )
+
+                final_results.extend(breakdown_results)
+
+            results = final_results
         else:
-            result_dict = {
+            # Rename this variable to avoid conflict with the one in the if block
+            results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {
                 (start_event_matching_interval, intervals_from_base): {
-                    "count": correct_result_for_sampling(count, self.query.samplingFactor),
+                    "count": correct_result_for_sampling(count, self.query.samplingFactor)
                 }
                 for (start_event_matching_interval, intervals_from_base, count) in response.results
             }
@@ -608,7 +634,7 @@ class RetentionQueryRunner(QueryRunner):
                 {
                     "values": [
                         {
-                            **result_dict.get((start_interval, return_interval), {"count": 0}),
+                            **results_by_interval_pair.get((start_interval, return_interval), {"count": 0.0}),
                             "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
                         }
                         for return_interval in range(self.query_date_range.lookahead)
@@ -847,3 +873,78 @@ class RetentionQueryRunner(QueryRunner):
                 events_query.where = ast.And(exprs=[cast(ast.Expr, existing_where), ast.And(exprs=event_filters)])
 
             return events_query
+
+    def _get_return_event_timestamps_expr(
+        self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
+    ) -> Expr:
+        if minimum_occurrences > 1:
+            # return_event_counts_by_interval is only calculated when minimum_occurrences > 1.
+            # See _get_minimum_occurrences_aliases method.
+            return parse_expr(
+                """
+                arrayFilter(
+                (date, counts) -> counts >= {minimum_occurrences},
+                date_range,
+                return_event_counts_by_interval,
+                )
+                """,
+                {"minimum_occurrences": ast.Constant(value=minimum_occurrences)},
+            )
+
+        return parse_expr(
+            """
+                arraySort(
+                    groupUniqArrayIf(
+                        {start_of_interval_timestamp},
+                        {returning_entity_expr} and
+                        {filter_timestamp}
+                    )
+                )
+            """,
+            {
+                "start_of_interval_timestamp": start_of_interval_sql,
+                "returning_entity_expr": return_entity_expr,
+                "filter_timestamp": self.events_timestamp_filter,
+            },
+        )
+
+    def _get_minimum_occurrences_aliases(
+        self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
+    ) -> list[Alias]:
+        """
+        Only include the following expressions when minimum occurrences value is set and greater than one. The query
+        with occurrences uses slightly more RAM, what can make some existing queries go over the max memory setting we
+        have and having them stop working.
+        """
+        if minimum_occurrences == 1:
+            return []
+
+        return_event_timestamps_with_dupes = ast.Alias(
+            alias="return_event_timestamps_with_dupes",
+            expr=parse_expr(
+                """
+                groupArrayIf(
+                    {start_of_interval_timestamp},
+                    {returning_entity_expr} and
+                    {filter_timestamp}
+                )
+                """,
+                {
+                    "start_of_interval_timestamp": start_of_interval_sql,
+                    "returning_entity_expr": return_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter,
+                },
+            ),
+        )
+        return_event_counts_by_interval = ast.Alias(
+            alias="return_event_counts_by_interval",
+            expr=parse_expr(
+                """
+                arrayMap(
+                    interval_date -> countEqual(return_event_timestamps_with_dupes, interval_date),
+                    date_range
+                )
+                """
+            ),
+        )
+        return [return_event_timestamps_with_dupes, return_event_counts_by_interval]

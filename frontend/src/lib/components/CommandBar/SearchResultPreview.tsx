@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ResultDescription, ResultName } from 'lib/components/CommandBar/SearchResult'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -8,8 +9,18 @@ import { tabToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 
 export const SearchResultPreview = (): JSX.Element | null => {
-    const { activeResultIndex, combinedSearchResults } = useValues(searchBarLogic)
+    const { activeResultIndex, combinedSearchResults, combinedSearchLoading } = useValues(searchBarLogic)
     const { openResult } = useActions(searchBarLogic)
+
+    if (combinedSearchLoading) {
+        return (
+            <div className="border bg-surface-primary rounded p-4 md:p-6 min-h-[245px] flex flex-col gap-y-2">
+                <LemonSkeleton className="w-[45px] h-4" />
+                <LemonSkeleton className="w-[150px] h-4" />
+                <LemonSkeleton className="w-[300px] h-4" />
+            </div>
+        )
+    }
 
     if (!combinedSearchResults || combinedSearchResults.length === 0) {
         return null

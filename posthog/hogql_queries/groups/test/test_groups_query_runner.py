@@ -294,3 +294,26 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
         self.assertEqual(result.results[0][0], "org0.inc")
         self.assertEqual(result.results[0][2], 200)
+
+    @snapshot_clickhouse_queries
+    def test_select_property_name_with_whitespaces(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="myorg",
+            properties={"name": "myorg.inc", "arr": 150, "prop with whitespace": True},
+        )
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+            select=['properties."prop with whitespace"'],
+        )
+
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        group = result.results[0]
+        self.assertEqual(group[0], "myorg.inc")
+        self.assertEqual(group[1], "myorg")
+        self.assertEqual(group[2], "true")

@@ -1,6 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -8,6 +7,7 @@ import { LLMTrace } from '~/queries/schema/schema-general'
 
 import fullTrace from './__mocks__/fullTrace.json'
 import { LLMObservabilityTraceScene } from './LLMObservabilityTraceScene'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-App/LLM Observability/Trace',
@@ -26,24 +26,14 @@ const Template: StoryFn<{ trace: LLMTrace; eventId?: string }> = ({ trace, event
         },
     })
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         router.actions.push(
             urls.llmObservabilityTrace(trace.id, eventId ? { event: eventId, timestamp: trace.createdAt } : undefined)
         )
-    }, [])
+    })
 
     return (
-        <div
-            className="relative flex flex-col p-4"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={
-                {
-                    '--breadcrumbs-height-full': '0px',
-                    '--scene-padding': '1rem',
-                    '--scene-padding-bottom': '1rem',
-                } as React.CSSProperties
-            }
-        >
+        <div className="relative flex flex-col p-4">
             <LLMObservabilityTraceScene />
         </div>
     )

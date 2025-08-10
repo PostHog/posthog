@@ -3,14 +3,13 @@ import { DateTime } from 'luxon'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { TimestampFormat } from '../../../../../src/types'
+import { SessionRecordingV2MetadataSwitchoverDate, TimestampFormat } from '../../../../../src/types'
 import { parseJSON } from '../../../../../src/utils/json-parse'
-import { logger } from '../../../../../src/utils/logger'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
 jest.mock('../../../../../src/utils/logger')
 
-import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (
     source: string | null,
@@ -55,9 +54,8 @@ describe('replay events ingester', () => {
 
         await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
 
-        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
-        const topicMessages = getParsedQueuedMessages()
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_ingestion_warnings_test')
         const value = topicMessages[0].messages[0].value!
@@ -80,10 +78,8 @@ describe('replay events ingester', () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage("mickey's fun house", ts))
 
-        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls[0]).toHaveLength(1)
-        const topicMessages = getParsedQueuedMessages()
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         // call.value is a Buffer convert it to a string
@@ -115,9 +111,8 @@ describe('replay events ingester', () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage(null, ts))
 
-        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
-        const topicMessages = getParsedQueuedMessages()
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         const value = topicMessages[0].messages[0].value!
@@ -157,9 +152,8 @@ describe('replay events ingester', () => {
             })
         )
 
-        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
-        const topicMessages = getParsedQueuedMessages()
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         const value = topicMessages[0].messages[0].value!
@@ -183,6 +177,117 @@ describe('replay events ingester', () => {
             team_id: 0,
             uuid: expect.any(String),
             urls: ['thing', 'thing2'],
+        })
+    })
+
+    describe('switchover date', () => {
+        const now = Date.now()
+        const switchoverDate = new Date(now)
+        const beforeSwitchover = now - 1000 // 1 second before
+        const atSwitchover = now
+        const afterSwitchover = now + 1000 // 1 second after
+
+        test('processes all events when switchover date is null', async () => {
+            const ingester = new ReplayEventsIngester(mockProducer, undefined, null)
+
+            // Create a batch with mixed timestamps and distinct data
+            const messages = [
+                makeIncomingMessage('web', beforeSwitchover, {
+                    main_window: [{ data: { href: 'before1' }, type: 2, timestamp: beforeSwitchover }],
+                }),
+                makeIncomingMessage('web', atSwitchover, {
+                    main_window: [{ data: { href: 'at' }, type: 2, timestamp: atSwitchover }],
+                }),
+                makeIncomingMessage('web', afterSwitchover, {
+                    main_window: [{ data: { href: 'after' }, type: 2, timestamp: afterSwitchover }],
+                }),
+                makeIncomingMessage('web', beforeSwitchover, {
+                    main_window: [{ data: { href: 'before2' }, type: 2, timestamp: beforeSwitchover }],
+                }),
+            ]
+
+            await ingester.consumeBatch(messages)
+
+            // Should process all messages since switchover is null
+            expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(4)
+            const topicMessages = mockProducerObserver.getParsedQueuedMessages()
+            expect(topicMessages).toHaveLength(4)
+
+            // Verify each message's content
+            const processedUrls = topicMessages.map((msg) => msg.messages[0].value?.urls[0] ?? null)
+            expect(processedUrls).toEqual(['before1', 'at', 'after', 'before2'])
+        })
+
+        test('processes events before switchover date', async () => {
+            const ingester = new ReplayEventsIngester(mockProducer, undefined, switchoverDate)
+            await ingester.consume(
+                makeIncomingMessage('web', beforeSwitchover, {
+                    main_window: [{ data: { href: 'before' }, type: 2, timestamp: beforeSwitchover }],
+                })
+            )
+
+            expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+            const topicMessages = mockProducerObserver.getParsedQueuedMessages()
+            expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
+            expect(topicMessages[0].messages[0].value?.urls[0]).toEqual('before')
+        })
+
+        test.each([
+            ['drops events at or after switchover date', switchoverDate],
+            ['drops events with * switchover date', true],
+        ])('%s', async (_name, configuredValue: Date | boolean) => {
+            const ingester = new ReplayEventsIngester(
+                mockProducer,
+                undefined,
+                configuredValue as SessionRecordingV2MetadataSwitchoverDate
+            )
+
+            // Test at switchover
+            await ingester.consume(
+                makeIncomingMessage('web', atSwitchover, {
+                    main_window: [{ data: { href: 'at' }, type: 2, timestamp: atSwitchover }],
+                })
+            )
+            expect(mockProducerObserver.produceSpy).not.toHaveBeenCalled()
+
+            // Test after switchover
+            await ingester.consume(
+                makeIncomingMessage('web', afterSwitchover, {
+                    main_window: [{ data: { href: 'after' }, type: 2, timestamp: afterSwitchover }],
+                })
+            )
+            expect(mockProducerObserver.produceSpy).not.toHaveBeenCalled()
+        })
+
+        test('processes mixed batch of events correctly', async () => {
+            const ingester = new ReplayEventsIngester(mockProducer, undefined, switchoverDate)
+
+            // Create a batch with mixed timestamps and distinct data
+            const messages = [
+                makeIncomingMessage('web', beforeSwitchover, {
+                    main_window: [{ data: { href: 'before1' }, type: 2, timestamp: beforeSwitchover }],
+                }),
+                makeIncomingMessage('web', atSwitchover, {
+                    main_window: [{ data: { href: 'at' }, type: 2, timestamp: atSwitchover }],
+                }),
+                makeIncomingMessage('web', afterSwitchover, {
+                    main_window: [{ data: { href: 'after' }, type: 2, timestamp: afterSwitchover }],
+                }),
+                makeIncomingMessage('web', beforeSwitchover, {
+                    main_window: [{ data: { href: 'before2' }, type: 2, timestamp: beforeSwitchover }],
+                }),
+            ]
+
+            await ingester.consumeBatch(messages)
+
+            // Should only process the two messages before switchover
+            expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(2)
+            const topicMessages = mockProducerObserver.getParsedQueuedMessages()
+            expect(topicMessages).toHaveLength(2)
+
+            // Verify only the before-switchover messages were processed
+            const processedUrls = topicMessages.map((msg) => msg.messages[0].value?.urls[0] ?? null)
+            expect(processedUrls).toEqual(['before1', 'before2'])
         })
     })
 })

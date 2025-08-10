@@ -1,0 +1,11 @@
+fun test(x) {
+  return x > 0;
+}
+
+assert_eq(arrayExists((x) -> x > 1, [1,2,3]), true)
+assert_eq(arrayExists(test, [1,2,3]), true)
+
+assert_eq(test(1), true)
+assert_eq(test(-1), false)
+
+return true

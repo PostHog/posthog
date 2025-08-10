@@ -1,23 +1,30 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import {
+    TEMPLATE_LINK_HEADING,
+    TEMPLATE_LINK_PII_WARNING,
+    TEMPLATE_LINK_TOOLTIP,
+} from 'lib/components/Sharing/templateLinkMessages'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
@@ -73,13 +80,14 @@ export function SharingModalContent({
         embedCode,
         iframeProperties,
         shareLink,
+        sharingAllowed,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { preflight } = useValues(preflightLogic)
+    const siteUrl = preflight?.site_url || window.location.origin
 
     const { push } = useActions(router)
-
-    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
@@ -87,7 +95,7 @@ export function SharingModalContent({
 
     useEffect(() => {
         setIframeLoaded(false)
-    }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
+    }, [iframeProperties.src, iframeProperties.key, sharingConfiguration?.enabled, showPreview])
 
     return (
         <div className="deprecated-space-y-4">
@@ -98,7 +106,7 @@ export function SharingModalContent({
                 </>
             ) : undefined}
 
-            {insightShortId && newAccessControl ? (
+            {insightShortId ? (
                 <>
                     <AccessControlPopoutCTA
                         resourceType={AccessControlResourceType.Insight}
@@ -118,26 +126,32 @@ export function SharingModalContent({
                 ) : (
                     <>
                         <h3>Sharing</h3>
+                        {!sharingAllowed && (
+                            <LemonBanner type="warning">
+                                Publicly sharing resources is disabled for this organization.
+                            </LemonBanner>
+                        )}
                         <LemonSwitch
                             id="sharing-switch"
                             label={`Share ${resource} publicly`}
-                            checked={sharingConfiguration.enabled}
+                            checked={sharingConfiguration.enabled && sharingAllowed}
                             data-attr="sharing-switch"
                             onChange={(active) => setIsEnabled(active)}
+                            disabled={!sharingAllowed}
                             bordered
                             fullWidth
                         />
 
-                        {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
+                        {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="deprecated-space-y-2">
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         type="secondary"
                                         onClick={() => {
-                                            // TRICKY: there's a chance this was sending useless errors to Sentry
+                                            // TRICKY: there's a chance this was sending useless errors to error tracking
                                             // even when it succeeded, so we're explicitly ignoring the promise success
-                                            // and naming the error when reported to Sentry - @pauldambra
+                                            // and naming the error when reported to error tracking - @pauldambra
                                             copyToClipboard(shareLink, shareLink).catch((e) =>
                                                 posthog.captureException(
                                                     new Error('unexpected sharing modal clipboard error: ' + e.message)
@@ -167,7 +181,7 @@ export function SharingModalContent({
                                 <Form
                                     logic={sharingLogic}
                                     props={logicProps}
-                                    formKey="embedConfig"
+                                    formKey="sharingSettings"
                                     className="deprecated-space-y-2"
                                 >
                                     <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
@@ -201,8 +215,8 @@ export function SharingModalContent({
                                                     }
                                                     onChange={() =>
                                                         guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
-                                                            // setEmbedConfigValue is used to update the form state and report the event
-                                                            setEmbedConfigValue('whitelabel', !value)
+                                                            // setSharingSettingsValue is used to update the form state and report the event
+                                                            setSharingSettingsValue('whitelabel', !value)
                                                         })
                                                     }
                                                     checked={!value}
@@ -227,6 +241,27 @@ export function SharingModalContent({
                                                         label={<div>Show inspector panel</div>}
                                                         onChange={onChange}
                                                         checked={value}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
+
+                                        {dashboardId && (
+                                            <LemonField name="hideExtraDetails">
+                                                {({ value, onChange }) => (
+                                                    <LemonSwitch
+                                                        fullWidth
+                                                        bordered
+                                                        label={
+                                                            <div className="flex items-center">
+                                                                <span>Show insight details</span>
+                                                                <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
+                                                                    <IconInfo className="ml-1.5 text-secondary text-lg" />
+                                                                </Tooltip>
+                                                            </div>
+                                                        }
+                                                        onChange={() => onChange(!value)}
+                                                        checked={!value}
                                                     />
                                                 )}
                                             </LemonField>
@@ -260,6 +295,17 @@ export function SharingModalContent({
                     </>
                 )}
             </div>
+            {insight?.query && (
+                <>
+                    <LemonDivider />
+                    <TemplateLinkSection
+                        templateLink={getInsightDefinitionUrl({ query: insight.query }, siteUrl)}
+                        heading={TEMPLATE_LINK_HEADING}
+                        tooltip={TEMPLATE_LINK_TOOLTIP}
+                        piiWarning={TEMPLATE_LINK_PII_WARNING}
+                    />
+                </>
+            )}
         </div>
     )
 }

@@ -1,7 +1,7 @@
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { extractBreakdownValues } from './dashboardInsightColorsModalLogic'
 
@@ -32,7 +32,7 @@ describe('extractBreakdownValues', () => {
             effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
             query: null,
             last_refresh: null,
-            user_access_level: 'none' as const,
+            user_access_level: AccessControlLevel.None,
             ...overrides,
         },
     })

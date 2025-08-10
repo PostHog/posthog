@@ -1,8 +1,11 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -21,10 +24,20 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import MaxTool from 'scenes/max/MaxTool'
+import { castAssistantQuery } from 'scenes/max/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
-import { InsightQueryNode } from '~/queries/schema/schema-general'
+import {
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+} from '~/queries/schema/schema-assistant-queries'
+import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { isHogQLQuery } from '~/queries/utils'
 import {
     AvailableFeature,
     ChartDisplayType,
@@ -35,6 +48,7 @@ import {
 } from '~/types'
 
 import { Breakdown } from './Breakdown'
+import { CalendarHeatmapFilters } from './CalendarHeatmapFilters'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
@@ -42,6 +56,8 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
+import { compareInsightTopLevelSections } from 'scenes/insights/utils'
+import { pluralize } from 'lib/utils'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -61,17 +77,33 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isLifecycle,
         isStickiness,
         isTrendsLike,
+        isCalendarHeatmap,
         display,
         pathsFilter,
         querySource,
         shouldShowSessionAnalysisWarning,
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
+
+    const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
+    const { previousQuery, suggestedQuery } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { setQuery } = useActions(insightVizDataLogic(insightProps))
+
+    const maxSuggestionActionsBanner = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (previousQuery && maxSuggestionActionsBanner.current) {
+            maxSuggestionActionsBanner.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }, [previousQuery])
 
     if (!querySource) {
         return null
     }
+
+    // MaxTool should not be active when insights are embedded (e.g., in notebooks)
+    const maxToolActive = !embedded
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
@@ -159,6 +191,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     label: isTrends ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
                 },
+                isCalendarHeatmap && {
+                    key: 'filters',
+                    label: 'Filters',
+                    component: CalendarHeatmapFilters,
+                },
                 isTrends && hasFormula
                     ? {
                           key: 'formula',
@@ -169,7 +206,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ]),
         },
         {
-            title: 'Advanced Options',
+            title: 'Advanced options',
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
@@ -328,32 +365,36 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
-        {
-            title: 'Advanced Options',
-            defaultExpanded: false,
-            editorFilters: filterFalsy([
-                {
-                    key: 'poe',
-                    component: PoeFilter,
-                },
-                {
-                    key: 'sampling',
-                    component: SamplingFilter,
-                },
-                isTrends &&
-                    isLineGraph && {
-                        key: 'goal-lines',
-                        label: 'Goal lines',
-                        tooltip: (
-                            <>
-                                Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits
-                                (Web Vitals, etc.)
-                            </>
-                        ),
-                        component: GoalLines,
-                    },
-            ]),
-        },
+        ...(!isCalendarHeatmap
+            ? [
+                  {
+                      title: 'Advanced options',
+                      defaultExpanded: false,
+                      editorFilters: filterFalsy([
+                          {
+                              key: 'poe',
+                              component: PoeFilter,
+                          },
+                          {
+                              key: 'sampling',
+                              component: SamplingFilter,
+                          },
+                          isTrends &&
+                              isLineGraph && {
+                                  key: 'goal-lines',
+                                  label: 'Goal lines',
+                                  tooltip: (
+                                      <>
+                                          Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
+                                          limits (Web Vitals, etc.)
+                                      </>
+                                  ),
+                                  component: GoalLines,
+                              },
+                      ]),
+                  },
+              ]
+            : []),
     ]
 
     const filterGroupsGroups = [
@@ -366,34 +407,113 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-            <>
-                <div
-                    className={clsx('EditorFiltersWrapper flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary', {
-                        'p-4 rounded border': !embedded,
-                    })}
-                >
-                    {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                        <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
-                            {editorFilterGroups.map((editorFilterGroup) => (
-                                <EditorFilterGroup
-                                    key={editorFilterGroup.title}
-                                    editorFilterGroup={editorFilterGroup}
-                                    insightProps={insightProps}
-                                    query={query}
-                                />
-                            ))}
-                        </div>
-                    ))}
-                </div>
-
+            <div className="EditorFiltersWrapper">
                 {shouldShowSessionAnalysisWarning ? (
-                    <LemonBanner type="info" className="mt-2">
+                    <LemonBanner type="info" className="mb-4">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}
                         <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
                     </LemonBanner>
                 ) : null}
-            </>
+
+                <div>
+                    <MaxTool
+                        name="create_and_query_insight"
+                        displayName="Edit insight"
+                        description="Max can tweak and rework the insight you're viewing"
+                        context={{
+                            current_query: querySource,
+                        }}
+                        callback={(
+                            toolOutput:
+                                | AssistantTrendsQuery
+                                | AssistantFunnelsQuery
+                                | AssistantRetentionQuery
+                                | AssistantHogQLQuery
+                        ) => {
+                            const source = castAssistantQuery(toolOutput)
+                            let node: DataVisualizationNode | InsightVizNode
+                            if (isHogQLQuery(source)) {
+                                node = {
+                                    kind: NodeKind.DataVisualizationNode,
+                                    source,
+                                } satisfies DataVisualizationNode
+                            } else {
+                                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            }
+                            handleInsightSuggested(node)
+                            setQuery(node)
+                        }}
+                        initialMaxPrompt="Show me users who "
+                        className="EditorFiltersWrapper"
+                        active={maxToolActive}
+                    >
+                        <div
+                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                                'p-4 rounded border': !embedded,
+                            })}
+                        >
+                            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                                <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                    {editorFilterGroups.map((editorFilterGroup) => (
+                                        <EditorFilterGroup
+                                            key={editorFilterGroup.title}
+                                            editorFilterGroup={editorFilterGroup}
+                                            insightProps={insightProps}
+                                            query={query}
+                                        />
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    </MaxTool>
+
+                    {previousQuery && (
+                        <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
+                            <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
+                                <div className="text-sm text-muted flex items-center gap-2 no-wrap">
+                                    <span className="size-2 bg-accent-active rounded-full" />
+                                    {(() => {
+                                        const changedLabels = compareInsightTopLevelSections(
+                                            previousQuery,
+                                            suggestedQuery
+                                        )
+                                        const diffString = `🔍 ${pluralize(
+                                            changedLabels.length,
+                                            'section'
+                                        )} changed: \n${changedLabels.join('\n')}`
+
+                                        return (
+                                            <div className="flex items-center gap-1">
+                                                <span>{pluralize(changedLabels.length, 'change')}</span>
+                                                {diffString && (
+                                                    <Tooltip
+                                                        title={<div className="whitespace-pre-line">{diffString}</div>}
+                                                    >
+                                                        <IconInfo className="text-sm text-muted cursor-help" />
+                                                    </Tooltip>
+                                                )}
+                                            </div>
+                                        )
+                                    })()}
+                                </div>
+
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        onRejectSuggestedInsight()
+                                    }}
+                                    tooltipPlacement="top"
+                                    size="small"
+                                    icon={<IconX />}
+                                >
+                                    Reject changes
+                                </LemonButton>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
         </CSSTransition>
     )
 }

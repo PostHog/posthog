@@ -2,9 +2,8 @@ from django.db import models
 
 from posthog.models.organization import Organization
 
-# NOTE: This will be deprecated in favour of the AccessControl model
 
-
+# DEPRECATED - do not use
 class OrganizationResourceAccess(models.Model):
     class AccessLevel(models.IntegerChoices):
         """Level for which a role or user can edit or view resources"""

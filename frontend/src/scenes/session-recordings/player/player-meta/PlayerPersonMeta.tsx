@@ -17,9 +17,10 @@ export function PlayerPersonMeta(): JSX.Element {
 
     const { setTab } = useActions(playerSidebarLogic)
     const { setSidebarOpen } = useActions(playerSettingsLogic)
+    const { sidebarOpen } = useValues(playerSettingsLogic)
 
     const onClick = (): void => {
-        setSidebarOpen(true)
+        setSidebarOpen(!sidebarOpen)
         setTab(SessionRecordingSidebarTab.OVERVIEW)
     }
 

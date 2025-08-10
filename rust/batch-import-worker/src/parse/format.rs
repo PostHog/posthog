@@ -11,7 +11,8 @@ use crate::{context::AppContext, job::model::JobModel};
 
 use super::{
     content::{
-        captured::captured_parse_fn, mixpanel::MixpanelEvent, ContentType, TransformContext,
+        amplitude::AmplitudeEvent, captured::captured_parse_fn, mixpanel::MixpanelEvent,
+        ContentType, TransformContext,
     },
     Parsed,
 };
@@ -61,6 +62,27 @@ impl FormatConfig {
 
                 let parser = move |data| {
                     let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
+                    let consumed = parsed.consumed;
+                    let result: Result<_, Error> = parsed
+                        .data
+                        .into_par_iter()
+                        .map(&event_transform)
+                        .filter_map(|x| x.transpose())
+                        .collect();
+
+                    Ok(Parsed {
+                        data: result?,
+                        consumed,
+                    })
+                };
+
+                Ok(Box::new(parser))
+            }
+            ContentType::Amplitude => {
+                let format_parse = json_nd(*skip_blanks);
+                let event_transform = AmplitudeEvent::parse_fn(transform_context, skip_geoip());
+                let parser = move |data| {
+                    let parsed: Parsed<Vec<AmplitudeEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
                     let result: Result<_, Error> = parsed
                         .data

@@ -1,6 +1,7 @@
 from datetime import timedelta
 from functools import cached_property
 from typing import Optional, cast
+import re
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -11,16 +12,17 @@ from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
+from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr, map_virtual_properties
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse, CachedEventsQueryResponse
 from posthog.utils import relative_date_parse
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
@@ -68,9 +70,22 @@ class EventsQueryRunner(QueryRunner):
                 # This will be expanded into a followup query
                 select_input.append("distinct_id")
                 person_indices.append(index)
+            elif col.split("--")[0].strip() == "person_display_name":
+                property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                # Only use backticks for property names with spaces or special chars
+                props = []
+                for key in property_keys:
+                    if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                        props.append(f"toString(person.properties.{key})")
+                    else:
+                        props.append(f"toString(person.properties.`{key}`)")
+                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
+                select_input.append(expr)
             else:
                 select_input.append(col)
-        return select_input, [parse_expr(column, timings=self.timings) for column in select_input]
+        return select_input, [
+            map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
+        ]
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -118,7 +133,7 @@ class EventsQueryRunner(QueryRunner):
                 if self.query.personId:
                     with self.timings.measure("person_id"):
                         person: Optional[Person] = get_pk_or_uuid(
-                            Person.objects.filter(team=self.team), self.query.personId
+                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
                         ).first()
                         where_exprs.append(
                             ast.CompareOperation(
@@ -171,7 +186,24 @@ class EventsQueryRunner(QueryRunner):
             # order by
             with self.timings.measure("order"):
                 if self.query.orderBy is not None:
-                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+                    columns: list[str] = []
+                    for _, col in enumerate(self.query.orderBy):
+                        if col.split("--")[0].strip() == "person_display_name":
+                            property_keys = (
+                                self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                            )
+                            props = []
+                            for key in property_keys:
+                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                                    props.append(f"toString(person.properties.{key})")
+                                else:
+                                    props.append(f"toString(person.properties.`{key}`)")
+                            expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
+                            newCol = re.sub(r"person_display_name -- Person ", expr, col)
+                            columns.append(newCol)
+                        else:
+                            columns.append(col)
+                    order_by = [parse_order_expr(column, timings=self.timings) for column in columns]
                 elif "count()" in select_input:
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
                 elif len(aggregations) > 0:
@@ -224,7 +256,7 @@ class EventsQueryRunner(QueryRunner):
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
-                        "SELECT timestamp, event, cityHash64(distinct_id) as did, cityHash64(uuid) as uuid FROM events"
+                        "SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM events"
                     )
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
@@ -270,22 +302,37 @@ class EventsQueryRunner(QueryRunner):
                     self.paginator.results[index][star_idx] = new_result
 
         person_indices: list[int] = []
-        for index, col in enumerate(self.select_input_raw()):
+        for column_index, col in enumerate(self.select_input_raw()):
             if col.split("--")[0].strip() == "person":
-                person_indices.append(index)
+                person_indices.append(column_index)
+            # convert tuple that gets returned into a dict
+            if col.split("--")[0].strip() == "person_display_name":
+                for index, result in enumerate(self.paginator.results):
+                    row = list(self.paginator.results[index])
+                    row[column_index] = {
+                        "display_name": result[column_index][0],
+                        "id": str(result[column_index][1]),
+                    }
+                    self.paginator.results[index] = row
 
+        # TODO: get rid of this logic once we don't use `person` columns anywhere
         if len(person_indices) > 0 and len(self.paginator.results) > 0:
             with self.timings.measure("person_column_extra_query"):
                 # Make a query into postgres to fetch person
                 person_idx = person_indices[0]
                 distinct_ids = list({event[person_idx] for event in self.paginator.results})
-                persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
-                persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
                 distinct_to_person: dict[str, Person] = {}
-                for person in persons:
-                    if person:
-                        for person_distinct_id in person.distinct_ids:
-                            distinct_to_person[person_distinct_id] = person
+                # Process distinct_ids in batches to avoid overwhelming PostgreSQL
+                batch_size = 1000
+                for i in range(0, len(distinct_ids), batch_size):
+                    batch_distinct_ids = distinct_ids[i : i + batch_size]
+                    persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
+                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+                    for person in persons.iterator(chunk_size=1000):
+                        if person:
+                            for person_distinct_id in person.distinct_ids:
+                                distinct_to_person[person_distinct_id] = person
 
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:

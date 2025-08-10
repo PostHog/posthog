@@ -17,6 +17,7 @@ import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
     AnyPropertyFilter,
     DashboardTile,
     DashboardType,
@@ -99,7 +100,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
-        user_access_level: 'editor',
+        user_access_level: AccessControlLevel.Editor,
         ...properties,
     } as QueryBasedInsightModel
 }
@@ -124,7 +125,7 @@ describe('insightLogic', () => {
                     }
                     if (req.url.searchParams.get('date_from') === '-180d') {
                         // delay for 2 seconds before response without pausing
-                        return new Promise((resolve) =>
+                        return new Promise<[number, { result: string[] }]>((resolve) =>
                             setTimeout(() => {
                                 resolve([200, { result: ['very slow result from api'] }])
                             }, 2000)
@@ -222,7 +223,7 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/:id/viewed': [201],
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
                 '/api/environments/997/insights/cancel/': [201],
             },
@@ -595,7 +596,7 @@ describe('insightLogic', () => {
         await expectLogic(router)
             .toDispatchActions(['push', 'locationChanged'])
             .toMatchValues({
-                location: partial({ pathname: '/insights/12/edit' }),
+                location: partial({ pathname: '/project/997/insights/12/edit' }),
             })
     })
 

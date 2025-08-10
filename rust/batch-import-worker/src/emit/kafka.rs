@@ -8,9 +8,13 @@ use std::{
 
 use anyhow::Error;
 use async_trait::async_trait;
-use common_kafka::transaction::{KafkaTransaction, TransactionalProducer};
+use common_kafka::{
+    kafka_producer::KafkaProduceError,
+    transaction::{KafkaTransaction, TransactionalProducer},
+};
 use common_types::InternallyCapturedEvent;
-use tracing::info;
+use rdkafka::types::RDKafkaErrorCode;
+use tracing::{error, info};
 
 use crate::{context::AppContext, job::config::KafkaEmitterConfig};
 
@@ -67,14 +71,27 @@ impl Emitter for KafkaEmitter {
 #[async_trait]
 impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
-        let res: Result<Vec<_>, _> = self
+        for (idx, result) in self
             .inner
             .send_keyed_iter_to_kafka(self.topic, |e| Some(e.inner.key()), data.iter())
             .await
             .into_iter()
-            .collect();
-
-        res?;
+            .enumerate()
+        {
+            match result {
+                Ok(_) => (),
+                Err(KafkaProduceError::KafkaProduceError { error })
+                    if matches!(
+                        error.rdkafka_error_code(),
+                        Some(RDKafkaErrorCode::MessageSizeTooLarge)
+                    ) =>
+                {
+                    // We skip these aside from logging them, as there's not much we can do about them
+                    error!("Message size too large: {:?}", data[idx].inner);
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
 
         self.count.fetch_add(data.len(), Ordering::SeqCst);
 

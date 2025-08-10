@@ -50,6 +50,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     dataIndex: 1,
                                     datasetIndex: 1,
                                     id: 1,
+                                    order: 1,
                                     breakdown_value: currentTooltip[0],
                                     count: currentTooltip[1]?.aggregated_value || 0,
                                 },
@@ -78,7 +79,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [isTooltipShown, tooltipCoordinates, currentTooltip])
+    }, [isTooltipShown, tooltipCoordinates, currentTooltip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (tooltipCoordinates) {
@@ -97,7 +98,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
             tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
             tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
         }
-    }, [currentTooltip, tooltipEl])
+    }, [currentTooltip, tooltipEl]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return svgRef
 }

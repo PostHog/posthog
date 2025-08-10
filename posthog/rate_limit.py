@@ -3,11 +3,12 @@ import re
 import time
 from functools import lru_cache
 from typing import Optional
-
+from django.conf import settings
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
 
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -279,6 +280,21 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class SignupIPThrottle(SimpleRateThrottle):
+    """
+    Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
+    """
+
+    scope = "signup_ip"
+    rate = "5/day"
+
+    def get_cache_key(self, request, view):
+        from posthog.utils import get_ip_address
+
+        ip = get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -301,7 +317,7 @@ class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
 
 
 class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
-    # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit OpenAI
+    # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit ClickHouse
     # Intended to block slower but sustained bursts of requests, per project
     scope = "clickhouse_sustained"
     rate = "1200/hour"
@@ -313,23 +329,39 @@ class AIBurstRateThrottle(UserRateThrottle):
     scope = "ai_burst"
     rate = "10/minute"
 
+    def allow_request(self, request, view):
+        request_allowed = super().allow_request(request, view)
+
+        if not request_allowed and request.user.is_authenticated:
+            report_user_action(request.user, "ai burst rate limited")
+
+        return request_allowed
+
 
 class AISustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
-    rate = "40/day"
+    rate = "100/day"
+
+    def allow_request(self, request, view):
+        request_allowed = super().allow_request(request, view)
+
+        if not request_allowed and request.user.is_authenticated:
+            report_user_action(request.user, "ai sustained rate limited")
+
+        return request_allowed
 
 
-class EditorProxyBurstRateThrottle(UserRateThrottle):
-    scope = "editor_proxy_burst"
+class LLMProxyBurstRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_burst"
     rate = "30/minute"
 
 
-class EditorProxySustainedRateThrottle(UserRateThrottle):
+class LLMProxySustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
-    scope = "editor_proxy_sustained"
+    scope = "llm_proxy_sustained"
     rate = "500/hour"
 
 
@@ -339,9 +371,24 @@ class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     rate = "120/hour"
 
 
-class APIQueriesThrottle(PersonalApiKeyRateThrottle):
-    scope = "query"
+class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "api_queries_burst"
+    rate = "120/minute"
+
+
+class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "api_queries_sustained"
     rate = "1200/hour"
+
+
+class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_burst"
+    rate = "240/minute"
+
+
+class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_sustained"
+    rate = "2400/hour"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
@@ -372,13 +419,16 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
 
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
-    # This is more aggressive than other throttles because the wizard makes OpenAI calls
+    # This is more aggressive than other throttles because the wizard makes LLM calls
     scope = "wizard_authentication"
     rate = "20/day"
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    rate = "20/day"
+    def get_rate(self):
+        if settings.DEBUG:
+            return "1000/day"
+        return "20/day"
 
     # Throttle per wizard hash
     def get_cache_key(self, request, view):
@@ -387,3 +437,15 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         if not hash:
             return self.get_ident(request)
         return f"throttle_wizard_query_{hash}"
+
+
+class BreakGlassBurstThrottle(UserOrEmailRateThrottle):
+    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop.
+    # Prefer making a subclass of this for specific endpoints, and setting a scope
+    rate = "15/minute"
+
+
+class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
+    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop
+    # Prefer making a subclass of this for specific endpoints, and setting a scope
+    rate = "75/hour"

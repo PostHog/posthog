@@ -2,6 +2,7 @@ from datetime import datetime
 import re
 from typing import Any, Optional, Union
 import uuid
+from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -20,14 +21,14 @@ from posthog.warehouse.models.util import (
     remove_named_tuples,
 )
 from posthog.hogql.database.s3_table import S3Table
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def validate_saved_query_name(value):
-    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", value):
+    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_.$]*$", value):
         raise ValidationError(
-            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', or '$' ",
+            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', '.', or '$' ",
             params={"value": value},
         )
 
@@ -84,6 +85,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 name="posthog_datawarehouse_saved_query_unique_name",
             )
         ]
+
+    @property
+    def name_chain(self) -> list[str]:
+        return self.name.split(".")
 
     def soft_delete(self):
         self.deleted = True
@@ -153,17 +158,27 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
 
     @property
+    def normalized_name(self):
+        return NamingConvention().normalize_identifier(self.name)
+
+    @property
     def url_pattern(self):
-        normalized_name = NamingConvention().normalize_identifier(self.name)
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{normalized_name}"
+        if settings.USE_LOCAL_SETUP:
+            parsed = urlparse(settings.BUCKET_URL)
+            bucket_name = parsed.netloc
+
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+
+    @property
+    def is_materialized(self):
+        return self.table is not None and (
+            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
+        )
 
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
-        if (
-            self.table is not None
-            and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
-            and modifiers is not None
-            and modifiers.useMaterializedViews
-        ):
+        if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 
         columns = self.columns or {}

@@ -18,7 +18,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
 )
 from posthog.models.organization import Organization
-from posthog.models.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -122,13 +122,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         if self.sharing_enabled_actions:
             authentication_classes.append(SharingAccessTokenAuthentication)
 
-        authentication_classes.extend(
-            [
-                JwtAuthentication,
-                PersonalAPIKeyAuthentication,
-                SessionAuthentication,
-            ]
-        )
+        authentication_classes.extend([JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication])
 
         return [auth() for auth in authentication_classes]
 
@@ -185,6 +179,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
         # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
         if self.scope_object == "project":
+            include_all_if_admin = True
+
+        # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
+        # individual insights are retrieved
+        if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
             include_all_if_admin = True
 
         return self.user_access_control.filter_queryset_by_access_level(

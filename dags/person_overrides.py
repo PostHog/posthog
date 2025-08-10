@@ -173,8 +173,8 @@ class PersonOverridesSnapshotDictionary:
     @property
     def person_id_update_mutation_runner(self) -> AlterTableMutationRunner:
         return AlterTableMutationRunner(
-            EVENTS_DATA_TABLE(),
-            {
+            table=EVENTS_DATA_TABLE(),
+            commands={
                 "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
             },
             parameters={"name": self.qualified_name},
@@ -183,8 +183,8 @@ class PersonOverridesSnapshotDictionary:
     @property
     def overrides_delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
         return LightweightDeleteMutationRunner(
-            PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-            "isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
+            table=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+            predicate="isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
             parameters={"name": self.qualified_name},
         )
 

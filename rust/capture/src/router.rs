@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::future::ready;
 use std::sync::Arc;
 
@@ -31,8 +32,60 @@ pub struct State {
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub billing_limiter: RedisLimiter,
+    pub survey_limiter: RedisLimiter,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
+    pub historical_cfg: HistoricalConfig,
+    pub is_mirror_deploy: bool,
+    pub verbose_sample_percent: f32,
+}
+
+#[derive(Clone)]
+pub struct HistoricalConfig {
+    pub enable_historical_rerouting: bool,
+    pub historical_rerouting_threshold_days: i64,
+    pub historical_tokens_keys: HashSet<String>,
+}
+
+impl HistoricalConfig {
+    pub fn new(
+        enable_historical_rerouting: bool,
+        historical_rerouting_threshold_days: i64,
+        tokens_keys: Option<String>,
+    ) -> Self {
+        let mut htk = HashSet::new();
+        if let Some(s) = tokens_keys {
+            for entry in s.split(",").filter(|s| !s.trim().is_empty()) {
+                htk.insert(entry.trim().to_string());
+            }
+        }
+
+        HistoricalConfig {
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+            historical_tokens_keys: htk,
+        }
+    }
+
+    // event_key is one of: "token" "token:ip_addr" or "token:distinct_id"
+    // and self.historical_tokens_keys is a set of the same. if the key
+    // matches any entry in the set, the event should be rerouted
+    pub fn should_reroute(&self, event_key: &str) -> bool {
+        if event_key.is_empty() {
+            return false;
+        }
+
+        // is the event key in the forced_keys list?
+        let key_match = self.historical_tokens_keys.contains(event_key);
+
+        // is the token (first component of the event key) in the forced_keys list?
+        let token_match = match event_key.split(':').next() {
+            Some(token) => !token.is_empty() && self.historical_tokens_keys.contains(token),
+            None => false,
+        };
+
+        key_match || token_match
+    }
 }
 
 async fn index() -> &'static str {
@@ -50,19 +103,33 @@ pub fn router<
     sink: S,
     redis: Arc<R>,
     billing_limiter: RedisLimiter,
+    survey_limiter: RedisLimiter,
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
     concurrency_limit: Option<usize>,
     event_size_limit: usize,
+    enable_historical_rerouting: bool,
+    historical_rerouting_threshold_days: i64,
+    historical_tokens_keys: Option<String>,
+    is_mirror_deploy: bool,
+    verbose_sample_percent: f32,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
         billing_limiter,
+        survey_limiter,
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
+        historical_cfg: HistoricalConfig::new(
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+            historical_tokens_keys,
+        ),
+        is_mirror_deploy,
+        verbose_sample_percent,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -88,49 +155,121 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
 
-    let batch_router = Router::new()
-        .route(
-            "/batch",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/batch/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
+    let mut batch_router = Router::new();
+    batch_router = if is_mirror_deploy {
+        batch_router
+            .route(
+                "/batch",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/batch/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+    } else {
+        batch_router
+            .route(
+                "/batch",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/batch/",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+    };
+    batch_router = batch_router.layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
-    let event_router = Router::new()
+    let mut event_router = Router::new()
+        // legacy endpoints registered here
         .route(
             "/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
                 .options(v0_endpoint::options),
         )
         .route(
             "/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
                 .options(v0_endpoint::options),
         )
         .route(
-            "/i/v0/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
+            "/track",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
                 .options(v0_endpoint::options),
         )
         .route(
-            "/i/v0/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
+            "/track/",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
                 .options(v0_endpoint::options),
         )
-        .route("/i/v0", get(index))
-        .route("/i/v0/", get(index))
-        .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
+        .route(
+            "/engage",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/engage/",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/capture",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/capture/",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        );
+
+    // conditionally allow legacy event handler to process /i/v0/e/
+    // (modern capture) events for observation in mirror deploy
+    event_router = if is_mirror_deploy {
+        event_router
+            .route(
+                "/i/v0/e",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/i/v0/e/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+    } else {
+        event_router
+            .route(
+                "/i/v0/e",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/i/v0/e/",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+    };
+    event_router = event_router.layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
     let status_router = Router::new()
         .route("/", get(index))
@@ -180,4 +319,38 @@ pub fn router<
     } else {
         router
     }
+}
+
+#[test]
+fn test_historical_config_handles_tokens_key_routing_correctly() {
+    let inputs = Some(String::from("token1,token2:user2,")); // 3 entries including empty string!
+    let hcfg = HistoricalConfig::new(true, 100, inputs);
+
+    // event key not in list passes
+    let key = "token3:user3";
+    assert!(!hcfg.should_reroute(key));
+
+    // token not in list passes
+    let key = "token4";
+    assert!(!hcfg.should_reroute(key));
+
+    // full event key in list should always be rerouted
+    let key = "token2:user2";
+    assert!(hcfg.should_reroute(key));
+
+    // event key with token 2 but different suffix should not be rerouted
+    let key = "token2:user7";
+    assert!(!hcfg.should_reroute(key));
+
+    // anything having to do with token1 should be rerouted
+    let key = "token1:user1";
+    assert!(hcfg.should_reroute(key));
+    let key = "token1:user2";
+    assert!(hcfg.should_reroute(key));
+    let key = "token1";
+    assert!(hcfg.should_reroute(key));
+
+    // empty event key/token should not be rerouted, fails open
+    let key = "";
+    assert!(!hcfg.should_reroute(key));
 }

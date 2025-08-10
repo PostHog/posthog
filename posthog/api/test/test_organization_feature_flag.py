@@ -129,12 +129,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": [],
             "has_enriched_analytics": False,
             "tags": [],
-            "user_access_level": "editor",
+            "user_access_level": "manager",
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
 
         flag_response = response.json()["success"][0]
@@ -211,12 +212,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "surveys": ANY,
             "features": ANY,
             "analytics_dashboards": ANY,
-            "user_access_level": "editor",
+            "user_access_level": "manager",
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
             "version": 2,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
 
         flag_response = response.json()["success"][0]
@@ -337,12 +339,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "surveys": ANY,
             "features": ANY,
             "analytics_dashboards": ANY,
-            "user_access_level": "editor",
+            "user_access_level": "manager",
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
         flag_response = response.json()["success"][0]
 
@@ -446,7 +449,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         def create_cohort(name, children):
             creation_order.append(name)
-            properties = [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]
+            properties = [{"key": "$some_prop", "value": "nomatchihope", "type": "person", "operator": "exact"}]
             if children:
                 properties = [{"key": "id", "type": "cohort", "value": child.pk} for child in children]
 
@@ -519,7 +522,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                     "properties": {
                         "type": "AND",
                         "values": [
-                            {"key": "name", "value": "test", "type": "person"},
+                            {"key": "name", "value": "test", "type": "person", "operator": "exact"},
                         ],
                     }
                 },

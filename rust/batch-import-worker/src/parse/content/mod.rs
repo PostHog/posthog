@@ -1,6 +1,7 @@
 use mixpanel::MixpanelContentConfig;
 use serde::{Deserialize, Serialize};
 
+pub mod amplitude;
 pub mod captured;
 pub mod mixpanel;
 
@@ -8,6 +9,7 @@ pub mod mixpanel;
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ContentType {
     Mixpanel(MixpanelContentConfig), // From a mixpanel export
+    Amplitude,
     Captured, // Each json object structured as if it was going to be sent to the capture endpoint
 }
 

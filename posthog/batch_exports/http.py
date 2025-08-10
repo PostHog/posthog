@@ -7,7 +7,15 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import filters, mixins, request, response, serializers, status, viewsets
+from rest_framework import (
+    filters,
+    mixins,
+    request,
+    response,
+    serializers,
+    status,
+    viewsets,
+)
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -40,7 +48,6 @@ from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import clone_expr
 from posthog.models import (
     BatchExport,
     BatchExportBackfill,
@@ -49,9 +56,13 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.temporal.batch_exports.destination_tests import get_destination_test
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
+from products.batch_exports.backend.api.destination_tests import get_destination_test
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    SUPPORTED_COMPRESSIONS,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -212,8 +223,14 @@ class HogQLSelectQueryField(serializers.Field):
                 ast.SelectQuery,
                 prepare_ast_for_printing(
                     parsed_query,
-                    context=HogQLContext(team_id=self.context["team_id"], enable_select_queries=True),
-                    dialect="hogql",
+                    context=HogQLContext(
+                        team_id=self.context["team_id"],
+                        enable_select_queries=True,
+                        modifiers=HogQLQueryModifiers(
+                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                        ),
+                    ),
+                    dialect="clickhouse",
                 ),
             )
         except errors.ExposedHogQLError as e:
@@ -299,6 +316,20 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
+        if destination_attrs["type"] == BatchExportDestination.Destination.S3:
+            config = destination_attrs["config"]
+            # JSONLines is the default file format for S3 exports for legacy reasons
+            file_format = config.get("file_format", "JSONLines")
+            supported_file_formats = SUPPORTED_COMPRESSIONS.keys()
+            if file_format not in supported_file_formats:
+                raise serializers.ValidationError(
+                    f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
+                )
+            compression = config.get("compression", None)
+            if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+                raise serializers.ValidationError(
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
+                )
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
@@ -363,8 +394,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 enable_select_queries=True,
                 limit_top_select=False,
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
             )
-            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
+            print_prepared_ast(hogql_query, context=context, dialect="clickhouse")
 
             # Recreate the context
             context = HogQLContext(

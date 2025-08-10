@@ -76,7 +76,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     table: field.name,
                 })) || [],
         ],
-        allNodes: [(s) => [s.nodeMap], (nodeMap) => [...Object.values(nodeMap)]],
+        allNodes: [(s) => [s.nodeMap], (nodeMap) => Object.values(nodeMap)],
     }),
     subscriptions(({ actions, values }) => ({
         joinedFields: (joinedFields) => {

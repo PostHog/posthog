@@ -1,3 +1,4 @@
+import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -13,16 +14,18 @@ import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
-import { errorTrackingActivityDescriber } from 'scenes/error-tracking/errorTrackingActivityDescriber'
+import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
+import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
+import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
-import { hogFunctionActivityDescriber } from 'scenes/pipeline/hogfunctions/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
-import { teamActivityDescriber } from 'scenes/teamActivityDescriber'
+import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
@@ -62,6 +65,12 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return surveyActivityDescriber
         case ActivityScope.ERROR_TRACKING_ISSUE:
             return errorTrackingActivityDescriber
+        case ActivityScope.DATA_WAREHOUSE_SAVED_QUERY:
+            return dataWarehouseSavedQueryActivityDescriber
+        case ActivityScope.REPLAY:
+            return replayActivityDescriber
+        case ActivityScope.EXPERIMENT:
+            return experimentActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

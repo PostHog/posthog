@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
-import { NewSurvey, SurveyMatchTypeLabels } from './constants'
+import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
 import { surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
@@ -25,10 +25,11 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof surveyLogic)['props'] => ({
         id: id,
     }),
+    settingSectionId: 'environment-surveys',
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
-    const { editingSurvey, setSelectedPageIndex, setPropertyFilters } = useActions(surveyLogic)
+    const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
 
     /**
@@ -39,9 +40,9 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
         return () => {
             editingSurvey(false)
             setSelectedPageIndex(0)
-            setPropertyFilters([])
+            lemonToast.dismiss(LOADING_SURVEY_RESULTS_TOAST_ID)
         }
-    }, [editingSurvey, setSelectedPageIndex, setPropertyFilters])
+    }, [editingSurvey, setSelectedPageIndex])
 
     if (surveyMissing) {
         return <NotFound object="survey" />
@@ -128,7 +129,7 @@ export function SurveyDisplaySummary({
         survey.conditions?.selector ||
         survey.conditions?.seenSurveyWaitPeriodInDays ||
         (survey.conditions?.events?.values.length ?? 0) > 0
-    const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
+    const hasFeatureFlags = survey.linked_flag_id || survey.linked_flag || targetingFlagFilters
 
     return (
         <div className="flex flex-col mt-2 gap-2">
@@ -173,15 +174,25 @@ export function SurveyDisplaySummary({
                     </div>
                 </div>
             )}
-            {survey.linked_flag_id && (
+            {(survey.linked_flag_id || survey.linked_flag) && (
                 <div className="flex flex-row font-medium gap-1">
                     <span>Feature flag enabled for:</span>{' '}
                     {id !== 'new' ? (
                         survey.linked_flag?.id ? (
-                            <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                            <>
+                                <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                                {survey.conditions?.linkedFlagVariant && (
+                                    <LemonTag>variant: {survey.conditions.linkedFlagVariant}</LemonTag>
+                                )}
+                            </>
                         ) : null
                     ) : (
-                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                        <>
+                            <FlagSelector value={survey.linked_flag_id || 0} readOnly={true} onChange={() => {}} />
+                            {survey.conditions?.linkedFlagVariant && (
+                                <LemonTag>variant: {survey.conditions.linkedFlagVariant}</LemonTag>
+                            )}
+                        </>
                     )}
                 </div>
             )}

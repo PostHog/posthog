@@ -4,6 +4,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::{collections::HashMap, path::PathBuf};
 use thiserror::Error;
+use tracing::debug;
 
 use tracing::log::{error, info};
 
@@ -21,7 +22,7 @@ impl GeoIpClient {
     /// Creates a new GeoIpClient instance.
     /// Returns an error if the database can't be loaded.
     pub fn new(db_path: PathBuf) -> Result<Self, GeoIpError> {
-        info!("Attempting to open GeoIP database at: {:?}", db_path);
+        debug!("Attempting to open GeoIP database at: {:?}", db_path);
 
         let reader = Reader::open_readfile(&db_path)?;
         info!("Successfully opened GeoIP database");

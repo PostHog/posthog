@@ -62,6 +62,24 @@ export function SupportForm(): JSX.Element | null {
 
     const dropRef = useRef<HTMLDivElement>(null)
 
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
+        const items = e.clipboardData?.items
+        if (!items) {
+            return
+        }
+
+        // Convert DataTransferItemList to array for iteration
+        const itemsArray = Array.from(items)
+        for (const item of itemsArray) {
+            if (item.type.startsWith('image/')) {
+                const file = item.getAsFile()
+                if (file) {
+                    setFilesToUpload([...filesToUpload, file])
+                }
+            }
+        }
+    }
+
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
             setSendSupportRequestValue('message', sendSupportRequest.message + `\n\nAttachment "${fileName}": ${url}`)
@@ -123,7 +141,7 @@ export function SupportForm(): JSX.Element | null {
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
                 {(props) => (
-                    <div ref={dropRef} className="flex flex-col gap-2">
+                    <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
                         <LemonTextArea
                             placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"
@@ -153,7 +171,11 @@ export function SupportForm(): JSX.Element | null {
                             </span>
                         </Tooltip>
                     </label>
-                    <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                    <Link
+                        target="_blank"
+                        disableDocsPanel
+                        to="https://posthog.com/docs/support-options#severity-levels"
+                    >
                         Definitions
                     </Link>
                 </div>

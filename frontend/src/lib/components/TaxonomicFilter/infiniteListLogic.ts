@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     InfiniteListLogicProps,
     ListFuse,
@@ -15,7 +16,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isEmail, isURL } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition } from '~/types'
@@ -23,6 +23,7 @@ import { CohortType, EventDefinition } from '~/types'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
 import type { infiniteListLogicType } from './infiniteListLogicType'
+import { getItemGroup } from './InfiniteList'
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -79,10 +80,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
             teamLogic,
             ['currentTeamId'],
-            featureFlagsLogic,
-            ['featureFlags'],
         ],
-        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
+        actions: [
+            taxonomicFilterLogic(props),
+            ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived'],
+            taxonomicFilterPreferencesLogic,
+            ['setEventOrdering'],
+        ],
     })),
     actions({
         selectSelected: true,
@@ -131,6 +135,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
+                        ...(props.showNumericalPropsOnly ? { is_numerical: 'true' } : {}),
                         // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
                         // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
@@ -244,6 +249,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     })),
     selectors({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
+        allowNonCapturedEvents: [
+            () => [(_, props) => props.allowNonCapturedEvents],
+            (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
+        ],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [
             (s) => [s.listGroupType, s.taxonomicGroups],
@@ -298,22 +307,25 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (rawLocalItems: (EventDefinition | CohortType)[]) => rawLocalItems,
         ],
         fuse: [
-            (s) => [s.rawLocalItems, s.group],
-            (rawLocalItems, group): ListFuse => {
+            (s) => [s.rawLocalItems, s.taxonomicGroups, s.group],
+            (rawLocalItems, taxonomicGroups, group): ListFuse => {
                 // maps e.g. "selector" to its display value "CSS Selector"
                 // so a search of "css" matches something
                 function asPostHogName(
-                    group: TaxonomicFilterGroup,
+                    g: TaxonomicFilterGroup,
                     item: EventDefinition | CohortType
                 ): string | undefined {
-                    return group ? getCoreFilterDefinition(group.getName?.(item), group.type)?.label : undefined
+                    return g ? getCoreFilterDefinition(g.getName?.(item), g.type)?.label : undefined
                 }
 
-                const haystack = (rawLocalItems || []).map((item) => ({
-                    name: group?.getName?.(item) || '',
-                    posthogName: asPostHogName(group, item),
-                    item: item,
-                }))
+                const haystack = (rawLocalItems || []).map((item) => {
+                    const itemGroup = getItemGroup(item, taxonomicGroups, group)
+                    return {
+                        name: itemGroup?.getName?.(item) || '',
+                        posthogName: asPostHogName(itemGroup, item),
+                        item: item,
+                    }
+                })
 
                 return new Fuse(haystack, {
                     keys: ['name', 'posthogName'],
@@ -341,32 +353,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         items: [
-            (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
-            (remoteItems, localItems, showNumericalPropsOnly) => {
-                const results = [...localItems.results, ...remoteItems.results].filter((result) => {
-                    if (!showNumericalPropsOnly) {
-                        return true
-                    }
-
-                    // It's still loading, just display it while we figure it out
-                    if (!result) {
-                        return true
-                    }
-
-                    if ('is_numerical' in result) {
-                        return !!result.is_numerical
-                    }
-
-                    if ('property_type' in result) {
-                        const property_type = result.property_type as string // Data warehouse props dont conform to PropertyType for some reason
-                        return property_type === 'Integer' || property_type === 'Float'
-                    }
-
-                    return true
-                })
-
+            (s) => [s.remoteItems, s.localItems],
+            (remoteItems, localItems) => {
                 return {
-                    results,
+                    results: [...localItems.results, ...remoteItems.results],
                     count: localItems.count + remoteItems.count,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
                     originalQuery: remoteItems.originalQuery || localItems.originalQuery,
@@ -417,6 +407,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }
         },
         setSearchQuery: async () => {
+            if (values.hasRemoteDataSource) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            } else if (props.autoSelectItem) {
+                actions.setIndex(0)
+            }
+        },
+        setEventOrdering: async () => {
+            if (props.listGroupType !== TaxonomicFilterGroupType.Events) {
+                return
+            }
+
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else if (props.autoSelectItem) {

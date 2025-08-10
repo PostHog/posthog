@@ -1,4 +1,4 @@
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -26,7 +26,7 @@ def update_external_job_status(
     model.save()
 
     if status == ExternalDataJob.Status.FAILED:
-        schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.ERROR
+        schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.FAILED
     else:
         schema_status = status  # type: ignore
 

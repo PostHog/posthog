@@ -2,9 +2,9 @@
 import { expectLogic, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { dayjs, now } from 'lib/dayjs'
+import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -149,7 +149,12 @@ describe('dashboardLogic', () => {
                 short_id: '999' as InsightShortId,
                 last_refresh: now().toISOString(),
             },
-            1001: { id: 1001, short_id: '1001' as InsightShortId } as unknown as QueryBasedInsightModel,
+            1001: {
+                ...insightOnDashboard(1001, [8]),
+                id: 1001,
+                short_id: '1001' as InsightShortId,
+                last_refresh: now().toISOString(),
+            },
             800: insight800(),
         }
         dashboards = {
@@ -206,7 +211,7 @@ describe('dashboardLogic', () => {
                         { ...dashboards['10'] },
                     ],
                 },
-                '/api/environments/:team_id/insights/1001/': () => [500, '💣'],
+                '/api/environments/:team_id/insights/1001/': () => [200, { ...insights['1001'] }],
                 '/api/environments/:team_id/insights/800/': () => [200, { ...insights['800'] }],
                 '/api/environments/:team_id/insights/:id/': (req) => {
                     const dashboard = req.url.searchParams.get('from_dashboard')
@@ -409,7 +414,7 @@ describe('dashboardLogic', () => {
             dashboardEightlogic.mount()
 
             await expectLogic(dashboardEightlogic)
-                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboardSuccess'])
                 .toMatchValues({
                     dashboard: truth(({ tiles }) => {
                         return tiles.length === 1 && tiles[0].insight.id === 1001
@@ -430,7 +435,7 @@ describe('dashboardLogic', () => {
             dashboardEightlogic.mount()
 
             await expectLogic(dashboardEightlogic)
-                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboardSuccess'])
                 .toMatchValues({
                     dashboard: truth(({ tiles }) => {
                         return tiles.length === 1 && tiles[0].insight.id === 1001
@@ -473,7 +478,7 @@ describe('dashboardLogic', () => {
             // TODO: Not sure why this test is not working
             await expectLogic(logic, () => {
                 // try and load dashboard items data once dashboard is loaded
-                logic.actions.refreshDashboardItem({
+                logic.actions.triggerDashboardItemRefresh({
                     tile: {
                         insight: {
                             id: 1001,
@@ -521,30 +526,106 @@ describe('dashboardLogic', () => {
             })
         })
 
-        describe('reload items', () => {
-            it('reloads all items', async () => {
+        describe('insight refresh', () => {
+            it('manual refresh reloads all insights', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
                 await expectLogic(logic, () => {
-                    logic.actions.refreshAllDashboardItemsManual()
+                    logic.actions.triggerDashboardRefresh()
                 })
                     .toDispatchActions([
                         // starts loading
-                        'refreshAllDashboardItemsManual',
+                        'triggerDashboardRefresh',
                         'loadDashboard',
-                        'refreshAllDashboardItems',
+                        'updateDashboardItems',
                         // sets the "reloading" status
-                        logic.actionCreators.setRefreshStatuses(
-                            [dashboards['5'].tiles[0].insight!.short_id],
-                            false,
-                            true
-                        ),
+                        logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].tiles[0].insight!.short_id]: {
+                            [insight1.short_id]: {
                                 loading: false,
                                 queued: true,
                                 timer: null,
                             },
+                            [insight2.short_id]: {
+                                loading: false,
+                                queued: true,
+                                timer: null,
+                            },
+                        },
+                        refreshMetrics: {
+                            completed: 0,
+                            total: 2,
+                        },
+                    })
+                    .toDispatchActionsInAnyOrder([
+                        // and updates the action in the model
+                        (a) =>
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.insight.short_id === insight1.short_id,
+                        (a) =>
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.insight.short_id === insight2.short_id,
+                        // no longer reloading
+                        logic.actionCreators.setRefreshStatus(insight1.short_id, false),
+                        logic.actionCreators.setRefreshStatus(insight2.short_id, false),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [insight1.short_id]: {
+                                refreshed: true,
+                                timer: expect.any(Date),
+                            },
+                            [insight2.short_id]: {
+                                refreshed: true,
+                                timer: expect.any(Date),
+                            },
+                        },
+                        refreshMetrics: {
+                            completed: 2,
+                            total: 2,
+                        },
+                    })
+            })
+
+            it('automatic refresh reloads stale insights (but not fresh ones)', async () => {
+                const dashboard = dashboards[5]
+                const staleInsight = {
+                    ...dashboard.tiles[0].insight!,
+                    cache_target_age: now().subtract(1, 'minute').toISOString(),
+                }
+                const freshInsight = {
+                    ...dashboard.tiles[1].insight!,
+                    cache_target_age: now().add(1, 'minute').toISOString(),
+                }
+
+                // patch dashboard tiles
+                dashboard.tiles[0].insight = staleInsight
+                dashboard.tiles[1].insight = freshInsight
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({
+                        action: DashboardLoadAction.InitialLoad,
+                    })
+                })
+                    .toDispatchActions([
+                        // starts loading
+                        'loadDashboard',
+                        'updateDashboardItems',
+                        // sets the "reloading" status for the stale insight
+                        logic.actionCreators.setRefreshStatuses([staleInsight.short_id], false, true),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [staleInsight.short_id]: {
+                                loading: false,
+                                queued: true,
+                                timer: null,
+                            },
+                            [freshInsight.short_id]: undefined,
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -555,16 +636,17 @@ describe('dashboardLogic', () => {
                         // and updates the action in the model
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.insight.short_id === dashboards['5'].tiles[0].insight!.short_id,
+                            a.payload.insight.short_id === staleInsight.short_id,
                         // no longer reloading
-                        logic.actionCreators.setRefreshStatus(dashboards['5'].tiles[0].insight!.short_id, false),
+                        logic.actionCreators.setRefreshStatus(staleInsight.short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].tiles[0].insight!.short_id]: {
+                            [staleInsight.short_id]: {
                                 refreshed: true,
-                                timer: null,
+                                timer: expect.any(Date),
                             },
+                            [freshInsight.short_id]: undefined,
                         },
                         refreshMetrics: {
                             completed: 1,
@@ -641,30 +723,6 @@ describe('dashboardLogic', () => {
             })
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
-        })
-    })
-
-    describe('newestRefreshed', () => {
-        it('should be the earliest refreshed dashboard', async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({
-                    newestRefreshed: dayjs('2021-09-21T11:48:48.586Z'),
-                })
-        })
-
-        it('should refresh all dashboards if newestRefreshed is older than 3 hours', async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['refreshAllDashboardItems']).toFinishAllListeners()
-        })
-
-        it('should not refresh all dashboards if newestRefreshed is older than 3 hours but the feature flag is not set', async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic).toNotHaveDispatchedActions(['refreshAllDashboardItems']).toFinishAllListeners()
         })
     })
 

@@ -15,12 +15,17 @@ if TYPE_CHECKING:
 
 
 class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
+    class Visibility(models.TextChoices):
+        INTERNAL = "internal", "internal"
+        DEFAULT = "default", "default"
+
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     title = models.CharField(max_length=256, blank=True, null=True)
     content: JSONField = JSONField(default=None, null=True, blank=True)
     text_content = models.TextField(blank=True, null=True)
     deleted = models.BooleanField(default=False)
+    visibility = models.CharField(choices=Visibility.choices, default=Visibility.DEFAULT, max_length=20)
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -43,7 +48,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Notebooks",
+            base_folder=self._get_assigned_folder("Unfiled/Notebooks"),
             type="notebook",  # sync with APIScopeObject in scopes.py
             ref=str(self.short_id),
             name=self.title or "Untitled",

@@ -1,6 +1,7 @@
 import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -16,7 +17,11 @@ export const manifest: ProductManifest = {
             type,
             dashboardId,
             query,
-        }: { type?: InsightType; dashboardId?: DashboardType['id'] | null; query?: Node } = {}): string => {
+        }: {
+            type?: InsightType
+            dashboardId?: DashboardType['id'] | null
+            query?: Node
+        } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
                 return urls.sqlEditor(query.query)
@@ -67,40 +72,71 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         insight: {
+            name: 'Insight',
             icon: <IconGraph />,
             href: (ref: string) => urls.insightView(ref as InsightShortId),
+            iconColor: ['var(--color-product-product-analytics-light)'],
+            filterKey: 'insight',
         },
     },
     treeItemsNew: [
         {
-            path: `Trends`,
+            path: `Insight/Trends`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.TRENDS }),
+            href: urls.insightNew({ type: InsightType.TRENDS }),
+            iconType: 'insightTrends',
+            visualOrder: INSIGHT_VISUAL_ORDER.trends,
         },
         {
-            path: `Funnels`,
+            path: `Insight/Funnel`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.FUNNELS }),
+            href: urls.insightNew({ type: InsightType.FUNNELS }),
+            iconType: 'insightFunnel',
+            visualOrder: INSIGHT_VISUAL_ORDER.funnel,
         },
         {
-            path: `Retention`,
+            path: `Insight/Retention`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.RETENTION }),
+            href: urls.insightNew({ type: InsightType.RETENTION }),
+            iconType: 'insightRetention',
+            visualOrder: INSIGHT_VISUAL_ORDER.retention,
         },
         {
-            path: `User paths`,
+            path: `Insight/User paths`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.PATHS }),
+            href: urls.insightNew({ type: InsightType.PATHS }),
+            iconType: 'insightUserPaths',
+            visualOrder: INSIGHT_VISUAL_ORDER.paths,
         },
         {
-            path: `Stickiness`,
+            path: `Insight/Stickiness`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.STICKINESS }),
+            href: urls.insightNew({ type: InsightType.STICKINESS }),
+            iconType: 'insightStickiness',
+            visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
         },
         {
-            path: `Lifecycle`,
+            path: `Insight/Lifecycle`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
+            href: urls.insightNew({ type: InsightType.LIFECYCLE }),
+            iconType: 'insightLifecycle',
+            visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
+        },
+        {
+            path: `Insight/Calendar heatmap`,
+            type: 'insight',
+            href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+            iconType: 'insightCalendarHeatmap',
+            visualOrder: INSIGHT_VISUAL_ORDER.calendarHeatmap,
+            flag: FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT,
+        },
+    ],
+    treeItemsProducts: [
+        {
+            path: 'Product analytics',
+            category: 'Analytics',
+            type: 'insight',
+            href: urls.insights(),
         },
     ],
 }

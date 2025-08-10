@@ -2,6 +2,7 @@ from typing import Optional
 
 from django.db import models
 from django.utils import timezone
+from django_deprecate_fields import deprecate_field
 
 
 class Annotation(models.Model):
@@ -10,6 +11,7 @@ class Annotation(models.Model):
         DASHBOARD = "dashboard", "dashboard"
         PROJECT = "project", "project"
         ORGANIZATION = "organization", "organization"
+        RECORDING = "recording", "recording"
 
     class CreationType(models.TextChoices):
         USER = "USR", "user"
@@ -30,6 +32,10 @@ class Annotation(models.Model):
 
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)
+    # DEPRECATED: moved to the comment model
+    recording_id = deprecate_field(models.UUIDField(null=True, blank=True))
+    # DEPRECATED: moved to the comment model
+    is_emoji = deprecate_field(models.BooleanField(default=False, null=True, blank=True))
 
     @property
     def insight_short_id(self) -> Optional[str]:

@@ -19,7 +19,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             insightVizDataLogic(props),
             ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme'],
             retentionLogic(props),
-            ['results', 'selectedBreakdownValue'],
+            ['results', 'selectedBreakdownValue', 'retentionMeans'],
         ],
         actions: [retentionLogic(props), ['setSelectedBreakdownValue']],
     })),
@@ -75,7 +75,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
 
         tableRows: [
-            (s) => [s.filteredResults, s.retentionFilter, s.hideSizeColumn],
+            (s) => [s.filteredResults, s.retentionFilter],
             (filteredResults, retentionFilter): RetentionTableRow[] => {
                 const { period } = retentionFilter || {}
 
@@ -116,13 +116,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         tableRowsSplitByBreakdownValue: [
             (s) => [s.tableRows],
             (tableRows): Record<string, RetentionTableRow[]> =>
-                tableRows.reduce((acc, row) => {
-                    acc[row.breakdown_value ?? NO_BREAKDOWN_VALUE] = [
-                        ...(acc[row.breakdown_value ?? NO_BREAKDOWN_VALUE] || []),
-                        row,
-                    ]
-                    return acc
-                }, {} as Record<string, RetentionTableRow[]>),
+                tableRows.reduce(
+                    (acc, row) => {
+                        const breakdownValue = row.breakdown_value ?? NO_BREAKDOWN_VALUE
+                        acc[breakdownValue] = [...(acc[breakdownValue] || []), row]
+                        return acc
+                    },
+                    {} as Record<string, RetentionTableRow[]>
+                ),
         ],
     }),
 ])

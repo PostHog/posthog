@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-customerio-plugin', plugin: [Object] } 1`] = `
 [
@@ -65,14 +65,14 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-plugin-replicator', plugin: [Object] } 1`] = `
 [
-  "Skipping 1 event, rejected by test: 200 undefined",
+  "Flushed 1 event to test",
   "Function completed in REPLACED-TIME-ms.",
 ]
 `;
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-pubsub-plugin', plugin: [Object] } 1`] = `
 [
-  "Plugin execution failed: Plugin plugin-pubsub-plugin setup failed: Cannot read properties of undefined (reading 'googleCloudKeyJson')",
+  "Plugin execution failed: Plugin plugin-pubsub-plugin setup failed: JSON config not provided!",
 ]
 `;
 
@@ -91,21 +91,6 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-sendgrid-plugin', plugin: [Object] } 1`] = `
 [
   "Plugin execution failed: Plugin plugin-sendgrid-plugin setup failed: Custom field with name test is not defined in Sendgrid",
-]
-`;
-
-exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
-  name: 'plugin-posthog-app-url-parameters-to-event-properties',
-  plugin: [Object]
-} 1`] = `[]`;
-
-exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
-  name: 'plugin-posthog-plugin-snowplow-referer-parser',
-  plugin: [Object]
-} 1`] = `
-[
-  "(Event: $pageview) URL: https://posthog.com, Referrer: undefined, Referring domain: undefined",
-  "Plugin execution failed: Cannot read properties of undefined (reading 'indexOf')",
 ]
 `;
 
@@ -190,3 +175,12 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-url-parser-plugin', plugin: [Object] } 1`] = `[]`;
 
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-user-agent-plugin', plugin: [Object] } 1`] = `[]`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {\\n  name: 'plugin-posthog-app-url-parameters-to-event-properties',\\n  plugin: [Object]\\n} 1`] = `[]`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {\\n  name: 'plugin-posthog-plugin-snowplow-referer-parser',\\n  plugin: [Object]\\n} 1`] = `
+[
+  "(Event: $pageview) URL: https://posthog.com, Referrer: undefined, Referring domain: undefined",
+  "(SNOWPLOW) Medium: unknown, Source: unknown, Term: undefined",
+]
+`;

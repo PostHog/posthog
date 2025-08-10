@@ -177,9 +177,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_1.json(),
             )
             mock_capture.assert_called_once_with(
-                self.user.distinct_id,
                 "insight created",
-                {
+                distinct_id=self.user.distinct_id,
+                properties={
                     "insight_id": response_1.json()["short_id"],
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
@@ -211,9 +211,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             insight_short_id = response_2.json()["short_id"]
             mock_capture.assert_called_once_with(
-                self.user.distinct_id,
                 "insight updated",
-                {
+                distinct_id=self.user.distinct_id,
+                properties={
                     "insight_id": insight_short_id,
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
@@ -384,7 +384,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 user=mock.ANY,
                 filters_override=None,
-                variables_override=None,
+                variables_override={},
             )
 
         with patch(
@@ -398,7 +398,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 user=mock.ANY,
                 filters_override=None,
-                variables_override=None,
+                variables_override={},
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -1591,7 +1591,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+
+            # extra query because of the metadata update task: posthog.tasks.insight_query_metadata.extract_insight_query_metadata
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -1601,9 +1604,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
 
         with freeze_time("2012-01-17T06:01:34.000Z"):
+            call_count_before = spy_execute_hogql_query.call_count
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
             self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(spy_execute_hogql_query.call_count, call_count_before)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
             self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -2764,7 +2768,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_placeholder.json(),
             )
             # With the new HogQL query runner this legacy endpoint now returns 500 instead of a proper 400.
-            # We don't really care, since this endpoint should eventually be removed alltogether.
+            # We don't really care, since this endpoint should eventually be removed altogether.
             # self.assertEqual(
             #     response_placeholder.json(),
             #     self.validation_error_response("Unresolved placeholder: {team_id}"),
@@ -3468,3 +3472,165 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
         self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
+
+    def test_create_insight_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {
+                "name": "My test insight in folder",
+                "filters": {"events": [{"id": "$pageview"}]},
+                "_create_in_folder": "Special Folder/Subfolder",
+                "saved": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        insight_id = response.json()["short_id"]
+
+        assert insight_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(insight_id), type="insight").first()
+        assert fs_entry is not None
+        assert "Special Folder/Subfolder" in fs_entry.path
+
+    def test_insight_with_variables_match_existing_variables(self):
+        """Test that variables on insights are always referencing existing variables"""
+
+        # Create an insight with a DataVisualizationNode query that references a fake variable
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.test_var}",
+                    "variables": {
+                        "123e4567-e89b-12d3-a456-426614174000": {
+                            "code_name": "test_var",
+                            "variableId": "123e4567-e89b-12d3-a456-426614174000",
+                        }
+                    },
+                },
+                "display": "ActionsTable",
+                "chartSettings": {"seriesBreakdownColumn": None},
+                "tableSettings": {"conditionalFormatting": []},
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}")
+        self.assertEqual(response.status_code, 200)
+
+        response_data = response.json()
+        self.assertIn("query", response_data)
+        self.assertIn("source", response_data["query"])
+        self.assertIn("variables", response_data["query"]["source"])
+
+        # only one variable should be included
+        self.assertEqual(len(response_data["query"]["source"]["variables"]), 0)
+
+        variable = InsightVariable.objects.create(team=self.team, code_name="test_var", name="Test Variable")
+
+        # # Get the insight via the API
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}")
+        self.assertEqual(response.status_code, 200)
+
+        # # Verify both variables are properly included in the response
+        response_data = response.json()
+        self.assertIn("query", response_data)
+        self.assertIn("source", response_data["query"])
+        self.assertIn("variables", response_data["query"]["source"])
+
+        # # Check that the variable properties are included
+        variable_id = str(variable.id)
+        self.assertIn(variable_id, response_data["query"]["source"]["variables"])
+        variable_data = response_data["query"]["source"]["variables"][variable_id]
+        self.assertEqual(variable_data["code_name"], "test_var")
+        self.assertEqual(variable_data["variableId"], variable_id)
+
+    def test_list_insights_with_short_id_includes_all_if_admin(self) -> None:
+        """
+        Test that when listing insights with short_id parameter, organization admins can see all insights
+        regardless of access controls, but regular users are still filtered by access controls.
+        """
+        from ee.models.rbac.access_control import AccessControl
+        from posthog.models.organization import OrganizationMembership
+
+        # Create insights with different access levels
+        filter_dict = {"events": [{"id": "$pageview"}]}
+
+        # Create an insight that will be blocked for regular users
+        blocked_insight_short_id = "block123"
+        blocked_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id=blocked_insight_short_id,
+            name="Blocked Insight",
+        )
+
+        # Create an insight that will be accessible
+        accessible_insight_short_id = "access_456"
+        accessible_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id=accessible_insight_short_id,
+            name="Accessible Insight",
+        )
+
+        # Create access control that blocks the first insight for regular users
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(blocked_insight.id),
+            access_level="none",
+        )
+
+        # Test 1: Regular user should not see blocked insight in regular list
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        insight_ids = [insight["id"] for insight in results]
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
+
+        # Test 2: Regular user should not see blocked insight even with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 0)  # Should be filtered out
+
+        # Test 3: Regular user should see accessible insight with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+
+        # Test 4: Organization admin should see all insights regardless of access controls
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Admin should see only accessible insight in regular list
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        insight_ids = [insight["id"] for insight in results]
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
+
+        # Admin should see blocked insight with short_id (include_all_if_admin=True)
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], blocked_insight.id)
+        self.assertEqual(results[0]["short_id"], blocked_insight_short_id)
+
+        # Admin should see accessible insight with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+        self.assertEqual(results[0]["short_id"], accessible_insight_short_id)

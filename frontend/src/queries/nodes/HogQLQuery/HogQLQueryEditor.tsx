@@ -18,6 +18,7 @@ import { urls } from 'scenes/urls'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -82,11 +83,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     )
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    }, [])
+    })
 
     return (
         <div className="flex items-start gap-2">
@@ -120,8 +121,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 !aiAvailable
                                     ? 'Environment variable OPENAI_API_KEY is unset for this instance of PostHog'
                                     : !prompt
-                                    ? 'Provide a prompt first'
-                                    : null
+                                      ? 'Provide a prompt first'
+                                      : null
                             }
                             tooltipPlacement="left"
                             loading={promptLoading}
@@ -183,8 +184,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         !props.setQuery
                                             ? 'No permission to update'
                                             : hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : undefined
+                                              ? (error ?? 'Query has errors')
+                                              : undefined
                                     }
                                     center
                                     fullWidth
@@ -199,7 +200,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={onUpdateView}
                                     type="primary"
                                     center
-                                    disabledReason={hasErrors ? error ?? 'Query has errors' : ''}
+                                    disabledReason={hasErrors ? (error ?? 'Query has errors') : ''}
                                     data-attr="hogql-query-editor-update-view"
                                 >
                                     Update view
@@ -210,7 +211,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={saveAsView}
                                     type="primary"
                                     center
-                                    disabledReason={hasErrors ? error ?? 'Query has errors' : ''}
+                                    disabledReason={hasErrors ? (error ?? 'Query has errors') : ''}
                                     data-attr="hogql-query-editor-save-as-view"
                                     tooltip={
                                         <div>

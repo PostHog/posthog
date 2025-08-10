@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use std::time::Duration;
+use tokio::runtime;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -116,7 +117,12 @@ impl HealthHandle {
             component: self.component.clone(),
             status,
         };
-        if let Err(err) = self.sender.blocking_send(message) {
+        // Don't panic if we're called from within an async context,
+        // just spawn instead
+        if let Ok(h) = runtime::Handle::try_current() {
+            let m = self.clone();
+            h.spawn(async move { m.report_status(message.status).await });
+        } else if let Err(err) = self.sender.blocking_send(message) {
             warn!("failed to report heath status: {}", err)
         }
     }

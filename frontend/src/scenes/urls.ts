@@ -1,14 +1,22 @@
 import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
+import {
+    ActivityTab,
+    AnnotationType,
+    PipelineNodeTab,
+    PipelineStage,
+    PipelineTab,
+    ProductKey,
+    SDKKey,
+    OnboardingStepKey,
+    CommentType,
+} from '~/types'
 
-import { BillingSectionId } from './billing/types'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
-import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
-import { SurveysTabs } from './surveys/surveysLogic'
+import type { BillingSectionId } from './billing/types'
+import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import { ExternalDataSourceType, SharingConfigurationSettings } from '~/queries/schema/schema-general'
 
 /**
  * To add a new URL to the front end:
@@ -27,6 +35,7 @@ export const urls = {
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
+    newTab: () => '/new',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
@@ -40,17 +49,20 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
+    marketingAnalytics: (): string => '/data-management/marketing-analytics',
 
     pipelineNodeNew: (
         stage: PipelineStage | ':stage',
-        { id, kind }: { id?: string | number; kind?: string } = {}
+        { id, source }: { id?: string | number; source?: ExternalDataSourceType } = {}
     ): string => {
         let base = `/pipeline/new/${stage}`
         if (id) {
             base += `/${id}`
         }
 
-        if (kind) {
+        if (source) {
+            // we need to lowercase the source to match the kind in the sourceWizardLogic
+            const kind: Lowercase<ExternalDataSourceType> = source.toLowerCase() as Lowercase<ExternalDataSourceType>
             return `${base}?kind=${kind}`
         }
 
@@ -66,20 +78,8 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
-    cohort: (id: string | number): string => `/cohorts/${id}`,
-    cohorts: (): string => '/cohorts',
-    errorTracking: (): string => '/error_tracking',
-    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
-    errorTrackingIssue: (id: string, fingerprint?: string): string =>
-        combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
-    surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    survey: (id: string): string => `/surveys/${id}`,
-    surveyTemplates: (): string => '/survey_templates',
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string): string => {
         if (query) {
             return `/sql?open_query=${encodeURIComponent(query)}`
         }
@@ -92,10 +92,16 @@ export const urls = {
             return `/sql?open_insight=${insightShortId}`
         }
 
+        if (draftId) {
+            return `/sql?open_draft=${draftId}`
+        }
+
         return '/sql'
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
+    comments: (): string => '/data-management/comments',
+    comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',
@@ -139,40 +145,45 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
-    shared: (token: string, exportOptions: ExportOptions = {}): string =>
+    shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
         combineUrl(
             `/shared/${token}`,
             Object.entries(exportOptions)
+                // strip falsey values
                 .filter((x) => x[1])
                 .reduce(
-                    (acc, [key, val]) => ({
-                        ...acc,
-                        [key]: val === true ? null : val,
-                    }),
+                    (acc, [key, val]) =>
+                        Object.assign(acc, {
+                            // just sends the key and not a value
+                            // e.g., &showInspector not &showInspector=true
+                            [key]: val === true ? null : val,
+                        }),
                     {}
                 )
         ).url,
-    embedded: (token: string, exportOptions?: ExportOptions): string =>
+    embedded: (token: string, exportOptions?: SharingConfigurationSettings): string =>
         urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     debugHog: (): string => '/debug/hog',
-    feedback: (): string => '/feedback',
-    issues: (): string => '/issues',
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    links: (params?: string): string =>
+        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
-    messagingBroadcasts: (): string => '/messaging/broadcasts',
-    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-    messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
-    messagingCampaigns: (): string => '/messaging/campaigns',
-    messagingCampaignNew: (): string => '/messaging/campaigns/new',
-    messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
-    messagingLibrary: (): string => '/messaging/library',
-    messagingLibraryTemplate: (id: string): string => `/messaging/library/template/${id}`,
-    messagingLibraryTemplateNew: (): string => '/messaging/library/template/new',
-    messagingLibraryMessage: (id: string): string => `/messaging/library/message/${id}`,
-    messagingLibraryMessageNew: (): string => '/messaging/library/message/new',
+    startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    oauthAuthorize: (): string => '/oauth/authorize',
+    dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
+    dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
+    dataWarehouse: (): string => '/data-warehouse',
+    dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceNew: (): string => `/data-warehouse/new-source`,
+    batchExportNew: (service: string): string => `/data-pipelines/batch-exports/new/${service}`,
+    batchExport: (id: string): string => `/data-pipelines/batch-exports/${id}`,
+    legacyPlugin: (id: string): string => `/data-pipelines/plugins/${id}`,
+    hogFunction: (id: string): string => `/functions/${id}`,
+    hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
 }

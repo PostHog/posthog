@@ -1,7 +1,5 @@
 import 'chartjs-adapter-dayjs-3'
 
-import * as Sentry from '@sentry/react'
-import { LegendOptions, ScaleOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
@@ -19,6 +17,8 @@ import {
     Color,
     GridLineOptions,
     InteractionItem,
+    LegendOptions,
+    ScaleOptions,
     ScriptableLineSegmentContext,
     TickOptions,
     TooltipModel,
@@ -28,6 +28,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -39,6 +40,7 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
@@ -278,7 +280,7 @@ export interface LineGraphProps {
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
-        <ErrorBoundary tags={{ feature: 'LineGraph' }}>
+        <ErrorBoundary exceptionProps={{ feature: 'LineGraph' }}>
             {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
@@ -325,7 +327,9 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, query } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
@@ -356,24 +360,30 @@ export function LineGraph_({
         }
 
         // Scroll events happen on the main element due to overflow-y: scroll
+        // but we need to make sure it exists before adding the event listener,
+        // e.g: it does not exist in the shared pages
         const main = document.getElementsByTagName('main')[0]
-        main.addEventListener('scrollend', hideTooltip)
+        if (main) {
+            main.addEventListener('scrollend', hideTooltip)
+        }
 
         return () => {
-            main.removeEventListener('scrollend', hideTooltip)
+            if (main) {
+                main.removeEventListener('scrollend', hideTooltip)
+            }
         }
     }, [hideTooltipOnScroll])
 
     // Remove tooltip element on unmount
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
         }
-    }, [])
+    })
 
     // Add event listeners to canvas
-    useEffect(() => {
+    useOnMountEffect(() => {
         const canvas = canvasRef.current
 
         if (canvas) {
@@ -391,7 +401,7 @@ export function LineGraph_({
                     console.error(event)
                 }
 
-                Sentry.captureException(event)
+                posthog.captureException(event)
             }
 
             canvas.addEventListener('contextlost', handleEvent)
@@ -404,7 +414,7 @@ export function LineGraph_({
                 canvas.removeEventListener('webglcontextlost', handleEvent)
             }
         }
-    }, [])
+    })
 
     function processDataset(dataset: ChartDataset<any>, index: number): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
@@ -412,8 +422,8 @@ export function LineGraph_({
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
-            ? dataset.backgroundColor
-            : getTrendsColor(dataset) || '#000000' // Default to black if no color found
+              ? dataset.backgroundColor
+              : getTrendsColor(dataset) || '#000000' // Default to black if no color found
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
@@ -480,7 +490,12 @@ export function LineGraph_({
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
             type: (isHorizontal ? GraphType.Bar : type) as ChartType,
-            yAxisID: type === GraphType.Line && showMultipleYAxes && index > 0 ? `y${index}` : 'y',
+            yAxisID:
+                type === GraphType.Line && showMultipleYAxes && index > 0 && !dataset.yAxisID
+                    ? `y${index}`
+                    : dataset.yAxisID
+                      ? dataset.yAxisID
+                      : 'y',
         }
     }
 
@@ -583,7 +598,9 @@ export function LineGraph_({
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
-        const goalLines = _goalLines || []
+        const goalLines = (_goalLines || []).filter(
+            (goalLine) => goalLine.displayIfCrossed !== false || goalLine.value >= seriesNonZeroMax
+        )
         const goalLinesY = goalLines.map((a) => a.value)
         const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
 
@@ -656,6 +673,14 @@ export function LineGraph_({
                         return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
+                        // Handle survey view - show count + percentage
+                        if (inSurveyView && showValuesOnSeries) {
+                            const dataset = context.dataset as any
+                            const total = dataset.data?.reduce((sum: number, val: number) => sum + val, 0) || 1
+                            const percentage = ((value / total) * 100).toFixed(1)
+                            return `${value} (${percentage}%)`
+                        }
+
                         // the type here doesn't allow for undefined, but we see errors where things are undefined
                         const data = context.chart?.data as ExtendedChartData
                         if (!data) {
@@ -713,6 +738,10 @@ export function LineGraph_({
                             const dataset = datasets[referenceDataPoint.datasetIndex]
                             const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                if (tooltipConfig?.filter) {
+                                    return tooltipConfig.filter(dp)
+                                }
+
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
                                     dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
@@ -734,16 +763,19 @@ export function LineGraph_({
                                     timezone={timezone}
                                     seriesData={seriesData}
                                     breakdownFilter={breakdownFilter}
+                                    interval={interval}
+                                    dateRange={insightData?.resolved_date_range}
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
+
                                         return (
                                             <div className="datum-label-column">
                                                 {!formula && (
                                                     <SeriesLetter
                                                         className="mr-2"
                                                         hasBreakdown={hasBreakdown}
-                                                        seriesIndex={datum?.action?.order ?? datum.id}
+                                                        seriesIndex={datum.action?.order ?? datum.id}
                                                         seriesColor={datum.color}
                                                     />
                                                 )}
@@ -792,14 +824,13 @@ export function LineGraph_({
                                             )} (${percentageLabel}%)`
                                         })
                                     }
-                                    formula={!!formula}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
                                     groupTypeLabel={
                                         labelGroupType === 'people'
                                             ? 'people'
                                             : labelGroupType === 'none'
-                                            ? ''
-                                            : aggregationLabel(labelGroupType).plural
+                                              ? ''
+                                              : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
                                 />
@@ -914,7 +945,7 @@ export function LineGraph_({
                     },
                 },
                 ...generateYaxesForLineGraph(
-                    datasets.length,
+                    (showMultipleYAxes && new Set(datasets.map((d) => d.yAxisID)).size) || datasets.length,
                     seriesNonZeroMin,
                     goalLines,
                     goalLinesY,
@@ -926,7 +957,9 @@ export function LineGraph_({
             }
         } else if (isHorizontal) {
             if (hideXAxis || hideYAxis) {
-                options.layout = { padding: 20 }
+                options.layout = { padding: inSurveyView ? { top: 20, bottom: 20, left: 20, right: 60 } : 20 }
+            } else if (inSurveyView) {
+                options.layout = { padding: { right: 60 } }
             }
             options.scales = {
                 x: {
@@ -952,7 +985,7 @@ export function LineGraph_({
                             return tick
                         })
 
-                        const ROW_HEIGHT = inSurveyView ? 30 : 20
+                        const ROW_HEIGHT = inSurveyView ? (isHorizontal ? 48 : 30) : 20
                         const height = scale.ticks.length * ROW_HEIGHT
                         const parentNode: any = scale.chart?.canvas?.parentNode
                         parentNode.style.height = `${height}px`
@@ -970,6 +1003,14 @@ export function LineGraph_({
                         precision,
                         stepSize: !truncateRows ? 1 : undefined,
                         autoSkip: !truncateRows ? false : undefined,
+                        ...(inSurveyView
+                            ? {
+                                  padding: 10,
+                                  font: {
+                                      size: 14,
+                                  },
+                              }
+                            : {}),
                         callback: function _renderYLabel(_, i) {
                             const d = datasets?.[0]
                             if (!d) {
@@ -1025,7 +1066,7 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>

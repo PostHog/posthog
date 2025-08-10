@@ -1,7 +1,7 @@
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { TeamType } from '~/types'
 
 /** Indicates HogQL usage if team.live_events_columns = [HOGQL_COLUMNS_KEY, ...] */
@@ -25,7 +25,7 @@ export function cleanLiveEventsColumns(columns: string[]): string[] {
             if (column === 'source') {
                 return 'properties.$lib'
             }
-            return `properties.${escapePropertyAsHogQlIdentifier(String(column))}`
+            return `properties.${escapePropertyAsHogQLIdentifier(String(column))}`
         }),
         'timestamp',
     ]
@@ -33,11 +33,12 @@ export function cleanLiveEventsColumns(columns: string[]): string[] {
 
 export function getDefaultEventsQueryForTeam(team: Partial<TeamType>): EventsQuery | null {
     const liveColumns = team?.live_events_columns ? cleanLiveEventsColumns(team.live_events_columns) : null
+
     return liveColumns
         ? {
               kind: NodeKind.EventsQuery,
               select: liveColumns,
-              after: '-24h',
+              after: '-1h',
               orderBy: liveColumns.includes('timestamp') ? ['timestamp DESC'] : [],
           }
         : null
@@ -51,7 +52,7 @@ export function getEventsQueriesForTeam(team: Partial<TeamType>): Record<string,
         'Event counts view': {
             kind: NodeKind.EventsQuery,
             select: ['event', 'count()'],
-            after: '-24h',
+            after: '-1h',
             orderBy: ['count() DESC'],
         } as EventsQuery,
     }

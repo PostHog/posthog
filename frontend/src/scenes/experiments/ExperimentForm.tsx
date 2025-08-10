@@ -1,6 +1,7 @@
 import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
+    LemonCheckbox,
     LemonDivider,
     LemonInput,
     LemonModal,
@@ -31,16 +32,10 @@ import { experimentLogic } from './experimentLogic'
 import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
+    const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
         useValues(experimentLogic)
-    const {
-        addVariant,
-        removeExperimentGroup,
-        setExperiment,
-        createExperiment,
-        setExperimentType,
-        validateFeatureFlag,
-    } = useActions(experimentLogic)
+    const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
+        useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -50,9 +45,19 @@ const ExperimentFormFields = (): JSX.Element => {
 
     return (
         <div>
-            {hasPrimaryMetricSet && (
+            {hasPrimaryMetricSet && formMode !== 'duplicate' && (
                 <LemonBanner type="info" className="my-4">
                     Fill out the details below to create your experiment based off of the insight.
+                </LemonBanner>
+            )}
+            {formMode === 'duplicate' && (
+                <LemonBanner type="info" className="my-4">
+                    We'll copy all settings, including metrics and exposure configuration, from the&nbsp;
+                    <Link target="_blank" className="font-semibold items-center" to={urls.experiment(experiment.id)}>
+                        original experiment
+                        <IconOpenInNew fontSize="18" />
+                    </Link>
+                    .
                 </LemonBanner>
             )}
             <div className="deprecated-space-y-8">
@@ -62,6 +67,11 @@ const ExperimentFormFields = (): JSX.Element => {
                             placeholder="Pricing page conversion"
                             data-attr="experiment-name"
                             onBlur={() => {
+                                // bail if feature flag key is already set
+                                if (experiment.feature_flag_key) {
+                                    return
+                                }
+
                                 setExperiment({
                                     feature_flag_key: generateFeatureFlagKey(
                                         experiment.name,
@@ -158,11 +168,11 @@ const ExperimentFormFields = (): JSX.Element => {
                     </div>
                 )}
                 {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
-                    <div>
-                        <h3 className="mt-10">Participant type</h3>
-                        <div className="text-xs text-secondary">
-                            The type on which to aggregate metrics. You can change this at any time during the
-                            experiment.
+                    <div className="mt-10">
+                        <h3>Participant type</h3>
+                        <div className="text-xs text-secondary  max-w-150">
+                            Determines on what level you want to aggregate metrics. You can change this later, but flag
+                            values for users will change so you need to reset the experiment for accurate results.
                         </div>
                         <LemonDivider />
                         <LemonRadio
@@ -279,7 +289,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                                                 <LemonButton
                                                                     size="small"
                                                                     icon={<IconTrash />}
-                                                                    onClick={() => removeExperimentGroup(index)}
+                                                                    onClick={() => removeVariant(index)}
                                                                 />
                                                             </Tooltip>
                                                         )}
@@ -306,15 +316,37 @@ const ExperimentFormFields = (): JSX.Element => {
                                 </div>
                             </div>
                         </div>
+                        <div className="mt-10 pb-6 max-w-150">
+                            <LemonField name="parameters.ensure_experience_continuity">
+                                {({ value, onChange }) => (
+                                    <div className="border rounded p-4">
+                                        <LemonCheckbox
+                                            id="continuity-checkbox"
+                                            label="Persist flag across authentication steps"
+                                            onChange={() => onChange(!value)}
+                                            fullWidth
+                                            checked={value}
+                                        />
+                                        <div className="text-secondary text-sm pl-7">
+                                            If your feature flag is evaluated for anonymous users, use this option to
+                                            ensure the flag value remains consistent after the user logs in. Depending
+                                            on your setup, this option may not always be appropriate. Note that this
+                                            feature requires creating profiles for anonymous users.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                target="_blank"
+                                            >
+                                                Learn more
+                                            </Link>
+                                        </div>
+                                    </div>
+                                )}
+                            </LemonField>
+                        </div>
                     </>
                 )}
             </div>
-            <LemonButton
-                className="mt-2"
-                type="primary"
-                data-attr="save-experiment"
-                onClick={() => createExperiment(true)}
-            >
+            <LemonButton className="mt-2" type="primary" data-attr="save-experiment" onClick={() => submitExperiment()}>
                 Save as draft
             </LemonButton>
         </div>
