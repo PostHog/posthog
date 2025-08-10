@@ -14,6 +14,7 @@ import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic
 import type { HedgehogActor } from '@posthog/hedgehog-mode'
 
 const MARGIN = 2
+const HEDGEHOG_OFFSET = 80
 
 export type MenuState =
     | 'none'
@@ -295,7 +296,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             (s) => [s.hedgehogMode],
             (hedgehogMode): (() => HedgehogActor | null) => {
                 return () => {
-                    const player = hedgehogMode.stateManager?.['hedgehogsById']?.['player']
+                    const player = hedgehogMode?.stateManager?.getPlayerHedgehogActor()
                     if (!player || !player.rigidBody) {
                         return null
                     }
@@ -394,24 +395,26 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         },
 
-        setDragging: ({ dragging }) => {
-            if (values.hedgehogActor) {
-                values.hedgehogActor.isDragging = dragging
-                values.hedgehogActor.update()
-            }
-        },
-
         syncWithHedgehog: () => {
-            // TODO: Add public methods to the SDK for this
             const player = values.getHedgehogActor()
 
             if (!player) {
                 return
             }
 
+            if (values.isDragging) {
+                // Set the hedgehog position instead
+                player.setPosition({
+                    x: values.position.x,
+                    y: values.position.y + HEDGEHOG_OFFSET,
+                })
+
+                return
+            }
+
             const { x, y } = player.rigidBody.position
             const newX = x
-            const newY = y - 80
+            const newY = y - HEDGEHOG_OFFSET
             actions.setDragPosition(newX, newY)
         },
 
