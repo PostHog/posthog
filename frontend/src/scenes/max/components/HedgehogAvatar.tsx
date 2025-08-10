@@ -1,36 +1,23 @@
 import { IconSparkles } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { HedgehogActor, HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { useEffect, useRef } from 'react'
-import { userLogic } from 'scenes/userLogic'
+import { useEffect } from 'react'
 
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { type PositionWithSide } from '../utils/floatingMaxPositioning'
 import { useDragAndSnap } from '../utils/useDragAndSnap'
-
-// Constants
-const DEFAULT_WAVE_INTERVAL = 5000 // milliseconds
+import { HedgehogModeStatic } from 'lib/components/HedgehogMode/HedgehogModeRender'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 interface HedgehogAvatarProps {
     onExpand: () => void
-    waveInterval?: number
-    isExpanded: boolean
     fixedDirection?: 'left' | 'right'
     onPositionChange?: (position: PositionWithSide) => void
 }
 
-export function HedgehogAvatar({
-    onExpand,
-    waveInterval = DEFAULT_WAVE_INTERVAL,
-    isExpanded,
-    fixedDirection,
-    onPositionChange,
-}: HedgehogAvatarProps): JSX.Element {
-    const { user } = useValues(userLogic)
-    const hedgehogActorRef = useRef<HedgehogActor | null>(null)
-    const avatarRef = useRef<HTMLDivElement>(null)
+export function HedgehogAvatar({ onExpand, fixedDirection, onPositionChange }: HedgehogAvatarProps): JSX.Element {
     const { setFloatingMaxDragState } = useActions(maxGlobalLogic)
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
 
     // Use the drag and snap hook
     const { isDragging, isAnimating, hasDragged, containerStyle, handleMouseDown, dragElementRef } = useDragAndSnap({
@@ -44,26 +31,8 @@ export function HedgehogAvatar({
         setFloatingMaxDragState({ isDragging, isAnimating })
     }, [isDragging, isAnimating, setFloatingMaxDragState])
 
-    // Trigger wave animation periodically when collapsed
-    useEffect(() => {
-        let interval: ReturnType<typeof setInterval> | null = null
-
-        if (!isExpanded && hedgehogActorRef.current) {
-            interval = setInterval(() => {
-                hedgehogActorRef.current?.setAnimation('wave')
-            }, waveInterval)
-        }
-
-        return () => {
-            if (interval) {
-                clearInterval(interval)
-            }
-        }
-    }, [isExpanded, waveInterval])
-
     return (
         <div
-            ref={avatarRef}
             className={isDragging || isAnimating ? '' : 'relative flex items-center justify-end'}
             style={containerStyle}
             id="floating-max"
@@ -101,27 +70,7 @@ export function HedgehogAvatar({
                             justifyContent: 'center',
                         }}
                     >
-                        <HedgehogBuddy
-                            static
-                            hedgehogConfig={{
-                                controls_enabled: false,
-                                walking_enabled: false,
-                                color: null,
-                                enabled: true,
-                                accessories: [],
-                                interactions_enabled: false,
-                                party_mode_enabled: false,
-                                use_as_profile: true,
-                                skin: 'default',
-                                fixed_direction: fixedDirection,
-                                ...user?.hedgehog_config,
-                            }}
-                            onActorLoaded={(actor) => {
-                                hedgehogActorRef.current = actor
-                                // Start with a wave
-                                actor.setAnimation('wave')
-                            }}
-                        />
+                        <HedgehogModeStatic {...hedgehogConfig} size={100} />
                     </div>
                 </Tooltip>
             </div>
