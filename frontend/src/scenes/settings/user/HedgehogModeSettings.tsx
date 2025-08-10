@@ -25,10 +25,6 @@ export function HedgehogModeSettings(): JSX.Element {
                     bordered
                 />
             </div>
-
-            <div className="p-2 mt-4 rounded border bg-surface-primary">
-                <p>TODO!</p>
-            </div>
         </>
     )
 }
