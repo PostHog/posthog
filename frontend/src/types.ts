@@ -4281,7 +4281,7 @@ export type QueryExportContext = {
 }
 
 export interface ReplayExportContext {
-    replay_id: string
+    session_recording_id: string
     timestamp?: number
     css_selector?: string
     width?: number

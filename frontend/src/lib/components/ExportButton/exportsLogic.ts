@@ -123,7 +123,7 @@ export const exportsLogic = kea<exportsLogicType>([
             const exportData: TriggerExportProps = {
                 export_format: ExporterFormat.PNG,
                 export_context: {
-                    replay_id: replayId,
+                    session_recording_id: replayId,
                     timestamp: timestamp,
                     css_selector: options?.css_selector || '.replayer-wrapper',
                     width: options?.width || 1400,

@@ -386,19 +386,23 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif (
-            isinstance(resource, ExportedAsset) and resource.export_context and resource.export_context.get("replay_id")
+            isinstance(resource, ExportedAsset)
+            and resource.export_context
+            and resource.export_context.get("session_recording_id")
         ):
             # Handle replay export via export_context
-            replay_id = resource.export_context.get("replay_id")
+            session_recording_id = resource.export_context.get("session_recording_id")
             timestamp = resource.export_context.get("timestamp")
 
-            if not replay_id:
-                raise NotFound("Invalid replay export - missing replay_id")
+            if not session_recording_id:
+                raise NotFound("Invalid replay export - missing session_recording_id")
 
             # Create a SessionRecording object for the replay
             try:
                 # First, try to get existing recording from database
-                recording, _ = SessionRecording.objects.get_or_create(session_id=replay_id, team=resource.team)
+                recording, _ = SessionRecording.objects.get_or_create(
+                    session_id=session_recording_id, team=resource.team
+                )
 
                 # Create a JWT for the recording
                 export_access_token = ""
@@ -410,7 +414,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     )
 
                 asset_title = "Session Recording"
-                asset_description = f"Recording {replay_id}"
+                asset_description = f"Recording {session_recording_id}"
 
                 recording_data = SessionRecordingSerializer(recording, context=context).data
 
@@ -419,7 +423,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "type": "replay_export",
                         "recording": recording_data,
                         "timestamp": timestamp,
-                        "replay_id": replay_id,
+                        "session_recording_id": session_recording_id,
                         "exportToken": export_access_token,
                         "noBorder": True,
                         "autoplay": True,
