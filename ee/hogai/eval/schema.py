@@ -87,8 +87,8 @@ class PropertyDefinitionSchema(BaseSchema[PropertyDefinition]):
 class GroupTypeMappingSchema(BaseSchema[GroupTypeMapping]):
     group_type: str
     group_type_index: int
-    name_singular: str
-    name_plural: str
+    name_singular: str | None
+    name_plural: str | None
 
     @classmethod
     def serialize_for_project(cls, project_id: int):
@@ -129,7 +129,7 @@ class DataWarehouseTableSchema(BaseSchema[DataWarehouseTable]):
             )
 
     @classmethod
-    def deserialize_for_project(cls, project_id: int, models: Sequence[Self]):
+    def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs):
         for model in models:
             yield DataWarehouseTable(
                 name=model.name,

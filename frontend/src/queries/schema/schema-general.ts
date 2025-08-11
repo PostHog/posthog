@@ -3026,12 +3026,14 @@ export interface ActorsPropertyTaxonomyResponse {
 
 export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
     kind: NodeKind.ActorsPropertyTaxonomyQuery
-    property: string
-    group_type_index?: integer
+    properties: string[]
+    groupTypeIndex?: integer
     maxPropertyValues?: integer
 }
 
-export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
+export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<
+    ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
+>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
