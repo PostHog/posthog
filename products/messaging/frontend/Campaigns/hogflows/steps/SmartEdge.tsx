@@ -94,7 +94,7 @@ export function getSmartStepPath({
     // There are 4 types of line segments that can be drawn:
 
     // Case 1: Straight vertical line
-    if (sourceX === targetX && horizontalOffset === 0) {
+    if (Math.abs(sourceX - targetX) < NEGLIGIBLE_DRIFT && horizontalOffset === 0) {
         pathCommands = [`M ${sourceX} ${sourceY}`, `L ${targetX} ${targetY}`]
     }
     // Case 2: L-shaped path that branches outwards and then straight down to target
