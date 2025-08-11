@@ -32,12 +32,47 @@ class Migration(SchemaMigration):
         if result_customizations is None:
             result_customizations = {}
 
+        # Helper: check for breakdown
+        def has_breakdown():
+            breakdown_filter = query.get("breakdownFilter")
+            if not breakdown_filter:
+                return False
+            if breakdown_filter.get("breakdown_type") and breakdown_filter.get("breakdown"):
+                return True
+            breakdowns = breakdown_filter.get("breakdowns")
+            if isinstance(breakdowns, list) and len(breakdowns) > 0:
+                return True
+            return False
+
+        # Helper: check for compare
+        def has_compare():
+            compare_filter = query.get("compareFilter")
+            if not compare_filter:
+                return False
+            return compare_filter.get("compare") is True
+
         # If resultCustomizationBy == "value" or is empty, and has_value_assignment, we cannot convert hiddenLegendIndexes
         has_value_assignment = any(
             isinstance(v, dict) and v.get("assignmentBy") == "value" for v in result_customizations.values()
         )
         result_customization_by = insight_filter.get("resultCustomizationBy")
         if (result_customization_by == "value" or not result_customization_by) and has_value_assignment:
+            # Allow conversion if no breakdown and no compare
+            if not has_breakdown() and not has_compare():
+                # Convert hiddenLegendIndexes to resultCustomizations by value
+                new_result_customizations = dict(result_customizations)
+                for idx in hidden_indexes:
+                    idx_key = f'{{"series":{idx}}}'
+                    if idx_key not in new_result_customizations:
+                        new_result_customizations[idx_key] = {"assignmentBy": "value"}
+                    new_result_customizations[idx_key]["hidden"] = True
+                new_insight_filter = dict(insight_filter)
+                new_insight_filter["resultCustomizationBy"] = "value"
+                new_insight_filter["resultCustomizations"] = new_result_customizations
+                new_insight_filter.pop("hiddenLegendIndexes", None)
+                query = dict(query)
+                query[filter_key] = new_insight_filter
+                return query
             # Remove hiddenLegendIndexes, leave resultCustomizations as is
             new_insight_filter = dict(insight_filter)
             new_insight_filter.pop("hiddenLegendIndexes", None)

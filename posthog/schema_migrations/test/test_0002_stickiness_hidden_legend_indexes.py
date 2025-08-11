@@ -79,6 +79,7 @@ def test_trends_query_hidden_legend_indexes_migration():
             },
             "hiddenLegendIndexes": [0, 1],
         },
+        "breakdownFilter": {"breakdown_type": "event", "breakdown": "browser"},
     }
     assert migration.transform(result_customization_by_value_query) == {
         "kind": "TrendsQuery",
@@ -94,6 +95,7 @@ def test_trends_query_hidden_legend_indexes_migration():
                 },
             }
         },
+        "breakdownFilter": {"breakdown_type": "event", "breakdown": "browser"},
     }
 
     # result customizations by value, but result customizations are empty
@@ -162,3 +164,125 @@ def test_trends_query_hidden_legend_indexes_migration():
             },
         },
     }
+
+    # result customizations by value, no breakdown, no compare (should convert)
+    result_customization_by_value_no_breakdown_compare_query = {
+        "kind": "TrendsQuery",
+        "trendsFilter": {
+            "resultCustomizations": {
+                '{"series":0}': {
+                    "assignmentBy": "value",
+                    "color": "preset-5",
+                },
+                '{"series":2}': {
+                    "assignmentBy": "value",
+                    "color": "preset-11",
+                },
+            },
+            "hiddenLegendIndexes": [0, 1],
+        },
+    }
+    assert migration.transform(result_customization_by_value_no_breakdown_compare_query) == {
+        "kind": "TrendsQuery",
+        "trendsFilter": {
+            "resultCustomizationBy": "value",
+            "resultCustomizations": {
+                '{"series":0}': {
+                    "assignmentBy": "value",
+                    "color": "preset-5",
+                    "hidden": True,
+                },
+                '{"series":1}': {
+                    "assignmentBy": "value",
+                    "hidden": True,
+                },
+                '{"series":2}': {
+                    "assignmentBy": "value",
+                    "color": "preset-11",
+                },
+            },
+        },
+    }
+
+    # result customizations by value, with breakdown (should NOT convert, just remove hiddenLegendIndexes)
+    result_customization_by_value_with_breakdown_query = {
+        "kind": "TrendsQuery",
+        "trendsFilter": {
+            "resultCustomizations": {
+                '{"series":0,"breakdown_value":["Firefox"]}': {
+                    "assignmentBy": "value",
+                    "color": "preset-5",
+                },
+            },
+            "hiddenLegendIndexes": [0, 1],
+        },
+        "breakdownFilter": {"breakdown_type": "event", "breakdown": "browser"},
+    }
+    assert migration.transform(result_customization_by_value_with_breakdown_query) == {
+        "kind": "TrendsQuery",
+        "trendsFilter": {
+            "resultCustomizations": {
+                '{"series":0,"breakdown_value":["Firefox"]}': {
+                    "assignmentBy": "value",
+                    "color": "preset-5",
+                },
+            }
+        },
+        "breakdownFilter": {"breakdown_type": "event", "breakdown": "browser"},
+    }
+
+    # result customizations by value, with breakdowns array (should NOT convert, just remove hiddenLegendIndexes)
+    result_customization_by_value_with_breakdowns_array_query = {
+        "kind": "TrendsQuery",
+        "trendsFilter": {
+            "resultCustomizations": {
+                '{"series":0,"breakdown_value":["Firefox"]}': {
+                    "assignmentBy": "value",
+                    "color": "preset-5",
+                },
+            },
+            "hiddenLegendIndexes": [0, 1],
+        },
+        "breakdownFilter": {"breakdowns": [{"type": "event", "property": "browser"}]},
+    }
+    assert migration.transform(result_customization_by_value_with_breakdowns_array_query) == {
+        "kind": "TrendsQuery",
+        "trendsFilter": {
+            "resultCustomizations": {
+                '{"series":0,"breakdown_value":["Firefox"]}': {
+                    "assignmentBy": "value",
+                    "color": "preset-5",
+                },
+            }
+        },
+        "breakdownFilter": {"breakdowns": [{"type": "event", "property": "browser"}]},
+    }
+
+    # result customizations by value, with compare (should NOT convert, just remove hiddenLegendIndexes)
+    result_customization_by_value_with_compare_query = {
+        "kind": "TrendsQuery",
+        "trendsFilter": {
+            "resultCustomizations": {
+                '{"series":0,"compare_against":"previous"}': {
+                    "assignmentBy": "value",
+                    "color": "preset-5",
+                },
+            },
+            "hiddenLegendIndexes": [0, 1],
+        },
+        "compareFilter": {"compare": True},
+    }
+    assert migration.transform(result_customization_by_value_with_compare_query) == {
+        "kind": "TrendsQuery",
+        "trendsFilter": {
+            "resultCustomizations": {
+                '{"series":0,"compare_against":"previous"}': {
+                    "assignmentBy": "value",
+                    "color": "preset-5",
+                },
+            }
+        },
+        "compareFilter": {"compare": True},
+    }
+    migration_module = importlib.import_module("posthog.schema_migrations.0002_stickiness_hidden_legend_indexes")
+    migration = migration_module.Migration()
