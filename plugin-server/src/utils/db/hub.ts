@@ -86,9 +86,13 @@ export async function createHub(
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
     logger.info('👍', `Postgres Router ready`)
 
-    logger.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to ingestion Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    logger.info('👍', `Redis ready`)
+    logger.info('👍', `Ingestion Redis ready`)
+
+    logger.info('🤔', `Connecting to cookieless Redis...`)
+    const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
+    logger.info('👍', `Cookieless Redis ready`)
 
     logger.info('🤔', `Connecting to object storage...`)
 
@@ -102,6 +106,7 @@ export async function createHub(
     const db = new DB(
         postgres,
         redisPool,
+        cookielessRedisPool,
         kafkaProducer,
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
@@ -118,7 +123,7 @@ export async function createHub(
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
     const groupRepository = new PostgresGroupRepository(postgres)
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
-    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig)

@@ -9,7 +9,7 @@ import { captureException } from '../posthog'
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 
-export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording'
+export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording' | 'cookieless'
 
 export function getRedisConnectionOptions(
     serverConfig: PluginsServerConfig,
@@ -53,6 +53,15 @@ export function getRedisConnectionOptions(
                       url: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST ?? 'localhost',
                       options: {
                           port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                      },
+                  }
+                : fallback
+        case 'cookieless':
+            return serverConfig.COOKIELESS_REDIS_HOST
+                ? {
+                      url: serverConfig.COOKIELESS_REDIS_HOST ?? 'localhost',
+                      options: {
+                          port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379,
                       },
                   }
                 : fallback

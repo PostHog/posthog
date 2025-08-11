@@ -272,6 +272,8 @@ services:
             # REDIS_TIMEOUT_MS: 200
             ADDRESS: '0.0.0.0:3001'
             RUST_LOG: 'info'
+            COOKIELESS_REDIS_HOST: redis7
+            COOKIELESS_REDIS_PORT: 6379
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop
@@ -286,6 +288,8 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
+            COOKIELESS_REDIS_HOST: redis7
+            COOKIELESS_REDIS_PORT: 6379
 
     livestream:
         image: 'ghcr.io/posthog/livestream:main'
