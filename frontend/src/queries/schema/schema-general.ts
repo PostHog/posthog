@@ -1306,6 +1306,7 @@ export type RetentionFilter = {
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
+    showTrendLines?: boolean
 }
 
 export interface RetentionValue {
