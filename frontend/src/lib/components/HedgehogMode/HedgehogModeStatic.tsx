@@ -26,12 +26,12 @@ export function HedgehogModeStatic({
             .render({
                 id: JSON.stringify({
                     skin,
-                    accessories: accessories as any,
-                    color: color as any,
+                    accessories: accessories,
+                    color: color,
                 }),
                 skin,
-                accessories: accessories as any,
-                color: color as any,
+                accessories,
+                color,
             })
             .then((src) => {
                 setDataUrl(src)
