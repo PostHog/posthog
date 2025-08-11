@@ -2,7 +2,11 @@ export const NODE_WIDTH = 110
 export const NODE_HEIGHT = 34
 
 export const NODE_GAP = 50
-export const NODE_EDGE_GAP = 150
+
+// Minimum horizontal distance between parallel edges
+export const MINIMUM_EDGE_SPACING = 160
+
+export const NODE_EDGE_GAP = 50
 export const NODE_LAYER_GAP = NODE_GAP * 1.5
 
 export const TOP_HANDLE_POSITION = {
