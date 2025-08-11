@@ -1298,12 +1298,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             ):
                 content = await asyncio.to_thread(session_recording_v2_object_storage.client().fetch_file, blob_key)
 
-            twenty_hour_hours_in_seconds = 60 * 60 * 24
+            twenty_four_hours_in_seconds = 60 * 60 * 24
             response = HttpResponse(
                 content=content,
                 content_type="application/jsonl",
             )
-            response["Cache-Control"] = f"max-age={twenty_hour_hours_in_seconds}"
+            response["Cache-Control"] = f"max-age={twenty_four_hours_in_seconds}"
             response["Content-Disposition"] = "inline"
             return response
 
