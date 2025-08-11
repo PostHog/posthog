@@ -64,7 +64,7 @@ importers:
         version: 4.6.0(stylelint@15.11.0(typescript@5.2.2))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@5.2.2))
+        version: 11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
       stylelint-order:
         specifier: ^6.0.4
         version: 6.0.4(stylelint@15.11.0(typescript@5.2.2))
@@ -839,8 +839,8 @@ importers:
         specifier: ^0.2.1
         version: 0.2.1(kea@3.1.6(react@18.2.0))
       kea-window-values:
-        specifier: ^3.0.0
-        version: 3.0.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.0.1
+        version: 3.0.1(kea@3.1.6(react@18.2.0))
       liquidjs:
         specifier: ^10.21.1
         version: 10.21.1
@@ -2033,7 +2033,7 @@ importers:
         version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.0(kea@3.1.6(react@18.2.0)))(kea@3.1.6(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.6(react@18.2.0)))(kea@3.1.6(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -12694,11 +12694,6 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-router@3.4.0:
-    resolution: {integrity: sha512-jlSKsQCrp/obQZRTzr86C7Zh+oO2u3giHwZIZ0XxoDb4u6oK1R5jFIkPKcssKupwwIiY/YasIKeiAOG+Eg7yQQ==}
-    peerDependencies:
-      kea: '>= 3'
-
   kea-router@3.4.1:
     resolution: {integrity: sha512-cqhsoBkWtZdp4ZJBZVo27kRbFD2ilZ4ozNe632hLwK4KwtqiaYT7NsbbGbyjbsvCQGi3ClDkNxvpjbcTvx9Pbw==}
     peerDependencies:
@@ -12725,8 +12720,8 @@ packages:
     peerDependencies:
       kea: '>= 2.2.1'
 
-  kea-window-values@3.0.0:
-    resolution: {integrity: sha512-sGaUiTgJHS3DY9j3V3G6gXQHYYZioUMWdkfEtV2W4XIPGPobZciZ0tkoPN3ihvcOpbyT8g2FLgvlG0HSscxOWw==}
+  kea-window-values@3.0.1:
+    resolution: {integrity: sha512-ab+rBHLbIfShkUiJQDleVapWss9c7mTPnMhtVqF4k5gHE4hp1bjwTq6R1NA2Mi5Wo3scenHM07KaSi7KjiXu9A==}
     peerDependencies:
       kea: '>= 3'
 
@@ -22371,11 +22366,11 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.0(kea@3.1.6(react@18.2.0)))(kea@3.1.6(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.6(react@18.2.0)))(kea@3.1.6(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       antd: 5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       kea: 3.1.6(react@18.2.0)
-      kea-router: 3.4.0(kea@3.1.6(react@18.2.0))
+      kea-router: 3.4.1(kea@3.1.6(react@18.2.0))
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
@@ -31841,11 +31836,6 @@ snapshots:
     dependencies:
       kea: 3.1.6(react@18.2.0)
 
-  kea-router@3.4.0(kea@3.1.6(react@18.2.0)):
-    dependencies:
-      kea: 3.1.6(react@18.2.0)
-      url-pattern: 1.0.3
-
   kea-router@3.4.1(kea@3.1.6(react@18.2.0)):
     dependencies:
       kea: 3.1.6(react@18.2.0)
@@ -31877,7 +31867,7 @@ snapshots:
     dependencies:
       kea: 3.1.6(react@18.2.0)
 
-  kea-window-values@3.0.0(kea@3.1.6(react@18.2.0)):
+  kea-window-values@3.0.1(kea@3.1.6(react@18.2.0)):
     dependencies:
       kea: 3.1.6(react@18.2.0)
 
@@ -33971,6 +33961,10 @@ snapshots:
   postcss-scss@4.0.9(postcss@8.4.31):
     dependencies:
       postcss: 8.4.31
+
+  postcss-scss@4.0.9(postcss@8.5.6):
+    dependencies:
+      postcss: 8.5.6
 
   postcss-selector-not@8.0.1(postcss@8.5.2):
     dependencies:
@@ -36105,6 +36099,15 @@ snapshots:
     optionalDependencies:
       postcss: 8.4.31
 
+  stylelint-config-recommended-scss@13.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2)):
+    dependencies:
+      postcss-scss: 4.0.9(postcss@8.5.6)
+      stylelint: 15.11.0(typescript@5.2.2)
+      stylelint-config-recommended: 13.0.0(stylelint@15.11.0(typescript@5.2.2))
+      stylelint-scss: 5.3.2(stylelint@15.11.0(typescript@5.2.2))
+    optionalDependencies:
+      postcss: 8.5.6
+
   stylelint-config-recommended@13.0.0(stylelint@15.11.0(typescript@5.2.2)):
     dependencies:
       stylelint: 15.11.0(typescript@5.2.2)
@@ -36116,6 +36119,14 @@ snapshots:
       stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@5.2.2))
     optionalDependencies:
       postcss: 8.4.31
+
+  stylelint-config-standard-scss@11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2)):
+    dependencies:
+      stylelint: 15.11.0(typescript@5.2.2)
+      stylelint-config-recommended-scss: 13.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
+      stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@5.2.2))
+    optionalDependencies:
+      postcss: 8.5.6
 
   stylelint-config-standard@34.0.0(stylelint@15.11.0(typescript@5.2.2)):
     dependencies:
