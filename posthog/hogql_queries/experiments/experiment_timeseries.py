@@ -182,31 +182,55 @@ class ExperimentTimeseries:
         | control | 2025-05-27 | 25               | 325                  |
         | test-1  | 2025-05-27 | 8                | 64                   |
         """
+
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            # For funnel metrics, value is step number (0-indexed)
+            # Count conversions as users who completed the final step
+            num_steps = len(self.metric.series)
+            final_step = num_steps - 1
+
+            daily_metric_sum_expr = ast.Call(
+                name="countIf",
+                args=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["daily_metrics", "value"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=final_step),
+                    )
+                ],
+            )
+            # For funnel sum_of_squares, use same logic since conversions are binary
+            daily_sum_of_squares_expr = daily_metric_sum_expr
+        else:
+            # For mean metrics, preserve existing behavior
+            daily_metric_sum_expr = ast.Call(
+                name="sum",
+                args=[ast.Field(chain=["daily_metrics", "value"])],
+            )
+            daily_sum_of_squares_expr = ast.Call(
+                name="sum",
+                args=[
+                    ast.Call(
+                        name="power",
+                        args=[
+                            ast.Field(chain=["daily_metrics", "value"]),
+                            ast.Constant(value=2),
+                        ],
+                    )
+                ],
+            )
+
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["daily_metrics", "variant"]),
                 ast.Field(chain=["daily_metrics", "date"]),
                 ast.Alias(
                     alias="daily_metric_sum",
-                    expr=ast.Call(
-                        name="sum",
-                        args=[ast.Field(chain=["daily_metrics", "value"])],
-                    ),
+                    expr=daily_metric_sum_expr,
                 ),
                 ast.Alias(
                     alias="daily_sum_of_squares",
-                    expr=ast.Call(
-                        name="sum",
-                        args=[
-                            ast.Call(
-                                name="power",
-                                args=[
-                                    ast.Field(chain=["daily_metrics", "value"]),
-                                    ast.Constant(value=2),
-                                ],
-                            )
-                        ],
-                    ),
+                    expr=daily_sum_of_squares_expr,
                 ),
             ],
             select_from=ast.JoinExpr(table=daily_entity_metrics_query, alias="daily_metrics"),
