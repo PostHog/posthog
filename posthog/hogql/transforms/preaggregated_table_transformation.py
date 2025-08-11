@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import TypeVar, cast, Optional
 
 from posthog.hogql import ast
@@ -17,14 +16,6 @@ from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
 )
 
 _T_AST = TypeVar("_T_AST", bound=AST)
-
-
-@dataclass
-class PageviewCheckResult:
-    """Result of checking a WHERE clause for pageview filters."""
-
-    has_pageview: bool
-    has_unsupported: bool
 
 
 def flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
