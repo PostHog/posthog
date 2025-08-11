@@ -36,6 +36,8 @@ class Feature(StrEnum):
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
+    DATA_MODELING = "data_modeling"
+    IMPORT_PIPELINE = "import_pipeline"
 
 
 class TemporalTags(BaseModel):

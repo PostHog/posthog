@@ -68,25 +68,51 @@ export function ConversationMessagesDisplay({
         setOutputMessageShowStates(initialOutputStates)
     }, [outputNormalized, displayOption, setOutputMessageShowStates])
 
+    const allInputsExpanded = inputMessageShowStates.every(Boolean)
+    const allInputsCollapsed = inputMessageShowStates.every((state: boolean) => !state)
+
     const inputButtons =
         inputNormalized.length > 0 ? (
             <div className="flex items-center gap-1">
-                <LemonButton size="xsmall" onClick={showAllInputMessages} icon={<IconEye />}>
+                <LemonButton
+                    size="xsmall"
+                    onClick={showAllInputMessages}
+                    icon={<IconEye />}
+                    disabledReason={allInputsExpanded ? 'All inputs are already expanded' : undefined}
+                >
                     Expand all
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={hideAllInputMessages} icon={<IconEyeHidden />}>
+                <LemonButton
+                    size="xsmall"
+                    onClick={hideAllInputMessages}
+                    icon={<IconEyeHidden />}
+                    disabledReason={allInputsCollapsed ? 'All inputs are already collapsed' : undefined}
+                >
                     Collapse all
                 </LemonButton>
             </div>
         ) : undefined
 
+    const allOutputsExpanded = outputMessageShowStates.every(Boolean)
+    const allOutputsCollapsed = outputMessageShowStates.every((state: boolean) => !state)
+
     const outputButtons =
         outputNormalized.length > 0 && !raisedError ? (
             <div className="flex items-center gap-1">
-                <LemonButton size="xsmall" onClick={showAllOutputMessages} icon={<IconEye />}>
+                <LemonButton
+                    size="xsmall"
+                    onClick={showAllOutputMessages}
+                    icon={<IconEye />}
+                    disabledReason={allOutputsExpanded ? 'All outputs are already expanded' : undefined}
+                >
                     Expand all
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={hideAllOutputMessages} icon={<IconEyeHidden />}>
+                <LemonButton
+                    size="xsmall"
+                    onClick={hideAllOutputMessages}
+                    icon={<IconEyeHidden />}
+                    disabledReason={allOutputsCollapsed ? 'All outputs are already collapsed' : undefined}
+                >
                     Collapse all
                 </LemonButton>
             </div>

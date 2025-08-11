@@ -64,7 +64,7 @@ importers:
         version: 4.6.0(stylelint@15.11.0(typescript@5.2.2))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
+        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@5.2.2))
       stylelint-order:
         specifier: ^6.0.4
         version: 6.0.4(stylelint@15.11.0(typescript@5.2.2))
@@ -384,8 +384,8 @@ importers:
         specifier: '*'
         version: 4.3.0(postcss@8.5.6)(webpack@5.88.2)
       posthog-js:
-        specifier: 1.258.6
-        version: 1.258.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.259.0
+        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
       sass-loader:
         specifier: '*'
         version: 10.3.1(sass@1.56.0)(webpack@5.88.2)
@@ -457,8 +457,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.258.6
-        version: 1.258.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.259.0
+        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -827,8 +827,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.6(react@18.2.0))
@@ -890,8 +890,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.258.6
-        version: 1.258.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.259.0
+        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1305,12 +1305,6 @@ importers:
       aws-sdk:
         specifier: ^2.927.0
         version: 2.1366.0
-      cassandra-driver:
-        specifier: ^4.8.0
-        version: 4.8.0
-      cassandra-migrate:
-        specifier: ^1.2.333
-        version: 1.2.333
       cors:
         specifier: ^2.8.5
         version: 2.8.5
@@ -1607,8 +1601,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1634,8 +1628,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1661,8 +1655,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1691,8 +1685,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1754,8 +1748,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.6(react@18.2.0))
@@ -1763,8 +1757,8 @@ importers:
         specifier: ^4.1.1
         version: 4.1.1
       posthog-js:
-        specifier: 1.258.6
-        version: 1.258.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.259.0
+        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -1806,8 +1800,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1833,8 +1827,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1860,8 +1854,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1887,8 +1881,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1917,8 +1911,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@18.2.0)
@@ -1956,8 +1950,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2014,8 +2008,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2053,8 +2047,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2092,14 +2086,14 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.6(react@18.2.0))
       posthog-js:
-        specifier: 1.258.6
-        version: 1.258.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.259.0
+        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2128,8 +2122,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2155,8 +2149,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2182,8 +2176,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2209,8 +2203,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2239,8 +2233,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2266,8 +2260,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2290,11 +2284,11 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       posthog-js:
-        specifier: 1.258.6
-        version: 1.258.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.259.0
+        version: 1.259.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2320,8 +2314,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.6(react@18.2.0))
       kea-router:
-        specifier: ^3.4.0
-        version: 3.4.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.6(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -8666,10 +8660,6 @@ packages:
     resolution: {integrity: sha512-4B/qKCfeE/ODUaAUpSwfzazo5x29WD4r3vXiWsB7I2mSDAihwEqKO+g8GELZUQSSAo5e1XTYh3ZVfLyxBc12nA==}
     engines: {node: '>= 10.0.0'}
 
-  adm-zip@0.5.16:
-    resolution: {integrity: sha512-TGw5yVi4saajsSEgz25grObGHEUaDrniwvA2qwSC060KfqGPdglhvPMA2lPIoxs3PQIItj2iag35fONcQqgUaQ==}
-    engines: {node: '>=12.0'}
-
   agent-base@5.1.1:
     resolution: {integrity: sha512-TMeqbNl2fMW0nMjTEPOwe3J/PRFP4vqeoNuQMG0HlMrtm5QxKqdvAkZ1pRBQ/ulIyDD5Yq0nJ7YbdD8ey0TO3g==}
     engines: {node: '>= 6.0.0'}
@@ -8891,9 +8881,6 @@ packages:
 
   async-retry@1.3.3:
     resolution: {integrity: sha512-wfr/jstw9xNi/0teMHrRW7dsz3Lt5ARhYNZ2ewpadnhaIp5mbALhOAP+EAdsC7t4Z6wqsDVv9+W6gm1Dk9mEyw==}
-
-  async@0.9.2:
-    resolution: {integrity: sha512-l6ToIJIotphWahxxHyzK9bnLR6kM4jJIIgLShZeqLY7iboHoGkdgFl7W2/Ivi4SkMJYGKqW8vSuk0uKUj6qsSw==}
 
   async@3.2.4:
     resolution: {integrity: sha512-iAB+JbDEGXhyIUavoDl9WP/Jj106Kz9DEn1DPgYw5ruDn0e3Wgi3sKFm55sASdGBNOQB8F59d9qQ7deqrHA8wQ==}
@@ -9309,18 +9296,6 @@ packages:
 
   caseless@0.12.0:
     resolution: {integrity: sha512-4tYFyifaFfGacoiObjJegolkwSU4xQNGbVgUiNYVUxbQ2x2lUsFvY4hVgVzGiIe6WLOPqycWXA40l+PWsxthUw==}
-
-  cassandra-driver@3.6.0:
-    resolution: {integrity: sha512-CkN3V+oPaF5RvakUjD3uUjEm8f6U8S0aT1+YqeQsVT3UDpPT2K8SOdNDEHA1KjamakHch6zkDgHph1xWyqBGGw==}
-    engines: {node: '>=4'}
-
-  cassandra-driver@4.8.0:
-    resolution: {integrity: sha512-HritfMGq9V7SuESeSodHvArs0mLuMk7uh+7hQK2lqdvXrvm50aWxb4RPxkK3mPDdsgHjJ427xNRFITMH2ei+Sw==}
-    engines: {node: '>=18'}
-
-  cassandra-migrate@1.2.333:
-    resolution: {integrity: sha512-4uizL1SxK8tfpg18+qMuJge+VQQIlo4Or8fYA/xI6b2sdyXbCwTTLu31jJx1rXtmgoP/W5F4aQ3TfGeFX9YQIA==}
-    hasBin: true
 
   chalk-template@1.1.0:
     resolution: {integrity: sha512-T2VJbcDuZQ0Tb2EWwSotMPJjgpy1/tGee1BTpUNsGZ/qgNjV2t7Mvu+d4600U564nbLesN1x2dPL+xii174Ekg==}
@@ -12724,6 +12699,11 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
+  kea-router@3.4.1:
+    resolution: {integrity: sha512-cqhsoBkWtZdp4ZJBZVo27kRbFD2ilZ4ozNe632hLwK4KwtqiaYT7NsbbGbyjbsvCQGi3ClDkNxvpjbcTvx9Pbw==}
+    peerDependencies:
+      kea: '>= 3'
+
   kea-subscriptions@3.0.1:
     resolution: {integrity: sha512-uBJ0L+oPlthV2FBPpB+gUmZj8p0tdFH6cSLWTEBRkDgruOTmQjKXWsSRN5cxL8MUq2naihMBL8MSqK8IY6f8/g==}
     peerDependencies:
@@ -13078,13 +13058,6 @@ packages:
 
   long-timeout@0.1.1:
     resolution: {integrity: sha512-BFRuQUqc7x2NWxfJBCyUrN8iYUYznzL9JROmRz1gZ6KlOIgmoD+njPVbb+VNn2nGMKggMsK79iUNErillsrx7w==}
-
-  long@2.4.0:
-    resolution: {integrity: sha512-ijUtjmO/n2A5PaosNG9ZGDsQ3vxJg7ZW8vsY8Kp0f2yIZWhSJvjmegV7t+9RPQKxKrvj8yKGehhS+po14hPLGQ==}
-    engines: {node: '>=0.6'}
-
-  long@5.2.4:
-    resolution: {integrity: sha512-qtzLbJE8hq7VabR3mISmVGtoXP8KGc2Z/AT8OuqlYD7JTR3oqrgwdjnk07wpj1twXxYmgDXgoKVWUG/fReSzHg==}
 
   long@5.3.2:
     resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
@@ -14578,8 +14551,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.258.6:
-    resolution: {integrity: sha512-vL5AGG+rOoRg3LGquMfBPO55jD4bGl0CiV44SHdHAoBnOVDDAqxczRGDqMdxor+VLx3/ofTFOJ2FNprfAHp70Q==}
+  posthog-js@1.259.0:
+    resolution: {integrity: sha512-6usLnJshky8fQ82ask7PIJh4BSFOU0VkRbFg8Zanm/HIlYMG1VOdRWlToA63JXeO7Bzm9TuREq1wFm5U2VEVCg==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -26666,8 +26639,6 @@ snapshots:
 
   address@1.2.2: {}
 
-  adm-zip@0.5.16: {}
-
   agent-base@5.1.1: {}
 
   agent-base@6.0.2:
@@ -26962,8 +26933,6 @@ snapshots:
   async-retry@1.3.3:
     dependencies:
       retry: 0.13.1
-
-  async@0.9.2: {}
 
   async@3.2.4: {}
 
@@ -27553,22 +27522,6 @@ snapshots:
   case-sensitive-paths-webpack-plugin@2.4.0: {}
 
   caseless@0.12.0: {}
-
-  cassandra-driver@3.6.0:
-    dependencies:
-      long: 2.4.0
-
-  cassandra-driver@4.8.0:
-    dependencies:
-      '@types/node': 18.19.120
-      adm-zip: 0.5.16
-      long: 5.2.4
-
-  cassandra-migrate@1.2.333:
-    dependencies:
-      async: 0.9.2
-      cassandra-driver: 3.6.0
-      commander: 2.20.3
 
   chalk-template@1.1.0:
     dependencies:
@@ -31893,6 +31846,11 @@ snapshots:
       kea: 3.1.6(react@18.2.0)
       url-pattern: 1.0.3
 
+  kea-router@3.4.1(kea@3.1.6(react@18.2.0)):
+    dependencies:
+      kea: 3.1.6(react@18.2.0)
+      url-pattern: 1.0.3
+
   kea-subscriptions@3.0.1(kea@3.1.6(react@18.2.0)):
     dependencies:
       kea: 3.1.6(react@18.2.0)
@@ -32243,10 +32201,6 @@ snapshots:
       wrap-ansi: 9.0.0
 
   long-timeout@0.1.1: {}
-
-  long@2.4.0: {}
-
-  long@5.2.4: {}
 
   long@5.3.2: {}
 
@@ -34018,10 +33972,6 @@ snapshots:
     dependencies:
       postcss: 8.4.31
 
-  postcss-scss@4.0.9(postcss@8.5.6):
-    dependencies:
-      postcss: 8.5.6
-
   postcss-selector-not@8.0.1(postcss@8.5.2):
     dependencies:
       postcss: 8.5.2
@@ -34111,7 +34061,7 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.258.6(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.259.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.45.0
       fflate: 0.4.8
@@ -36155,15 +36105,6 @@ snapshots:
     optionalDependencies:
       postcss: 8.4.31
 
-  stylelint-config-recommended-scss@13.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2)):
-    dependencies:
-      postcss-scss: 4.0.9(postcss@8.5.6)
-      stylelint: 15.11.0(typescript@5.2.2)
-      stylelint-config-recommended: 13.0.0(stylelint@15.11.0(typescript@5.2.2))
-      stylelint-scss: 5.3.2(stylelint@15.11.0(typescript@5.2.2))
-    optionalDependencies:
-      postcss: 8.5.6
-
   stylelint-config-recommended@13.0.0(stylelint@15.11.0(typescript@5.2.2)):
     dependencies:
       stylelint: 15.11.0(typescript@5.2.2)
@@ -36175,14 +36116,6 @@ snapshots:
       stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@5.2.2))
     optionalDependencies:
       postcss: 8.4.31
-
-  stylelint-config-standard-scss@11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2)):
-    dependencies:
-      stylelint: 15.11.0(typescript@5.2.2)
-      stylelint-config-recommended-scss: 13.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
-      stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@5.2.2))
-    optionalDependencies:
-      postcss: 8.5.6
 
   stylelint-config-standard@34.0.0(stylelint@15.11.0(typescript@5.2.2)):
     dependencies:

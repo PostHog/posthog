@@ -56,11 +56,6 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
             (logicProps, groupTypeName): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.PersonsManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    },
-                    {
                         key: Scene.Groups,
                         name: capitalizeFirstLetter(groupTypeName),
                         path: urls.groups(logicProps.groupTypeIndex),
