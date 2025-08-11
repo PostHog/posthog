@@ -7,6 +7,7 @@ import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { urls } from 'scenes/urls'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { IconPlusSmall, IconCheckCircle } from '@posthog/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
@@ -90,15 +91,8 @@ export function DataWarehouseScene(): JSX.Element {
         return items.sort((a, b) => new Date(b.time).valueOf() - new Date(a.time).valueOf())
     }, [materializedViews, dataWarehouseSources?.results])
 
-    const [activityPage, setActivityPage] = useState(0)
-    const [sourcesPage, setSourcesPage] = useState(0)
-    const [viewsPage, setViewsPage] = useState(0)
     const [viewsSearchTerm] = useState('')
     // setViewsSearchTerm intentionally removed to simplify type safety implementation
-
-    const pageSize = LIST_SIZE
-    const totalPages = Math.max(1, Math.ceil(recentActivity.length / pageSize))
-    const pageItems = recentActivity.slice(activityPage * pageSize, activityPage * pageSize + pageSize)
 
     // Type-safe data sources transformation following PostHog selector pattern
     const allSources = useMemo(
@@ -130,9 +124,8 @@ export function DataWarehouseScene(): JSX.Element {
         ],
         [dataWarehouseSources?.results, selfManagedTables]
     )
-    const sourcesTotalPages = Math.max(1, Math.ceil(allSources.length / pageSize))
-    const pageSources = allSources.slice(sourcesPage * pageSize, sourcesPage * pageSize + pageSize)
-    const viewsWithStatus = useMemo(() => {
+
+    const filteredViews = useMemo(() => {
         const views = materializedViews || []
         if (!viewsSearchTerm.trim()) {
             return views
@@ -141,8 +134,10 @@ export function DataWarehouseScene(): JSX.Element {
         return views.filter((view) => view.name.toLowerCase().includes(normalizedSearch))
     }, [materializedViews, viewsSearchTerm])
 
-    const viewsTotalPages = Math.max(1, Math.ceil(viewsWithStatus.length / pageSize))
-    const pageViews = viewsWithStatus.slice(viewsPage * pageSize, viewsPage * pageSize + pageSize)
+    // PostHog's pagination system - professional grade with URL sync
+    const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
+    const sourcesPagination = usePagination(allSources, { pageSize: LIST_SIZE }, 'sources')
+    const viewsPagination = usePagination(filteredViews, { pageSize: LIST_SIZE }, 'views')
 
     const StatusIcon = ({ status }: { status?: string }): JSX.Element => {
         const s = (status || '').toLowerCase()
@@ -225,7 +220,7 @@ export function DataWarehouseScene(): JSX.Element {
                             <div className="flex items-center gap-2">
                                 <h3 className="font-semibold text-xl">Data Sources</h3>
                                 <LemonTag size="medium" type="muted" className="mb-2 p-1 px-2 rounded-xl">
-                                    {(dataWarehouseSources?.results?.length || 0) + selfManagedTables.length} connected
+                                    {allSources.length} connected
                                 </LemonTag>
                             </div>
                             <LemonButton
@@ -238,7 +233,7 @@ export function DataWarehouseScene(): JSX.Element {
                             </LemonButton>
                         </div>
                         <div className="space-y-2">
-                            {pageSources.map((item) => (
+                            {sourcesPagination.dataSourcePage.map((item) => (
                                 <div key={item.id} className="flex items-center justify-between p-2 border rounded">
                                     <div className="flex-1 min-w-0 ">
                                         <div className="font-medium text-base flex items-center gap-1">
@@ -275,38 +270,7 @@ export function DataWarehouseScene(): JSX.Element {
                                     </div>
                                 </div>
                             ))}
-                            {sourcesTotalPages > 1 && (
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs text-muted">
-                                        Showing {sourcesPage * pageSize + 1} to{' '}
-                                        {Math.min((sourcesPage + 1) * pageSize, allSources.length)} of{' '}
-                                        {allSources.length} sources
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            disabled={sourcesPage <= 0}
-                                            onClick={() => setSourcesPage((p) => Math.max(0, p - 1))}
-                                        >
-                                            Previous
-                                        </LemonButton>
-                                        <span className="text-xs text-muted">
-                                            Page {sourcesPage + 1} of {sourcesTotalPages}
-                                        </span>
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            disabled={sourcesPage >= sourcesTotalPages - 1}
-                                            onClick={() =>
-                                                setSourcesPage((p) => Math.min(sourcesTotalPages - 1, p + 1))
-                                            }
-                                        >
-                                            Next
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            )}
+                            <PaginationControl {...sourcesPagination} nouns={['source', 'sources']} />
                         </div>
                     </LemonCard>
 
@@ -314,11 +278,11 @@ export function DataWarehouseScene(): JSX.Element {
                         <div className="flex items-center gap-2">
                             <h3 className="font-semibold text-xl">Views</h3>
                             <LemonTag size="medium" type="muted" className="mb-2 p-1 px-2 rounded-xl">
-                                {viewsWithStatus.length} views
+                                {filteredViews.length} views
                             </LemonTag>
                         </div>
                         <div className="space-y-2">
-                            {pageViews.map((view) => (
+                            {viewsPagination.dataSourcePage.map((view) => (
                                 <div key={view.id} className="flex items-center justify-between border rounded p-2">
                                     <div className="flex-1 min-w-0">
                                         <div className="font-medium text-base flex items-center gap-1">
@@ -348,36 +312,7 @@ export function DataWarehouseScene(): JSX.Element {
                                     </div>
                                 </div>
                             ))}
-                            {viewsTotalPages > 1 && (
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs text-muted">
-                                        Showing {viewsPage * pageSize + 1} to{' '}
-                                        {Math.min((viewsPage + 1) * pageSize, viewsWithStatus.length)} of{' '}
-                                        {viewsWithStatus.length} views
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            disabled={viewsPage <= 0}
-                                            onClick={() => setViewsPage((p) => Math.max(0, p - 1))}
-                                        >
-                                            Previous
-                                        </LemonButton>
-                                        <span className="text-xs text-muted">
-                                            Page {viewsPage + 1} of {viewsTotalPages}
-                                        </span>
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            disabled={viewsPage >= viewsTotalPages - 1}
-                                            onClick={() => setViewsPage((p) => Math.min(viewsTotalPages - 1, p + 1))}
-                                        >
-                                            Next
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            )}
+                            <PaginationControl {...viewsPagination} nouns={['view', 'views']} />
                         </div>
                     </LemonCard>
 
@@ -386,7 +321,7 @@ export function DataWarehouseScene(): JSX.Element {
                             <h3 className="font-semibold text-xl">Recent Activity</h3>
                         </div>
                         <div className="space-y-2">
-                            {pageItems.map((activity) => (
+                            {activityPagination.dataSourcePage.map((activity) => (
                                 <div
                                     key={`${activity.type}-${activity.name}-${activity.time}`}
                                     className="flex items-center justify-between border rounded p-2"
@@ -410,34 +345,7 @@ export function DataWarehouseScene(): JSX.Element {
                                     </div>
                                 </div>
                             ))}
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs text-muted">
-                                    Showing {activityPage * pageSize + 1} to{' '}
-                                    {Math.min((activityPage + 1) * pageSize, recentActivity.length)} of{' '}
-                                    {recentActivity.length} activities
-                                </span>
-                                <div className="flex items-center gap-2">
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        disabled={activityPage <= 0}
-                                        onClick={() => setActivityPage((p) => Math.max(0, p - 1))}
-                                    >
-                                        Previous
-                                    </LemonButton>
-                                    <span className="text-xs text-muted">
-                                        Page {activityPage + 1} of {totalPages}
-                                    </span>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        disabled={activityPage >= totalPages - 1}
-                                        onClick={() => setActivityPage((p) => Math.min(totalPages - 1, p + 1))}
-                                    >
-                                        Next
-                                    </LemonButton>
-                                </div>
-                            </div>
+                            <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
                         </div>
                     </LemonCard>
                 </div>
