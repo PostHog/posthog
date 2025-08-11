@@ -60,11 +60,11 @@
                                 "key": "$geoip_country_name",
                                 "type": "person",
                                 "value": ["Croatia"],
-                                "operator": "exact",
-                                "description": "Users from Croatia"
+                                "operator": "exact"
                             }
                         ],
-                        "rollout_percentage": null
+                        "rollout_percentage": null,
+                        "description": "Users from Croatia"
                     }
                 ],
                 "multivariate": null
