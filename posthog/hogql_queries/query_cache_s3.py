@@ -44,7 +44,7 @@ class S3QueryCacheManager(QueryCacheManagerBase):
 
     def _cache_object_key(self) -> str:
         """Generate S3 object key for cache data."""
-        return f"query_cache/{self.team_id}/{self.cache_key}"
+        return f"{settings.OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{self.team_id}/{self.cache_key}"
 
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
         """Store query results in S3 with lifecycle-based TTL."""
