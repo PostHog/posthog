@@ -103,7 +103,10 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
 
     def _get_subquery(self) -> ast.SelectQuery:
         inner_props_array = ast.Array(
-            exprs=[ast.Field(chain=["properties", p]) for p in self.query.properties[: self.MAX_PROPERTY_LIMIT]]
+            exprs=[
+                ast.Call(name="toString", args=[ast.Field(chain=["properties", p])])
+                for p in self.query.properties[: self.MAX_PROPERTY_LIMIT]
+            ]
         )
 
         return ast.SelectQuery(
