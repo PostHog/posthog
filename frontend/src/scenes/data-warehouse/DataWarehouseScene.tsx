@@ -159,7 +159,7 @@ export function DataWarehouseScene(): JSX.Element {
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                                 <h3 className="font-semibold text-xl">Data Sources</h3>
-                                <LemonTag size="medium" type="muted" className="mb-2">
+                                <LemonTag size="medium" type="muted" className="mb-2 p-1 px-2 rounded-xl">
                                     {(dataWarehouseSources?.results?.length || 0) + selfManagedTables.length} connected
                                 </LemonTag>
                             </div>
@@ -220,7 +220,7 @@ export function DataWarehouseScene(): JSX.Element {
                     <LemonCard className="hover:transform-none">
                         <div className="flex items-center gap-2">
                             <h3 className="font-semibold text-xl">Views</h3>
-                            <LemonTag size="medium" type="muted" className="mb-2">
+                            <LemonTag size="medium" type="muted" className="mb-2 p-1 px-2 rounded-xl">
                                 {viewsWithStatus.length} views
                             </LemonTag>
                         </div>
