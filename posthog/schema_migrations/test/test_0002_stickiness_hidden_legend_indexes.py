@@ -131,3 +131,34 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
     }
     assert migration.transform(stickiness_query) == expected_result
+
+    # result customizations by position, but also present for value (should leave value ones intact)
+    mixed_result_customizations_query = {
+        "kind": "StickinessQuery",
+        "stickinessFilter": {
+            "resultCustomizationBy": "position",
+            "resultCustomizations": {
+                "0": {"assignmentBy": "position", "color": "preset-5"},
+                '{"series":0,"breakdown_value":["Safari"]}': {
+                    "assignmentBy": "value",
+                    "color": "preset-11",
+                },
+                "2": {"assignmentBy": "position", "color": "preset-7"},
+            },
+            "hiddenLegendIndexes": [0, 2],
+        },
+    }
+    assert migration.transform(mixed_result_customizations_query) == {
+        "kind": "StickinessQuery",
+        "stickinessFilter": {
+            "resultCustomizationBy": "position",
+            "resultCustomizations": {
+                "0": {"assignmentBy": "position", "color": "preset-5", "hidden": True},
+                '{"series":0,"breakdown_value":["Safari"]}': {
+                    "assignmentBy": "value",
+                    "color": "preset-11",
+                },
+                "2": {"assignmentBy": "position", "color": "preset-7", "hidden": True},
+            },
+        },
+    }
