@@ -237,7 +237,7 @@ export function DataWarehouseScene(): JSX.Element {
                                             <div className="text-xs text-muted mb-1">
                                                 {item.rowCount !== null
                                                     ? `${item.rowCount.toLocaleString()} rows`
-                                                    : 'No row data'}
+                                                    : '0 rows'}
                                             </div>
                                             {item.status ? (
                                                 <StatusTag status={item.status} />
@@ -285,7 +285,7 @@ export function DataWarehouseScene(): JSX.Element {
                                             <div className="text-xs text-muted mb-1">
                                                 {view.row_count !== undefined && view.row_count !== null
                                                     ? `${view.row_count.toLocaleString()} rows`
-                                                    : 'No row data'}
+                                                    : '0 rows'}
                                             </div>
                                             <StatusTag status={view.status} />
                                         </div>
@@ -326,7 +326,7 @@ export function DataWarehouseScene(): JSX.Element {
                                         <div className="text-xs text-muted mb-1">
                                             {activity.rowCount !== null
                                                 ? `${activity.rowCount.toLocaleString()} rows`
-                                                : 'No row data'}
+                                                : '0 rows'}
                                         </div>
                                         <StatusTag status={activity.status} />
                                     </div>
