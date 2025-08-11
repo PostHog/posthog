@@ -143,6 +143,7 @@ class DataWarehouseTableSchema(BaseSchema[DataWarehouseTable]):
 class PostgresProjectDataSnapshot(BaseModel):
     project: str
     property_definitions: str
+    group_type_mappings: str
     data_warehouse_tables: str
 
 
