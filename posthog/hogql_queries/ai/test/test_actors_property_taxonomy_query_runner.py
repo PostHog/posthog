@@ -2,7 +2,8 @@ from django.test import override_settings
 
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models import GroupTypeMapping, PropertyDefinition
+from posthog.models.property_definition import PropertyType
 from posthog.schema import ActorsPropertyTaxonomyQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -134,6 +135,8 @@ class TestActorsPropertyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results.results[0].sample_count, 3)
 
     def test_multiple_properties(self):
+        PropertyDefinition.objects.create(team=self.team, name="age", property_type=PropertyType.Numeric)
+
         _create_person(
             distinct_ids=["person1"],
             properties={"age": 29},
