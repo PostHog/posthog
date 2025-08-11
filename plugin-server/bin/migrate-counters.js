@@ -37,7 +37,8 @@ function createDatabase(dbName, countersDbUrl) {
 }
 
 function runMigrations(countersDbUrl) {
-    execSync(`DATABASE_URL="${countersDbUrl}" npx node-pg-migrate up --migrations-dir src/migrations`, {
+    execSync(`npx node-pg-migrate up --migrations-dir src/migrations`, {
+        env: { ...process.env, DATABASE_URL: countersDbUrl },
         stdio: 'inherit',
     })
 }
