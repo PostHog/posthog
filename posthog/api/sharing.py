@@ -398,12 +398,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Create a SessionRecording object for the replay
             try:
                 # First, try to get existing recording from database
-                try:
-                    recording = SessionRecording.objects.get(session_id=replay_id, team=resource.team)
-                except SessionRecording.DoesNotExist:
-                    # If not found, create it properly
-                    recording = SessionRecording(session_id=replay_id, team=resource.team)
-                    recording.save()  # This ensures it exists in PostgreSQL
+                recording, _ = SessionRecording.objects.get_or_create(session_id=replay_id, team=resource.team)
 
                 # Create a JWT for the recording
                 export_access_token = ""
@@ -433,13 +428,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 )
 
             except Exception:
-                raise NotFound()
+                raise NotFound("No recording found")
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
             exported_data.update({"recording": recording_data})
         else:
-            raise NotFound()
+            raise NotFound("No resource found")
 
         # Get sharing settings using Pydantic model for validation and defaults
         settings_data = getattr(resource, "settings", {}) or {}
