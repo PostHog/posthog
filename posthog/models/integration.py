@@ -1011,10 +1011,10 @@ class EmailIntegration:
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="email",
-            integration_id=domain,
+            integration_id=email_address,
             defaults={
                 "config": {
-                    "domain": domain,
+                    "email": email_address,
                     "mailjet_verified": False,
                     "aws_ses_verified": False,
                 },
