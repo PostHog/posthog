@@ -95,6 +95,7 @@ STREAMING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
     TaxonomyNodeName.LOOP_NODE,
+    AssistantNodeName.SESSION_SUMMARIZATION,
 }
 """Nodes that can stream messages to the client."""
 
@@ -109,6 +110,7 @@ VERBOSE_NODES: set[AssistantNodeName | TaxonomyNodeName] = STREAMING_NODES | {
 THINKING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
     TaxonomyNodeName.LOOP_NODE,
+    AssistantNodeName.SESSION_SUMMARIZATION,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -436,6 +438,8 @@ class Assistant:
                 if ui_context and (ui_context.dashboards or ui_context.insights):
                     return ReasoningMessage(content="Calculating context")
                 return None
+            case AssistantNodeName.SESSION_SUMMARIZATION:
+                return ReasoningMessage(content="Summarizing session recordings")
             case _:
                 return None
 
