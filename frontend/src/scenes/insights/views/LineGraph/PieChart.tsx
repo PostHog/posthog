@@ -202,7 +202,7 @@ export function PieChart({
                                     (dp) => dp.datasetIndex >= 0 && dp.datasetIndex < _datasets.length
                                 )
 
-                                highlightSeries(seriesData[0] as IndexedTrendResult)
+                                highlightSeries(seriesData[0] as unknown as IndexedTrendResult)
 
                                 tooltipRoot.render(
                                     <InsightTooltip
