@@ -12,7 +12,7 @@ use crate::{
     context::AppContext,
     emit::Emitter,
     error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error},
-    job::backoff::{compute_next_delay, format_backoff_messages},
+    job::backoff::format_backoff_messages,
     parse::{format::ParserFn, Parsed},
     source::DataSource,
     spawn_liveness_loop,
@@ -43,7 +43,7 @@ fn decide_on_error(
     user_message: &str,
 ) -> ErrorHandlingDecision {
     if is_rate_limited_error(err) {
-        let mut delay = compute_next_delay(current_attempt, policy);
+        let mut delay = policy.next_delay(current_attempt);
         if let Some(ra) = extract_retry_after_from_error(err) {
             delay = std::cmp::min(ra, policy.max_delay);
         }

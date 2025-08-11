@@ -28,25 +28,18 @@ impl BackoffPolicy {
             max_delay: Duration::from_secs(60 * 60),
         }
     }
+
+    pub fn next_delay(&self, attempt: u32) -> Duration {
+        let pow = self.multiplier.powi(attempt as i32);
+        let scaled = if pow.is_finite() {
+            self.initial_delay.mul_f64(pow)
+        } else {
+            self.max_delay
+        };
+        scaled.min(self.max_delay)
+    }
 }
 
-/// Compute the next backoff delay for a given attempt, capped at policy.max_delay.
-///
-/// attempt = n => initial_delay * multiplier^n
-pub fn compute_next_delay(attempt: u32, policy: BackoffPolicy) -> Duration {
-    let base_secs = policy.initial_delay.as_secs_f64();
-    let pow = policy.multiplier.powi(attempt as i32);
-    let scaled_secs = (base_secs * pow).round();
-
-    let scaled = if scaled_secs.is_finite() && scaled_secs > 0.0 {
-        let secs_u64 = scaled_secs.min(u64::MAX as f64).max(0.0) as u64;
-        Duration::from_secs(secs_u64)
-    } else {
-        policy.max_delay
-    };
-
-    scaled.min(policy.max_delay)
-}
 
 /// Build operator/developer status_message and user-facing display message.
 /// If a date range is provided, include it in the display message.
@@ -88,7 +81,7 @@ mod tests {
         ];
 
         for (attempt, expected_secs) in cases {
-            let d = compute_next_delay(attempt, p);
+            let d = p.next_delay(attempt);
             assert_eq!(d.as_secs(), expected_secs, "attempt {}", attempt);
         }
     }
@@ -104,7 +97,7 @@ mod tests {
             (4, 70),
         ];
         for (attempt, expected_secs) in cases {
-            let d = compute_next_delay(attempt, p);
+            let d = p.next_delay(attempt);
             assert_eq!(d.as_secs(), expected_secs, "attempt {}", attempt);
         }
     }
