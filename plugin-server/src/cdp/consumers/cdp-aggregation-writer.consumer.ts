@@ -114,36 +114,53 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
     }
 
-    // Helper to build person events CTE
-    private buildPersonEventsCTE(personEvents: PersonEventPayload[]): string {
-        const values = personEvents
-            .map((event) => `(${event.teamId}, '${event.personId}', '${event.eventName.replace(/'/g, "''")}')`)
-            .join(',')
+    // Helper to build person events CTE with parameters
+    private buildPersonEventsCTE(
+        personEvents: PersonEventPayload[],
+        paramOffset: number
+    ): { cte: string; params: any[] } {
+        const params: any[] = []
+        const valuePlaceholders: string[] = []
 
-        return `person_inserts AS (
+        for (const event of personEvents) {
+            valuePlaceholders.push(`($${paramOffset++}, $${paramOffset++}, $${paramOffset++})`)
+            params.push(event.teamId, event.personId, event.eventName)
+        }
+
+        const cte = `person_inserts AS (
             INSERT INTO person_performed_events (team_id, person_id, event_name)
-            VALUES ${values}
+            VALUES ${valuePlaceholders.join(',')}
             ON CONFLICT (team_id, person_id, event_name) DO NOTHING
             RETURNING 1
         )`
+
+        return { cte, params }
     }
 
-    // Helper to build behavioural events CTE
-    private buildBehaviouralEventsCTE(behaviouralEvents: AggregatedBehaviouralEvent[]): string {
-        const values = behaviouralEvents
-            .map(
-                (event) =>
-                    `(${event.teamId}, '${event.personId}', '${event.filterHash}', '${event.date}', ${event.counter})`
-            )
-            .join(',')
+    // Helper to build behavioural events CTE with parameters
+    private buildBehaviouralEventsCTE(
+        behaviouralEvents: AggregatedBehaviouralEvent[],
+        paramOffset: number
+    ): { cte: string; params: any[] } {
+        const params: any[] = []
+        const valuePlaceholders: string[] = []
 
-        return `behavioural_inserts AS (
+        for (const event of behaviouralEvents) {
+            valuePlaceholders.push(
+                `($${paramOffset++}, $${paramOffset++}, $${paramOffset++}, $${paramOffset++}, $${paramOffset++})`
+            )
+            params.push(event.teamId, event.personId, event.filterHash, event.date, event.counter)
+        }
+
+        const cte = `behavioural_inserts AS (
             INSERT INTO behavioural_filter_matched_events (team_id, person_id, filter_hash, date, counter)
-            VALUES ${values}
+            VALUES ${valuePlaceholders.join(',')}
             ON CONFLICT (team_id, person_id, filter_hash, date) 
             DO UPDATE SET counter = behavioural_filter_matched_events.counter + EXCLUDED.counter
             RETURNING 1
         )`
+
+        return { cte, params }
     }
 
     // Write both event types to postgres in a single query
@@ -157,18 +174,25 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
 
         try {
             const ctes: string[] = []
+            const allParams: any[] = []
+            let paramOffset = 1
 
             // Add CTEs for each event type
             if (personEvents.length > 0) {
-                ctes.push(this.buildPersonEventsCTE(personEvents))
+                const { cte, params } = this.buildPersonEventsCTE(personEvents, paramOffset)
+                ctes.push(cte)
+                allParams.push(...params)
+                paramOffset += params.length
             }
             if (behaviouralEvents.length > 0) {
-                ctes.push(this.buildBehaviouralEventsCTE(behaviouralEvents))
+                const { cte, params } = this.buildBehaviouralEventsCTE(behaviouralEvents, paramOffset)
+                ctes.push(cte)
+                allParams.push(...params)
             }
 
-            // Build and execute the single combined query
+            // Build and execute the single combined query with parameters
             const query = `WITH ${ctes.join(', ')} SELECT 1`
-            await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, undefined, 'counters-batch-upsert')
+            await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, allParams, 'counters-batch-upsert')
         } catch (error) {
             logger.error('Failed to write to COUNTERS postgres', { error })
             throw error
