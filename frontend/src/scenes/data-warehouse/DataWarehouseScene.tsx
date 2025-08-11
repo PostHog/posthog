@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PipelineTab } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -7,7 +7,7 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { urls } from 'scenes/urls'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
-import { IconPlusSmall, IconRefresh } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
@@ -24,9 +24,7 @@ export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-    const { loadDatabase } = useActions(dataWarehouseSceneLogic)
-    const { loadSources } = useActions(dataWarehouseSettingsLogic)
-    const { loadDataWarehouseSavedQueries } = useActions(dataWarehouseViewsLogic)
+
     const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
     const { billing } = useValues(billingLogic)
 
@@ -35,6 +33,14 @@ export function DataWarehouseScene(): JSX.Element {
     type Activity = { name: string; type: 'Materialization' | 'Sync'; status?: string; time: string; rows?: number }
     const [recentActivity, setRecentActivity] = useState<Activity[]>([])
     const [activityPage, setActivityPage] = useState(0)
+
+    const sourcesForJobs = useMemo(
+        () =>
+            (dataWarehouseSources?.results || [])
+                .slice(0, LIST_SIZE)
+                .map((s: any) => ({ id: s.id, source_type: s.source_type })),
+        [dataWarehouseSources?.results]
+    )
 
     useEffect(() => {
         let cancelled = false
@@ -52,9 +58,8 @@ export function DataWarehouseScene(): JSX.Element {
                     })
                 }
             }
-            const sources = (dataWarehouseSources?.results || []).slice(0, LIST_SIZE)
             const jobGroups = await Promise.all(
-                sources.map(async (s: any) => {
+                sourcesForJobs.map(async (s: any) => {
                     try {
                         const jobs: any[] = await fetchExternalDataSourceJobs(s.id, null, null)
                         return jobs.slice(0, 3).map((j: any) => ({
@@ -81,9 +86,8 @@ export function DataWarehouseScene(): JSX.Element {
         return () => {
             cancelled = true
         }
-    }, [materializedViews, dataWarehouseSources?.results?.length, dataWarehouseSources.results])
+    }, [materializedViews, sourcesForJobs])
 
-    // Recent activity pagination
     const pageSize = LIST_SIZE
     const totalPages = Math.max(1, Math.ceil(recentActivity.length / pageSize))
     const pageItems = recentActivity.slice(activityPage * pageSize, activityPage * pageSize + pageSize)
@@ -121,17 +125,6 @@ export function DataWarehouseScene(): JSX.Element {
             <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-semibold">Data Warehouse</h1>
                 <div className="flex gap-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            loadSources(undefined)
-                            loadDataWarehouseSavedQueries()
-                            loadDatabase()
-                        }}
-                        icon={<IconRefresh />}
-                    >
-                        Refresh
-                    </LemonButton>
                     <LemonButton type="primary" to={urls.dataWarehouseSourceNew()} icon={<IconPlusSmall />}>
                         New source
                     </LemonButton>
