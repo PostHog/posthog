@@ -1,4 +1,4 @@
-import { kea, selectors, path, reducers, actions, listeners, connect, beforeUnmount } from 'kea'
+import { kea, selectors, path, reducers, actions, listeners, connect, beforeUnmount, afterMount } from 'kea'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, CohortType, ExporterFormat } from '~/types'
@@ -54,17 +54,20 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 },
             },
         ],
-        cohorts: {
-            deleteCohort: (state, { cohort }) => {
-                if (!cohort.id) {
-                    return state
-                }
-                return {
-                    ...state,
-                    results: state.results.filter((c) => c.id !== cohort.id),
-                }
+        cohorts: [
+            { count: 0, results: [] },
+            {
+                deleteCohort: (state, { cohort }) => {
+                    if (!cohort.id) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        results: state.results.filter((c) => c.id !== cohort.id),
+                    }
+                },
             },
-        },
+        ],
     }),
     selectors({
         breadcrumbs: [
@@ -191,5 +194,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     })),
     beforeUnmount(({ values }) => {
         clearTimeout(values.pollTimeout || undefined)
+    }),
+    afterMount(({ actions }) => {
+        actions.loadCohorts()
     }),
 ])
