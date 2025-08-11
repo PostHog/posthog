@@ -47,7 +47,7 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
 
     const result: MinimalEventExport = {
         type,
-        name: formatLLMEventTitle({ ...event, properties: event.properties } as LLMTraceEvent),
+        name: formatLLMEventTitle(event),
     }
 
     // Add model and provider for generations
