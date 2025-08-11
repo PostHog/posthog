@@ -1,3 +1,4 @@
+import { resetCountersDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresUse } from '~/utils/db/postgres'
 
@@ -12,16 +13,6 @@ describe('CdpAggregationWriterConsumer', () => {
     let processor: CdpAggregationWriterConsumer
     let hub: Hub
     let team: Team
-
-    // Helper to reset counters database
-    const resetCountersDatabase = async () => {
-        await hub.postgres.query(
-            PostgresUse.COUNTERS_RW,
-            'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
-            undefined,
-            'reset-counters-db'
-        )
-    }
 
     beforeEach(async () => {
         // Create hub with explicit test counters database URL
@@ -39,12 +30,11 @@ describe('CdpAggregationWriterConsumer', () => {
             name: 'Test Team',
         } as unknown as Team
 
-        await resetCountersDatabase()
+        await resetCountersDatabase(hub.postgres)
         processor = new CdpAggregationWriterConsumer(hub)
     })
 
     afterEach(async () => {
-        await resetCountersDatabase()
         await closeHub(hub)
     })
 
@@ -366,6 +356,94 @@ describe('CdpAggregationWriterConsumer', () => {
                 'test-read-no-person-events'
             )
             expect(personResult.rows).toHaveLength(0)
+        })
+
+        it('should handle special characters that could cause PostgreSQL protocol errors', async () => {
+            // These special characters previously caused "invalid message format" errors
+            const validPersonId1 = '550e8400-e29b-41d4-a716-446655440002'
+            const validPersonId2 = '550e8400-e29b-41d4-a716-446655440003'
+            const problematicEventName = 'event\'with"quotes;and--comments/**/and\\backslash'
+            const problematicFilterHash = "hash'with;semicolon--comment"
+
+            const personEvents: PersonEventPayload[] = [
+                {
+                    type: 'person-performed-event',
+                    personId: validPersonId1,
+                    eventName: problematicEventName,
+                    teamId: team.id,
+                },
+                {
+                    type: 'person-performed-event',
+                    personId: validPersonId2,
+                    eventName: "event$with$dollars$and$1=1'); DROP TABLE person_performed_events; --", // SQL injection attempt
+                    teamId: team.id,
+                },
+            ]
+
+            const behavioralEvents: AggregatedBehaviouralEvent[] = [
+                {
+                    type: 'behavioural-filter-match-event',
+                    teamId: team.id,
+                    personId: validPersonId1,
+                    filterHash: problematicFilterHash,
+                    date: '2023-12-01',
+                    counter: 1,
+                },
+                {
+                    type: 'behavioural-filter-match-event',
+                    teamId: team.id,
+                    personId: validPersonId2,
+                    filterHash: "hash'); DELETE FROM behavioural_filter_matched_events; --",
+                    date: '2023-12-01',
+                    counter: 1,
+                },
+            ]
+
+            // This should NOT throw an error with parameterized queries
+            await processor['writeToPostgres'](personEvents, behavioralEvents)
+
+            // Verify person events were written correctly with special characters preserved
+            const personResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM person_performed_events WHERE team_id = $1 ORDER BY event_name',
+                [team.id],
+                'test-read-special-char-person-events'
+            )
+
+            expect(personResult.rows).toHaveLength(2)
+            expect(personResult.rows[0].event_name).toBe(
+                "event$with$dollars$and$1=1'); DROP TABLE person_performed_events; --"
+            )
+            expect(personResult.rows[1].event_name).toBe(problematicEventName)
+            expect(personResult.rows[1].person_id).toBe(validPersonId1)
+
+            // Verify behavioral events were written correctly with special characters preserved
+            const behavioralResult = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT * FROM behavioural_filter_matched_events WHERE team_id = $1 ORDER BY person_id',
+                [team.id],
+                'test-read-special-char-behavioral-events'
+            )
+
+            expect(behavioralResult.rows).toHaveLength(2)
+            expect(behavioralResult.rows[0].person_id).toBe(validPersonId1)
+            expect(behavioralResult.rows[0].filter_hash).toBe(problematicFilterHash)
+            expect(behavioralResult.rows[1].person_id).toBe(validPersonId2)
+            expect(behavioralResult.rows[1].filter_hash).toBe(
+                "hash'); DELETE FROM behavioural_filter_matched_events; --"
+            )
+
+            // Verify tables still exist (SQL injection attempt failed)
+            const tablesExist = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                `SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'behavioural_filter_matched_events'
+                ) as table_exists`,
+                [],
+                'test-check-table-exists'
+            )
+            expect(tablesExist.rows[0].table_exists).toBe(true)
         })
     })
 })

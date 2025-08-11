@@ -839,8 +839,8 @@ importers:
         specifier: ^0.2.1
         version: 0.2.1(kea@3.1.6(react@18.2.0))
       kea-window-values:
-        specifier: ^3.0.0
-        version: 3.0.0(kea@3.1.6(react@18.2.0))
+        specifier: ^3.0.1
+        version: 3.0.1(kea@3.1.6(react@18.2.0))
       liquidjs:
         specifier: ^10.21.1
         version: 10.21.1
@@ -1564,6 +1564,9 @@ importers:
       jest:
         specifier: ^30.0.0
         version: 30.0.5(@types/node@22.15.17)(esbuild-register@3.5.0(esbuild@0.25.0))(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      node-pg-migrate:
+        specifier: ^8.0.3
+        version: 8.0.3(@types/pg@8.6.6)(pg@8.10.0)
       nodemon:
         specifier: ^3.1.10
         version: 3.1.10
@@ -12716,8 +12719,8 @@ packages:
     peerDependencies:
       kea: '>= 2.2.1'
 
-  kea-window-values@3.0.0:
-    resolution: {integrity: sha512-sGaUiTgJHS3DY9j3V3G6gXQHYYZioUMWdkfEtV2W4XIPGPobZciZ0tkoPN3ihvcOpbyT8g2FLgvlG0HSscxOWw==}
+  kea-window-values@3.0.1:
+    resolution: {integrity: sha512-ab+rBHLbIfShkUiJQDleVapWss9c7mTPnMhtVqF4k5gHE4hp1bjwTq6R1NA2Mi5Wo3scenHM07KaSi7KjiXu9A==}
     peerDependencies:
       kea: '>= 3'
 
@@ -13572,6 +13575,17 @@ packages:
 
   node-int64@0.4.0:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
+
+  node-pg-migrate@8.0.3:
+    resolution: {integrity: sha512-oKzZyzTULTryO1jehX19VnyPCGf3G/3oWZg3gODphvID56T0WjPOShTVPVnxGdlcueaIW3uAVrr7M8xLZq5TcA==}
+    engines: {node: '>=20.11.0'}
+    hasBin: true
+    peerDependencies:
+      '@types/pg': '>=6.0.0 <9.0.0'
+      pg: '>=4.3.0 <9.0.0'
+    peerDependenciesMeta:
+      '@types/pg':
+        optional: true
 
   node-preload@0.2.1:
     resolution: {integrity: sha512-RM5oyBy45cLEoHqCeh+MNuFAxO0vTFBLskvQbOKnEE7YTTSN4tbN8QWDIPQ6L+WvKsB/qLEGpYe2ZZ9d4W9OIQ==}
@@ -29654,12 +29668,12 @@ snapshots:
 
   foreground-child@2.0.0:
     dependencies:
-      cross-spawn: 7.0.3
+      cross-spawn: 7.0.6
       signal-exit: 3.0.7
 
   foreground-child@3.1.1:
     dependencies:
-      cross-spawn: 7.0.3
+      cross-spawn: 7.0.6
       signal-exit: 4.1.0
 
   forever-agent@0.6.1: {}
@@ -31024,7 +31038,7 @@ snapshots:
       jest-config: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-util: 29.7.0
       jest-validate: 29.7.0
-      yargs: 17.7.1
+      yargs: 17.7.2
     transitivePeerDependencies:
       - '@types/node'
       - babel-plugin-macros
@@ -31864,7 +31878,7 @@ snapshots:
     dependencies:
       kea: 3.1.6(react@18.2.0)
 
-  kea-window-values@3.0.0(kea@3.1.6(react@18.2.0)):
+  kea-window-values@3.0.1(kea@3.1.6(react@18.2.0)):
     dependencies:
       kea: 3.1.6(react@18.2.0)
 
@@ -32754,6 +32768,14 @@ snapshots:
       - supports-color
 
   node-int64@0.4.0: {}
+
+  node-pg-migrate@8.0.3(@types/pg@8.6.6)(pg@8.10.0):
+    dependencies:
+      glob: 11.0.0
+      pg: 8.10.0
+      yargs: 17.7.2
+    optionalDependencies:
+      '@types/pg': 8.6.6
 
   node-preload@0.2.1:
     dependencies:
