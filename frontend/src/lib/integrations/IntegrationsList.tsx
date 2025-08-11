@@ -4,28 +4,32 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 
 import { IntegrationKind } from '~/types'
-import { IntegrationEmailDomainView } from './IntegrationEmailDomainView'
 
 export function IntegrationsList({
-    integrationKinds,
     titleText = 'All connected integrations are listed here. These integrations may be used for various purposes, such as data warehouse or pipeline destinations. To connect a new integration, visit the relevant product area.',
+    onlyKinds,
+    omitKinds,
 }: {
-    integrationKinds: IntegrationKind[]
+    onlyKinds?: IntegrationKind[]
+    omitKinds?: IntegrationKind[]
     titleText?: string
 }): JSX.Element {
-    const { integrations, integrationsLoading, domainGroupedEmailIntegrations } = useValues(integrationsLogic)
-    const filteredIntegrations = integrations?.filter((integration) => integrationKinds.includes(integration.kind))
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const filteredIntegrations = integrations?.filter((integration) => {
+        if (onlyKinds && !onlyKinds.includes(integration.kind)) {
+            return false
+        }
+        if (omitKinds && omitKinds.includes(integration.kind)) {
+            return false
+        }
+        return true
+    })
 
     return (
         <div>
             {titleText ? <p>{titleText}</p> : null}
 
             <div className="deprecated-space-y-2">
-                {domainGroupedEmailIntegrations?.length
-                    ? domainGroupedEmailIntegrations.map((integration) => (
-                          <IntegrationEmailDomainView key={integration.domain} integration={integration} />
-                      ))
-                    : null}
                 {filteredIntegrations?.length ? (
                     filteredIntegrations.map((integration) => (
                         <IntegrationView key={integration.id} integration={integration} />

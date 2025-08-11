@@ -508,11 +508,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: (
-                    <IntegrationsList
-                        integrationKinds={INTEGRATION_KINDS.filter((kind) => !['slack', 'linear'].includes(kind))}
-                    />
-                ),
+                component: <IntegrationsList omitKinds={['slack', 'linear']} />,
             },
             {
                 id: 'integration-ip-allowlist',
