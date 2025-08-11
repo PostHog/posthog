@@ -2,9 +2,12 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
+from django.contrib.admin.sites import NotRegistered
 from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from ee.api import integration
 
@@ -110,9 +113,17 @@ def extend_api_router() -> None:
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
-admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)] if settings.ADMIN_PORTAL_ENABLED else []
-)
+if settings.ADMIN_PORTAL_ENABLED:
+    # these models are auto-registered but we don't want to expose them to staff
+    for model in (StaticDevice, TOTPDevice):
+        try:
+            admin.site.unregister(model)
+        except NotRegistered:
+            pass
+
+    admin_urlpatterns = [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+else:
+    admin_urlpatterns = []
 
 
 urlpatterns: list[Any] = [

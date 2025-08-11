@@ -20733,6 +20733,9 @@
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
+                "showTrendLines": {
+                    "type": "boolean"
+                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },

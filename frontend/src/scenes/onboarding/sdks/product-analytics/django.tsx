@@ -6,8 +6,8 @@ import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 function DjangoCaptureSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Python}>{`import posthog
-    
-posthog.capture('test-id', 'test-event')`}</CodeSnippet>
+
+posthog.capture("user_signed_up", properties={"example_property": "with_some_value"})`}</CodeSnippet>
     )
 }
 
