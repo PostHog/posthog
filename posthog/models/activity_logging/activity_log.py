@@ -63,10 +63,12 @@ ActivityScope = Literal[
     "Tag",
     "TaggedItem",
     "Subscription",
-    "AlertConfiguration",
     "PersonalAPIKey",
     "User",
     "Action",
+    "AlertConfiguration",
+    "Threshold",
+    "AlertSubscription",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 

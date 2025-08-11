@@ -128,7 +128,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDModel):
         super().save(*args, **kwargs)
 
 
-class AlertSubscription(CreatedMetaFields, UUIDModel):
+class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     user = models.ForeignKey(
         "User",
         on_delete=models.CASCADE,
