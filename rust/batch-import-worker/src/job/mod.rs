@@ -10,8 +10,8 @@ use tracing::{debug, error, info, warn};
 use crate::{
     context::AppContext,
     emit::Emitter,
-    error::{get_user_message, is_rate_limited_error, extract_retry_after_from_error},
-    job::backoff::{format_backoff_messages, compute_next_delay},
+    error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error},
+    job::backoff::{compute_next_delay, format_backoff_messages},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
     spawn_liveness_loop,
@@ -55,11 +55,8 @@ fn decide_on_error(
         }
     } else {
         let error_msg = match current_date_range {
-            Some(dr) => format!(
-                "Failed to fetch and parse chunk for date range {}: {:?}",
-                dr, err
-            ),
-            None => format!("Failed to fetch and parse chunk: {:?}", err),
+            Some(dr) => format!("{} (Date range: {})", user_message, dr),
+            None => user_message.to_string(),
         };
         let display_msg = match current_date_range {
             Some(dr) => format!("{} (Date range: {})", user_message, dr),
@@ -209,7 +206,6 @@ impl Job {
                     warn!("Failed to cleanup after job: {:?}", e);
                 }
                 let user_facing_error_message = get_user_message(&e);
-                // Compute current date range once for reuse in both branches
                 let current_date_range = {
                     let state = self.state.lock().await;
                     state
@@ -257,7 +253,10 @@ impl Job {
                                 .pause(
                                     self.context.clone(),
                                     msg,
-                                    Some("Rate limit persisted. Job paused after maximum retries.".to_string()),
+                                    Some(
+                                        "Rate limit persisted. Job paused after maximum retries."
+                                            .to_string(),
+                                    ),
                                 )
                                 .await?;
                             return Ok(None);
@@ -280,8 +279,8 @@ impl Job {
                         error_msg,
                         display_msg,
                     } => {
-                        error!("Failed to fetch and parse chunk: {:?}", e);
                         let mut model = self.model.lock().await;
+                        error!(job_id = %model.id, error = ?e, "Pausing job due to error: {}", error_msg);
                         model
                             .pause(self.context.clone(), error_msg, Some(display_msg))
                             .await?;
@@ -450,7 +449,11 @@ impl Job {
 
     async fn successfully_complete(self) -> Result<(), Error> {
         let mut model = self.model.lock().await;
-        model.complete(&self.context.db).await
+        let result = model.complete(&self.context.db).await;
+        if result.is_ok() {
+            info!(job_id = %model.id, "Batch import job complete");
+        }
+        result
     }
 
     // Writes the new partstate to the DB, and sets the job status to paused, such that if there's an issue with the sink commit, the job
@@ -505,9 +508,9 @@ impl Job {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use httpmock::Method;
     use httpmock::MockServer;
     use reqwest::Client;
-    use httpmock::Method;
     use std::collections::HashMap;
 
     struct MockDataSource {
@@ -679,7 +682,7 @@ mod tests {
                 error_msg,
                 display_msg,
             } => {
-                assert!(error_msg.contains("Failed to fetch and parse chunk"));
+                assert_eq!(error_msg, "Remote server error");
                 assert_eq!(display_msg, "Remote server error");
             }
             _ => panic!("expected pause"),
@@ -694,18 +697,15 @@ mod tests {
             then.status(429).header("Retry-After", "2");
         });
 
-        let resp = Client::new()
-            .get(server.url("/rl"))
-            .send()
-            .await
-            .unwrap();
+        let resp = Client::new().get(server.url("/rl")).send().await.unwrap();
         // Clone headers from the actual response before turning it into an error
         let headers_clone = resp.headers().clone();
         let http_err = resp.error_for_status().unwrap_err();
 
         // Wrap into our RateLimitedError manually to include Retry-After from response
-        let retry_after = crate::source::date_range_export::parse_retry_after_header(&headers_clone)
-            .expect("retry-after parsed");
+        let retry_after =
+            crate::source::date_range_export::parse_retry_after_header(&headers_clone)
+                .expect("retry-after parsed");
         let rl = crate::error::RateLimitedError {
             retry_after: Some(retry_after),
             source: http_err,

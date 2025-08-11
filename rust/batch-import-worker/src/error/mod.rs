@@ -1,5 +1,5 @@
-use thiserror::Error;
 use std::time::Duration;
+use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
 #[error("User Error: {msg}")]

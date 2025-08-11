@@ -4,8 +4,8 @@ use crate::extractor::{ExtractedPartData, PartExtractor};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use reqwest::{Client, Error as ReqwestError};
 use reqwest::header::HeaderMap;
+use reqwest::{Client, Error as ReqwestError};
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
 use tokio::{
@@ -274,7 +274,7 @@ impl DateRangeExportSource {
                     if let Err(e) = tokio::fs::remove_file(&path).await {
                         warn!("Failed to remove temp file {}: {:?}", path.display(), e);
                     } else {
-                        info!("Cleaned up temp file: {}", path.display());
+                        debug!("Cleaned up temp file: {}", path.display());
                     }
                 }
             }
@@ -395,9 +395,13 @@ impl DateRangeExportSource {
             let headers_clone = response.headers().clone();
             let http_err = response.error_for_status().unwrap_err();
             let retry_after = parse_retry_after_header(&headers_clone);
-            let rl = RateLimitedError { retry_after, source: http_err };
-            let err = anyhow::Error::from(rl)
-                .context(crate::error::UserError::new("Rate limit exceeded -- pause the job and try again later"));
+            let rl = RateLimitedError {
+                retry_after,
+                source: http_err,
+            };
+            let err = anyhow::Error::from(rl).context(crate::error::UserError::new(
+                "Rate limit exceeded -- pause the job and try again later",
+            ));
             return Err(err);
         }
 
@@ -572,7 +576,7 @@ impl DataSource for DateRangeExportSource {
     async fn prepare_for_job(&self) -> Result<(), Error> {
         let temp_dir =
             tempfile::tempdir().with_context(|| "Failed to create temp directory for job")?;
-        info!("Created temp directory for job: {:?}", temp_dir.path());
+        debug!("Created temp directory for job: {:?}", temp_dir.path());
 
         {
             let mut temp_dir_guard = self.temp_dir.lock().await;
@@ -583,39 +587,20 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn cleanup_after_job(&self) -> Result<(), Error> {
-        let keys_and_data = {
+        // Best-effort:clear in-memory references and drop the job-scoped temp dir.
+        // TempDir drop removes the directory recursively; per-file deletes are redundant and noisy.
+        {
             let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys
-                .drain()
-                .collect::<Vec<(String, ExtractedPartData)>>()
-        };
-        let mut cleanup_errors = Vec::new();
-
-        for (key, extracted_part) in keys_and_data {
-            if let Err(e) = tokio::fs::remove_file(&extracted_part.data_file_path).await {
-                let err = e.to_string();
-                cleanup_errors.push((key.clone(), e));
-                warn!("Failed to remove temp file for key {}: {}", key, err);
-            } else {
-                info!("Cleaned up key: {}", key);
-            }
+            prepared_keys.clear();
         }
         {
             let mut temp_dir_guard = self.temp_dir.lock().await;
             if let Some(temp_dir) = temp_dir_guard.take() {
                 drop(temp_dir);
-                info!("Cleaned up temp directory");
+                debug!("Cleaned up temp directory");
             }
         }
-
-        info!("Job cleanup complete");
-        if !cleanup_errors.is_empty() {
-            return Err(Error::msg(format!(
-                "Failed to cleanup {} keys: {:?}",
-                cleanup_errors.len(),
-                cleanup_errors.iter().map(|(k, _)| k).collect::<Vec<_>>()
-            )));
-        }
+        debug!("Job cleanup complete");
         Ok(())
     }
 
@@ -651,7 +636,7 @@ impl DataSource for DateRangeExportSource {
             if let Err(e) = tokio::fs::remove_file(&extracted_part.data_file_path).await {
                 warn!("Failed to remove temp file for key {}: {}", key, e);
             } else {
-                info!("Cleaned up key: {}", key);
+                debug!("Cleaned up key: {}", key);
             }
         }
         Ok(())
@@ -732,7 +717,10 @@ mod tests {
     async fn test_parse_retry_after_seconds() {
         // delta-seconds parse
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(reqwest::header::RETRY_AFTER, reqwest::header::HeaderValue::from_static("120"));
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("120"),
+        );
         let d = super::parse_retry_after_header(&headers).unwrap();
         assert_eq!(d.as_secs(), 120);
     }
@@ -740,9 +728,14 @@ mod tests {
     #[tokio::test]
     async fn test_parse_retry_after_http_date() {
         // HTTP-date parse
-        let future = httpdate::fmt_http_date(std::time::SystemTime::now() + std::time::Duration::from_secs(90));
+        let future = httpdate::fmt_http_date(
+            std::time::SystemTime::now() + std::time::Duration::from_secs(90),
+        );
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(reqwest::header::RETRY_AFTER, reqwest::header::HeaderValue::from_str(&future).unwrap());
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_str(&future).unwrap(),
+        );
         let d = super::parse_retry_after_header(&headers).unwrap();
         assert!(d.as_secs() <= 90 && d.as_secs() > 0);
     }
@@ -1187,13 +1180,9 @@ mod tests {
 
         let result = source.prepare_key(key).await;
         assert!(result.is_err());
-
-        // Check that we get a reqwest error with 429 status
-        if let Some(reqwest_error) = result.unwrap_err().downcast_ref::<ReqwestError>() {
-            assert_eq!(reqwest_error.status().unwrap().as_u16(), 429);
-        } else {
-            panic!("Expected reqwest error with 429 status");
-        }
+        let err = result.unwrap_err();
+        // Our code wraps 429 as RateLimitedError (with reqwest::Error as source). Use helper.
+        assert!(crate::error::is_rate_limited_error(&err));
 
         assert_eq!(
             mock.hits(),
