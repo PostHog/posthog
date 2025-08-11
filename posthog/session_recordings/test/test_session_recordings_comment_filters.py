@@ -5,13 +5,9 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client import sync_execute
-from posthog.models import Person, SessionRecording, Comment
+from posthog.models import Comment
 from posthog.models.utils import uuid7
 from posthog.schema import PropertyOperator
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
@@ -26,20 +22,13 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
     def setUp(self):
         super().setUp()
 
-        sync_execute("TRUNCATE TABLE sharded_events")
-        sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE sharded_session_replay_events")
-        SessionRecordingViewed.objects.all().delete()
-        SessionRecording.objects.all().delete()
-        Person.objects.all().delete()
-
         session_no_comment = str(uuid7())
         session_with_needle = "session_with_needle"
         session_with_bug = "session_with_bug"
         session_with_emoji = "session_with_emoji"
         session_with_need = "session_with_need"
 
-        base_time = now() - timedelta(hours=1)
+        base_time = now() - timedelta(hours=2)
 
         [
             self.produce_replay_summary(
