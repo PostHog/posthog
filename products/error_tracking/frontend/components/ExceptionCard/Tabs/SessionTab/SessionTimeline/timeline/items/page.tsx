@@ -54,12 +54,12 @@ export class PageItemLoader extends EventLoader<PageItem> {
 }
 
 export const pageLoader: ItemLoaderFactory<PageItem> = (sessionId: string, timestamp: Dayjs) => {
-    const excLoader = new PageItemLoader(sessionId, timestamp)
+    const pageLoader = new PageItemLoader(sessionId, timestamp)
     return {
-        hasPrevious: excLoader.hasPrevious.bind(excLoader),
-        previous: excLoader.previous.bind(excLoader),
-        hasNext: excLoader.hasNext.bind(excLoader),
-        next: excLoader.next.bind(excLoader),
+        hasPrevious: pageLoader.hasPrevious.bind(pageLoader),
+        previous: pageLoader.previous.bind(pageLoader),
+        hasNext: pageLoader.hasNext.bind(pageLoader),
+        next: pageLoader.next.bind(pageLoader),
     }
 }
 

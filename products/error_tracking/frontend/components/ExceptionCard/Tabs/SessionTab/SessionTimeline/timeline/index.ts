@@ -115,11 +115,11 @@ export class ItemCollector {
     }
 
     findMinTimestamp(array: TimelineItem[]): TimelineItem {
-        return array.sort((a, b) => a.timestamp.diff(b.timestamp))[0]
+        return array.slice().sort((a, b) => a.timestamp.diff(b.timestamp))[0]
     }
 
     findMaxTimestamp(array: TimelineItem[]): TimelineItem {
-        return array.sort((a, b) => b.timestamp.diff(a.timestamp))[0]
+        return array.slice().sort((a, b) => b.timestamp.diff(a.timestamp))[0]
     }
 
     clear(): void {

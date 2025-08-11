@@ -36,14 +36,14 @@ export abstract class EventLoader<T extends TimelineItem> implements ItemLoader<
         this.cache = new ItemCache<T>()
     }
 
-    hasPrevious(to: Dayjs) {
+    hasPrevious(to: Dayjs): boolean {
         if (this.cache.previous(to)) {
             return true
         }
         return this._hasPrevious
     }
 
-    hasNext(from: Dayjs) {
+    hasNext(from: Dayjs): boolean {
         if (this.cache.next(from)) {
             return true
         }
@@ -60,11 +60,11 @@ export abstract class EventLoader<T extends TimelineItem> implements ItemLoader<
             if (response.results.length === 0) {
                 this._hasPrevious = false
             }
-            const exceptions = response.results.map(this.buildItem)
-            if (exceptions.length > 0) {
-                this.previousCursor = exceptions[exceptions.length - 1].timestamp
+            const items = response.results.map(this.buildItem)
+            if (items.length > 0) {
+                this.previousCursor = items[items.length - 1].timestamp
             }
-            this.cache.add(exceptions)
+            this.cache.add(items)
             return this.cache.previous(to) ?? null
         }
         return null
@@ -80,11 +80,11 @@ export abstract class EventLoader<T extends TimelineItem> implements ItemLoader<
             if (response.results.length === 0) {
                 this._hasNext = false
             }
-            const exceptions = response.results.map(this.buildItem)
-            if (exceptions.length > 0) {
-                this.afterCursor = exceptions[exceptions.length - 1].timestamp
+            const items = response.results.map(this.buildItem)
+            if (items.length > 0) {
+                this.afterCursor = items[items.length - 1].timestamp
             }
-            this.cache.add(exceptions)
+            this.cache.add(items)
             return this.cache.next(from) ?? null
         }
         return null

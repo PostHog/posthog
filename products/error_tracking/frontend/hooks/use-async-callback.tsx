@@ -1,10 +1,7 @@
 import throttle from 'lodash.throttle'
 import { useCallback, useState } from 'react'
 
-type AsyncCallbackType<U, T extends (...args: any[]) => Promise<U>> = ((...args: Parameters<T>) => void) & {
-    isPending: () => boolean
-    isRejected: () => boolean
-}
+type AsyncCallbackType<U, T extends (...args: any[]) => Promise<U>> = (...args: Parameters<T>) => void
 
 type AsyncCallbackOptions = {
     delay?: number

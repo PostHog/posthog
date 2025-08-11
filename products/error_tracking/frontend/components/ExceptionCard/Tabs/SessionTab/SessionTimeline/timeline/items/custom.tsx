@@ -30,7 +30,7 @@ export class CustomItemLoader extends EventLoader<CustomItem> {
         return ["notEquals(left(event, 1), '$')"]
     }
 
-    buildItem(evt: any): CustomItem {
+    buildItem(evt: [string, string, string, string]): CustomItem {
         return {
             id: evt[0],
             category: ItemCategory.CUSTOM_EVENTS,
@@ -44,11 +44,11 @@ export class CustomItemLoader extends EventLoader<CustomItem> {
 }
 
 export const customItemLoader: ItemLoaderFactory<CustomItem> = (sessionId: string, timestamp: Dayjs) => {
-    const excLoader = new CustomItemLoader(sessionId, timestamp)
+    const customEvtLoader = new CustomItemLoader(sessionId, timestamp)
     return {
-        hasPrevious: excLoader.hasPrevious.bind(excLoader),
-        previous: excLoader.previous.bind(excLoader),
-        hasNext: excLoader.hasNext.bind(excLoader),
-        next: excLoader.next.bind(excLoader),
+        hasPrevious: customEvtLoader.hasPrevious.bind(customEvtLoader),
+        previous: customEvtLoader.previous.bind(customEvtLoader),
+        hasNext: customEvtLoader.hasNext.bind(customEvtLoader),
+        next: customEvtLoader.next.bind(customEvtLoader),
     }
 }

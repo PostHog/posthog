@@ -20,7 +20,7 @@ export function useScrollObserver({ onScrollTop, onScrollBottom }: ScrollObserve
             const scrollHeight = target.scrollHeight
             const clientHeight = target.clientHeight
 
-            if (scrollHeight == clientHeight) {
+            if (scrollHeight === clientHeight) {
                 return
             }
 
