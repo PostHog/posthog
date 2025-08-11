@@ -31,8 +31,6 @@ export type HedgehogModeProps = {
     enabledOverride?: boolean
 }
 
-// TODO: Ensure only one gets rendered at a time
-
 export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Element | null {
     const { hedgehogModeEnabled } = useValues(hedgehogModeLogic)
     const { setHedgehogMode } = useActions(hedgehogModeLogic)

@@ -67,15 +67,13 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                     <>
                         {type === 'bot' ? (
                             <IconRobot className="p-0.5" />
-                        ) : !hedgehogProfile ? (
+                        ) : (
                             <Lettermark
                                 name={combinedNameAndEmail}
                                 index={index}
                                 rounded
                                 color={type === 'system' ? LettermarkColor.Gray : undefined}
                             />
-                        ) : (
-                            <HedgehogModeProfile {...user.hedgehog_config?.actor_options} size="100%" />
                         )}
                     </>
                 )
