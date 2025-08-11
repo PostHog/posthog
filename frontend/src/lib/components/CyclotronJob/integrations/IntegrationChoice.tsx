@@ -17,7 +17,6 @@ export type IntegrationConfigureProps = {
     schema?: CyclotronJobInputSchemaType
     integration?: string
     beforeRedirect?: () => void
-    buttonProps?: Omit<LemonButtonProps, 'onClick'>
 }
 
 export function IntegrationChoice({
