@@ -186,7 +186,7 @@ def feature_flag_changed(sender, instance: "FeatureFlag", **kwargs):
 def cohort_changed(sender, instance: "Cohort", **kwargs):
     from posthog.tasks.feature_flags import update_team_flags_cache
 
-    update_team_flags_cache.delay(instance.team_id)
+    transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
 
 
 @receiver(post_save, sender=GroupTypeMapping)
@@ -198,4 +198,4 @@ def group_type_mapping_changed(sender, instance: "GroupTypeMapping", created=Non
     # GroupTypeMapping uses project_id, so we need to get team_id from it
     team = Team.objects.filter(project_id=instance.project_id).first()
     if team:
-        update_team_flags_cache.delay(team.id)
+        transaction.on_commit(lambda: update_team_flags_cache.delay(team.id))
