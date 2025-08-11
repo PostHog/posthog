@@ -35,6 +35,8 @@ from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    Breakdown,
+    BreakdownFilter,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
@@ -57,6 +59,7 @@ from posthog.schema import (
     InsightActorsQueryOptions,
     LifecycleQuery,
     CalendarHeatmapQuery,
+    MultipleBreakdownType,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -1124,8 +1127,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                 # Migrate legacy breakdown format to breakdowns array
                 if breakdown_filter.breakdown is not None:
-                    from posthog.schema import Breakdown, BreakdownFilter, MultipleBreakdownType
-
                     breakdown_type_mapping = {
                         "person": MultipleBreakdownType.PERSON,
                         "event": MultipleBreakdownType.EVENT,
