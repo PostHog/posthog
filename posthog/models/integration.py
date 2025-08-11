@@ -1002,9 +1002,9 @@ class EmailIntegration:
 
     @classmethod
     def create_native_integration(cls, config: dict, team_id: int, created_by: Optional[User] = None) -> Integration:
-        email_address = config.get("email")
-        name = config.get("name")
-        domain = email_address.split("@")[1]
+        email_address: str = config["email"]
+        name: str = config["name"]
+        domain: str = email_address.split("@")[1]
 
         mailjet = MailjetProvider()
 

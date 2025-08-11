@@ -1,24 +1,81 @@
-import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconWarning, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+import { integrationsLogic } from './integrationsLogic'
+
+const isVerificationRequired = (integration: IntegrationType): boolean => {
+    return ['email'].includes(integration.kind)
+}
+
+const isVerified = (integration: IntegrationType): boolean => {
+    switch (integration.kind) {
+        case 'email':
+            return integration.config.mailjet_verified === true
+        default:
+            return true
+    }
+}
 
 export function IntegrationView({
     integration,
     suffix,
     schema,
-    isVerificationRequired,
-    isVerified,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
     schema?: CyclotronJobInputSchemaType
-    isVerificationRequired?: boolean
-    isVerified?: boolean
 }): JSX.Element {
+    const { deleteIntegration, openSetupModal } = useActions(integrationsLogic)
+
     const errors = (integration.errors && integration.errors?.split(',')) || []
+    const verified = isVerified(integration)
+    const verificationRequired = isVerificationRequired(integration)
+
+    const onDeleteClick = (integration: IntegrationType): void => {
+        LemonDialog.open({
+            title: `Do you want to disconnect from this ${integration.kind} integration?`,
+            description:
+                'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
+            primaryButton: {
+                children: 'Yes, disconnect',
+                status: 'danger',
+                onClick: () => deleteIntegration(integration.id),
+            },
+            secondaryButton: {
+                children: 'No thanks',
+            },
+        })
+    }
+
+    suffix = suffix || (
+        <div className="flex flex-row gap-2">
+            {!isVerified(integration) && (
+                <LemonButton
+                    type="primary"
+                    onClick={() => {
+                        openSetupModal(integration, integration.kind as ChannelType)
+                    }}
+                    icon={<IconWarning />}
+                >
+                    Verify
+                </LemonButton>
+            )}
+            <LemonButton
+                type="secondary"
+                status="danger"
+                onClick={() => onDeleteClick(integration)}
+                icon={<IconTrash />}
+            >
+                Disconnect
+            </LemonButton>
+        </div>
+    )
 
     return (
         <div className="rounded border bg-surface-primary">
@@ -30,16 +87,16 @@ export function IntegrationView({
                             <span>
                                 Connected to <strong>{integration.display_name}</strong>
                             </span>
-                            {isVerificationRequired && (
+                            {verificationRequired && (
                                 <Tooltip
                                     title={
-                                        isVerified
+                                        verified
                                             ? 'This channel is ready to use'
                                             : 'You cannot send messages from this channel until it has been verified'
                                     }
                                 >
-                                    <LemonTag type={isVerified ? 'success' : 'warning'}>
-                                        {isVerified ? 'Verified' : 'Unverified'}
+                                    <LemonTag type={verified ? 'success' : 'warning'}>
+                                        {verified ? 'Verified' : 'Unverified'}
                                     </LemonTag>
                                 </Tooltip>
                             )}
