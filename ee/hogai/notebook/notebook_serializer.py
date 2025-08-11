@@ -76,7 +76,7 @@ class MarkdownTokenizer:
             language = match.group(1) or None
             self._skip_line()
 
-            # Collect code lines until closing ```
+            # Collect code lines until closing ``` or EOF
             code_lines = []
             while self.pos < len(self.text):
                 line = self._current_line()
@@ -86,6 +86,7 @@ class MarkdownTokenizer:
                 code_lines.append(line)
                 self._skip_line()
 
+            # Add the code block even if no closing fence was found (treat EOF as implicit close)
             self.tokens.append({"type": "code_block", "language": language, "content": "\n".join(code_lines)})
             return True
         return False
@@ -96,12 +97,17 @@ class MarkdownTokenizer:
             return False
 
         line = self._current_line()
-        if line.startswith("> "):
+        match = re.match(r"^>\s*(.*)$", line)
+        if match:
             # Collect all consecutive blockquote lines
             quote_lines = []
-            while self.pos < len(self.text) and self._current_line().startswith("> "):
-                quote_lines.append(self._current_line()[2:])  # Remove "> "
-                self._skip_line()
+            while self.pos < len(self.text):
+                line_match = re.match(r"^>\s*(.*)$", self._current_line())
+                if line_match:
+                    quote_lines.append(line_match.group(1))
+                    self._skip_line()
+                else:
+                    break
 
             self.tokens.append({"type": "blockquote", "content": "\n".join(quote_lines)})
             return True
@@ -199,7 +205,7 @@ class MarkdownTokenizer:
         return (
             bool(re.match(r"^#{1,6}\s+", line))  # heading
             or line.startswith("```")  # code block
-            or line.startswith("> ")  # blockquote
+            or bool(re.match(r"^>\s*", line))  # blockquote
             or bool(re.match(r"^(-{3,}|\*{3,}|_{3,})$", line))  # horizontal rule
             or bool(re.match(r"^(\s*)([-*+]|\d+\.)\s+", line))  # list
         )
@@ -243,6 +249,22 @@ class NotebookSerializer:
         "strike": "strike",
         "code": "code",
     }
+
+    # Pre-compiled inline markdown patterns for performance
+    INLINE_PATTERNS = [
+        # Bold: **text** or __text__ - check these first to prioritize over italic
+        (re.compile(r"\*\*(.+?)\*\*"), "bold"),
+        (re.compile(r"__(.*?)__"), "bold"),
+        # Italic: *text* or _text_
+        (re.compile(r"\*(.*?)\*"), "italic"),
+        (re.compile(r"_(.*?)_"), "italic"),
+        # Code: `text`
+        (re.compile(r"`(.*?)`"), "code"),
+        # Strikethrough: ~~text~~
+        (re.compile(r"~~(.*?)~~"), "strikethrough"),
+        # Link: [text](url)
+        (re.compile(r"\[([^\]]*)\]\(([^)]*)\)"), "link"),
+    ]
 
     def to_json_paragraph(self, input: str | list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
         return ProsemirrorJSONContent(
@@ -396,29 +418,14 @@ class NotebookSerializer:
 
     def _find_next_markdown_pattern(self, text: str, start_pos: int) -> Optional[tuple[int, int, str, dict]]:
         """Find the next markdown formatting pattern in text."""
-        patterns = [
-            # Bold: **text** or __text__ - check these first to prioritize over italic
-            (r"\*\*(.+?)\*\*", "bold"),
-            (r"__(.*?)__", "bold"),
-            # Italic: *text* or _text_
-            (r"\*(.*?)\*", "italic"),
-            (r"_(.*?)_", "italic"),
-            # Code: `text`
-            (r"`(.*?)`", "code"),
-            # Strikethrough: ~~text~~
-            (r"~~(.*?)~~", "strikethrough"),
-            # Link: [text](url)
-            (r"\[([^\]]*)\]\(([^)]*)\)", "link"),
-        ]
-
         earliest_match = None
         earliest_pos = len(text)
 
-        for pattern, pattern_type in patterns:
-            match = re.search(pattern, text[start_pos:])
+        for pattern, pattern_type in self.INLINE_PATTERNS:
+            match = pattern.search(text, start_pos)
             if match:
-                match_start = start_pos + match.start()
-                match_end = start_pos + match.end()
+                match_start = match.start()
+                match_end = match.end()
 
                 if match_start < earliest_pos:
                     earliest_pos = match_start
@@ -453,11 +460,21 @@ class NotebookSerializer:
             return False
 
         try:
-            # Decode URL-encoded characters first
-            decoded_url = unquote(url.lower())
+            # Recursively decode URL until fully decoded to prevent double-encoded attacks
+            decoded_url = url.lower()
+            max_decode_iterations = 10  # Prevent infinite loops
+
+            for _ in range(max_decode_iterations):
+                prev_decoded = decoded_url
+                decoded_url = unquote(decoded_url)
+                # Stop if no more decoding is happening
+                if decoded_url == prev_decoded:
+                    break
+
+            # Check the fully decoded URL for dangerous schemes
             parsed = urlparse(decoded_url)
 
-            # Also check the original URL in case decoding changes the scheme
+            # Also check the original URL
             parsed_original = urlparse(url.lower())
 
             return (parsed.scheme in self.ALLOWED_SCHEMES or not parsed.scheme) and (
