@@ -326,10 +326,10 @@ class RootNode(RootNodeUIContextMixin):
         )
 
         ui_context = self._format_ui_context(self._get_ui_context(state), config)
-        has_billing_access, billing_context_prompt = self._get_billing_info(config)
+        should_add_billing_tool, billing_context_prompt = self._get_billing_info(config)
 
         chain = prompt | self._get_model(
-            state, config, extra_tools=["retrieve_billing_information"] if has_billing_access else []
+            state, config, extra_tools=["retrieve_billing_information"] if should_add_billing_tool else []
         )
 
         message = chain.invoke(
@@ -363,9 +363,9 @@ class RootNode(RootNodeUIContextMixin):
         )
 
     def _get_billing_info(self, config: RunnableConfig) -> tuple[bool, str]:
-        """Get billing information including access, prompt, and whether to include the tool.
+        """Get billing information including wheter to include the billing tool and the prompt.
         Returns:
-            Tuple[bool, str]: (has_access, prompt)
+            Tuple[bool, str]: (should_add_billing_tool, prompt)
         """
         has_billing_context = self._get_billing_context(config) is not None
 
@@ -382,7 +382,9 @@ class RootNode(RootNodeUIContextMixin):
             else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT
         )
 
-        return has_access, prompt
+        should_add_billing_tool = has_access and has_billing_context
+
+        return should_add_billing_tool, prompt
 
     def _get_model(self, state: AssistantState, config: RunnableConfig, extra_tools: list[str] | None = None):
         if extra_tools is None:
