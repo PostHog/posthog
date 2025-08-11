@@ -42,9 +42,21 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
         case 'posthog-dotnet':
             return 'dotnet'
         case 'posthog-android':
+            return 'android'
         case 'posthog-ios':
+        case 'ios-widget':
+            return 'ios'
         case 'posthog-react-native':
+            return 'react-native'
+        case 'posthog-dart':
+            return 'dart'
+        case 'posthog-flutter':
+            return 'flutter'
         case 'posthog-elixir':
+            return 'elixir'
+        case 'posthog-java':
+        case 'analytics-java':
+            return 'java'
         default:
             return 'unknown'
     }
