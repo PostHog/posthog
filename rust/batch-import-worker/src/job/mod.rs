@@ -802,9 +802,9 @@ mod tests {
 
     #[test]
     fn test_should_pause_due_to_max_attempts() {
-        assert_eq!(should_pause_due_to_max_attempts(0, 0), false); // unlimited
-        assert_eq!(should_pause_due_to_max_attempts(2, 3), false);
-        assert_eq!(should_pause_due_to_max_attempts(3, 3), true);
-        assert_eq!(should_pause_due_to_max_attempts(4, 3), true);
+        assert!(!should_pause_due_to_max_attempts(0, 0)); // unlimited
+        assert!(!should_pause_due_to_max_attempts(2, 3));
+        assert!(should_pause_due_to_max_attempts(3, 3));
+        assert!(should_pause_due_to_max_attempts(4, 3));
     }
 }
