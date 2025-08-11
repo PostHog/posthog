@@ -13,7 +13,7 @@ MOCKS_DIR = Path(__file__).resolve().parents[2] / "frontend/src/mocks/fixtures/a
 
 
 def migrate_file(filepath):
-    with open(filepath, "r", encoding="utf-8") as f:
+    with open(filepath, encoding="utf-8") as f:
         data = json.load(f)
 
     # If the file contains a list of queries, migrate each; else, migrate the dict
@@ -24,7 +24,7 @@ def migrate_file(filepath):
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(migrated, f, indent=4, ensure_ascii=False)
-    print(f"Migrated: {filepath}")
+    print(f"Migrated: {filepath}")  # noqa: T201
 
 
 def main():
