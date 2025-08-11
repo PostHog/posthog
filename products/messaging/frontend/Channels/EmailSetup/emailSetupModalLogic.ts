@@ -108,6 +108,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     afterMount(({ props, actions }) => {
         if (props.integration) {
             actions.setIntegration(props.integration)
+            actions.verifyDomain()
         }
     }),
 ])
