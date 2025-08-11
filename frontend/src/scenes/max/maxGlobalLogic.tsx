@@ -15,20 +15,36 @@ import { SidePanelTab } from '~/types'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export interface ToolDefinition {
+/** Static tool definition for display purposes. */
+export interface ToolDefinition<N extends string = string> {
+    /** A user-friendly display name for the tool. Must be a verb phrase, like "Create smth" or "Search smth" */
+    name: N
+    /**
+     * Optional user-friendly description for the tool, if more detail beyond the name useful.
+     * Must be a sentence that's an extension of the name, e.g. "Create smth to foo"
+     */
+    description?: `${N} ${string}`
+    /**
+     * If the tool is global, set explicitly to null. If only available in a specific product, specify it here.
+     * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
+     * isn't ProductKey.SQL_EDITOR, only ProductKey.DATA_WAREHOUSE - much clearer for users to say Scene.SQLEditor here)
+     */
+    product: Scene | null
+    /** If the tool is only available if a feature flag is enabled, you can specify it here. */
+    flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+}
+
+/** Active instance of a tool. */
+export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'description'> {
     /** A unique identifier for the tool */
-    name: AssistantContextualTool
-    /** A user-friendly display name for the tool. This must be a verb phrase, like "Create smth" or "Search smth" */
-    displayName: string
-    /** A user-friendly description for the tool */
-    description: `Max can ${string}`
+    identifier: AssistantContextualTool
     /**
      * Optional specific @posthog/icons icon
      * @default <IconWrench />
      */
     icon?: React.ReactNode
     /** Contextual data to be included for use by the LLM */
-    context: Record<string, any>
+    context?: Record<string, any>
     /**
      * Optional: If this tool is the main one of the page, you can override Max's default intro headline and description when it's mounted.
      *
@@ -46,12 +62,82 @@ export interface ToolDefinition {
     callback?: (toolOutput: any) => void | Promise<void>
 }
 
+export const TOOL_DEFINITIONS: Record<AssistantContextualTool, ToolDefinition> = {
+    create_and_query_insight: {
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
+        product: Scene.Insight,
+    },
+    search_docs: {
+        name: 'Search docs',
+        description: 'Search docs for answers regarding PostHog',
+        product: null,
+    },
+    navigate: {
+        name: 'Navigate',
+        description: 'Navigate to other places in PostHog',
+        product: null,
+    },
+    search_session_recordings: {
+        name: 'Search session recordings',
+        product: Scene.Replay,
+    },
+    generate_hogql_query: {
+        name: 'Write and tweak SQL',
+        description: 'Write and tweak SQL right in the query editor',
+        product: Scene.SQLEditor,
+    },
+    analyze_user_interviews: {
+        name: 'Analyze user interviews',
+        description: 'Analyze user interviews, summarizing pages of feedback, and extracting learnings',
+        product: Scene.UserInterviews,
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
+    },
+    create_hog_function_filters: {
+        name: 'Set up function filters',
+        description: 'Set up function filters for quick pipeline configuration',
+        product: Scene.DataPipelines,
+    },
+    create_hog_transformation_function: {
+        name: 'Write and tweak Hog code',
+        description: 'Write and tweak Hog code of transformations',
+        product: Scene.DataPipelines,
+    },
+    create_hog_function_inputs: {
+        name: 'Manage function variables',
+        description: 'Manage function variables in Hog functions',
+        product: Scene.DataPipelines,
+    },
+    search_error_tracking_issues: {
+        name: 'Filter error tracking issues',
+        product: Scene.ErrorTracking,
+    },
+    experiment_results_summary: {
+        name: 'Summarize experiment results',
+        description: 'Summarize experiment results for a comprehensive overview',
+        product: Scene.Experiment,
+        flag: 'experiments-ai-summary',
+    },
+    create_survey: {
+        name: 'Create surveys',
+        description: 'Create surveys to collect qualitative feedback from your users',
+        product: Scene.Surveys,
+    },
+}
+
+for (const tool of Object.values(TOOL_DEFINITIONS)) {
+    if (tool.description && !tool.description.startsWith(tool.name)) {
+        // Ugly runtime check, but TypeScript can't infer this, and otherwise UI could break
+        throw new Error(`Tool description for ${tool.name} must start with the tool name!`)
+    }
+}
+
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
-const STATIC_TOOLS: ToolDefinition[] = [
+const STATIC_TOOLS: ToolRegistration[] = [
     {
-        name: 'navigate' as const,
-        displayName: 'Navigate',
-        description: 'Max can navigate to other places in PostHog',
+        identifier: 'navigate' as const,
+        name: TOOL_DEFINITIONS['navigate'].name,
+        description: TOOL_DEFINITIONS['navigate'].description,
         icon: <IconCompass />,
         context: { current_page: location.pathname },
         callback: async (toolOutput) => {
@@ -79,18 +165,16 @@ const STATIC_TOOLS: ToolDefinition[] = [
         },
     },
     {
-        name: 'search_docs' as const,
-        displayName: 'Search docs',
-        description: 'Max can search the PostHog docs',
+        identifier: 'search_docs' as const,
+        name: TOOL_DEFINITIONS['search_docs'].name,
+        description: TOOL_DEFINITIONS['search_docs'].description,
         icon: <IconBook />,
-        context: {},
     },
     {
-        name: 'create_and_query_insight' as const,
-        displayName: 'Query data',
-        description: 'Max can use analytics data and the data warehouse',
+        identifier: 'create_and_query_insight' as const,
+        name: 'Query data',
+        description: 'Query data by creating insights and SQL queries',
         icon: <IconEye />,
-        context: {},
     },
 ]
 
@@ -109,7 +193,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     })),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
-        registerTool: (tool: ToolDefinition) => ({ tool }),
+        registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
         setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
@@ -118,11 +202,11 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
     reducers({
         registeredToolMap: [
-            {} as Record<string, ToolDefinition>,
+            {} as Record<string, ToolRegistration>,
             {
                 registerTool: (state, { tool }) => ({
                     ...state,
-                    [tool.name]: tool,
+                    [tool.identifier]: tool,
                 }),
                 deregisterTool: (state, { key }) => {
                     const newState = { ...state }
@@ -210,10 +294,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         toolMap: [
             (s) => [s.registeredToolMap],
             (registeredToolMap) => ({
-                ...Object.fromEntries(STATIC_TOOLS.map((tool) => [tool.name, tool])),
+                ...Object.fromEntries(STATIC_TOOLS.map((tool) => [tool.identifier, tool])),
                 ...registeredToolMap,
             }),
         ],
-        tools: [(s) => [s.toolMap], (toolMap): ToolDefinition[] => Object.values(toolMap)],
+        tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
     }),
 ])

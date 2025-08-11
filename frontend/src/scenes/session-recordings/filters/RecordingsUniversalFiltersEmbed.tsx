@@ -99,9 +99,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     return (
         <>
             <MaxTool
-                name="search_session_recordings"
-                displayName="Search recordings"
-                description="Max can set up filters for the recordings list"
+                identifier="search_session_recordings"
                 context={{
                     current_filters: filters,
                 }}

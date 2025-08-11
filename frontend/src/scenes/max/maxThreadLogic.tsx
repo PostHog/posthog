@@ -221,7 +221,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.streamConversation(
                 {
                     content: prompt,
-                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
                     ui_context: values.compiledContext || undefined,
                     conversation: values.conversation?.id || values.conversationId,
                 },

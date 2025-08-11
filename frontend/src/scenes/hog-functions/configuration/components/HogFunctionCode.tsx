@@ -160,9 +160,7 @@ export function HogFunctionCode(): JSX.Element {
 
     return (
         <MaxTool
-            name="create_hog_transformation_function"
-            displayName="Write and tweak Hog code"
-            description="Max can write and tweak Hog code for you"
+            identifier="create_hog_transformation_function"
             context={{
                 current_hog_code: configuration.hog ?? '',
             }}
