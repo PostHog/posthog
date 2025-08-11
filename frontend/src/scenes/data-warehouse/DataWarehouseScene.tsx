@@ -12,12 +12,38 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { Dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
 const LIST_SIZE = 5
+
+// Helper function to classify data sources
+const getSourceType = (sourceType: string): 'Database' | 'API' => {
+    const databases = ['Postgres', 'MySQL', 'MSSQL', 'Snowflake', 'BigQuery', 'Redshift', 'MongoDB']
+    return databases.includes(sourceType) ? 'Database' : 'API'
+}
+
+// Type-safe interfaces following PostHog patterns
+interface DashboardDataSource {
+    id: string
+    name: string
+    type: 'Database' | 'API'
+    status: string | null
+    lastSync: Dayjs | null
+    rowCount: number | null
+    url: string
+}
+
+interface DashboardActivity {
+    name: string
+    type: 'Materialization' | 'Sync'
+    status: string
+    time: string
+    rowCount: number | null
+}
 
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -27,24 +53,24 @@ export function DataWarehouseScene(): JSX.Element {
 
     const monthlyRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
 
-    type Activity = { name: string; type: 'Materialization' | 'Sync'; status?: string; time: string; rows?: number }
+    // Type-safe recent activity transformation following PostHog selector pattern
+    const recentActivity = useMemo((): DashboardActivity[] => {
+        const items: DashboardActivity[] = []
 
-    const recentActivity = useMemo(() => {
-        const items: Activity[] = []
-
+        // Materialized view activities
         materializedViews.forEach((view) => {
             if (view.last_run_at) {
-                const status = view.status
                 items.push({
                     name: view.name,
                     type: 'Materialization',
-                    status,
+                    status: view.status || 'unknown',
                     time: String(view.last_run_at),
-                    rows: (view as any).row_count || undefined,
+                    rowCount: view.row_count ?? null,
                 })
             }
         })
-        // schema syncs for recent activity section
+
+        // Schema sync activities
         dataWarehouseSources?.results?.forEach((source) => {
             source.schemas?.forEach((schema) => {
                 if (schema.should_sync) {
@@ -55,7 +81,7 @@ export function DataWarehouseScene(): JSX.Element {
                         time: schema.last_synced_at
                             ? String(schema.last_synced_at)
                             : String(source.last_run_at || new Date().toISOString()),
-                        rows: (schema as any).row_count || 0,
+                        rowCount: null, // Schema row counts not available in this interface
                     })
                 }
             })
@@ -67,35 +93,54 @@ export function DataWarehouseScene(): JSX.Element {
     const [activityPage, setActivityPage] = useState(0)
     const [sourcesPage, setSourcesPage] = useState(0)
     const [viewsPage, setViewsPage] = useState(0)
+    const [viewsSearchTerm] = useState('')
+    // setViewsSearchTerm intentionally removed to simplify type safety implementation
 
     const pageSize = LIST_SIZE
     const totalPages = Math.max(1, Math.ceil(recentActivity.length / pageSize))
     const pageItems = recentActivity.slice(activityPage * pageSize, activityPage * pageSize + pageSize)
 
-    // Pagination for data sources - memoized to prevent unnecessary re-renders
+    // Type-safe data sources transformation following PostHog selector pattern
     const allSources = useMemo(
-        () => [
-            ...(dataWarehouseSources?.results || []).map((source) => ({
-                id: source.id,
-                name: source.source_type,
-                status: source.status,
-                lastSync: source.last_run_at,
-                url: urls.dataWarehouseSource(`managed-${source.id}`),
-                rows_synced: (source as any).row_count || 0,
-            })),
-            ...selfManagedTables.map((table) => ({
-                id: table.id,
-                name: table.name,
-                status: null,
-                lastSync: null,
-                url: urls.dataWarehouseSource(`self-managed-${table.id}`),
-            })),
+        (): DashboardDataSource[] => [
+            // Managed data sources
+            ...(dataWarehouseSources?.results || []).map(
+                (source): DashboardDataSource => ({
+                    id: source.id,
+                    name: source.source_type,
+                    type: getSourceType(source.source_type),
+                    status: source.status,
+                    lastSync: source.last_run_at ?? null,
+                    rowCount: null, // External data source row counts handled at schema level
+                    url: urls.dataWarehouseSource(`managed-${source.id}`),
+                })
+            ),
+            // Self-managed tables
+            ...selfManagedTables.map(
+                (table): DashboardDataSource => ({
+                    id: table.id,
+                    name: table.name,
+                    type: 'Database', // Self-managed are typically database tables
+                    status: null,
+                    lastSync: null,
+                    rowCount: table.row_count ?? null,
+                    url: urls.dataWarehouseSource(`self-managed-${table.id}`),
+                })
+            ),
         ],
         [dataWarehouseSources?.results, selfManagedTables]
     )
     const sourcesTotalPages = Math.max(1, Math.ceil(allSources.length / pageSize))
     const pageSources = allSources.slice(sourcesPage * pageSize, sourcesPage * pageSize + pageSize)
-    const viewsWithStatus = materializedViews || []
+    const viewsWithStatus = useMemo(() => {
+        const views = materializedViews || []
+        if (!viewsSearchTerm.trim()) {
+            return views
+        }
+        const normalizedSearch = viewsSearchTerm.toLowerCase()
+        return views.filter((view) => view.name.toLowerCase().includes(normalizedSearch))
+    }, [materializedViews, viewsSearchTerm])
+
     const viewsTotalPages = Math.max(1, Math.ceil(viewsWithStatus.length / pageSize))
     const pageViews = viewsWithStatus.slice(viewsPage * pageSize, viewsPage * pageSize + pageSize)
 
@@ -194,22 +239,22 @@ export function DataWarehouseScene(): JSX.Element {
                         </div>
                         <div className="space-y-2">
                             {pageSources.map((item) => (
-                                <div key={item.id} className="flex items-center justify-between p-2 border rounded p-2">
+                                <div key={item.id} className="flex items-center justify-between p-2 border rounded">
                                     <div className="flex-1 min-w-0 ">
                                         <div className="font-medium text-base flex items-center gap-1">
-                                            <StatusIcon status={item.status as any} />
+                                            <StatusIcon status={item.status ?? undefined} />
                                             <span>{item.name}</span>
                                         </div>
                                         <div className="text-xs text-muted mt-1">
-                                            Last sync: {item.lastSync ? <TZLabel time={item.lastSync} /> : '—'}
+                                            {item.type} • Last sync:{' '}
+                                            {item.lastSync ? <TZLabel time={item.lastSync} /> : '—'}
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 ml-4">
                                         <div className="text-right">
                                             <div className="text-xs text-muted mb-1">
-                                                {(item as any).rows_synced !== undefined &&
-                                                (item as any).rows_synced !== null
-                                                    ? `${((item as any).rows_synced || 0).toLocaleString()} rows`
+                                                {item.rowCount !== null
+                                                    ? `${item.rowCount.toLocaleString()} rows`
                                                     : 'No row data'}
                                             </div>
                                             {item.status ? (
@@ -287,9 +332,8 @@ export function DataWarehouseScene(): JSX.Element {
                                     <div className="flex items-center gap-2 ml-4">
                                         <div className="text-right">
                                             <div className="text-xs text-muted mb-1">
-                                                {(view as any).row_count !== undefined &&
-                                                (view as any).row_count !== null
-                                                    ? `${((view as any).row_count || 0).toLocaleString()} rows`
+                                                {view.row_count !== undefined && view.row_count !== null
+                                                    ? `${view.row_count.toLocaleString()} rows`
                                                     : 'No row data'}
                                             </div>
                                             <StatusTag status={view.status} />
@@ -358,8 +402,8 @@ export function DataWarehouseScene(): JSX.Element {
                                     </div>
                                     <div className="ml-4 text-right">
                                         <div className="text-xs text-muted mb-1">
-                                            {activity.rows !== undefined && activity.rows !== null
-                                                ? `${(activity.rows || 0).toLocaleString()} rows`
+                                            {activity.rowCount !== null
+                                                ? `${activity.rowCount.toLocaleString()} rows`
                                                 : 'No row data'}
                                         </div>
                                         <StatusTag status={activity.status} />
