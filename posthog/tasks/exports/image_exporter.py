@@ -178,19 +178,28 @@ def _screenshot_asset(
         # Set initial window size with a more reasonable height to prevent initial rendering issues
         driver.set_window_size(screenshot_width, screenshot_height)
         driver.get(url_to_render)
-        WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
-        # Also wait until nothing is loading
+        posthoganalytics.tag("url_to_render", url_to_render)
+
         try:
+            WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+        except TimeoutException:
+            with posthoganalytics.new_context():
+                posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
+                try:
+                    driver.save_screenshot(image_path)
+                    posthoganalytics.tag("image_path", image_path)
+                except Exception:
+                    pass
+                capture_exception()
+
+            raise Exception(f"Timeout while waiting for the page to load")
+
+        try:
+            # Also wait until nothing is loading
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element(By.CLASS_NAME, "Spinner"))
         except TimeoutException:
-            logger.exception(
-                "image_exporter.timeout",
-                url_to_render=url_to_render,
-                wait_for_css_selector=wait_for_css_selector,
-                image_path=image_path,
-            )
             with posthoganalytics.new_context():
-                posthoganalytics.tag("url_to_render", url_to_render)
+                posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
                 try:
                     driver.save_screenshot(image_path)
                     posthoganalytics.tag("image_path", image_path)
