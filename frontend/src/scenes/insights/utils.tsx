@@ -489,7 +489,10 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
             : dataset.seriesIndex > 0
               ? `formula${dataset.seriesIndex + 1}`
               : 'formula',
-        breakdown_value: Array.isArray(dataset.breakdown_value) ? dataset.breakdown_value : [dataset.breakdown_value],
+        breakdown_value:
+            dataset.breakdown_value !== undefined && !Array.isArray(dataset.breakdown_value)
+                ? [dataset.breakdown_value]
+                : dataset.breakdown_value,
         compare_label: dataset.compare_label,
     }
 
