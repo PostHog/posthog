@@ -1174,8 +1174,14 @@ Query results: 42 events
 
             node._get_model(state, {})
 
-            # Verify feature flag was checked with correct user distinct_id
-            mock_feature_enabled.assert_called_once_with("max-session-summarization", str(self.user.distinct_id))
+            # Verify feature flag was checked with correct parameters
+            mock_feature_enabled.assert_called_once_with(
+                "max-session-summarization",
+                str(self.user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
 
             # Verify bind_tools was called with session_summarization
             mock_model.bind_tools.assert_called_once()
@@ -1197,8 +1203,14 @@ Query results: 42 events
 
             node._get_model(state, {})
 
-            # Verify feature flag was checked with correct user distinct_id
-            mock_feature_enabled.assert_called_once_with("max-session-summarization", str(self.user.distinct_id))
+            # Verify feature flag was checked with correct parameters
+            mock_feature_enabled.assert_called_once_with(
+                "max-session-summarization",
+                str(self.user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
 
             # Verify bind_tools was called without session_summarization
             mock_model.bind_tools.assert_called_once()
