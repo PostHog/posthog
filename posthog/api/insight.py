@@ -6,7 +6,6 @@ from typing import Any, Optional, Union, cast
 from django.db.models.signals import pre_save
 
 from posthog.api.insight_variable import map_stale_to_latest
-from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.models.signals import mutable_receiver
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -493,25 +492,6 @@ class InsightSerializer(InsightBasicSerializer):
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
-
-        if (
-            not before_update
-            or before_update.query != validated_data.get("query")
-            or validated_data.get("query_metadata") is None
-        ):
-            try:
-                query_metadata = extract_query_metadata(
-                    query=validated_data.get("query"),
-                    team=instance.team,
-                )
-                validated_data["query_metadata"] = query_metadata.model_dump(exclude_none=True, mode="json")
-            except Exception as e:
-                # log the error but don't fail the update
-                logger.exception(
-                    "Failed to generate query metadata for insight",
-                    insight_id=instance.id,
-                    error=str(e),
-                )
 
         updated_insight = super().update(instance, validated_data)
         if not are_alerts_supported_for_insight(updated_insight):
@@ -1312,13 +1292,12 @@ class LegacyInsightViewSet(InsightViewSet):
 
 @mutable_receiver(pre_save, sender=Insight)
 def schedule_query_metadata_extract(sender, instance: Insight, **kwargs):
-    if instance._state.adding:
-        try:
-            instance.generate_query_metadata()
-        except Exception as e:
-            # log and ignore the error, as this is not critical for insight creation
-            logger.exception(
-                "Failed to generate query metadata for insight",
-                insight_id=instance.id,
-                error=str(e),
-            )
+    try:
+        instance.generate_query_metadata()
+    except Exception as e:
+        # log and ignore the error, as this is not critical
+        logger.exception(
+            "Failed to generate query metadata for insight",
+            insight_id=instance.id,
+            error=str(e),
+        )
