@@ -1,5 +1,6 @@
 import json
 import glob
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,6 +31,10 @@ def main():
     files = glob.glob(str(MOCKS_DIR / "*.json"))
     for filepath in files:
         migrate_file(filepath)
+
+    subprocess.run(
+        ["pnpm", "prettier", "--write", MOCKS_DIR],
+    )
 
 
 if __name__ == "__main__":

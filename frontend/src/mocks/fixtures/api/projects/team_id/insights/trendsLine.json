@@ -27,16 +27,7 @@
             },
             "label": "$pageview",
             "count": 61010,
-            "data": [
-                0,
-                0,
-                0,
-                15625,
-                22870,
-                15044,
-                6675,
-                796
-            ],
+            "data": [0, 0, 0, 15625, 22870, 15044, 6675, 796],
             "labels": [
                 "4-Mar-2022",
                 "5-Mar-2022",
@@ -201,17 +192,13 @@
                                 "key": "$current_url",
                                 "operator": "exact",
                                 "type": "event",
-                                "value": [
-                                    "https://hedgebox.net/signup/"
-                                ]
+                                "value": ["https://hedgebox.net/signup/"]
                             },
                             {
                                 "key": "$geoip_country_code",
                                 "operator": "exact",
                                 "type": "event",
-                                "value": [
-                                    "PY"
-                                ]
+                                "value": ["PY"]
                             }
                         ]
                     },
@@ -234,9 +221,7 @@
                                 "key": "selector",
                                 "operator": "exact",
                                 "type": "element",
-                                "value": [
-                                    "href"
-                                ]
+                                "value": ["href"]
                             }
                         ]
                     }
@@ -254,9 +239,7 @@
                             "key": "from_invite",
                             "operator": "exact",
                             "type": "event",
-                            "value": [
-                                "false"
-                            ]
+                            "value": ["false"]
                         },
                         {
                             "key": "$referrer",

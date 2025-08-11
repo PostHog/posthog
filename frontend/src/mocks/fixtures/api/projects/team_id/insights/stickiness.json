@@ -27,36 +27,9 @@
             },
             "label": "$pageview",
             "count": 20166,
-            "data": [
-                20109,
-                57,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0
-            ],
-            "labels": [
-                "1 day",
-                "2 days",
-                "3 days",
-                "4 days",
-                "5 days",
-                "6 days",
-                "7 days",
-                "8 days"
-            ],
-            "days": [
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8
-            ],
+            "data": [20109, 57, 0, 0, 0, 0, 0, 0],
+            "labels": ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days", "8 days"],
+            "days": [1, 2, 3, 4, 5, 6, 7, 8],
             "filter": {
                 "date_from": "2022-03-08T00:00:00+00:00",
                 "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0, \"name\": \"$pageview\", \"custom_name\": null, \"math\": null, \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",

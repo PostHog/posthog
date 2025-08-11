@@ -338,9 +338,7 @@
             "kind": "PathsQuery",
             "pathsFilter": {
                 "excludeEvents": [],
-                "includeEventTypes": [
-                    "$pageview"
-                ],
+                "includeEventTypes": ["$pageview"],
                 "localPathCleaningFilters": [],
                 "pathGroupings": [],
                 "stepLimit": 5
