@@ -43,7 +43,7 @@ const MOCK_COHORTS = {
     ],
 }
 
-describe('cohortsModel', () => {
+describe('cohortsSceneLogic', () => {
     let logic: ReturnType<typeof cohortsSceneLogic.build>
 
     beforeEach(() => {
