@@ -1,13 +1,26 @@
 from typing import Literal, Union, cast
 from zoneinfo import ZoneInfo
-import structlog
 
-from posthog.models import Experiment
-from posthog.models.team.team import Team
+import structlog
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    build_common_exposure_conditions,
+    get_exposure_event_and_property,
+    get_test_accounts_filter,
+    get_variant_selection_expr,
+)
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    extract_aggregation_and_inner_expr,
+)
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Experiment
 from posthog.models.action.action import Action
+from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -18,24 +31,13 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentRatioMetric,
     ExperimentMetricMathType,
+    ExperimentRatioMetric,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     MultipleVariantHandling,
     PropertyMathType,
 )
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    get_exposure_event_and_property,
-    build_common_exposure_conditions,
-    get_variant_selection_expr,
-    get_test_accounts_filter,
-)
-
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql.errors import InternalHogQLError, ExposedHogQLError
-from rest_framework.exceptions import ValidationError
 
 logger = structlog.get_logger(__name__)
 
@@ -91,7 +93,7 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             and getattr(source, "math_hogql", None) is not None
         ):
             # Extract the inner expression from the HogQL expression
-            math_hogql = getattr(source, "math_hogql")
+            math_hogql = source.math_hogql
             if math_hogql:
                 _, inner_expr = extract_aggregation_and_inner_expr(math_hogql)
                 return inner_expr
@@ -223,9 +225,7 @@ def get_source_time_window(
                     ast.Call(
                         name="toIntervalSecond",
                         args=[
-                            ast.Constant(
-                                value=conversion_window_to_seconds(conversion_window, conversion_window_unit)
-                            ),
+                            ast.Constant(value=conversion_window_to_seconds(conversion_window, conversion_window_unit)),
                         ],
                     ),
                 ],
@@ -265,9 +265,7 @@ def get_metric_time_window(
     """
     Backward compatibility wrapper for get_source_time_window.
     """
-    return get_source_time_window(
-        date_range_query, left, metric.conversion_window, metric.conversion_window_unit
-    )
+    return get_source_time_window(date_range_query, left, metric.conversion_window, metric.conversion_window_unit)
 
 
 def get_experiment_exposure_query(
@@ -467,7 +465,14 @@ def get_source_events_query(
     Backward compatibility wrapper for build_source_events_query.
     """
     return build_source_events_query(
-        source, exposure_query, team, entity_key, date_range_query, conversion_window, conversion_window_unit, experiment
+        source,
+        exposure_query,
+        team,
+        entity_key,
+        date_range_query,
+        conversion_window,
+        conversion_window_unit,
+        experiment,
     )
 
 
@@ -714,16 +719,16 @@ def get_metric_aggregation_expr(
     experiment: Experiment,
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
     team: Team,
-    source_type: str = "main",
+    source_type: Literal["numerator", "denominator"] = "numerator",
 ) -> ast.Expr:
     """
     Returns the aggregation expression for the metric.
-    For ratio metrics, source_type can be "main" (numerator) or "denominator".
+    For ratio metrics, source_type can be "numerator" or "denominator".
     """
     try:
         # For ratio metrics, get the appropriate source and delegate to source-based function
         if isinstance(metric, ExperimentRatioMetric):
-            source = metric.numerator if source_type == "main" else metric.denominator
+            source = metric.numerator if source_type == "numerator" else metric.denominator
             return get_source_aggregation_expr(source)
 
         # For mean metrics, delegate to source-based function
