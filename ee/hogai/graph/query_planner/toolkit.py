@@ -311,15 +311,15 @@ class TaxonomyAgentToolkit:
         if entity == "session":
             return self._retrieve_session_properties(property_name)
         if entity == "person":
-            query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=25)
+            query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=25)
         elif entity == "event":
-            query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=50)
+            query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=50)
         else:
             group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."
             query = ActorsPropertyTaxonomyQuery(
-                group_type_index=group_index, property=property_name, maxPropertyValues=25
+                groupTypeIndex=group_index, properties=[property_name], maxPropertyValues=25
             )
 
         try:
@@ -352,9 +352,14 @@ class TaxonomyAgentToolkit:
         if not response.results:
             return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}."
 
+        if isinstance(response.results, list):
+            unpacked_results = response.results[0]
+        else:
+            unpacked_results = response.results
+
         return self._format_property_values(
-            response.results.sample_values,
-            response.results.sample_count,
+            unpacked_results.sample_values,
+            unpacked_results.sample_count,
             format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
         )
 
