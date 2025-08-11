@@ -26,6 +26,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { GraphType } from '~/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -201,7 +202,7 @@ export function PieChart({
                                     (dp) => dp.datasetIndex >= 0 && dp.datasetIndex < _datasets.length
                                 )
 
-                                highlightSeries(seriesData[0])
+                                highlightSeries(seriesData[0] as IndexedTrendResult)
 
                                 tooltipRoot.render(
                                     <InsightTooltip

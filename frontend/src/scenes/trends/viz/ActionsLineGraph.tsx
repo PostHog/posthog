@@ -213,7 +213,7 @@ export function ActionsLineGraph({
                               context.onDataPointClick(
                                   {
                                       breakdown: dataset.breakdownValues?.[index],
-                                      compare: dataset.compareLabels?.[index],
+                                      compare: dataset.compareLabels?.[index] || undefined,
                                       day,
                                   },
                                   indexedResults[0]
