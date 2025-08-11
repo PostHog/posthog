@@ -3,7 +3,10 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
+from django.db.models.signals import post_save
+
 from posthog.api.insight_variable import map_stale_to_latest
+from posthog.models.signals import mutable_receiver
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics
@@ -428,9 +431,6 @@ class InsightSerializer(InsightBasicSerializer):
             **validated_data,
         )
 
-        # schedule the insight query metadata extraction
-        extract_insight_query_metadata.delay(insight_id=insight.id)
-
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
@@ -502,8 +502,17 @@ class InsightSerializer(InsightBasicSerializer):
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
-        if not before_update or before_update.query != updated_insight.query:
-            extract_insight_query_metadata.delay(insight_id=updated_insight.id)
+        if not before_update or before_update.query != updated_insight.query or updated_insight.query_metadata is None:
+            query_meta_task = extract_insight_query_metadata.apply_async(
+                kwargs={"insight_id": updated_insight.id},
+                countdown=10 * 60,  # 10 minutes
+            )
+            logger.warn(
+                "scheduled extract_insight_query_metadata",
+                insight_id=updated_insight.id,
+                task_id=query_meta_task.id,
+                trigger="update_insight",
+            )
 
         return updated_insight
 
@@ -1292,3 +1301,18 @@ When set, the specified dashboard's filters and date range override will be appl
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+@mutable_receiver(post_save, sender=Insight)
+def schedule_query_metadata_extract(sender, instance: Insight, created: bool, **kwargs):
+    if created:
+        query_meta_task = extract_insight_query_metadata.apply_async(
+            kwargs={"insight_id": instance.pk},
+            countdown=10 * 60,  # 10 minutes
+        )
+        logger.warn(
+            "scheduled extract_insight_query_metadata",
+            insight_id=instance.id,
+            task_id=query_meta_task.id,
+            trigger="create_insight",
+        )
