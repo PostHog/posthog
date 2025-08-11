@@ -1001,9 +1001,12 @@ class EmailIntegration:
         return MailjetProvider()
 
     @classmethod
-    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
+    def integration_from_email_address(
+        cls, email_address: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
         mailjet = MailjetProvider()
-        mailjet.create_email_domain(domain, team_id=team_id)
+        # TODO: Look for integration belonging to the team with the same domain
+        mailjet.create_email_domain(email_address, team_id=team_id)
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,

@@ -70,10 +70,10 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 )
                 return instance
 
-            if not (config.get("domain")):
-                raise ValidationError("Domain is required for email integration")
-            instance = EmailIntegration.integration_from_domain(
-                config["domain"],
+            if not (config.get("email")):
+                raise ValidationError("Email is required for email integration")
+            instance = EmailIntegration.integration_from_email_address(
+                config["email"],
                 team_id,
                 request.user,
             )
