@@ -1,6 +1,7 @@
 import json
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+from typing import Optional
 
 from ee.hogai.graph.schema_generator.parsers import parse_pydantic_structured_output
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
@@ -17,6 +18,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from posthog.models import Team, User
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 
 
 class FinalAnswerArgs(SchemaGeneratorOutput[str]):
@@ -124,12 +126,11 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
 
     async def _arun_impl(self, instructions: str) -> tuple[str, str]:
         current_query: str | None = self.context.get("current_query", "")
-        # system_prompt = await self._construct_system_prompt()
 
         pretty_filters = json.dumps(current_query, indent=2)
         user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=pretty_filters)
 
-        graph = HogQLGeneratorOptionsGraph(team=self._team, user=self._user)
+        graph = HogQLGeneratorOptionsGraph(team=self._team, user=self._user).compile_full_graph()
 
         graph_context = {
             "change": user_prompt,
@@ -138,32 +139,23 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
             **self.context,
         }
 
-        result = await graph.compile_full_graph().ainvoke(graph_context)
+        final_error: Optional[Exception] = None
+        for _ in range(3):
+            try:
+                result = await graph.ainvoke(graph_context)
+                if result.get("intermediate_steps"):
+                    result = result["intermediate_steps"][-1][0].tool_input
+                    return result, ""
+                else:
+                    result = await self._parse_output(FinalAnswerArgs.model_validate(result["output"]))
+                    return "```sql\n" + result + "\n```", result
 
-        # final_error: Optional[Exception] = None
-        # for _ in range(3):
-        #     try:
-        #         chain = prompt | merge_message_runs | self._model | self._parse_output
-        #         result: str = await chain.ainvoke(
-        #             {
-        #                 "current_query": current_query,
-        #                 "instructions": instructions,
-        #             }
-        #         )
-        #         break
-        #     except PydanticOutputParserException as e:
-        #         prompt += f"Avoid this error: {str(e)}"
-        #         final_error = e
-        # else:
-        #     assert final_error is not None
-        #     raise final_error
-
-        if result.get("intermediate_steps"):
-            result = result["intermediate_steps"][-1][0].tool_input
-            return result, ""
+            except PydanticOutputParserException as e:
+                graph_context["change"] += f"\n\nAvoid this error: {str(e)}"
+                final_error = e
         else:
-            result = await self._parse_output(FinalAnswerArgs.model_validate(result["output"]))
-            return "```sql\n" + result + "\n```", result
+            assert final_error is not None
+            raise final_error
 
     async def _parse_output(self, output: dict) -> str:
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
