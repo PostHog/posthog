@@ -22,9 +22,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         with (
-            patch(
-                "products.data_warehouse.backend.max_tools.HogQLGeneratorOptionsGraph.compile_full_graph"
-            ) as mock_compile,
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
             patch.object(
                 HogQLGeneratorTool,
                 "_parse_output",
@@ -61,9 +59,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         with (
-            patch(
-                "products.data_warehouse.backend.max_tools.HogQLGeneratorOptionsGraph.compile_full_graph"
-            ) as mock_compile,
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
             patch.object(
                 HogQLGeneratorTool,
                 "_parse_output",

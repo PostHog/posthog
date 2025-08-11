@@ -14,7 +14,7 @@ from posthog.schema import (
 from xml.etree import ElementTree as ET
 from posthog.clickhouse.query_tagging import Product, tags_context
 from langchain_core.agents import AgentAction
-from typing import Union, Any
+from typing import Union
 from functools import cached_property
 from typing import Optional, cast
 from collections.abc import Iterable
@@ -456,25 +456,9 @@ class TaxonomyAgentToolkit:
         except NotImplementedError:
             custom_tools = []
 
-        # Separate taxonomy tools (classes) from LangChain tools (instances)
-        from langchain_core.tools.base import BaseTool
+        custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel # type: ignore
 
-        taxonomy_tool_classes = [tool for tool in custom_tools if not isinstance(tool, BaseTool)]
-        langchain_tools = [tool for tool in custom_tools if isinstance(tool, BaseTool)]
-
-        # For taxonomy tools, use the classes directly
-        # For LangChain tools, extract their argument schemas or use BaseModel as fallback
-        tool_arg_types = taxonomy_tool_classes.copy()
-        for langchain_tool in langchain_tools:
-            # Check if the tool has an args_schema, otherwise use BaseModel
-            if hasattr(langchain_tool, "args_schema") and langchain_tool.args_schema:
-                tool_arg_types.append(langchain_tool.args_schema)
-            else:
-                tool_arg_types.append(BaseModel)
-
-        custom_tools_args_type = Union[tuple(tool_arg_types)] if tool_arg_types else BaseModel # type: ignore
-
-        class DynamicToolInput(TaxonomyTool[custom_tools_args_type]):  # type: ignore
+        class DynamicToolInput(TaxonomyTool[custom_tools_union]): # type: ignore
             pass
 
         return DynamicToolInput.model_validate({"name": action.tool, "arguments": action.tool_input})
