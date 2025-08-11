@@ -1,6 +1,9 @@
 import uuid
-from typing import cast
+import dataclasses
+from typing import Optional, cast
 
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 from rest_framework import response, serializers, status, viewsets
@@ -9,7 +12,9 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey, User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
@@ -131,6 +136,17 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         personal_api_key._value = value  # type: ignore
         return personal_api_key
 
+    def get_scoped_organization_ids(self, personal_api_key: PersonalAPIKey) -> list[str]:
+        """Get organization IDs that should receive activity logs for this API key."""
+        if personal_api_key.scoped_organizations:
+            return personal_api_key.scoped_organizations
+        elif personal_api_key.scoped_teams:
+            teams = Team.objects.filter(pk__in=personal_api_key.scoped_teams).select_related("organization")
+            return list({str(team.organization_id) for team in teams})
+        else:
+            user_permissions = UserPermissions(personal_api_key.user)
+            return [str(org_id) for org_id in user_permissions.organization_memberships.keys()]
+
 
 class PersonalApiKeySelfAccessPermission(BasePermission):
     """
@@ -182,3 +198,51 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonalAPIKeyContext(ActivityContextBase):
+    user_id: Optional[int] = None
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+
+
+def _log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, was_impersonated: bool, changes=None):
+    """Log activity for a PersonalAPIKey across all relevant organizations."""
+    serializer = PersonalAPIKeySerializer()
+    organization_ids = serializer.get_scoped_organization_ids(api_key)
+
+    for org_id in organization_ids:
+        log_activity(
+            organization_id=org_id,
+            team_id=None,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=api_key.id,
+            scope="PersonalAPIKey",
+            activity=activity,
+            detail=Detail(
+                changes=changes,
+                name=api_key.label,
+                context=PersonalAPIKeyContext(
+                    user_id=api_key.user_id,
+                    user_email=api_key.user.email,
+                    user_name=api_key.user.get_full_name(),
+                ),
+            ),
+        )
+
+
+@receiver(model_activity_signal, sender=PersonalAPIKey)
+def handle_personal_api_key_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    _log_personal_api_key_activity(after_update, activity, user, was_impersonated, changes)
+
+
+@receiver(pre_delete, sender=PersonalAPIKey)
+def handle_personal_api_key_delete(sender, instance, **kwargs):
+    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+
+    _log_personal_api_key_activity(instance, "deleted", get_current_user(), get_was_impersonated())
