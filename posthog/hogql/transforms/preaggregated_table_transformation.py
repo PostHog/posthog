@@ -330,7 +330,8 @@ def _is_valid_select_from(node: Optional[ast.JoinExpr]) -> bool:
 def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
     """Try to apply transformations only to this specific node, without recursing further into the AST."""
 
-    # TODO this should iterate over all possible preaggregated tables and apply the best one
+    # TODO right now we only have the one preaggregated table that is supported, but in the future could support more.
+    # We could even make them unique per team (depending on what the team queries) or allow them to be user-defined.
     table_name = "web_stats_daily"
 
     # Bail if any unsupported part of the SELECT query exist
