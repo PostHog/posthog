@@ -301,35 +301,10 @@ impl DateRangeExportSource {
 
         info!("Downloading and preparing key: {}", key);
 
-        let mut retries = self.retries;
-        loop {
-            match self
-                .download_and_prepare_part_data_inner(key, start, end)
-                .await
-            {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    // Check if this is a rate limit error by looking for a 429 status in the error chain
-                    let is_rate_limit_error = e.chain().any(|err| {
-                        if let Some(reqwest_err) = err.downcast_ref::<ReqwestError>() {
-                            reqwest_err
-                                .status()
-                                .map_or(false, |status| status.as_u16() == 429)
-                        } else {
-                            false
-                        }
-                    });
-
-                    if is_rate_limit_error && retries > 0 {
-                        info!("Rate limit hit (429), sleeping for {:?} before retry. Retries remaining: {}", self.retry_delay, retries);
-                        tokio::time::sleep(self.retry_delay).await;
-                        retries -= 1;
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        }
+        // Let errors (including 429 wrapped as RateLimitedError) bubble up to job-level backoff
+        self
+            .download_and_prepare_part_data_inner(key, start, end)
+            .await
     }
 
     async fn download_and_prepare_part_data_inner(
@@ -1154,7 +1129,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_429_exhausts_retries() {
+    async fn test_429_surfaces_immediately() {
         let server = MockServer::start();
 
         let mock = server.mock(|when, then| {
@@ -1169,8 +1144,6 @@ mod tests {
             3600,
             Arc::new(MockExtractor),
         )
-        .with_retries(2)
-        .with_retry_delay(Duration::from_millis(1))
         .build()
         .unwrap();
 
@@ -1184,11 +1157,8 @@ mod tests {
         // Our code wraps 429 as RateLimitedError (with reqwest::Error as source). Use helper.
         assert!(crate::error::is_rate_limited_error(&err));
 
-        assert_eq!(
-            mock.hits(),
-            3,
-            "Should have made 3 calls (initial + 2 retries)"
-        );
+        // No internal retry loop anymore
+        assert_eq!(mock.hits(), 1, "Single request, surfaced to job-level backoff");
 
         source.cleanup_after_job().await.unwrap();
     }
