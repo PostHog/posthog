@@ -35,8 +35,6 @@ from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
-    Breakdown,
-    BreakdownFilter,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
@@ -59,7 +57,6 @@ from posthog.schema import (
     InsightActorsQueryOptions,
     LifecycleQuery,
     CalendarHeatmapQuery,
-    MultipleBreakdownType,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -1123,37 +1120,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if dashboard_filter.breakdown_filter:
             if hasattr(self.query, "breakdownFilter"):
-                breakdown_filter = dashboard_filter.breakdown_filter
-
-                # Migrate legacy breakdown format to breakdowns array
-                if breakdown_filter.breakdown is not None:
-                    breakdown_type_mapping = {
-                        "person": MultipleBreakdownType.PERSON,
-                        "event": MultipleBreakdownType.EVENT,
-                        "event_metadata": MultipleBreakdownType.EVENT_METADATA,
-                        "group": MultipleBreakdownType.GROUP,
-                        "session": MultipleBreakdownType.SESSION,
-                        "hogql": MultipleBreakdownType.HOGQL,
-                    }
-
-                    breakdown_obj = Breakdown(
-                        property=str(breakdown_filter.breakdown),
-                        type=breakdown_type_mapping.get(breakdown_filter.breakdown_type, MultipleBreakdownType.EVENT)
-                        if breakdown_filter.breakdown_type
-                        else MultipleBreakdownType.EVENT,
-                        group_type_index=breakdown_filter.breakdown_group_type_index,
-                        histogram_bin_count=breakdown_filter.breakdown_histogram_bin_count,
-                        normalize_url=breakdown_filter.breakdown_normalize_url,
-                    )
-
-                    migrated_breakdown_filter = BreakdownFilter(
-                        breakdown_limit=breakdown_filter.breakdown_limit,
-                        breakdown_hide_other_aggregation=breakdown_filter.breakdown_hide_other_aggregation,
-                        breakdowns=[breakdown_obj],
-                    )
-                    self.query.breakdownFilter = migrated_breakdown_filter
-                else:
-                    self.query.breakdownFilter = breakdown_filter
+                self.query.breakdownFilter = dashboard_filter.breakdown_filter
             else:
                 capture_exception(
                     NotImplementedError(
