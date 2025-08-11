@@ -326,7 +326,6 @@ class TestTrendsDashboardFilters(BaseTest):
             breakdown_group_type_index=None,
             breakdown_histogram_bin_count=None,
             breakdown_normalize_url=None,
-            breakdown_type="event",
             breakdown_limit=10,
             breakdowns=[Breakdown(property="$feature/my-fabulous-feature", type="event")],
         )

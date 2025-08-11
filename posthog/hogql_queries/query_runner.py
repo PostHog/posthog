@@ -1124,7 +1124,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                 # Migrate legacy breakdown format to breakdowns array
                 if breakdown_filter.breakdown is not None:
-                    from posthog.schema import Breakdown, MultipleBreakdownType
+                    from posthog.schema import Breakdown, BreakdownFilter, MultipleBreakdownType
 
                     breakdown_type_mapping = {
                         "person": MultipleBreakdownType.PERSON,
@@ -1145,14 +1145,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         normalize_url=breakdown_filter.breakdown_normalize_url,
                     )
 
-                    migrated_breakdown_filter = breakdown_filter.model_copy(
-                        update={
-                            "breakdown": None,
-                            "breakdown_group_type_index": None,
-                            "breakdown_histogram_bin_count": None,
-                            "breakdown_normalize_url": None,
-                            "breakdowns": [breakdown_obj],
-                        }
+                    migrated_breakdown_filter = BreakdownFilter(
+                        breakdown_limit=breakdown_filter.breakdown_limit,
+                        breakdown_hide_other_aggregation=breakdown_filter.breakdown_hide_other_aggregation,
+                        breakdowns=[breakdown_obj],
                     )
                     self.query.breakdownFilter = migrated_breakdown_filter
                 else:
