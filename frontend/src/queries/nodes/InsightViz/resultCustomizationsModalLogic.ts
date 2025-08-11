@@ -114,7 +114,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                 )
                 const resultCustomization = getTrendResultCustomization(
                     values.resultCustomizationBy,
-                    values.dataset,
+                    values.dataset as IndexedTrendResult,
                     values.resultCustomizations
                 )
                 actions.updateInsightFilter({

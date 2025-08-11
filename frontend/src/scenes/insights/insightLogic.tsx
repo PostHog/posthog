@@ -122,7 +122,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ) => ({
             metadataUpdate,
         }),
-        highlightSeries: (series: number | null) => ({ series }),
+        highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,

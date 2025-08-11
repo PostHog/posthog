@@ -47,6 +47,7 @@ import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 let tooltipRoot: Root
 
@@ -562,7 +563,7 @@ export function LineGraph_({
     useEffect(() => {
         // horizontal bar charts handle hidden items one level above
         if (!isHorizontal) {
-            datasets = datasets.filter((data) => !getTrendsHidden(data))
+            datasets = datasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
         }
 
         datasets = datasets.map(processDataset)
