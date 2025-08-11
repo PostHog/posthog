@@ -953,6 +953,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
+        # blob v1 API has been deprecated for a while now,
+        # we'll cut off access for new teams to give older teams time to migrate
+        # this defaults to True, and then is only maybe set to False for usage of personal api keys
+        blob_v1_sources_are_allowed = True
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
             used_key = personal_api_authenticator.personal_api_key
@@ -972,14 +976,24 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
+            blob_v1_sources_are_allowed = self.team.created_at <= datetime.fromisoformat("2025-08-11")
+
         try:
             response: Response | HttpResponse
             if not source:
                 response = self._gather_session_recording_sources(recording, timer, is_v2_enabled, is_v2_lts_enabled)
             elif source == "realtime":
+                if not blob_v1_sources_are_allowed:
+                    raise exceptions.ValidationError(
+                        "Realtime snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
+                    )
                 with timer("send_realtime_snapshots_to_client"):
                     response = self._send_realtime_snapshots_to_client(recording)
             elif source == "blob":
+                if not blob_v1_sources_are_allowed:
+                    raise exceptions.ValidationError(
+                        "blob snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
+                    )
                 with timer("stream_blob_to_client"):
                     response = self._stream_blob_to_client(
                         recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
