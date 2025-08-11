@@ -862,13 +862,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "changes": [
                             {
                                 "action": "changed",
-                                "after": {"events": [], "updated_at": mock.ANY},
-                                "before": {"events": [], "updated_at": mock.ANY},
-                                "field": "query_metadata",
-                                "type": "Insight",
-                            },
-                            {
-                                "action": "changed",
                                 "before": [{"id": dashboard_one_id, "name": "dash 1"}],
                                 "after": [
                                     {"id": dashboard_one_id, "name": "dash 1"},
@@ -892,13 +885,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "created_at": mock.ANY,
                     "detail": {
                         "changes": [
-                            {
-                                "action": "changed",
-                                "after": {"events": [], "updated_at": mock.ANY},
-                                "before": {"events": [], "updated_at": mock.ANY},
-                                "field": "query_metadata",
-                                "type": "Insight",
-                            },
                             {
                                 "action": "changed",
                                 "before": [
