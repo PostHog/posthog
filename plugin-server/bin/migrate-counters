@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+# Set default values
+COUNTERS_DATABASE_NAME=${COUNTERS_DATABASE_NAME:-counters}
+COUNTERS_DATABASE_URL=${COUNTERS_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$COUNTERS_DATABASE_NAME}
+
+echo "Performing counters migrations for $COUNTERS_DATABASE_URL (DATABASE_NAME=$COUNTERS_DATABASE_NAME)"
+
+# Navigate to plugin-server directory
+cd "$SCRIPT_DIR/.."
+
+# Create database if it doesn't exist
+PGPASSWORD=posthog psql -h localhost -p 5432 -U posthog -d postgres -c "CREATE DATABASE $COUNTERS_DATABASE_NAME" 2>/dev/null || true
+
+# Run migrations using node-pg-migrate (it expects DATABASE_URL, not COUNTERS_DATABASE_URL)
+DATABASE_URL="$COUNTERS_DATABASE_URL" npx node-pg-migrate up --migrations-dir src/migrations
+
+echo "Counters migrations completed successfully"
