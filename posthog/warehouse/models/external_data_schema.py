@@ -348,6 +348,7 @@ def sync_old_schemas_with_new_schemas(
             deleted_schemas.append(schema)
         else:
             s.should_sync = False
+            s.status = ExternalDataSchema.Status.COMPLETED
             s.save()
 
     return schemas_to_create, deleted_schemas

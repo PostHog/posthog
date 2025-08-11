@@ -2602,6 +2602,7 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
     # Because table_1 has already been synced and we hold data for it, we dont delete the schema
     assert len(schemas) == 2
 
-    # The schema with the deleted upstream table should now have "should_sync" updated to False
+    # The schema with the deleted upstream table should now have "should_sync" updated to False and status set to completed
     synced_schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert synced_schema.should_sync is False
+    assert synced_schema.status == ExternalDataSchema.Status.COMPLETED
