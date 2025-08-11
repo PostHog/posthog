@@ -35,7 +35,7 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
     )
 
 
-@register_join_function(name="join_with_group_table")
+@register_join_function(name="join_with_group_table", closure=True)
 def join_with_group_n_table(group_index: int):
     def join_with_group_table(
         join_to_add: LazyJoinToAdd,

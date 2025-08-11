@@ -3,22 +3,21 @@ from typing import Any, Literal, Optional, TypeVar, overload, cast
 from pydantic import BaseModel
 
 
-class LazyJoinFunctionBase(BaseModel):
-    type: Literal["join_function"]
+class LazyJoinFunctionSerialConfig(BaseModel):
+    type: Literal["join_function"] = "join_function"
     name: str
-    args: dict[str, Any]
 
 
 class LazyJoinClosureSerialConfig(BaseModel):
-    type: Literal["closure"]
+    type: Literal["closure"] = "closure"
     name: str
-    args: dict[str, Any]
+    args: tuple[Any, ...]
 
 
-_REGISTERED_JOIN_FUNCTIONS: dict[str, Callable] = {}
+REGISTERED_JOIN_FUNCTIONS: dict[str, Callable] = {}
 
 
-_ALLOWED_RUNTIME_CLOSURE_NAMES: set[str] = {}
+REGISTERED_JOIN_CLOSURES: dict[str, Callable] = {}
 
 _F = TypeVar("_F", bound=Callable)
 
@@ -28,10 +27,10 @@ def register_join_function(_func: _F) -> _F: ...
 
 
 @overload
-def register_join_function(*, name: Optional[str] = ...) -> Callable[[_F], _F]: ...
+def register_join_function(*, name: Optional[str] = ..., closure: bool = ...) -> Callable[[_F], _F]: ...
 
 
-def register_join_function(_func: Optional[_F] = None, *, name: Optional[str] = None):
+def register_join_function(_func: Optional[_F] = None, *, name: Optional[str] = None, closure: bool = False):
     """
     Decorator to register a join function in the allowlist.
 
@@ -39,12 +38,15 @@ def register_join_function(_func: Optional[_F] = None, *, name: Optional[str] = 
     - @register_join_function
     - @register_join_function()
     - @register_join_function(name="custom_name")
+    - @register_join_function(closure=True)  # for factory functions returning a join callable
     """
 
     def _decorator(func: _F) -> _F:
         key = name or cast(str, getattr(func, "__name__", ""))
-        # Register name -> callable mapping
-        _REGISTERED_JOIN_FUNCTIONS[key] = func
+        if closure:
+            REGISTERED_JOIN_CLOSURES[key] = func
+        else:
+            REGISTERED_JOIN_FUNCTIONS[key] = func
         return func
 
     if _func is not None:
@@ -54,8 +56,8 @@ def register_join_function(_func: Optional[_F] = None, *, name: Optional[str] = 
 
 def is_join_function_allowed(func: Callable) -> bool:
     name = getattr(func, "__name__", "")
-    if name in _REGISTERED_JOIN_FUNCTIONS:
+    if name in REGISTERED_JOIN_FUNCTIONS:
         return True
-    if name in _ALLOWED_RUNTIME_CLOSURE_NAMES:
+    if name in REGISTERED_JOIN_CLOSURES:
         return True
     return False

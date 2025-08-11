@@ -2,9 +2,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, cast
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.hogql.base import Expr
+from posthog.hogql.database.join_functions import (
+    REGISTERED_JOIN_CLOSURES,
+    REGISTERED_JOIN_FUNCTIONS,
+    LazyJoinClosureSerialConfig,
+    LazyJoinFunctionSerialConfig,
+)
 from posthog.hogql.errors import NotImplementedError, ResolutionError
 
 if TYPE_CHECKING:
@@ -214,18 +220,39 @@ class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
     join_function: Callable[["LazyJoinToAdd", "HogQLContext", "SelectQuery"], Any]
+    join_closure_args: tuple[Any, ...] = Field(default_factory=tuple)
     join_table: Table | str
     from_field: list[str | int]
     to_field: Optional[list[str | int]] = None
 
-    @field_validator("join_function")
-    def validate_join_function(cls, v):
-        # Import a tiny predicate to avoid importing schema modules here (prevents circular deps)
+    @model_validator(mode="before")
+    @classmethod
+    def validate(cls, data: dict):
         from posthog.hogql.database.join_functions import is_join_function_allowed
 
-        if not is_join_function_allowed(v):
-            raise ValueError(f"Invalid join function: {v.__name__}")
-        return v
+        v = data.get("join_function")
+        if callable(v):
+            if not is_join_function_allowed(v):
+                raise ValueError(f"Invalid join function: {v.__name__}")
+
+            return data
+
+        if isinstance(v, tuple | list) and v and callable(v[0]):
+            closure = v[0]
+            rest = list(v[1:])
+
+            func = closure(*rest)
+
+            if not is_join_function_allowed(func):
+                raise ValueError(f"Invalid join function: {func.__name__}")
+
+            return {
+                **data,
+                "join_function": func,
+                "join_closure_args": rest,
+            }
+
+        raise TypeError("Expected a callable or (callable, *args[, {**kwargs}])")
 
     def resolve_table(self, context: "HogQLContext") -> Table:
         if isinstance(self.join_table, Table):
@@ -238,15 +265,33 @@ class LazyJoin(FieldOrTable):
 
     # dill serialization for cache
     def __reduce_ex__(self, protocol):
+        if self.join_closure_args:
+            join_function_config = LazyJoinClosureSerialConfig(
+                name=self.join_function.__name__,
+                args=self.join_closure_args,
+            )
+        else:
+            join_function_config = LazyJoinFunctionSerialConfig(
+                name=self.join_function.__name__,
+            )
+
         data = {
             "join_table": self.join_table,
             "from_field": self.from_field,
             "to_field": self.to_field,
+            "join_function": join_function_config,
         }
         return (self.__class__._rebuild_from_pickle, (data,))
 
     @classmethod
     def _rebuild_from_pickle(cls, data: dict):
+        join_function_config = data.pop("join_function")
+        if join_function_config.type == "join_function":
+            data["join_function"] = REGISTERED_JOIN_FUNCTIONS[join_function_config.name]
+        else:
+            closure = REGISTERED_JOIN_CLOSURES[join_function_config.name]
+            data["join_function"] = closure(*join_function_config.args)
+
         m = cls.model_construct(**data)
         # Mark fields as set so Pydantic doesn’t complain
         object.__setattr__(m, "__pydantic_fields_set__", set(data.keys()))

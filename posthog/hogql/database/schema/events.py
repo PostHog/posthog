@@ -84,31 +84,31 @@ class EventsTable(Table):
         "group_0": LazyJoin(
             from_field=["$group_0"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(0),
+            join_function=(join_with_group_n_table, 0),
         ),
         "$group_1": StringDatabaseField(name="$group_1", nullable=False),
         "group_1": LazyJoin(
             from_field=["$group_1"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(1),
+            join_function=(join_with_group_n_table, 1),
         ),
         "$group_2": StringDatabaseField(name="$group_2", nullable=False),
         "group_2": LazyJoin(
             from_field=["$group_2"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(2),
+            join_function=(join_with_group_n_table, 2),
         ),
         "$group_3": StringDatabaseField(name="$group_3", nullable=False),
         "group_3": LazyJoin(
             from_field=["$group_3"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(3),
+            join_function=(join_with_group_n_table, 3),
         ),
         "$group_4": StringDatabaseField(name="$group_4", nullable=False),
         "group_4": LazyJoin(
             from_field=["$group_4"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(4),
+            join_function=(join_with_group_n_table, 4),
         ),
         "session": LazyJoin(
             from_field=["$session_id"],

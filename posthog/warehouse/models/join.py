@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Any, cast
 from warnings import warn
 from datetime import datetime
 from django.db import models
@@ -54,19 +54,19 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         self.save()
 
 
-@register_join_function(name="_join_function")
+@register_join_function(name="_join_function", closure=True)
 def join_function(
-    join: DataWarehouseJoin,
-    override_source_table_key: Optional[str] = None,
-    override_joining_table_key: Optional[str] = None,
+    source_table_key: str,
+    joining_table_key: str,
+    joining_table_name_chain: list[str | int],
 ):
     def _join_function(
         join_to_add: LazyJoinToAdd,
         context: HogQLContext,
         node: SelectQuery,
     ):
-        _source_table_key = override_source_table_key or join.source_table_key
-        _joining_table_key = override_joining_table_key or join.joining_table_key
+        _source_table_key = source_table_key
+        _joining_table_key = joining_table_key
 
         from posthog.hogql import ast
 
@@ -82,7 +82,7 @@ def join_function(
                     ast.Alias(alias=alias, expr=ast.Field(chain=chain))
                     for alias, chain in join_to_add.fields_accessed.items()
                 ],
-                select_from=ast.JoinExpr(table=ast.Field(chain=join.joining_table_name_chain)),
+                select_from=ast.JoinExpr(table=ast.Field(chain=joining_table_name_chain)),
             ),
             join_type="LEFT JOIN",
             alias=join_to_add.to_table,
@@ -100,25 +100,30 @@ def join_function(
     return _join_function
 
 
-@register_join_function(name="_join_function_for_experiments")
-def join_function_for_experiments(join: DataWarehouseJoin):
+@register_join_function(name="_join_function_for_experiments", closure=True)
+def join_function_for_experiments(
+    source_table_key: str,
+    joining_table_key: str,
+    joining_table_name_chain: list[str | int],
+    configuration: dict[str, Any],
+):
     def _join_function_for_experiments(
         join_to_add: LazyJoinToAdd,
         context: HogQLContext,
         node: SelectQuery,
     ):
-        if join.joining_table_name != "events":
+        if joining_table_name_chain != "events":
             raise ResolutionError("experiments_optimized is only supported for events table")
 
-        if not join.configuration.get("experiments_optimized"):
+        if not configuration.get("experiments_optimized"):
             raise ResolutionError("experiments_optimized is not enabled for this join")
 
-        timestamp_key = join.configuration.get("experiments_timestamp_key")
+        timestamp_key = configuration.get("experiments_timestamp_key")
         if not timestamp_key:
             raise ResolutionError("experiments_timestamp_key is not set for this join")
 
-        left = _parse_table_key_expression(join.source_table_key, join_to_add.from_table)
-        right = _parse_table_key_expression(join.joining_table_key, join_to_add.to_table)
+        left = _parse_table_key_expression(source_table_key, join_to_add.from_table)
+        right = _parse_table_key_expression(joining_table_key, join_to_add.to_table)
 
         whereExpr: list[ast.Expr] = [
             ast.CompareOperation(

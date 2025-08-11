@@ -771,9 +771,20 @@ def create_hogql_database(
                     to_field=to_field,
                     join_table=joining_table,
                     join_function=(
-                        join_function_for_experiments(join)
+                        (
+                            join_function_for_experiments,
+                            join.source_table_key,
+                            join.joining_table_key,
+                            join.joining_table_name_chain,
+                            join.configuration,
+                        )
                         if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
-                        else join_function(join)
+                        else (
+                            join_function,
+                            join.source_table_key,
+                            join.joining_table_key,
+                            join.joining_table_name_chain,
+                        )
                     ),
                 )
 
@@ -815,21 +826,36 @@ def create_hogql_database(
                                 to_field=to_field,
                                 join_table=joining_table,
                                 # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                                join_function=join_function(join, override_source_table_key=override_source_table_key),
+                                join_function=(
+                                    join_function,
+                                    override_source_table_key or join.source_table_key,
+                                    join.joining_table_key,
+                                    join.joining_table_name_chain,
+                                ),
                             )
                         else:
                             table_or_field.fields[join.field_name] = LazyJoin(
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
-                                join_function=join_function(join),
+                                join_function=(
+                                    join_function,
+                                    join.source_table_key,
+                                    join.joining_table_key,
+                                    join.joining_table_name_chain,
+                                ),
                             )
                     elif isinstance(person_field, ast.LazyJoin):
                         person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
                             from_field=from_field,
                             to_field=to_field,
                             join_table=joining_table,
-                            join_function=join_function(join),
+                            join_function=(
+                                join_function,
+                                join.source_table_key,
+                                join.joining_table_key,
+                                join.joining_table_name_chain,
+                            ),
                         )
 
             except Exception as e:
