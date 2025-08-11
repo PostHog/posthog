@@ -1068,6 +1068,15 @@ class EmailIntegration:
         if verification_result.get("status") == "success":
             updated_config = {"mailjet_verified": True}
 
+            # We can validate all other integrations with the same domain
+            other_integrations = Integration.objects.filter(
+                team_id=self.integration.team_id,
+                kind="email",
+                config__domain=domain,
+            )
+            for integration in other_integrations:
+                integration.config["mailjet_verified"] = True
+
             # Merge the new config with existing config
             updated_config = {**self.integration.config, **updated_config}
             self.integration.config = updated_config
