@@ -44,7 +44,7 @@ class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
 class SessionReplayFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]):
     """Node for generating filtering options for session replay."""
 
-    def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
+    def __init__(self, team: Team, user: User, toolkit_class: type[SessionReplayFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
@@ -65,7 +65,7 @@ class SessionReplayFilterOptionsToolsNode(
 ):
     """Node for generating filtering options for session replay."""
 
-    def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
+    def __init__(self, team: Team, user: User, toolkit_class: type[SessionReplayFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
 
