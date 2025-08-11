@@ -52,7 +52,8 @@ export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
     type: 'wait_until_time_window',
     name: 'Time window',
     description: 'Wait until a specific time window is reached.',
-    icon: <IconDay />,
+    icon: <IconDay className="text-[#005841]" />,
+    color: '#005841',
     renderNode: (props) => <StepWaitUntilTimeWindowNode {...props} />,
     renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
     create: () => ({

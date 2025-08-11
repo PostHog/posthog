@@ -11,14 +11,21 @@ import {
 } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
+import {
+    PluginServerService,
+    PluginsServerConfig,
+    RedisPool,
+    SessionRecordingV2MetadataSwitchoverDate,
+    TeamId,
+    ValueMatcher,
+} from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
 import { logger } from '../../../utils/logger'
 import { ObjectStorage } from '../../../utils/object_storage'
 import { captureException } from '../../../utils/posthog'
-import { runInstrumentedFunction } from '../../utils'
+import { parseSessionRecordingV2MetadataSwitchoverDate, runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter } from '../metrics'
 import { fetchTeamTokensWithRecordings } from '../session-recording-v2/teams/team-service'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
@@ -133,7 +140,7 @@ export class SessionRecordingIngester {
     consumerGroupId: string
     totalNumPartitions = 0
     isStopping = false
-    private metadataSwitchoverDate: Date | null = null
+    private metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate = null
 
     private promises: Set<Promise<any>> = new Set()
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
@@ -148,22 +155,9 @@ export class SessionRecordingIngester {
     ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
-        // Parse SESSION_RECORDING_V2_METADATA_SWITCHOVER as ISO datetime
-        if (config.SESSION_RECORDING_V2_METADATA_SWITCHOVER) {
-            const parsed = Date.parse(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
-            if (!isNaN(parsed)) {
-                this.metadataSwitchoverDate = new Date(parsed)
-                logger.info('SESSION_RECORDING_V2_METADATA_SWITCHOVER enabled', {
-                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
-                    parsedDate: this.metadataSwitchoverDate.toISOString(),
-                })
-            } else {
-                throw new Error(
-                    'SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime: ' +
-                        config.SESSION_RECORDING_V2_METADATA_SWITCHOVER
-                )
-            }
-        }
+        this.metadataSwitchoverDate = parseSessionRecordingV2MetadataSwitchoverDate(
+            config.SESSION_RECORDING_V2_METADATA_SWITCHOVER
+        )
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW

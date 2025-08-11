@@ -24,7 +24,7 @@ export const manifest: ProductManifest = {
             name: 'Dashboard',
             icon: <IconDashboard />,
             href: (ref: string) => urls.dashboard(ref),
-            iconColor: ['var(--product-dashboards-light)'],
+            iconColor: ['var(--color-product-dashboards-light)'],
             filterKey: 'dashboard',
         },
     },

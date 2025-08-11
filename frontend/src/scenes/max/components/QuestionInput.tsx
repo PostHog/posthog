@@ -13,8 +13,9 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
-import { MAX_SLASH_COMMANDS, SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import posthog from 'posthog-js'
+import { MAX_SLASH_COMMANDS } from '../slash-commands'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -77,7 +78,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 className={clsx(
                     'flex flex-col items-center',
                     isSticky &&
-                        'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 <div className="relative w-full flex flex-col">
@@ -85,8 +86,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--border-primary)] rounded-[var(--radius)]',
-                            'bg-[var(--bg-fill-input)]',
+                            'border border-[var(--color-border-primary)] rounded-[var(--radius)]',
+                            'bg-[var(--color-bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
                             isFloating && 'border-primary m-1'
                         )}
@@ -106,21 +107,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <ContextDisplay size={contextDisplaySize} />
                         )}
 
-                        <SlashCommandAutocomplete
-                            onActivate={(command) => {
-                                if (command.arg) {
-                                    setQuestion(command.name + ' ') // Rest must be filled in by the user
-                                } else {
-                                    askMax(command.name)
-                                }
-                            }}
-                            onSelect={(command) =>
-                                command.arg ? setQuestion(command.name + ' ') : setQuestion(command.name)
-                            }
-                            visible={showAutocomplete}
-                            onClose={() => setShowAutocomplete(false)}
-                            searchText={question}
-                        >
+                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
                                 ref={textAreaRef}
                                 value={question}

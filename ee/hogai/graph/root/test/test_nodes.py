@@ -1159,3 +1159,61 @@ Query results: 42 events
 
         # Should return empty string since the insight failed to run
         self.assertEqual(result, "")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_session_summarization_tool_included_with_feature_flag(self, mock_feature_enabled):
+        """Test that session_summarization tool is included when feature flag is enabled"""
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
+
+            node._get_model(state, {})
+
+            # Verify feature flag was checked with correct parameters
+            mock_feature_enabled.assert_called_once_with(
+                "max-session-summarization",
+                str(self.user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+
+            # Verify bind_tools was called with session_summarization
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
+            self.assertIn("session_summarization", tool_names)
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_session_summarization_tool_excluded_without_feature_flag(self, mock_feature_enabled):
+        """Test that session_summarization tool is excluded when feature flag is disabled"""
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
+
+            node._get_model(state, {})
+
+            # Verify feature flag was checked with correct parameters
+            mock_feature_enabled.assert_called_once_with(
+                "max-session-summarization",
+                str(self.user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+
+            # Verify bind_tools was called without session_summarization
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
+            self.assertNotIn("session_summarization", tool_names)

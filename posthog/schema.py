@@ -83,7 +83,6 @@ class AssistantContextualTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
-    SESSION_RECORDING_SETTINGS_HELP = "session_recording_settings_help"
 
 
 class AssistantDateRange(BaseModel):
@@ -995,6 +994,16 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
+class Population(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    both: float
+    exception_only: float
+    neither: float
+    success_only: float
+
+
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -1596,6 +1605,7 @@ class IntegrationKind(StrEnum):
     LINEAR = "linear"
     GITHUB = "github"
     META_ADS = "meta-ads"
+    CLICKUP = "clickup"
 
 
 class IntervalType(StrEnum):
@@ -4111,6 +4121,13 @@ class RevenueAnalyticsEventItem(BaseModel):
         ),
     )
     revenueProperty: str
+    subscriptionProperty: Optional[str] = Field(
+        default=None,
+        description=(
+            "Property used to identify what subscription the revenue event refers to Useful when trying to detect"
+            " churn/LTV/ARPU/etc."
+        ),
+    )
 
 
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
@@ -4606,6 +4623,7 @@ class SurveyDisplayConditionsSchema(BaseModel):
     actions: Optional[Actions] = None
     deviceTypes: Optional[list[str]] = None
     deviceTypesMatchType: Optional[SurveyMatchType] = None
+    linkedFlagVariant: Optional[str] = None
     seenSurveyWaitPeriodInDays: Optional[float] = None
     selector: Optional[str] = None
     url: Optional[str] = None
@@ -10069,6 +10087,7 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 8
 
@@ -11038,13 +11057,14 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
-    correlation_event: str
-    correlation_score: float
     description: Optional[str] = None
+    event: str
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_seen: datetime
     id: str
     name: Optional[str] = None
+    odds_ratio: float
+    population: Population
     status: Status
 
 
@@ -11235,7 +11255,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compareFilter: Optional[CompareFilter] = None
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
