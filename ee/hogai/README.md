@@ -233,7 +233,7 @@ class YourToolkit(TaxonomyAgentToolkit):
         return super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
-        return [final_answer, your_custom_tool]
+        return [final_answer, hello_world]
 
     # Optional: prefer YAML over XML for property lists, but not a must to override
     # If not overriden XML will be used
