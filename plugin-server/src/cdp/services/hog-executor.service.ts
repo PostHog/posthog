@@ -527,6 +527,7 @@ export class HogExecutorService {
             }
         } catch (err) {
             result.error = err.message
+            addLog('error', `Error executing function on event: ${err.message}`)
             result.finished = true // Explicitly set to true to prevent infinite loops
         }
 

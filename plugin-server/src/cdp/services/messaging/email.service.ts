@@ -38,7 +38,7 @@ export class EmailService {
 
     private async sendEmailWithMailjet(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: Omit<CyclotronInvocationQueueParametersEmailType, 'integrationId'>
+        params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
         // First we need to lookup the email sending domain of the given team
         const response = await fetch('https://api.mailjet.com/v3.1/send', {
@@ -80,7 +80,7 @@ export class EmailService {
     // Send email to local maildev instance for testing (DEBUG=1 only)
     private async executeSendEmailMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: Omit<CyclotronInvocationQueueParametersEmailType, 'integrationId'>
+        params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
         const email = {
             to: params.to.email,
@@ -154,8 +154,8 @@ export class EmailService {
         )
         const addLog = createAddLogFunction(result.logs)
 
-        const { integrationId, ...params } = invocation.queueParameters
-        const integration = await this.hub.integrationManager.get(integrationId)
+        const params = invocation.queueParameters
+        const integration = await this.hub.integrationManager.get(params.from.integrationId)
 
         let success: boolean = false
 

@@ -13,7 +13,6 @@ import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconExternal } from '@posthog/icons'
 import { urls } from 'scenes/urls'
-import { IntegrationConfigureProps } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import clsx from 'clsx'
 
 export type EmailEditorMode = 'full' | 'preview'
@@ -24,7 +23,7 @@ export type EmailEditorMode = 'full' | 'preview'
  * native_email-template: editor for creating reusable templates, with only subject and preheader, and email content fields
  */
 export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
-type EmailMetaFieldKey = 'from' | 'from_integration' | 'preheader' | 'to' | 'subject'
+type EmailMetaFieldKey = 'from' | 'preheader' | 'to' | 'subject'
 type EmailMetaField = {
     key: EmailMetaFieldKey
     label: string
@@ -35,11 +34,6 @@ type EmailMetaField = {
 
 const EMAIL_META_FIELDS = {
     FROM: { key: 'from', label: 'From', optional: false },
-    FROM_INTEGRATION: {
-        key: 'from_integration',
-        label: 'From',
-        optional: false,
-    },
     PREHEADER: {
         key: 'preheader',
         label: 'Preheader',
@@ -53,7 +47,7 @@ const EMAIL_META_FIELDS = {
 const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> = {
     email: [EMAIL_META_FIELDS.FROM, EMAIL_META_FIELDS.TO, EMAIL_META_FIELDS.SUBJECT],
     native_email: [
-        EMAIL_META_FIELDS.FROM_INTEGRATION,
+        EMAIL_META_FIELDS.FROM,
         EMAIL_META_FIELDS.TO,
         EMAIL_META_FIELDS.SUBJECT,
         EMAIL_META_FIELDS.PREHEADER,
@@ -138,10 +132,24 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
     )
 }
 
-function NativeEmailIntegrationChoice({ onChange, value }: IntegrationConfigureProps): JSX.Element {
+function NativeEmailIntegrationChoice({
+    onChange,
+    value,
+}: {
+    onChange: (value: any) => void
+    value: any
+}): JSX.Element {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
-
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+
+    const onChangeIntegration = (integrationId: number): void => {
+        const integration = integrationsOfKind?.find((x) => x.id === integrationId)
+        onChange({
+            integrationId,
+            email: integration?.config?.email_address ?? 'default@example.com', // TODO: Remove this default later
+            // name: integration?.config?.name, // TODO: Add support for the name?
+        })
+    }
 
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
         return (
@@ -171,9 +179,9 @@ function NativeEmailIntegrationChoice({ onChange, value }: IntegrationConfigureP
                     label: integration.display_name,
                     value: integration.id,
                 }))}
-                value={value}
+                value={value?.integrationId}
                 size="small"
-                onChange={onChange}
+                onChange={onChangeIntegration}
             />
         </>
     )
@@ -213,8 +221,16 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                 >
                                     {field.label}
                                 </LemonLabel>
-                                {field.key === 'from_integration' ? (
+                                {field.key === 'from' ? (
                                     <NativeEmailIntegrationChoice value={value} onChange={onChange} />
+                                ) : field.key === 'to' ? (
+                                    <CodeEditorInline
+                                        embedded
+                                        className="flex-1"
+                                        globals={logicProps.variables}
+                                        value={value?.email}
+                                        onChange={(email) => onChange({ ...value, email })}
+                                    />
                                 ) : (
                                     <CodeEditorInline
                                         embedded
