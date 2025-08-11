@@ -16,18 +16,23 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
+import { availableSourcesDataLogic } from './new/availableSourcesDataLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
 const LIST_SIZE = 5
 
-// Helper function to classify data sources
-const getSourceType = (sourceType: string): 'Database' | 'API' => {
-    const databases = ['Postgres', 'MySQL', 'MSSQL', 'Snowflake', 'BigQuery', 'Redshift', 'MongoDB']
-    return databases.includes(sourceType) ? 'Database' : 'API'
+const getSourceType = (sourceType: string, availableSources?: Record<string, any> | null): 'Database' | 'API' => {
+    const fields = availableSources?.[sourceType]?.fields || []
+    if (fields.some((f: any) => f.name === 'connection_string' || ['host', 'port', 'database'].includes(f.name))) {
+        return 'Database'
+    }
+    if (fields.some((f: any) => f.type === 'oauth' || ['api_key', 'access_token'].includes(f.name))) {
+        return 'API'
+    }
+    return 'API'
 }
 
-// Type-safe interfaces following PostHog patterns
 interface DashboardDataSource {
     id: string
     name: string
@@ -51,14 +56,13 @@ export function DataWarehouseScene(): JSX.Element {
     const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
     const { billing } = useValues(billingLogic)
+    const { availableSources } = useValues(availableSourcesDataLogic)
 
     const monthlyRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
 
-    // Type-safe recent activity transformation following PostHog selector pattern
     const recentActivity = useMemo((): DashboardActivity[] => {
         const items: DashboardActivity[] = []
 
-        // Materialized view activities
         materializedViews.forEach((view) => {
             if (view.last_run_at) {
                 items.push({
@@ -71,7 +75,6 @@ export function DataWarehouseScene(): JSX.Element {
             }
         })
 
-        // Schema sync activities
         dataWarehouseSources?.results?.forEach((source) => {
             source.schemas?.forEach((schema) => {
                 if (schema.should_sync) {
@@ -82,7 +85,7 @@ export function DataWarehouseScene(): JSX.Element {
                         time: schema.last_synced_at
                             ? String(schema.last_synced_at)
                             : String(source.last_run_at || new Date().toISOString()),
-                        rowCount: null, // Schema row counts not available in this interface
+                        rowCount: null,
                     })
                 }
             })
@@ -91,27 +94,24 @@ export function DataWarehouseScene(): JSX.Element {
         return items.sort((a, b) => new Date(b.time).valueOf() - new Date(a.time).valueOf())
     }, [materializedViews, dataWarehouseSources?.results])
 
-    // Type-safe data sources transformation following PostHog selector pattern
     const allSources = useMemo(
         (): DashboardDataSource[] => [
-            // Managed data sources
             ...(dataWarehouseSources?.results || []).map(
                 (source): DashboardDataSource => ({
                     id: source.id,
                     name: source.source_type,
-                    type: getSourceType(source.source_type),
+                    type: getSourceType(source.source_type, availableSources),
                     status: source.status,
                     lastSync: source.last_run_at ?? null,
-                    rowCount: null, // External data source row counts handled at schema level
+                    rowCount: null,
                     url: urls.dataWarehouseSource(`managed-${source.id}`),
                 })
             ),
-            // Self-managed tables
             ...selfManagedTables.map(
                 (table): DashboardDataSource => ({
                     id: table.id,
                     name: table.name,
-                    type: 'Database', // Self-managed are typically database tables
+                    type: 'Database',
                     status: null,
                     lastSync: null,
                     rowCount: table.row_count ?? null,
@@ -119,10 +119,9 @@ export function DataWarehouseScene(): JSX.Element {
                 })
             ),
         ],
-        [dataWarehouseSources?.results, selfManagedTables]
+        [dataWarehouseSources?.results, selfManagedTables, availableSources]
     )
 
-    // PostHog's pagination system - professional grade with URL sync
     const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
     const sourcesPagination = usePagination(allSources, { pageSize: LIST_SIZE }, 'sources')
     const viewsPagination = usePagination(materializedViews || [], { pageSize: LIST_SIZE }, 'views')
