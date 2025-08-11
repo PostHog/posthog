@@ -114,36 +114,49 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
     }
 
-    // Helper to build person events CTE
-    private buildPersonEventsCTE(personEvents: PersonEventPayload[]): string {
-        const values = personEvents
-            .map((event) => `(${event.teamId}, '${event.personId}', '${event.eventName.replace(/'/g, "''")}')`)
-            .join(',')
-
-        return `person_inserts AS (
+    // Helper to build person events CTE using unnest
+    private buildPersonEventsCTE(
+        personEvents: PersonEventPayload[],
+        paramOffset: number
+    ): { cte: string; params: any[] } {
+        const cte = `person_inserts AS (
             INSERT INTO person_performed_events (team_id, person_id, event_name)
-            VALUES ${values}
+            SELECT * FROM unnest($${paramOffset}::int[], $${paramOffset + 1}::uuid[], $${paramOffset + 2}::text[])
             ON CONFLICT (team_id, person_id, event_name) DO NOTHING
             RETURNING 1
         )`
+
+        const params = [
+            personEvents.map((e) => e.teamId),
+            personEvents.map((e) => e.personId),
+            personEvents.map((e) => e.eventName),
+        ]
+
+        return { cte, params }
     }
 
-    // Helper to build behavioural events CTE
-    private buildBehaviouralEventsCTE(behaviouralEvents: AggregatedBehaviouralEvent[]): string {
-        const values = behaviouralEvents
-            .map(
-                (event) =>
-                    `(${event.teamId}, '${event.personId}', '${event.filterHash}', '${event.date}', ${event.counter})`
-            )
-            .join(',')
-
-        return `behavioural_inserts AS (
+    // Helper to build behavioural events CTE using unnest
+    private buildBehaviouralEventsCTE(
+        behaviouralEvents: AggregatedBehaviouralEvent[],
+        paramOffset: number
+    ): { cte: string; params: any[] } {
+        const cte = `behavioural_inserts AS (
             INSERT INTO behavioural_filter_matched_events (team_id, person_id, filter_hash, date, counter)
-            VALUES ${values}
+            SELECT * FROM unnest($${paramOffset}::int[], $${paramOffset + 1}::uuid[], $${paramOffset + 2}::text[], $${paramOffset + 3}::date[], $${paramOffset + 4}::int[])
             ON CONFLICT (team_id, person_id, filter_hash, date) 
             DO UPDATE SET counter = behavioural_filter_matched_events.counter + EXCLUDED.counter
             RETURNING 1
         )`
+
+        const params = [
+            behaviouralEvents.map((e) => e.teamId),
+            behaviouralEvents.map((e) => e.personId),
+            behaviouralEvents.map((e) => e.filterHash),
+            behaviouralEvents.map((e) => e.date),
+            behaviouralEvents.map((e) => e.counter),
+        ]
+
+        return { cte, params }
     }
 
     // Write both event types to postgres in a single query
@@ -155,73 +168,43 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             return
         }
 
+        let query = ''
         try {
             const ctes: string[] = []
+            const allParams: any[] = []
+            let paramOffset = 1
 
             // Add CTEs for each event type
             if (personEvents.length > 0) {
-                ctes.push(this.buildPersonEventsCTE(personEvents))
+                const { cte, params } = this.buildPersonEventsCTE(personEvents, paramOffset)
+                ctes.push(cte)
+                allParams.push(...params)
+                paramOffset += params.length // person events use 3 array parameters
             }
             if (behaviouralEvents.length > 0) {
-                ctes.push(this.buildBehaviouralEventsCTE(behaviouralEvents))
+                const { cte, params } = this.buildBehaviouralEventsCTE(behaviouralEvents, paramOffset)
+                ctes.push(cte)
+                allParams.push(...params)
+                // No need to update paramOffset here since we're done
             }
 
-            // Build and execute the single combined query
-            const query = `WITH ${ctes.join(', ')} SELECT 1`
-            await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, undefined, 'counters-batch-upsert')
-        } catch (error) {
-            logger.error('Failed to write to COUNTERS postgres', { error })
-            throw error
-        }
-    }
-
-    // Ensure counters tables exist on startup
-    private async ensureCountersTables(): Promise<void> {
-        try {
-            await this.hub.postgres.query(
-                PostgresUse.COUNTERS_RW,
-                `
-                -- Table for person performed events
-                CREATE TABLE IF NOT EXISTS person_performed_events (
-                    team_id INTEGER NOT NULL,
-                    person_id UUID NOT NULL,
-                    event_name TEXT NOT NULL,
-                    PRIMARY KEY (team_id, person_id, event_name)
-                );
-
-                -- Index for efficient lookups by team_id and person_id
-                CREATE INDEX IF NOT EXISTS idx_person_performed_events_team_person 
-                ON person_performed_events (team_id, person_id);
-
-                -- Table for behavioural filter matched events
-                CREATE TABLE IF NOT EXISTS behavioural_filter_matched_events (
-                    team_id INTEGER NOT NULL,
-                    person_id UUID NOT NULL,
-                    filter_hash TEXT NOT NULL,
-                    date DATE NOT NULL,
-                    counter INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (team_id, person_id, filter_hash, date)
-                );
-
-                -- Index for queries by just team_id and person_id
-                CREATE INDEX IF NOT EXISTS idx_behavioural_filter_team_person 
-                ON behavioural_filter_matched_events (team_id, person_id);
-                `,
-                undefined,
-                'ensure-counters-tables'
-            )
-            logger.info('✅', 'Counters database tables ensured')
-        } catch (error) {
-            logger.error('Failed to ensure counters tables', { error })
+            // Build and execute the single combined query with parameters
+            query = `WITH ${ctes.join(', ')} SELECT 1`
+            await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, allParams, 'counters-batch-upsert')
+        } catch (error: any) {
+            logger.error('Failed to write to COUNTERS postgres', {
+                error: error.message,
+                errorCode: error.code,
+                query: query,
+                personEventsCount: personEvents.length,
+                behaviouralEventsCount: behaviouralEvents.length,
+            })
             throw error
         }
     }
 
     public async start(): Promise<void> {
         await super.start()
-
-        // Ensure counters tables exist before starting to consume
-        await this.ensureCountersTables()
 
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
