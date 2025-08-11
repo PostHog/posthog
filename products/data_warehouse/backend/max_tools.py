@@ -1,4 +1,5 @@
 import json
+import asyncio
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -21,8 +22,16 @@ from posthog.models import Team, User
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 
 
+class HogQLGeneratorArgs(BaseModel):
+    instructions: str = Field(description="The instructions for what query to generate.")
+
+
 class FinalAnswerArgs(SchemaGeneratorOutput[str]):
     pass
+
+
+class final_answer(base_final_answer[FinalAnswerArgs]):
+    __doc__ = "Use this tool to output the final SQL query ready to be executed."
 
 
 class HogQLGeneratorOptionsToolkit(TaxonomyAgentToolkit):
@@ -30,10 +39,7 @@ class HogQLGeneratorOptionsToolkit(TaxonomyAgentToolkit):
         super().__init__(team)
 
     def _get_custom_tools(self) -> list:
-        """Get custom tools for filter options."""
-
-        class final_answer(base_final_answer[FinalAnswerArgs]):
-            __doc__ = "Outputs the final SQL query ready to be executed."
+        """Get custom tools for the HogQLGenerator."""
 
         return [final_answer]
 
@@ -54,7 +60,7 @@ class HogQLGeneratorNode(
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get default system prompts. Override in subclasses for custom prompts."""
-        # This is a fallback that returns basic prompts - the async version is used in arun
+
         all_messages = [
             *super()._get_default_system_prompts(),
         ]
@@ -63,29 +69,27 @@ class HogQLGeneratorNode(
 
     def _construct_messages(self, state: TaxonomyAgentState) -> ChatPromptTemplate:
         """
-        Override parent method to handle async system prompt construction.
+        Overriding the parent method to handle async system prompt construction.
         """
-        import asyncio
 
-        # Get the async system prompt using sync_to_async
+        # Get the async system prompt
         async def get_system_prompt():
             return await self._construct_system_prompt()
 
         system_prompt = asyncio.run(get_system_prompt())
 
-        # Create combined system messages, preserving the original system prompt structure
-        parent_system_messages = [("system", message) for message in super()._get_default_system_prompts()]
+        # Create combined system messages, preserving the original taxonomy system prompt structure
+        taxonomy_system_messages = [("system", message) for message in super()._get_default_system_prompts()]
 
-        # Combine the messages from the async system prompt with parent messages
         combined_messages = [
             *system_prompt.messages,
             ("system", PROPERTY_FILTERS_EXPLANATION_PROMPT),
-            *parent_system_messages,
+            *taxonomy_system_messages,
             ("human", state.change or ""),
             *(state.tool_progress_messages or []),
         ]
 
-        # Create the final prompt template, preserving partial variables from system_prompt
+        # Create the final prompt template, preserving partial variables from the async system prompt
         return ChatPromptTemplate(
             combined_messages, template_format="mustache", partial_variables=system_prompt.partial_variables
         )
@@ -109,10 +113,6 @@ class HogQLGeneratorOptionsGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgent
             tools_node_class=HogQLGeneratorOptionsToolsNode,
             toolkit_class=HogQLGeneratorOptionsToolkit,
         )
-
-
-class HogQLGeneratorArgs(BaseModel):
-    instructions: str = Field(description="The instructions for what query to generate.")
 
 
 class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
@@ -145,7 +145,7 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
                 result = await graph.ainvoke(graph_context)
                 if result.get("intermediate_steps"):
                     result = result["intermediate_steps"][-1][0].tool_input
-                    return result, ""
+                    return "I need more information to generate the query.", ""
                 else:
                     result = await self._parse_output(FinalAnswerArgs.model_validate(result["output"]))
                     return "```sql\n" + result + "\n```", result
