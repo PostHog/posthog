@@ -2,7 +2,6 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { v4 as uuidv4 } from 'uuid'
@@ -20,7 +19,6 @@ import {
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
-    ExporterFormat,
 } from '~/types'
 
 import type { cohortsModelType } from './cohortsModelType'
@@ -110,14 +108,12 @@ export const cohortsModel = kea<cohortsModelType>([
     path(['models', 'cohortsModel']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
-        actions: [exportsLogic, ['startExport']],
     })),
     actions(() => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
-        exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setCohortFilters: (filters: Partial<CohortFilters>) => ({ filters }),
     })),
     loaders(({ values }) => ({
@@ -221,7 +217,7 @@ export const cohortsModel = kea<cohortsModelType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
             const is_calculating = cohorts.results.filter((cohort) => cohort.is_calculating).length > 0
             if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
@@ -235,21 +231,6 @@ export const cohortsModel = kea<cohortsModelType>([
                 return
             }
             actions.setPollTimeout(window.setTimeout(actions.loadAllCohorts, POLL_TIMEOUT))
-        },
-        exportCohortPersons: async ({ id, columns }) => {
-            const cohort = values.cohortsById[id]
-            const exportCommand = {
-                export_format: ExporterFormat.CSV,
-                export_context: {
-                    path: `/api/cohort/${id}/persons`,
-                    columns,
-                    filename: cohort?.name ? `cohort-${cohort.name}` : 'cohort',
-                } as { path: string; columns?: string[]; filename?: string },
-            }
-            if (columns && columns.length > 0) {
-                exportCommand.export_context['columns'] = columns
-            }
-            actions.startExport(exportCommand)
         },
         deleteCohort: async ({ cohort }) => {
             await deleteWithUndo({
