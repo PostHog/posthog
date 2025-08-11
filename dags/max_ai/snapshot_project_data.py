@@ -1,13 +1,17 @@
 from collections.abc import Sequence
 from contextlib import contextmanager
 from tempfile import TemporaryFile
-
+from collections.abc import Iterable, Iterator
+from typing import TypeVar
+from collections.abc import Callable
+from posthog.errors import InternalCHQueryError
 import botocore.exceptions
 import dagster
 from dagster_aws.s3 import S3Resource
 from django.conf import settings
 from fastavro import parse_schema, writer
 from pydantic_avro import AvroBase
+from tenacity import retry, retry_if_exception_type, wait_exponential, stop_after_attempt
 
 from dags.common import JobOwners
 from dags.max_ai.utils import compose_clickhouse_dump_path, compose_postgres_dump_path
@@ -26,7 +30,9 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.models import GroupTypeMapping, Team
+from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import ActorsPropertyTaxonomyQuery, EventTaxonomyQuery, TeamTaxonomyItem, TeamTaxonomyQuery
+from itertools import islice
 
 
 def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
@@ -111,9 +117,17 @@ def snapshot_postgres_project_data(
     return PostgresProjectDataSnapshot(**deps)
 
 
+C = TypeVar("C")
+
+
+@retry(retry=retry_if_exception_type(InternalCHQueryError), stop=stop_after_attempt(4), wait=wait_exponential(min=8))
+def call_query_runner(callable: Callable[[], C]) -> C:
+    return callable()
+
+
 def snapshot_events_taxonomy(s3: S3Resource, team: Team):
     file_key = compose_clickhouse_dump_path(team.id, "events_taxonomy.avro")
-    res = TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).calculate()
+    res = call_query_runner(lambda: TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).calculate())
     if not res.results:
         raise ValueError("No results from events taxonomy query")
     with dump_model(s3=s3, schema=TeamTaxonomyItemSchema, file_key=file_key) as dump:
@@ -126,13 +140,19 @@ def snapshot_properties_taxonomy(
     context: dagster.OpExecutionContext, s3: S3Resource, team: Team, events: list[TeamTaxonomyItem]
 ):
     results: list[PropertyTaxonomySchema] = []
+
+    def snapshot_event(item: TeamTaxonomyItem):
+        return call_query_runner(
+            lambda: EventTaxonomyQueryRunner(
+                query=EventTaxonomyQuery(event=item.event),
+                team=team,
+            ).calculate()
+        )
+
     for item in events:
         context.log.info(f"Snapshotting properties taxonomy for event {item.event}")
-        res = EventTaxonomyQueryRunner(
-            query=EventTaxonomyQuery(event=item.event),
-            team=team,
-        ).calculate()
-        results.append(PropertyTaxonomySchema(event=item.event, results=res.results))
+        results.append(PropertyTaxonomySchema(event=item.event, results=snapshot_event(item)))
+
     file_key = compose_clickhouse_dump_path(team.id, "properties_taxonomy.avro")
     context.log.info(f"Dumping properties taxonomy to {file_key}")
     with dump_model(s3=s3, schema=PropertyTaxonomySchema, file_key=file_key) as dump:
@@ -140,21 +160,66 @@ def snapshot_properties_taxonomy(
     return file_key
 
 
+T = TypeVar("T")
+
+
+def chunked(iterable: Iterable[T], size: int = 200) -> Iterator[list[T]]:
+    it = iter(iterable)
+    while True:
+        batch = list(islice(it, size))
+        if not batch:
+            break
+        yield batch
+
+
 def snapshot_actors_property_taxonomy(context: dagster.OpExecutionContext, s3: S3Resource, team: Team):
     # Snapshot all group type mappings and person
-    results: list[PropertyTaxonomySchema] = []
+    results: list[ActorsPropertyTaxonomySchema] = []
     group_type_mappings: list[int | None] = [
         None,
         *(g.group_type_index for g in GroupTypeMapping.objects.filter(team=team)),
     ]
+
     for index in group_type_mappings:
-        log_entity = f"group type {index}" if index else "persons"
+        is_group = index is not None
+        log_entity = f"group type {index}" if is_group else "persons"
         context.log.info(f"Snapshotting properties taxonomy for {log_entity}")
-        res = ActorsPropertyTaxonomyQueryRunner(
-            query=ActorsPropertyTaxonomyQuery(group_type_index=index, maxPropertyValues=25),
-            team=team,
-        ).calculate()
-        results.append(ActorsPropertyTaxonomySchema(group_type_index=index, results=res.results))
+
+        # Retrieve saved property definitions for the group type or person
+        property_defs = (
+            PropertyDefinition.objects.filter(
+                team=team,
+                type=PropertyDefinition.Type.GROUP if is_group else PropertyDefinition.Type.PERSON,
+                group_type_index=index,
+            )
+            .values_list("name", flat=True)
+            .iterator(chunk_size=200)
+        )
+
+        # Query ClickHouse in batches of 200 properties
+        for batch in chunked(property_defs, 200):
+
+            def snapshot(index: int | None, batch: list[str]):
+                return call_query_runner(
+                    lambda: ActorsPropertyTaxonomyQueryRunner(
+                        query=ActorsPropertyTaxonomyQuery(groupTypeIndex=index, properties=batch, maxPropertyValues=25),
+                        team=team,
+                    ).calculate()
+                )
+
+            res = snapshot(index, batch)
+
+            if not res.results:
+                raise ValueError(
+                    f"No results from actors property taxonomy query for group type {index} and properties {batch}"
+                )
+
+            # Snapshot queries in the same way as the toolkit expects
+            for prop, prop_results in zip(batch, res.results):
+                results.append(
+                    ActorsPropertyTaxonomySchema(property=prop, group_type_index=index, results=prop_results)
+                )
+
     file_key = compose_clickhouse_dump_path(team.id, "actors_property_taxonomy.avro")
     context.log.info(f"Dumping actors property taxonomy to {file_key}")
     with dump_model(s3=s3, schema=ActorsPropertyTaxonomySchema, file_key=file_key) as dump:
