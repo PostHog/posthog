@@ -59,6 +59,7 @@ import {
     defaultSurveyFieldValues,
     NEW_SURVEY,
     NewSurvey,
+    SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
@@ -652,6 +653,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     intent_context: ProductIntentContext.SURVEY_CREATED,
                     metadata: {
                         survey_id: response.id,
+                        source: SURVEY_CREATED_SOURCE.SURVEY_FORM,
                     },
                 })
                 return response
