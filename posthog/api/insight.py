@@ -1291,7 +1291,7 @@ class LegacyInsightViewSet(InsightViewSet):
 
 
 @mutable_receiver(pre_save, sender=Insight)
-def schedule_query_metadata_extract(sender, instance: Insight, **kwargs):
+def generate_insight_query_metadata_pre_save(sender, instance: Insight, **kwargs):
     try:
         instance.generate_query_metadata()
     except Exception as e:
