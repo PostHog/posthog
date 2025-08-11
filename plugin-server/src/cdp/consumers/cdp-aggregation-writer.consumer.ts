@@ -193,8 +193,14 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             // Build and execute the single combined query with parameters
             const query = `WITH ${ctes.join(', ')} SELECT 1`
             await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, allParams, 'counters-batch-upsert')
-        } catch (error) {
-            logger.error('Failed to write to COUNTERS postgres', { error })
+        } catch (error: any) {
+            logger.error('Failed to write to COUNTERS postgres', {
+                error: error.message,
+                errorCode: error.code,
+                query: query,
+                personEventsCount: personEvents.length,
+                behaviouralEventsCount: behaviouralEvents.length,
+            })
             throw error
         }
     }
