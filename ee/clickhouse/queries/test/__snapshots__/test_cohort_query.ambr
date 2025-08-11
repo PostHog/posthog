@@ -169,7 +169,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.1
   '''
-  /* cohort_calculation: */
+  
     (SELECT cohort_people.person_id AS id
      FROM
        (SELECT DISTINCT cohortpeople.person_id AS person_id,
@@ -250,7 +250,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.2
   '''
-  /* cohort_calculation: */
+  
   SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT person_id,
@@ -318,7 +318,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.1
   '''
-  /* cohort_calculation: */
+  
     (SELECT cohort_people.person_id AS id
      FROM
        (SELECT DISTINCT cohortpeople.person_id AS person_id,
@@ -365,22 +365,22 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.10
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -419,7 +419,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.11
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -458,22 +458,22 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.12
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -512,7 +512,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.13
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -551,7 +551,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.2
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -603,22 +603,22 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.4
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -657,7 +657,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.5
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -696,22 +696,22 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.6
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -750,7 +750,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.7
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -789,22 +789,22 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.8
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -843,7 +843,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.9
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -1907,7 +1907,7 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.1
   '''
-  /* cohort_calculation: */
+  
     (SELECT cohort_people.person_id AS id
      FROM
        (SELECT DISTINCT cohortpeople.person_id AS person_id,
@@ -1946,7 +1946,7 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
   '''
-  /* cohort_calculation: */
+  
     (SELECT cohort_people.person_id AS id
      FROM
        (SELECT DISTINCT cohortpeople.person_id AS person_id,
@@ -1985,7 +1985,7 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
   '''
-  /* cohort_calculation: */
+  
   SELECT person.person_id AS id
   FROM
     (SELECT *,
@@ -2255,7 +2255,7 @@
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.2
   '''
-  /* cohort_calculation: */
+  
     (SELECT cohort_people.person_id AS id
      FROM
        (SELECT DISTINCT cohortpeople.person_id AS person_id,
@@ -2303,7 +2303,7 @@
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.3
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,

@@ -19,6 +19,7 @@ from posthog.models import (
     Organization,
     OrganizationInvite,
     OrganizationMembership,
+    PersonalAPIKey,
     Plugin,
     PluginConfig,
     Team,
@@ -783,3 +784,27 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     send_hog_functions_digest_email.delay(digest_data)
     logger.info(f"Scheduled HogFunctions digest email for team {team_id} with {len(function_metrics)} failed functions")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_mask_value: str, more_info: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user = User.objects.get(pk=user_id)
+    personal_api_key = PersonalAPIKey.objects.get(id=personal_api_key_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"personal-api-key-exposed-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Personal API Key has been deactivated",
+        template_name="personal_api_key_exposed",
+        template_context={
+            "preheader": "Personal API Key has been deactivated",
+            "label": personal_api_key.label,
+            "more_info": more_info,
+            "mask_value": old_mask_value,
+            "url": f"{settings.SITE_URL}/settings/user-api-keys",
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()
