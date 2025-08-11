@@ -12,7 +12,6 @@ import {
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
-    isRetentionQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType } from '~/types'
@@ -162,14 +161,12 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             dashboardDisplay: undefined,
             showConfidenceIntervals: undefined,
             confidenceLevel: undefined,
+            showTrendLines: undefined,
             showMovingAverage: undefined,
             movingAverageIntervals: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined
-        if (isTrendsQuery(cleanedQuery) || isRetentionQuery(cleanedQuery)) {
-            cleanedQuery.showTrendLines = undefined
-        }
 
         if (isInsightQueryWithSeries(cleanedQuery)) {
             cleanedQuery.series = cleanedQuery.series.map((entity) => {

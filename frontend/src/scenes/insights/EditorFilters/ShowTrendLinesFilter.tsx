@@ -13,8 +13,11 @@ export function ShowTrendLinesFilter(): JSX.Element {
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     // Get the current state based on query type
-    const showTrendLines =
-        isRetentionQuery(querySource) || isTrendsQuery(querySource) ? querySource.showTrendLines : false
+    const showTrendLines = isRetentionQuery(querySource)
+        ? querySource.retentionFilter.showTrendLines
+        : isTrendsQuery(querySource)
+          ? querySource.trendsFilter?.showTrendLines
+          : false
 
     // Determine if trend lines should be disabled based on chart type and scale
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
@@ -26,11 +29,17 @@ export function ShowTrendLinesFilter(): JSX.Element {
     const disabledReason = !isLineGraph
         ? 'Trend lines are only available for line graphs'
         : !isLinearScale
-        ? 'Trend lines are only supported for linear scale.'
-        : undefined
+          ? 'Trend lines are only supported for linear scale.'
+          : undefined
 
     const toggleShowTrendLines = (): void => {
-        updateQuerySource({ showTrendLines: !showTrendLines } as any)
+        if (isRetentionQuery(querySource)) {
+            updateQuerySource({
+                retentionFilter: { ...querySource.retentionFilter, showTrendLines: !showTrendLines },
+            } as any)
+        } else if (isTrendsQuery(querySource)) {
+            updateQuerySource({ trendsFilter: { ...querySource.trendsFilter, showTrendLines: !showTrendLines } } as any)
+        }
     }
 
     return (

@@ -292,7 +292,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     !hasDataWarehouseSeries &&
                     [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
 
-                return ((querySource as TrendsQuery)?.showTrendLines && isLineGraph && isLinearScale) || false
+                return (
+                    ((querySource as TrendsQuery)?.trendsFilter?.showTrendLines && isLineGraph && isLinearScale) ||
+                    false
+                )
             },
         ],
 

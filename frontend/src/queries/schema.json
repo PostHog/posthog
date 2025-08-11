@@ -20711,6 +20711,9 @@
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
+                "showTrendLines": {
+                    "type": "boolean"
+                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
@@ -20826,10 +20829,6 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
-                },
-                "showTrendLines": {
-                    "description": "Whether to show trend lines in the graph",
-                    "type": "boolean"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags",
@@ -23916,6 +23915,9 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showTrendLines": {
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "default": false,
                     "type": "boolean"
@@ -24107,10 +24109,6 @@
                         "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
-                },
-                "showTrendLines": {
-                    "description": "Whether to show trend lines in the line graph",
-                    "type": "boolean"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags",

@@ -57,7 +57,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
         showTrendLines: [
             (s) => [s.querySource],
             (querySource) => {
-                return (querySource as RetentionQuery)?.showTrendLines
+                return (querySource as RetentionQuery)?.retentionFilter?.showTrendLines ?? false
             },
         ],
 
