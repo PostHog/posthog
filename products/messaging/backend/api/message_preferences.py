@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageRecipientPreference, MessageCategory
-from posthog.models.message_preferences import PreferenceStatus
+from posthog.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
 
 
 class MessagePreferencesSerializer(serializers.ModelSerializer):
@@ -43,16 +43,11 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             except MessageCategory.DoesNotExist:
                 return Response({"error": "Category not found"}, status=404)
 
-        # Find recipients who have opted out of this specific category, or all categories if no specific category is provided
-        categories_to_check = (
-            [category]
-            if category_key
-            else MessageCategory.objects.filter(team_id=self.team_id, category_type="marketing", deleted=False)
-        )
+        # Find recipients who have opted out of this specific category, or use the derived $all category if no specific category is provided
+        category_id = category.id if category_key else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
         query_filters = {}
-        for category in categories_to_check:
-            category_preference_lookup = f"preferences__{str(category.id)}"
-            query_filters[category_preference_lookup] = PreferenceStatus.OPTED_OUT
+
+        query_filters[f"preferences__{str(category_id)}"] = PreferenceStatus.OPTED_OUT.value
 
         opt_outs = MessageRecipientPreference.objects.filter(
             team_id=self.team_id,
