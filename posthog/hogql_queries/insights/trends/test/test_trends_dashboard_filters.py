@@ -4,6 +4,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 
 from posthog.schema import (
     ActionsNode,
+    Breakdown,
     BreakdownFilter,
     DashboardFilter,
     DateRange,
@@ -320,9 +321,17 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter == BreakdownFilter(
-            breakdown="$feature/my-fabulous-feature", breakdown_type="event", breakdown_limit=10
+        # After migration, the breakdown should be None and breakdowns array should be populated
+        expected_breakdown_filter = BreakdownFilter(
+            breakdown=None,
+            breakdown_group_type_index=None,
+            breakdown_histogram_bin_count=None,
+            breakdown_normalize_url=None,
+            breakdown_type="event",
+            breakdown_limit=10,
+            breakdowns=[Breakdown(property="$feature/my-fabulous-feature", type="event")],
         )
+        assert query_runner.query.breakdownFilter == expected_breakdown_filter
         assert query_runner.query.trendsFilter is None
 
     def test_compare_is_removed_for_all_time_range(self):

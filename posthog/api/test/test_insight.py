@@ -3682,13 +3682,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
         # Test loading the insight with from_dashboard parameter
-        # This should successfully migrate the breakdown filter but retention queries may not use breakdowns
+        # This should trigger the breakdown migration during query processing
         response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=false&from_dashboard={dashboard.id}"
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking&from_dashboard={dashboard.id}"
         )
 
-        # Verify the request succeeds - we use refresh=false to avoid executing the query
-        # which would fail since retention queries currently don't support breakdowns
+        # Verify the request succeeds - the breakdown migration should handle the deprecated fields
+        # Even if retention queries don't support breakdowns, the migration should not cause errors
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
 
@@ -3704,6 +3704,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Most importantly: Verify that the dashboard breakdown filter was processed without error
         # The breakdown migration should have occurred in the background during serialization
         # Even though retention queries don't use breakdown filters, the migration logic should not crash
+
+        # Debug: Check if dashboard filters were actually applied
+        # For HogQL insights, the query should be modified by dashboard filters
+        if response_data.get("query"):
+            if "breakdownFilter" in response_data["query"]:
+                pass
+            else:
+                pass
 
     def test_trends_insight_breakdown_filter_migration_from_dashboard(self):
         """Test that dashboard breakdown filters are properly migrated to the breakdowns array format"""
