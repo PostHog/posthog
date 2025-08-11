@@ -459,7 +459,7 @@ class RetentionQueryRunner(QueryRunner):
                 )
             elif self.query.breakdownFilter.breakdown is not None:
                 breakdown_expr = self.breakdown_extract_expr(
-                    self.query.breakdownFilter.breakdown,
+                    cast(str, self.query.breakdownFilter.breakdown),
                     cast(str, self.query.breakdownFilter.breakdown_type),
                     self.query.breakdownFilter.breakdown_group_type_index,
                 )
