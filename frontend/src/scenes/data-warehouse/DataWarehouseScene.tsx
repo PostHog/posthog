@@ -11,7 +11,6 @@ import { IconPlusSmall, IconCheckCircle } from '@posthog/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
-import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
@@ -24,7 +23,6 @@ export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-    const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
     const { billing } = useValues(billingLogic)
 
     const monthlyRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
@@ -42,7 +40,7 @@ export function DataWarehouseScene(): JSX.Element {
                     type: 'Materialization',
                     status,
                     time: String(view.last_run_at),
-                    rows: status?.toLowerCase() === 'failed' ? 0 : undefined,
+                    rows: (view as any).row_count || undefined,
                 })
             }
         })
@@ -57,7 +55,7 @@ export function DataWarehouseScene(): JSX.Element {
                         time: schema.last_synced_at
                             ? String(schema.last_synced_at)
                             : String(source.last_run_at || new Date().toISOString()),
-                        rows: 0,
+                        rows: (schema as any).row_count || 0,
                     })
                 }
             })
@@ -83,6 +81,7 @@ export function DataWarehouseScene(): JSX.Element {
                 status: source.status,
                 lastSync: source.last_run_at,
                 url: urls.dataWarehouseSource(`managed-${source.id}`),
+                rows_synced: (source as any).row_count || 0,
             })),
             ...selfManagedTables.map((table) => ({
                 id: table.id,
@@ -96,7 +95,7 @@ export function DataWarehouseScene(): JSX.Element {
     )
     const sourcesTotalPages = Math.max(1, Math.ceil(allSources.length / pageSize))
     const pageSources = allSources.slice(sourcesPage * pageSize, sourcesPage * pageSize + pageSize)
-    const viewsWithStatus = (dataWarehouseSavedQueries || []).filter((v) => v.status)
+    const viewsWithStatus = materializedViews || []
     const viewsTotalPages = Math.max(1, Math.ceil(viewsWithStatus.length / pageSize))
     const pageViews = viewsWithStatus.slice(viewsPage * pageSize, viewsPage * pageSize + pageSize)
 
@@ -148,7 +147,10 @@ export function DataWarehouseScene(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Data Warehouse</h1>
+                <div className="flex flex-col">
+                    <h1 className="text-2xl font-semibold">Data Warehouse</h1>
+                    <p className="text-muted">Manage your data warehouse sources and queries</p>
+                </div>
                 <div className="flex gap-2">
                     <LemonButton type="primary" to={urls.dataWarehouseSourceNew()} icon={<IconPlusSmall />}>
                         New source
@@ -174,14 +176,19 @@ export function DataWarehouseScene(): JSX.Element {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <div className="lg:col-span-2 space-y-2">
                     <LemonCard className="hover:transform-none">
-                        <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                                 <h3 className="font-semibold text-xl">Data Sources</h3>
                                 <LemonTag size="medium" type="muted" className="mb-2 p-1 px-2 rounded-xl">
                                     {(dataWarehouseSources?.results?.length || 0) + selfManagedTables.length} connected
                                 </LemonTag>
                             </div>
-                            <LemonButton to={urls.pipeline(PipelineTab.Sources)} size="small" type="secondary">
+                            <LemonButton
+                                to={urls.pipeline(PipelineTab.Sources)}
+                                size="small"
+                                type="secondary"
+                                className="mb-3"
+                            >
                                 View All
                             </LemonButton>
                         </div>
@@ -189,7 +196,7 @@ export function DataWarehouseScene(): JSX.Element {
                             {pageSources.map((item) => (
                                 <div key={item.id} className="flex items-center justify-between p-2 border rounded p-2">
                                     <div className="flex-1 min-w-0 ">
-                                        <div className="font-medium text-sm flex items-center gap-1">
+                                        <div className="font-medium text-base flex items-center gap-1">
                                             <StatusIcon status={item.status as any} />
                                             <span>{item.name}</span>
                                         </div>
@@ -198,11 +205,19 @@ export function DataWarehouseScene(): JSX.Element {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 ml-4">
-                                        {item.status ? (
-                                            <StatusTag status={item.status} />
-                                        ) : (
-                                            <span className="text-xs text-muted">—</span>
-                                        )}
+                                        <div className="text-right">
+                                            <div className="text-xs text-muted mb-1">
+                                                {(item as any).rows_synced !== undefined &&
+                                                (item as any).rows_synced !== null
+                                                    ? `${((item as any).rows_synced || 0).toLocaleString()} rows`
+                                                    : 'No row data'}
+                                            </div>
+                                            {item.status ? (
+                                                <StatusTag status={item.status} />
+                                            ) : (
+                                                <span className="text-xs text-muted">—</span>
+                                            )}
+                                        </div>
                                         {item.url && (
                                             <LemonButton
                                                 to={item.url}
@@ -216,26 +231,35 @@ export function DataWarehouseScene(): JSX.Element {
                                 </div>
                             ))}
                             {sourcesTotalPages > 1 && (
-                                <div className="flex items-center justify-end gap-2">
+                                <div className="flex items-center justify-between">
                                     <span className="text-xs text-muted">
-                                        Page {sourcesPage + 1} / {sourcesTotalPages}
+                                        Showing {sourcesPage * pageSize + 1} to{' '}
+                                        {Math.min((sourcesPage + 1) * pageSize, allSources.length)} of{' '}
+                                        {allSources.length} sources
                                     </span>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        disabled={sourcesPage <= 0}
-                                        onClick={() => setSourcesPage((p) => Math.max(0, p - 1))}
-                                    >
-                                        Prev
-                                    </LemonButton>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        disabled={sourcesPage >= sourcesTotalPages - 1}
-                                        onClick={() => setSourcesPage((p) => Math.min(sourcesTotalPages - 1, p + 1))}
-                                    >
-                                        Next
-                                    </LemonButton>
+                                    <div className="flex items-center gap-2">
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            disabled={sourcesPage <= 0}
+                                            onClick={() => setSourcesPage((p) => Math.max(0, p - 1))}
+                                        >
+                                            Previous
+                                        </LemonButton>
+                                        <span className="text-xs text-muted">
+                                            Page {sourcesPage + 1} of {sourcesTotalPages}
+                                        </span>
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            disabled={sourcesPage >= sourcesTotalPages - 1}
+                                            onClick={() =>
+                                                setSourcesPage((p) => Math.min(sourcesTotalPages - 1, p + 1))
+                                            }
+                                        >
+                                            Next
+                                        </LemonButton>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -252,7 +276,7 @@ export function DataWarehouseScene(): JSX.Element {
                             {pageViews.map((view) => (
                                 <div key={view.id} className="flex items-center justify-between border rounded p-2">
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-sm flex items-center gap-1">
+                                        <div className="font-medium text-base flex items-center gap-1">
                                             <StatusIcon status={view.status} />
                                             <span>{view.name}</span>
                                         </div>
@@ -261,7 +285,15 @@ export function DataWarehouseScene(): JSX.Element {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 ml-4">
-                                        <StatusTag status={view.status} />
+                                        <div className="text-right">
+                                            <div className="text-xs text-muted mb-1">
+                                                {(view as any).row_count !== undefined &&
+                                                (view as any).row_count !== null
+                                                    ? `${((view as any).row_count || 0).toLocaleString()} rows`
+                                                    : 'No row data'}
+                                            </div>
+                                            <StatusTag status={view.status} />
+                                        </div>
                                         <LemonButton
                                             to={urls.sqlEditor(undefined, view.id)}
                                             targetBlank
@@ -273,26 +305,33 @@ export function DataWarehouseScene(): JSX.Element {
                                 </div>
                             ))}
                             {viewsTotalPages > 1 && (
-                                <div className="flex items-center justify-end gap-2">
+                                <div className="flex items-center justify-between">
                                     <span className="text-xs text-muted">
-                                        Page {viewsPage + 1} / {viewsTotalPages}
+                                        Showing {viewsPage * pageSize + 1} to{' '}
+                                        {Math.min((viewsPage + 1) * pageSize, viewsWithStatus.length)} of{' '}
+                                        {viewsWithStatus.length} views
                                     </span>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        disabled={viewsPage <= 0}
-                                        onClick={() => setViewsPage((p) => Math.max(0, p - 1))}
-                                    >
-                                        Prev
-                                    </LemonButton>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        disabled={viewsPage >= viewsTotalPages - 1}
-                                        onClick={() => setViewsPage((p) => Math.min(viewsTotalPages - 1, p + 1))}
-                                    >
-                                        Next
-                                    </LemonButton>
+                                    <div className="flex items-center gap-2">
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            disabled={viewsPage <= 0}
+                                            onClick={() => setViewsPage((p) => Math.max(0, p - 1))}
+                                        >
+                                            Previous
+                                        </LemonButton>
+                                        <span className="text-xs text-muted">
+                                            Page {viewsPage + 1} of {viewsTotalPages}
+                                        </span>
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            disabled={viewsPage >= viewsTotalPages - 1}
+                                            onClick={() => setViewsPage((p) => Math.min(viewsTotalPages - 1, p + 1))}
+                                        >
+                                            Next
+                                        </LemonButton>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -309,7 +348,7 @@ export function DataWarehouseScene(): JSX.Element {
                                     className="flex items-center justify-between border rounded p-2"
                                 >
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-sm flex items-center gap-1">
+                                        <div className="font-medium text-base flex items-center gap-1">
                                             <StatusIcon status={activity.status} />
                                             <span>{activity.name}</span>
                                         </div>
@@ -319,34 +358,41 @@ export function DataWarehouseScene(): JSX.Element {
                                     </div>
                                     <div className="ml-4 text-right">
                                         <div className="text-xs text-muted mb-1">
-                                            {typeof activity.rows === 'number'
-                                                ? `${activity.rows.toLocaleString()} rows`
-                                                : '—'}
+                                            {activity.rows !== undefined && activity.rows !== null
+                                                ? `${(activity.rows || 0).toLocaleString()} rows`
+                                                : 'No row data'}
                                         </div>
                                         <StatusTag status={activity.status} />
                                     </div>
                                 </div>
                             ))}
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="flex items-center justify-between">
                                 <span className="text-xs text-muted">
-                                    Page {activityPage + 1} / {totalPages}
+                                    Showing {activityPage * pageSize + 1} to{' '}
+                                    {Math.min((activityPage + 1) * pageSize, recentActivity.length)} of{' '}
+                                    {recentActivity.length} activities
                                 </span>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    disabled={activityPage <= 0}
-                                    onClick={() => setActivityPage((p) => Math.max(0, p - 1))}
-                                >
-                                    Prev
-                                </LemonButton>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    disabled={activityPage >= totalPages - 1}
-                                    onClick={() => setActivityPage((p) => Math.min(totalPages - 1, p + 1))}
-                                >
-                                    Next
-                                </LemonButton>
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        disabled={activityPage <= 0}
+                                        onClick={() => setActivityPage((p) => Math.max(0, p - 1))}
+                                    >
+                                        Previous
+                                    </LemonButton>
+                                    <span className="text-xs text-muted">
+                                        Page {activityPage + 1} of {totalPages}
+                                    </span>
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        disabled={activityPage >= totalPages - 1}
+                                        onClick={() => setActivityPage((p) => Math.min(totalPages - 1, p + 1))}
+                                    >
+                                        Next
+                                    </LemonButton>
+                                </div>
                             </div>
                         </div>
                     </LemonCard>
