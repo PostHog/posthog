@@ -112,7 +112,6 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # We install those dependencies on a custom folder that we will
 # then copy to the last image.
 
-# SETUPTOOLS_SCM_PRETEND_VERSION_FOR_XMLSEC should match pyproject.toml - it is there to avoid version detection issues
 COPY pyproject.toml uv.lock ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -127,7 +126,7 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/* && \
     pip install uv~=0.7.0 --no-cache-dir && \
-    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_XMLSEC=1.3.14 UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
+    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
