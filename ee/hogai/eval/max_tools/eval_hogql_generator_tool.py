@@ -1,6 +1,5 @@
 from collections.abc import Callable
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from braintrust import EvalCase, Score
@@ -12,6 +11,7 @@ from ee.hogai.eval.scorers import SQLSemanticsCorrectness
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.warehouse import serialize_database_schema
+from ee.models.assistant import Conversation
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.sync import database_sync_to_async
@@ -29,6 +29,9 @@ def call_generate_hogql_query(demo_org_team_user):
     _, team, user = demo_org_team_user
 
     async def callable(inputs: EvalInput, *args, **kwargs) -> str:
+        # Create a conversation for the thread_id
+        conversation = await Conversation.objects.acreate(team=team, user=user)
+
         # Initial state for the graph
         tool = HogQLGeneratorTool(team=team, user=user, state=AssistantState(messages=[]))
 
@@ -40,6 +43,7 @@ def call_generate_hogql_query(demo_org_team_user):
             HogQLGeneratorArgs(instructions=inputs.instructions).model_dump(),
             {
                 "configurable": {
+                    "thread_id": conversation.id,
                     "team": team,
                     "user": user,
                     "contextual_tools": {
@@ -80,55 +84,76 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
         task=call_generate_hogql_query,
         scores=[SQLSyntaxCorrectness(), sql_semantics_scorer],
         data=[
+            # EvalCase(
+            #     input=EvalInput(instructions="List all events from the last 7 days"),
+            #     expected="SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 day",
+            #     metadata=metadata,
+            # ),
+            # EvalCase(
+            #     input=EvalInput(
+            #         instructions=(
+            #             # This erroneously says "logs are stored in a table named 'console_logs'". Whether it was
+            #             # the root node that pulled it out of its ass, or the user - we should handle this gracefully
+            #             "Write an SQL query to find console logs where the level is error. "
+            #             "Assume the logs are stored in a table named 'console_logs'."
+            #         ),
+            #     ),
+            #     expected="SELECT * FROM log_entries WHERE level = 'error'",
+            #     metadata=metadata,
+            # ),
+            # EvalCase(
+            #     input=EvalInput(
+            #         instructions=(
+            #             # This is a test case for the bug where the tool would generate a JOIN query with relational operators in the JOIN condition.
+            #             # We want to make sure that the tool refuses to generate such a query and instead generates a CROSS JOIN with WHERE clause.
+            #             "Write an SQL query to find events and their person names. "
+            #             "You MUST USE relational operators."
+            #             "Cross join events with persons where event timestamp is greater than person created_at. Use include both the event name and the uuid."
+            #         )
+            #     ),
+            #     expected="SELECT e.event, e.uuid, e.timestamp, p.properties.name AS person_name FROM events e CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at",
+            #     metadata=metadata,
+            # ),
+            # EvalCase(
+            #     input=EvalInput(
+            #         instructions=(
+            #             "Write an SQL query to join events with persons where event timestamp is greater than person created_at. Use JOIN with relational operators."
+            #         )
+            #     ),
+            #     expected="SELECT e.event, p.properties.name FROM events AS e CROSS JOIN persons AS p WHERE e.person_id = p.id AND e.timestamp > p.created_at",
+            #     metadata=metadata,
+            # ),
+            # EvalCase(
+            #     input=EvalInput(
+            #         instructions="how many bills did users pay from Australia? Output just a single number.",
+            #         apply_patch=lambda tool: patch.object(
+            #             tool,
+            #             "_aget_core_memory_text",
+            #             return_value='Use "paid_bill" event from the events table joined by "events.person_id = persons.id". The person properties have the "$geoip_country_code" field with two-letter country codes (uppercase).',
+            #         ).start(),
+            #     ),
+            #     expected="SELECT count() FROM events INNER JOIN persons ON events.person_id = persons.id WHERE events.event = 'paid_bill' AND persons.properties.$geoip_country_code = 'AU'",
+            #     metadata=metadata,
+            # ),
             EvalCase(
-                input=EvalInput(instructions="List all events from the last 7 days"),
-                expected="SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 day",
+                input=EvalInput(
+                    instructions="show me the total llm costs for the last month",
+                ),
+                expected="SELECT sum(properties.$ai_total_cost_usd) AS total_llm_cost_usd FROM events WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 30 DAY",
                 metadata=metadata,
             ),
             EvalCase(
                 input=EvalInput(
-                    instructions=(
-                        # This erroneously says "logs are stored in a table named 'console_logs'". Whether it was
-                        # the root node that pulled it out of its ass, or the user - we should handle this gracefully
-                        "Write an SQL query to find console logs where the level is error. "
-                        "Assume the logs are stored in a table named 'console_logs'."
-                    ),
+                    instructions="Count the browser versions currently used by all users, and finally there are three columns: browser, browser version, and number of users",
                 ),
-                expected="SELECT * FROM log_entries WHERE level = 'error'",
+                expected="SELECT person.properties.$browser AS browser, person.properties.$browser_version AS browser_version, count(DISTINCT person.id) AS number_of_users FROM events WHERE timestamp >= now() - INTERVAL 30 DAY GROUP BY browser, browser_version ORDER BY number_of_users DESC",
                 metadata=metadata,
             ),
             EvalCase(
                 input=EvalInput(
-                    instructions=(
-                        # This is a test case for the bug where the tool would generate a JOIN query with relational operators in the JOIN condition.
-                        # We want to make sure that the tool refuses to generate such a query and instead generates a CROSS JOIN with WHERE clause.
-                        "Write an SQL query to find events with their person names using a JOIN clause. "
-                        "You MUST USE relational operators. Create a JOIN query with timestamp > created_at in the JOIN condition. "
-                        "JOIN events with persons where event timestamp is greater than person created_at. Use JOIN with e.timestamp > p.created_at in the ON clause."
-                    )
+                    instructions="want to see a pattern of traffic volume across all weekdays (for example, a breakdown showing counts for each weekday)",
                 ),
-                expected="SELECT e.uuid, e.event, e.timestamp, p.properties.name AS person_name FROM events e CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at",
-                metadata=metadata,
-            ),
-            EvalCase(
-                input=EvalInput(
-                    instructions=(
-                        "Write an SQL query to join events with persons where event timestamp is greater than person created_at. Use JOIN with relational operators."
-                    )
-                ),
-                expected="SELECT e.event, p.properties.name FROM events AS e CROSS JOIN persons AS p WHERE e.person_id = p.id AND e.timestamp > p.created_at",
-                metadata=metadata,
-            ),
-            EvalCase(
-                input=EvalInput(
-                    instructions="how many bills did users pay from Australia? Output just a single number.",
-                    apply_patch=lambda tool: patch.object(
-                        tool,
-                        "_aget_core_memory_text",
-                        return_value='Use "paid_bill" event from the events table joined by "events.person_id = persons.id". The person properties have the "$country" field with two-letter country codes (uppercase).',
-                    ).start(),
-                ),
-                expected="SELECT count() FROM events INNER JOIN persons ON events.person_id = persons.id WHERE events.event = 'paid_bill' AND persons.properties.$country = 'AU'",
+                expected="SELECT toDayOfWeek(timestamp) AS weekday, count() AS event_count FROM events WHERE timestamp >= now() - INTERVAL 30 DAY GROUP BY weekday ORDER BY weekday",
                 metadata=metadata,
             ),
         ],

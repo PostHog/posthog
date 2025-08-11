@@ -26,4 +26,6 @@ The current HogQL query is:
 
 Write a new HogQL query or tweak the current one to satisfy this request:
 {instructions}
+
+Only return the SQL query, no other text.
 """.strip()

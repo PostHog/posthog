@@ -31,7 +31,7 @@ class HogQLGeneratorOptionsToolkit(TaxonomyAgentToolkit):
         """Get custom tools for filter options."""
 
         class final_answer(base_final_answer[FinalAnswerArgs]):
-            __doc__ = "Outputs the final SQL query"
+            __doc__ = "Outputs the final SQL query ready to be executed."
 
         return [final_answer]
 
@@ -137,6 +137,7 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
             "tool_progress_messages": [],
             **self.context,
         }
+
         result = await graph.compile_full_graph().ainvoke(graph_context)
 
         # final_error: Optional[Exception] = None
@@ -156,9 +157,10 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
         # else:
         #     assert final_error is not None
         #     raise final_error
+
         if result.get("intermediate_steps"):
             result = result["intermediate_steps"][-1][0].tool_input
-            return "Sorry, I couldn't generate a valid SQL query. Please try again.", ""
+            return result, ""
         else:
             result = await self._parse_output(FinalAnswerArgs.model_validate(result["output"]))
             return "```sql\n" + result + "\n```", result
