@@ -13,7 +13,7 @@ class Migration(SchemaMigration):
     targets = {NodeKind.TRENDS_QUERY: 1, NodeKind.STICKINESS_QUERY: 1}
 
     def transform(self, query: dict) -> dict:
-        filter_key = KIND_TO_FILTER_KEY.get(query.get("kind"))
+        filter_key = KIND_TO_FILTER_KEY.get(str(query.get("kind")))
         if not filter_key:
             return query
 

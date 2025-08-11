@@ -3,6 +3,7 @@ import glob
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 # Ensure repo root is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -17,6 +18,7 @@ def migrate_file(filepath):
         data = json.load(f)
 
     # If the file contains a list of queries, migrate each; else, migrate the dict
+    migrated: list[dict[Any, Any]] | dict[Any, Any]
     if isinstance(data, list):
         migrated = [upgrade(query) for query in data]
     else:
