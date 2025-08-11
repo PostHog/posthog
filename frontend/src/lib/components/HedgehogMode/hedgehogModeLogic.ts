@@ -139,58 +139,6 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                 cache.hedgehogs = {}
                 return
             }
-
-            // TODO: Sync members with game
-
-            // const hedgehogs: Record<string, HedgehogActor> = (cache.hedgehogs = cache.hedgehogs || {})
-
-            // console.log('hedgehogs', hedgehogs)
-
-            // const membersWithHedgehogConfig = members?.filter(
-            //     (x) => x.user.hedgehog_config && x.user.uuid !== values.user?.uuid
-            // )
-
-            // if (!hedgehogConfig.party_mode_enabled) {
-            //     // Remove all members
-            //     membersWithHedgehogConfig?.forEach((x) => {
-            //         if (hedgehogs[x.user.uuid]) {
-            //             hedgehogs[x.user.uuid].destroy()
-            //             delete hedgehogs[x.user.uuid]
-            //         }
-            //     })
-            // } else {
-            //     // Sync members
-            //     membersWithHedgehogConfig?.forEach((x) => {
-            //         const combinedHedgehogConfig: HedgehogActorOptions = {
-            //             ...hedgehogConfig,
-            //             ...x.user.hedgehog_config,
-            //             id: x.user.uuid,
-            //             player: false,
-            //             // Reset some params to default
-            //             skin: 'default',
-            //             // Finally some settings are forced
-            //             controls_enabled: false,
-            //         }
-            //         if (!hedgehogs[x.user.uuid]) {
-            //             hedgehogs[x.user.uuid] = game.spawnHedgehog(combinedHedgehogConfig)
-            //         } else {
-            //             hedgehogs[x.user.uuid].updateOptions(combinedHedgehogConfig)
-            //         }
-            //     })
-            // }
-
-            // if (!hedgehogs.player) {
-            //     hedgehogs.player = game.spawnHedgehog({
-            //         ...hedgehogConfig,
-            //         id: 'player',
-            //         player: true,
-            //         onClick: () => {},
-            //     })
-            // } else {
-            //     hedgehogs.player.updateOptions({
-            //         ...hedgehogConfig,
-            //     })
-            // }
         },
 
         syncFromState: () => {
