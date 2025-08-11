@@ -425,8 +425,8 @@ export function LineGraph_({
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
-            ? dataset.backgroundColor
-            : getTrendsColor(dataset) || '#000000' // Default to black if no color found
+              ? dataset.backgroundColor
+              : getTrendsColor(dataset) || '#000000' // Default to black if no color found
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
@@ -497,8 +497,8 @@ export function LineGraph_({
                 type === GraphType.Line && showMultipleYAxes && index > 0 && !dataset.yAxisID
                     ? `y${index}`
                     : dataset.yAxisID
-                    ? dataset.yAxisID
-                    : 'y',
+                      ? dataset.yAxisID
+                      : 'y',
             ...(showTrendLines
                 ? {
                       trendlineLinear: {
@@ -842,8 +842,8 @@ export function LineGraph_({
                                         labelGroupType === 'people'
                                             ? 'people'
                                             : labelGroupType === 'none'
-                                            ? ''
-                                            : aggregationLabel(labelGroupType).plural
+                                              ? ''
+                                              : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
                                 />
