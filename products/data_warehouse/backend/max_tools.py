@@ -34,7 +34,7 @@ class final_answer(base_final_answer[FinalAnswerArgs]):
     __doc__ = "Use this tool to output the final SQL query ready to be executed."
 
 
-class HogQLGeneratorOptionsToolkit(TaxonomyAgentToolkit):
+class HogQLGeneratorToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
@@ -53,9 +53,7 @@ class HogQLGeneratorOptionsToolkit(TaxonomyAgentToolkit):
 class HogQLGeneratorNode(
     TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]], HogQLGeneratorMixin
 ):
-    """Node for generating filtering options for session replay."""
-
-    def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorOptionsToolkit):
+    def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
@@ -95,23 +93,19 @@ class HogQLGeneratorNode(
         )
 
 
-class HogQLGeneratorOptionsToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
-    """Node for generating filtering options for session replay."""
-
-    def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorOptionsToolkit):
+class HogQLGeneratorToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
+    def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
 
-class HogQLGeneratorOptionsGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
-    """Graph for generating filtering options for session replay."""
-
+class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
     def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
             loop_node_class=HogQLGeneratorNode,
-            tools_node_class=HogQLGeneratorOptionsToolsNode,
-            toolkit_class=HogQLGeneratorOptionsToolkit,
+            tools_node_class=HogQLGeneratorToolsNode,
+            toolkit_class=HogQLGeneratorToolkit,
         )
 
 
@@ -130,7 +124,7 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
         pretty_filters = json.dumps(current_query, indent=2)
         user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=pretty_filters)
 
-        graph = HogQLGeneratorOptionsGraph(team=self._team, user=self._user).compile_full_graph()
+        graph = HogQLGeneratorGraph(team=self._team, user=self._user).compile_full_graph()
 
         graph_context = {
             "change": user_prompt,
