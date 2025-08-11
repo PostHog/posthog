@@ -1,7 +1,7 @@
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.schema import Breakdown, BreakdownType, DashboardFilter, HogQLVariable, MultipleBreakdownType, NodeKind
+from posthog.schema import BreakdownType, DashboardFilter, HogQLVariable, MultipleBreakdownType, NodeKind
 from typing import Any
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
@@ -125,64 +125,21 @@ def apply_dashboard_variables_to_dict(query: dict, variables_overrides: dict[str
 def _migrate_breakdown_fields_pydantic(filters: DashboardFilter) -> DashboardFilter:
     """
     Migrate deprecated breakdown fields from BreakdownFilter to the new breakdowns array format for Pydantic models.
+    Uses the dict-based migration function and converts back to Pydantic models.
     """
     if not filters.breakdown_filter:
         return filters
 
-    breakdown_filter = filters.breakdown_filter
+    # Convert to dict, apply migration, then convert back to Pydantic
+    filters_dict = filters.model_dump()
+    migrated_filters_dict = _migrate_breakdown_fields(filters_dict)
 
-    # Check if legacy breakdown field exists
-    if breakdown_filter.breakdown is not None:
-        update_fields = {}
+    # If no changes were made, return the original
+    if migrated_filters_dict == filters_dict:
+        return filters
 
-        if not breakdown_filter.breakdowns:
-            # Create new Breakdown object from legacy fields when breakdowns array is empty
-            breakdown_kwargs = {"property": str(breakdown_filter.breakdown)}
-
-            # Map deprecated fields to new structure
-            if breakdown_filter.breakdown_normalize_url is not None:
-                breakdown_kwargs["normalize_url"] = breakdown_filter.breakdown_normalize_url
-            if breakdown_filter.breakdown_histogram_bin_count is not None:
-                breakdown_kwargs["histogram_bin_count"] = breakdown_filter.breakdown_histogram_bin_count
-            if breakdown_filter.breakdown_group_type_index is not None:
-                breakdown_kwargs["group_type_index"] = breakdown_filter.breakdown_group_type_index
-
-            # Map breakdown_type to type with appropriate enum conversion
-            if breakdown_filter.breakdown_type:
-                # Convert BreakdownType to MultipleBreakdownType
-                type_mapping = {
-                    BreakdownType.PERSON: MultipleBreakdownType.PERSON,
-                    BreakdownType.EVENT: MultipleBreakdownType.EVENT,
-                    BreakdownType.EVENT_METADATA: MultipleBreakdownType.EVENT_METADATA,
-                    BreakdownType.GROUP: MultipleBreakdownType.GROUP,
-                    BreakdownType.SESSION: MultipleBreakdownType.SESSION,
-                    BreakdownType.HOGQL: MultipleBreakdownType.HOGQL,
-                }
-                if breakdown_filter.breakdown_type in type_mapping:
-                    breakdown_kwargs["type"] = type_mapping[breakdown_filter.breakdown_type]
-
-            # Create new Breakdown object
-            breakdown_obj = Breakdown(**breakdown_kwargs)
-            update_fields["breakdowns"] = [breakdown_obj]
-
-        # Clear the deprecated fields since we're migrating to breakdowns array
-        update_fields.update(
-            {
-                "breakdown": None,
-                "breakdown_normalize_url": None,
-                "breakdown_histogram_bin_count": None,
-                "breakdown_group_type_index": None,
-                "breakdown_type": None,
-            }
-        )
-
-        # Create updated BreakdownFilter with breakdowns array and cleared deprecated fields
-        updated_breakdown_filter = breakdown_filter.model_copy(update=update_fields)
-
-        # Return updated DashboardFilter
-        return filters.model_copy(update={"breakdown_filter": updated_breakdown_filter})
-
-    return filters
+    # Convert back to Pydantic model
+    return DashboardFilter(**migrated_filters_dict)
 
 
 def apply_dashboard_filters(query: Any, filters: DashboardFilter, team: Team) -> Any:
