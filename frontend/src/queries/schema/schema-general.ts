@@ -1503,6 +1503,8 @@ export interface QueryRequest {
      */
     query: QuerySchema
     filters_override?: DashboardFilter
+    /** If true, only return the generated ClickHouse SQL without executing it. */
+    generate_sql_only?: boolean
     variables_override?: Record<string, Record<string, any>>
 }
 

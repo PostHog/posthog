@@ -13778,6 +13778,9 @@ class QueryRequest(BaseModel):
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
     filters_override: Optional[DashboardFilter] = None
+    generate_sql_only: Optional[bool] = Field(
+        default=None, description="If true, only return the generated ClickHouse SQL without executing it."
+    )
     query: Union[
         EventsNode,
         ActionsNode,
