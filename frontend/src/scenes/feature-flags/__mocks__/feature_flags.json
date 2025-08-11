@@ -29,7 +29,8 @@
                                 "operator": "exact"
                             }
                         ],
-                        "rollout_percentage": null
+                        "rollout_percentage": null,
+                        "description": "PostHog team member"
                     }
                 ],
                 "multivariate": null
@@ -59,7 +60,8 @@
                                 "key": "$geoip_country_name",
                                 "type": "person",
                                 "value": ["Croatia"],
-                                "operator": "exact"
+                                "operator": "exact",
+                                "description": "Users from Croatia"
                             }
                         ],
                         "rollout_percentage": null
