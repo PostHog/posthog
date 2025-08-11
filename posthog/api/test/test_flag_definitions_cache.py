@@ -9,6 +9,7 @@ from django.test import TestCase
 
 from posthog.api.services.flag_definitions_cache import (
     FlagDefinitionsCache,
+    RUST_FLAGS_CACHE_PREFIX,
     invalidate_cache_for_feature_flag_change,
     invalidate_cache_for_cohort_change,
     invalidate_cache_for_group_type_mapping_change,
@@ -34,13 +35,13 @@ class TestFlagDefinitionsCache(TestCase):
 
     def test_get_cache_key_without_cohorts(self):
         """Test cache key generation without cohorts."""
-        key = FlagDefinitionsCache.get_cache_key(self.project_id, include_cohorts=False)
+        key = FlagDefinitionsCache.get_local_evaluation_cache_key(self.project_id, include_cohorts=False)
         expected = f"local_evaluation/{self.project_id}/v1"
         self.assertEqual(key, expected)
 
     def test_get_cache_key_with_cohorts(self):
         """Test cache key generation with cohorts."""
-        key = FlagDefinitionsCache.get_cache_key(self.project_id, include_cohorts=True)
+        key = FlagDefinitionsCache.get_local_evaluation_cache_key(self.project_id, include_cohorts=True)
         expected = f"local_evaluation/{self.project_id}/cohorts/v1"
         self.assertEqual(key, expected)
 
@@ -50,6 +51,7 @@ class TestFlagDefinitionsCache(TestCase):
         expected = [
             f"local_evaluation/{self.project_id}/v1",
             f"local_evaluation/{self.project_id}/cohorts/v1",
+            f"{RUST_FLAGS_CACHE_PREFIX}{self.project_id}",
         ]
         self.assertEqual(keys, expected)
 
@@ -122,21 +124,24 @@ class TestFlagDefinitionsCache(TestCase):
             self.assertIn("Failed to retrieve flag definitions from cache", call_args[0][0])
 
     def test_invalidate_for_project_deletes_all_keys(self):
-        """Test that invalidate_for_project deletes both cache keys."""
-        # Set up cache data
+        """Test that invalidate_for_project deletes all cache keys."""
         FlagDefinitionsCache.set_cache(self.project_id, self.test_data, include_cohorts=False)
         FlagDefinitionsCache.set_cache(self.project_id, self.test_data, include_cohorts=True)
+        rust_cache_key = f"{RUST_FLAGS_CACHE_PREFIX}{self.project_id}"
+        cache.set(rust_cache_key, '{"flags": []}')
 
-        # Verify cache is populated
+        # Verify all caches are populated
         self.assertIsNotNone(FlagDefinitionsCache.get_cache(self.project_id, include_cohorts=False))
         self.assertIsNotNone(FlagDefinitionsCache.get_cache(self.project_id, include_cohorts=True))
+        self.assertIsNotNone(cache.get(rust_cache_key))
 
         # Invalidate cache
         FlagDefinitionsCache.invalidate_for_project(self.project_id, "test invalidation")
 
-        # Verify cache is cleared
+        # Verify all caches are cleared
         self.assertIsNone(FlagDefinitionsCache.get_cache(self.project_id, include_cohorts=False))
         self.assertIsNone(FlagDefinitionsCache.get_cache(self.project_id, include_cohorts=True))
+        self.assertIsNone(cache.get(rust_cache_key))
 
     @patch("posthog.api.services.flag_definitions_cache.logging.getLogger")
     def test_invalidate_for_project_logs_success(self, mock_get_logger):
@@ -352,14 +357,14 @@ class TestCacheKeyConsistency(TestCase):
     def test_cache_key_format_without_cohorts(self):
         """Test cache key format matches original implementation."""
         project_id = 123
-        key = FlagDefinitionsCache.get_cache_key(project_id, include_cohorts=False)
+        key = FlagDefinitionsCache.get_local_evaluation_cache_key(project_id, include_cohorts=False)
         expected = f"local_evaluation/{project_id}/v1"
         self.assertEqual(key, expected)
 
     def test_cache_key_format_with_cohorts(self):
         """Test cache key format with cohorts matches original implementation."""
         project_id = 123
-        key = FlagDefinitionsCache.get_cache_key(project_id, include_cohorts=True)
+        key = FlagDefinitionsCache.get_local_evaluation_cache_key(project_id, include_cohorts=True)
         expected = f"local_evaluation/{project_id}/cohorts/v1"
         self.assertEqual(key, expected)
 

@@ -5,58 +5,84 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
-import { capitalizeFirstLetter } from 'lib/utils'
 import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
 
-function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
-        useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
+import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IconExternal } from '@posthog/icons'
+import { urls } from 'scenes/urls'
+import clsx from 'clsx'
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
+export type EmailEditorMode = 'full' | 'preview'
+
+/**
+ * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
+ * native_email: advanced editor with email integration dropdown, and additional email metafields
+ * native_email-template: editor for creating reusable templates, with only subject and preheader, and email content fields
+ */
+export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
+type EmailMetaFieldKey = 'from' | 'preheader' | 'to' | 'subject'
+type EmailMetaField = {
+    key: EmailMetaFieldKey
+    label: string
+    optional: boolean
+    helpText?: string
+    isAdvancedField?: boolean
+}
+
+const EMAIL_META_FIELDS = {
+    FROM: { key: 'from', label: 'From', optional: false },
+    PREHEADER: {
+        key: 'preheader',
+        label: 'Preheader',
+        optional: true,
+        helpText: 'This is the preview text that appears below the subject line in an inbox.',
+    },
+    TO: { key: 'to', label: 'To', optional: false },
+    SUBJECT: { key: 'subject', label: 'Subject', optional: false },
+} as const
+
+const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> = {
+    email: [EMAIL_META_FIELDS.FROM, EMAIL_META_FIELDS.TO, EMAIL_META_FIELDS.SUBJECT],
+    native_email: [
+        EMAIL_META_FIELDS.FROM,
+        EMAIL_META_FIELDS.TO,
+        EMAIL_META_FIELDS.SUBJECT,
+        EMAIL_META_FIELDS.PREHEADER,
+    ],
+    native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
+}
+
+function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
+    const { logicProps, mergeTags } = useValues(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen } = useActions(emailTemplaterLogic)
 
     return (
         <>
-            {isMessagingTemplatesEnabled && templates.length > 0 && (
-                <LemonSelect
-                    className="mb-2"
-                    placeholder="Start from a template (optional)"
-                    loading={templatesLoading}
-                    value={appliedTemplate?.id}
-                    options={templates.map((template) => ({
-                        label: template.name,
-                        value: template.id,
-                    }))}
-                    onChange={(id) => {
-                        const template = templates.find((t) => t.id === id)
-                        if (template) {
-                            applyTemplate(template)
-                        }
-                    }}
-                    data-attr="email-template-selector"
-                />
-            )}
             <Form
                 className="flex overflow-hidden flex-col flex-1 rounded border"
                 logic={emailTemplaterLogic}
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                {(logicProps.emailMetaFields || ['from', 'to', 'subject']).map((field) => (
+                {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
                     <LemonField
-                        key={field}
-                        name={field}
+                        key={field.key}
+                        name={field.key}
                         className="gap-1 pl-2 border-b shrink-0"
                         // We will handle the error display ourselves
                         renderError={() => null}
                     >
                         {({ value, onChange, error }) => (
-                            <div className="flex items-center">
-                                <LemonLabel className={error ? 'text-danger' : ''}>
-                                    {capitalizeFirstLetter(field)}
+                            <div className="flex gap-2 items-center">
+                                <LemonLabel
+                                    className={error ? 'text-danger' : ''}
+                                    info={field.helpText}
+                                    showOptional={field.optional}
+                                >
+                                    {field.label}
                                 </LemonLabel>
                                 <CodeEditorInline
                                     embedded
@@ -83,7 +109,6 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                                 imageEditor: true,
                                 stockImages: false,
                             },
-                            projectId: unlayerEditorProjectId,
                         }}
                     />
                 ) : (
@@ -105,6 +130,198 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
             </Form>
         </>
     )
+}
+
+function NativeEmailIntegrationChoice({
+    onChange,
+    value,
+}: {
+    onChange: (value: any) => void
+    value: any
+}): JSX.Element {
+    const { integrationsLoading, integrations } = useValues(integrationsLogic)
+    const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+
+    const onChangeIntegration = (integrationId: number): void => {
+        const integration = integrationsOfKind?.find((x) => x.id === integrationId)
+        onChange({
+            integrationId,
+            email: integration?.config?.email_address ?? 'default@example.com', // TODO: Remove this default later
+            // name: integration?.config?.name, // TODO: Add support for the name?
+        })
+    }
+
+    if (!integrationsLoading && integrationsOfKind?.length === 0) {
+        return (
+            <div className="flex gap-2 justify-end items-center">
+                <span className="text-muted">No email senders configured yet</span>
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    to={urls.messaging('channels')}
+                    targetBlank
+                    className="m-1"
+                    icon={<IconExternal />}
+                >
+                    Connect email sender
+                </LemonButton>
+            </div>
+        )
+    }
+
+    return (
+        <>
+            <LemonSelect
+                className="m-1"
+                placeholder="Choose email sender"
+                loading={integrationsLoading}
+                options={(integrationsOfKind || []).map((integration) => ({
+                    label: integration.display_name,
+                    value: integration.id,
+                }))}
+                value={value?.integrationId}
+                size="small"
+                onChange={onChangeIntegration}
+            />
+        </>
+    )
+}
+
+function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
+    const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
+        useValues(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isMessagingProductEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
+
+    return (
+        <>
+            <Form
+                className="flex overflow-hidden flex-col flex-1 rounded border"
+                logic={emailTemplaterLogic}
+                props={logicProps}
+                formKey="emailTemplate"
+            >
+                {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
+                    <LemonField
+                        key={field.key}
+                        name={field.key}
+                        className="gap-1 pl-2 border-b shrink-0"
+                        // We will handle the error display ourselves
+                        renderError={() => null}
+                        showOptional={field.optional}
+                    >
+                        {({ value, onChange, error }) => (
+                            <div className="flex gap-2 items-center">
+                                <LemonLabel
+                                    className={error ? 'text-danger' : ''}
+                                    info={field.helpText}
+                                    showOptional={field.optional}
+                                >
+                                    {field.label}
+                                </LemonLabel>
+                                {field.key === 'from' ? (
+                                    <NativeEmailIntegrationChoice value={value} onChange={onChange} />
+                                ) : field.key === 'to' ? (
+                                    <CodeEditorInline
+                                        embedded
+                                        className="flex-1"
+                                        globals={logicProps.variables}
+                                        value={value?.email}
+                                        onChange={(email) => onChange({ ...value, email })}
+                                    />
+                                ) : (
+                                    <CodeEditorInline
+                                        embedded
+                                        className="flex-1"
+                                        globals={logicProps.variables}
+                                        value={value}
+                                        onChange={onChange}
+                                    />
+                                )}
+                            </div>
+                        )}
+                    </LemonField>
+                ))}
+
+                {isMessagingProductEnabled && (
+                    <div className="flex gap-2 items-center m-2">
+                        <LemonLabel>Start from a template (optional)</LemonLabel>
+                        <LemonSelect
+                            size="small"
+                            placeholder="Choose template"
+                            loading={templatesLoading}
+                            value={appliedTemplate?.id}
+                            options={templates.map((template) => ({
+                                label: template.name,
+                                value: template.id,
+                            }))}
+                            onChange={(id) => {
+                                const template = templates.find((t) => t.id === id)
+                                if (template) {
+                                    applyTemplate(template)
+                                }
+                            }}
+                            data-attr="email-template-selector"
+                            disabledReason={templates.length > 0 ? undefined : 'No templates created yet'}
+                        />
+                    </div>
+                )}
+
+                {mode === 'full' ? (
+                    <EmailEditor
+                        ref={(r) => setEmailEditorRef(r)}
+                        onReady={() => onEmailEditorReady()}
+                        minHeight={20}
+                        options={{
+                            mergeTags,
+                            displayMode: 'email',
+                            features: {
+                                preview: true,
+                                imageEditor: true,
+                                stockImages: false,
+                            },
+                            projectId: unlayerEditorProjectId,
+                            customJS: isMessagingProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
+                        }}
+                    />
+                ) : (
+                    <LemonField name="html" className="flex relative flex-col">
+                        {({ value }) => (
+                            <>
+                                <div
+                                    className={clsx(
+                                        'flex absolute inset-0 justify-center items-center p-2 opacity-0 transition-opacity hover:opacity-100',
+                                        value ? 'opacity-0' : 'opacity-100' // Hide if there is content
+                                    )}
+                                >
+                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                    <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
+                                        Click to modify content
+                                    </LemonButton>
+                                </div>
+
+                                <iframe srcDoc={value} className="flex-1" />
+                            </>
+                        )}
+                    </LemonField>
+                )}
+            </Form>
+        </>
+    )
+}
+
+function EmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
+    const { logicProps } = useValues(emailTemplaterLogic)
+
+    switch (logicProps.type) {
+        case 'email':
+            return <DestinationEmailTemplaterForm mode={mode} />
+        case 'native_email_template':
+        case 'native_email':
+            return <NativeEmailTemplaterForm mode={mode} />
+    }
 }
 
 function EmailTemplaterModal(): JSX.Element {
