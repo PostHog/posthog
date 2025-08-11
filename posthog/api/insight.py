@@ -3,9 +3,10 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
-from django.db.models.signals import post_save
+from django.db.models.signals import pre_save
 
 from posthog.api.insight_variable import map_stale_to_latest
+from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.models.signals import mutable_receiver
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -107,7 +108,6 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
-from posthog.tasks.insight_query_metadata import extract_insight_query_metadata
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     refresh_requested_by_client,
@@ -494,6 +494,25 @@ class InsightSerializer(InsightBasicSerializer):
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
 
+        if (
+            not before_update
+            or before_update.query != validated_data.get("query")
+            or validated_data.get("query_metadata") is None
+        ):
+            try:
+                query_metadata = extract_query_metadata(
+                    query=validated_data.get("query"),
+                    team=instance.team,
+                )
+                validated_data["query_metadata"] = query_metadata.model_dump(exclude_none=True, mode="json")
+            except Exception as e:
+                # log the error but don't fail the update
+                logger.exception(
+                    "Failed to generate query metadata for insight",
+                    insight_id=instance.id,
+                    error=str(e),
+                )
+
         updated_insight = super().update(instance, validated_data)
         if not are_alerts_supported_for_insight(updated_insight):
             instance.alertconfiguration_set.all().delete()
@@ -501,18 +520,6 @@ class InsightSerializer(InsightBasicSerializer):
         self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
 
         self.user_permissions.reset_insights_dashboard_cached_results()
-
-        if not before_update or before_update.query != updated_insight.query or updated_insight.query_metadata is None:
-            query_meta_task = extract_insight_query_metadata.apply_async(
-                kwargs={"insight_id": updated_insight.id},
-                countdown=10 * 60,  # 10 minutes
-            )
-            logger.warn(
-                "scheduled extract_insight_query_metadata",
-                insight_id=updated_insight.id,
-                task_id=query_meta_task.id,
-                trigger="update_insight",
-            )
 
         return updated_insight
 
@@ -1303,16 +1310,15 @@ class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
 
 
-@mutable_receiver(post_save, sender=Insight)
-def schedule_query_metadata_extract(sender, instance: Insight, created: bool, **kwargs):
-    if created:
-        query_meta_task = extract_insight_query_metadata.apply_async(
-            kwargs={"insight_id": instance.pk},
-            countdown=10 * 60,  # 10 minutes
-        )
-        logger.warn(
-            "scheduled extract_insight_query_metadata",
-            insight_id=instance.id,
-            task_id=query_meta_task.id,
-            trigger="create_insight",
-        )
+@mutable_receiver(pre_save, sender=Insight)
+def schedule_query_metadata_extract(sender, instance: Insight, **kwargs):
+    if instance._state.adding:
+        try:
+            instance.generate_query_metadata()
+        except Exception as e:
+            # log and ignore the error, as this is not critical for insight creation
+            logger.exception(
+                "Failed to generate query metadata for insight",
+                insight_id=instance.id,
+                error=str(e),
+            )
