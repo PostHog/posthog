@@ -4,7 +4,7 @@ use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgQueryResult, PgPool};
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::context::AppContext;
@@ -215,6 +215,14 @@ impl JobModel {
         self.backoff_attempt = next_attempt;
         self.backoff_until = Some(until);
 
+        info!(
+            job_id = %self.id,
+            next_attempt = next_attempt,
+            delay_secs = delay.as_secs(),
+            until = %until,
+            "scheduled backoff for job"
+        );
+
         Ok(())
     }
 
@@ -297,6 +305,8 @@ impl JobModel {
         .bind(self.id)
         .execute(&context.db)
         .await?;
+
+        info!(job_id = %self.id, "unpaused job and reset backoff state");
 
         Ok(())
     }

@@ -262,7 +262,13 @@ impl Job {
                             return Ok(None);
                         }
 
-                        error!("Rate limited (429): scheduling retry in {:?}", delay);
+                        error!(
+                            job_id = %self.model.lock().await.id,
+                            attempt = next_attempt,
+                            delay_secs = delay.as_secs(),
+                            "rate limited (429): scheduling retry"
+                        );
+
                         let mut model = self.model.lock().await;
                         model
                             .schedule_backoff(
