@@ -1,4 +1,4 @@
-import { kea, selectors, path, reducers, actions, listeners, connect } from 'kea'
+import { kea, selectors, path, reducers, actions, listeners, connect, beforeUnmount } from 'kea'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, CohortType, ExporterFormat } from '~/types'
@@ -19,6 +19,8 @@ export interface CohortFilters {
     page?: number
 }
 
+const POLL_TIMEOUT = 5000
+
 const DEFAULT_COHORT_FILTERS: CohortFilters = {
     search: undefined,
     page: 1,
@@ -35,8 +37,15 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         setCohortFilters: (filters: Partial<CohortFilters>) => ({ filters }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
+        setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
     })),
     reducers({
+        pollTimeout: [
+            null as number | null,
+            {
+                setPollTimeout: (_, { pollTimeout }) => pollTimeout,
+            },
+        ],
         cohortFilters: [
             DEFAULT_COHORT_FILTERS,
             {
@@ -107,6 +116,13 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
+            const is_calculating = cohorts.results.filter((cohort) => cohort.is_calculating).length > 0
+            if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
+                return
+            }
+            actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
+        },
         setCohortFilters: async () => {
             actions.loadCohorts()
         },
@@ -173,4 +189,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl })
         },
     })),
+    beforeUnmount(({ values }) => {
+        clearTimeout(values.pollTimeout || undefined)
+    }),
 ])
