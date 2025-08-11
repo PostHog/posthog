@@ -59,9 +59,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         setEarlyAccessFeatureMissing: true,
         toggleImplementOptInInstructionsModal: true,
         editFeature: (editing: boolean) => ({ editing }),
+        setOriginalStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
+        showGAPromotionConfirmation: (onConfirm: () => void) => ({ onConfirm }),
     }),
     loaders(({ props, values, actions }) => ({
         earlyAccessFeature: {
@@ -160,6 +162,16 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 saveEarlyAccessFeatureSuccess: () => false,
             },
         ],
+        originalEarlyAccessFeatureStage: [
+            null as EarlyAccessFeatureStage | null,
+            {
+                setOriginalStage: (_, { stage }) => stage,
+                loadEarlyAccessFeatureSuccess: (_, { earlyAccessFeature }) =>
+                    'stage' in earlyAccessFeature ? earlyAccessFeature.stage : null,
+                saveEarlyAccessFeatureSuccess: (_, { earlyAccessFeature }) => earlyAccessFeature.stage,
+                editFeature: (state, { editing }) => (editing ? state : null),
+            },
+        ],
         implementOptInInstructionsModal: [
             false,
             {
@@ -221,8 +233,32 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
             }
         },
+        showGAPromotionConfirmation: async ({ onConfirm }) => {
+            const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
+            LemonDialog.open({
+                title: 'Promote to General Availability?',
+                description:
+                    'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                primaryButton: {
+                    children: 'Promote to GA',
+                    type: 'primary',
+                    onClick: onConfirm,
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                    type: 'tertiary',
+                },
+            })
+        },
         updateStage: async ({ stage }) => {
-            actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+            // If promoting to General Availability, show confirmation dialog
+            if (stage === EarlyAccessFeatureStage.GeneralAvailability) {
+                actions.showGAPromotionConfirmation(() =>
+                    actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+                )
+            } else {
+                actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+            }
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
             try {
