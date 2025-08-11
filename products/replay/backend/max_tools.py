@@ -119,7 +119,6 @@ class SearchSessionRecordingsTool(MaxTool):
 
         if type(result["output"]) is not MaxRecordingUniversalFilters:
             content = result["intermediate_steps"][-1][0].tool_input
-            # content = "❌ I need more information to proceed."
             filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
         else:
             try:
