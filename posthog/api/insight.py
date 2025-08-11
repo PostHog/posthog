@@ -502,8 +502,11 @@ class InsightSerializer(InsightBasicSerializer):
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
-        if not before_update or before_update.query != updated_insight.query:
-            query_meta_task = extract_insight_query_metadata.delay(insight_id=updated_insight.id)
+        if not before_update or before_update.query != updated_insight.query or updated_insight.query_metadata is None:
+            query_meta_task = extract_insight_query_metadata.apply_async(
+                kwargs={"insight_id": updated_insight.id},
+                countdown=10 * 60,  # 10 minutes
+            )
             logger.warn(
                 "scheduled extract_insight_query_metadata",
                 insight_id=updated_insight.id,
@@ -1303,7 +1306,10 @@ class LegacyInsightViewSet(InsightViewSet):
 @mutable_receiver(post_save, sender=Insight)
 def schedule_query_metadata_extract(sender, instance: Insight, created: bool, **kwargs):
     if created:
-        query_meta_task = extract_insight_query_metadata.delay(insight_id=instance.pk)
+        query_meta_task = extract_insight_query_metadata.apply_async(
+            kwargs={"insight_id": instance.pk},
+            countdown=10 * 60,  # 10 minutes
+        )
         logger.warn(
             "scheduled extract_insight_query_metadata",
             insight_id=instance.id,
