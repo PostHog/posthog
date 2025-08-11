@@ -1232,7 +1232,7 @@ class FeatureFlagViewSet(
             if not response_data:
                 raise Exception("No response data")
 
-            flag_keys = [flag["id"] for flag in response_data["flags"]]
+            flag_keys = [flag["key"] for flag in response_data["flags"]]
 
             # Add request for analytics
             if len(flag_keys) > 0 and not all(
