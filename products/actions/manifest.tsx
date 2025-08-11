@@ -6,7 +6,7 @@ import { ActionType, ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Actions',
     urls: {
-        createAction: (): string => `/data-management/actions/new`,
+        createAction: (id: string | number): string => `/data-management/actions/${id}`,
         duplicateAction: (action: ActionType | null): string => {
             const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
             return `/data-management/actions/new/${queryParams}`
