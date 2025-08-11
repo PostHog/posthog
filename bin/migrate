@@ -14,10 +14,10 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
 fi
 
 # Run plugin-server counters migrations
-if [ -f "$SCRIPT_DIR/../plugin-server/bin/migrate-counters.js" ]; then
-    node $SCRIPT_DIR/../plugin-server/bin/migrate-counters.js
+if [ -f "$SCRIPT_DIR/../plugin-server/bin/migrate-counters.sh" ]; then
+    bash $SCRIPT_DIR/../plugin-server/bin/migrate-counters.sh
     if [ $? -ne 0 ]; then
-        echo "Error in plugin-server/bin/migrate-counters.js, exiting."
+        echo "Error in plugin-server/bin/migrate-counters.sh, exiting."
         exit 1
     fi
 fi
