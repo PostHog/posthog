@@ -454,12 +454,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
             response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
 
-        # Sort results, handling both regular and ratio metric results
-        if self.is_ratio_metric:
-            # For ratio metrics, results have additional columns
-            sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
-        else:
-            sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
+        sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
         return sorted_results
 
