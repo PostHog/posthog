@@ -3634,3 +3634,150 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], accessible_insight.id)
         self.assertEqual(results[0]["short_id"], accessible_insight_short_id)
+
+    def test_retention_insight_with_dashboard_breakdown_filter(self):
+        """Test that a retention insight can be loaded from a dashboard with breakdown filters without errors"""
+
+        # Create a basic retention query using dict format
+        retention_query = {
+            "kind": "RetentionQuery",
+            "dateRange": {"date_from": "-30d", "date_to": None},
+            "retentionFilter": {
+                "totalIntervals": 11,
+                "period": "Day",
+                "returningEntity": {
+                    "id": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview",
+                    "custom_name": None,
+                    "properties": [],
+                },
+                "targetEntity": {
+                    "id": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview",
+                    "custom_name": None,
+                    "properties": [],
+                },
+            },
+        }
+
+        # Create retention insight
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Retention Insight",
+            created_by=self.user,
+            query=retention_query,
+        )
+
+        # Create dashboard with breakdown filter
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={"breakdown_filter": {"breakdown": "split_test_homepageAug25", "breakdown_type": "event"}},
+        )
+
+        # Add insight to dashboard
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        # Test loading the insight with from_dashboard parameter
+        # This should successfully migrate the breakdown filter but retention queries may not use breakdowns
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=false&from_dashboard={dashboard.id}"
+        )
+
+        # Verify the request succeeds - we use refresh=false to avoid executing the query
+        # which would fail since retention queries currently don't support breakdowns
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+
+        # Verify the response contains the expected insight data
+        self.assertEqual(response_data["id"], insight.id)
+        self.assertEqual(response_data["name"], "Test Retention Insight")
+
+        # Verify that the query structure is preserved
+        self.assertIn("query", response_data)
+        query_data = response_data["query"]
+        self.assertEqual(query_data["kind"], "RetentionQuery")
+
+        # Most importantly: Verify that the dashboard breakdown filter was processed without error
+        # The breakdown migration should have occurred in the background during serialization
+        # Even though retention queries don't use breakdown filters, the migration logic should not crash
+
+    def test_trends_insight_breakdown_filter_migration_from_dashboard(self):
+        """Test that dashboard breakdown filters are properly migrated to the breakdowns array format"""
+
+        # Create a basic trends query
+        trends_query = {
+            "kind": "TrendsQuery",
+            "dateRange": {"date_from": "-30d", "date_to": None},
+            "series": [{"event": "$pageview", "kind": "EventsNode"}],
+            "trendsFilter": {},
+        }
+
+        # Create trends insight
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Trends Insight",
+            created_by=self.user,
+            query=trends_query,
+        )
+
+        # Create dashboard with legacy breakdown filter format
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={
+                "breakdown_filter": {
+                    "breakdown": "split_test_homepageAug25",
+                    "breakdown_type": "event",
+                    "breakdown_normalize_url": True,
+                    "breakdown_histogram_bin_count": 10,
+                    "breakdown_group_type_index": 2,
+                }
+            },
+        )
+
+        # Add insight to dashboard
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        # Test loading the insight with from_dashboard parameter - no refresh to just check serialization
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=false&from_dashboard={dashboard.id}"
+        )
+
+        # Verify the request succeeds
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+
+        # Verify the response contains the expected insight data
+        self.assertEqual(response_data["id"], insight.id)
+        self.assertEqual(response_data["name"], "Test Trends Insight")
+
+        # Verify that the query structure is preserved
+        self.assertIn("query", response_data)
+        query_data = response_data["query"]
+        self.assertEqual(query_data["kind"], "TrendsQuery")
+
+        # Verify the breakdown filter was migrated to breakdowns array format
+        self.assertIn("breakdownFilter", query_data)
+        breakdown_filter = query_data["breakdownFilter"]
+
+        # The migration should have created the breakdowns array
+        self.assertIn("breakdowns", breakdown_filter)
+        self.assertEqual(len(breakdown_filter["breakdowns"]), 1)
+
+        breakdown = breakdown_filter["breakdowns"][0]
+        self.assertEqual(breakdown["property"], "split_test_homepageAug25")
+        self.assertEqual(breakdown["type"], "event")
+        self.assertEqual(breakdown["normalize_url"], True)
+        self.assertEqual(breakdown["histogram_bin_count"], 10)
+        self.assertEqual(breakdown["group_type_index"], 2)
+
+        # Most legacy fields should be cleared (breakdown_type may still be present in some contexts)
+        self.assertIsNone(breakdown_filter.get("breakdown"))
+        self.assertIsNone(breakdown_filter.get("breakdown_group_type_index"))
+        self.assertIsNone(breakdown_filter.get("breakdown_normalize_url"))
+        self.assertIsNone(breakdown_filter.get("breakdown_histogram_bin_count"))
