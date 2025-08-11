@@ -30,15 +30,11 @@ export function IntegrationsList({
             {titleText ? <p>{titleText}</p> : null}
 
             <div className="deprecated-space-y-2">
-                {filteredIntegrations?.length ? (
-                    filteredIntegrations.map((integration) => (
-                        <IntegrationView key={integration.id} integration={integration} />
-                    ))
-                ) : integrationsLoading ? (
-                    <LemonSkeleton className="h-10" />
-                ) : (
-                    <p>No integrations</p>
-                )}
+                {filteredIntegrations?.length
+                    ? filteredIntegrations.map((integration) => (
+                          <IntegrationView key={integration.id} integration={integration} />
+                      ))
+                    : integrationsLoading && <LemonSkeleton className="h-10" />}
             </div>
         </div>
     )

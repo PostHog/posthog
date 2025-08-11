@@ -101,7 +101,7 @@ export function MessageChannels(): JSX.Element {
                     />
                 )}
                 <EmailIntegrationsList />
-                <IntegrationsList titleText="" onlyKinds={[...MESSAGING_CHANNEL_TYPES]} />
+                <IntegrationsList titleText="" onlyKinds={MESSAGING_CHANNEL_TYPES.filter((type) => type !== 'email')} />
             </div>
         </>
     )
