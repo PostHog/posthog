@@ -7,7 +7,7 @@ from posthog.models.link import Link
 
 class LinkAdmin(admin.ModelAdmin):
     list_display = ("id", "redirect_url_display", "team_link", "created_at", "updated_at")
-    list_filter = ("team", "created_at", "updated_at")
+    list_filter = ("created_at", "updated_at")
     search_fields = ("id", "redirect_url", "team__name")
     readonly_fields = ("id", "created_at", "updated_at")
     autocomplete_fields = ("team",)
