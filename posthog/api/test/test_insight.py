@@ -3701,17 +3701,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         query_data = response_data["query"]
         self.assertEqual(query_data["kind"], "RetentionQuery")
 
-        # Most importantly: Verify that the dashboard breakdown filter was processed without error
-        # The breakdown migration should have occurred in the background during serialization
-        # Even though retention queries don't use breakdown filters, the migration logic should not crash
+        self.assertIn("breakdownFilter", query_data)
+        breakdown_filter = query_data["breakdownFilter"]
 
-        # Debug: Check if dashboard filters were actually applied
-        # For HogQL insights, the query should be modified by dashboard filters
-        if response_data.get("query"):
-            if "breakdownFilter" in response_data["query"]:
-                pass
-            else:
-                pass
+        self.assertIn("breakdowns", breakdown_filter)
+        self.assertEqual(len(breakdown_filter["breakdowns"]), 1)
+
+        breakdown = breakdown_filter["breakdowns"][0]
+        self.assertEqual(breakdown["property"], "split_test_homepageAug25")
+        self.assertEqual(breakdown["type"], "event")
+
+        self.assertIsNone(breakdown_filter.get("breakdown"))
 
     def test_trends_insight_breakdown_filter_migration_from_dashboard(self):
         """Test that dashboard breakdown filters are properly migrated to the breakdowns array format"""
@@ -3769,11 +3769,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         query_data = response_data["query"]
         self.assertEqual(query_data["kind"], "TrendsQuery")
 
-        # Verify the breakdown filter was migrated to breakdowns array format
         self.assertIn("breakdownFilter", query_data)
         breakdown_filter = query_data["breakdownFilter"]
 
-        # The migration should have created the breakdowns array
         self.assertIn("breakdowns", breakdown_filter)
         self.assertEqual(len(breakdown_filter["breakdowns"]), 1)
 
@@ -3784,7 +3782,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(breakdown["histogram_bin_count"], 10)
         self.assertEqual(breakdown["group_type_index"], 2)
 
-        # Most legacy fields should be cleared (breakdown_type may still be present in some contexts)
         self.assertIsNone(breakdown_filter.get("breakdown"))
         self.assertIsNone(breakdown_filter.get("breakdown_group_type_index"))
         self.assertIsNone(breakdown_filter.get("breakdown_normalize_url"))

@@ -1120,15 +1120,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if dashboard_filter.breakdown_filter:
             if hasattr(self.query, "breakdownFilter"):
-                # Apply the breakdown filter, with migration from legacy format
                 breakdown_filter = dashboard_filter.breakdown_filter
 
-                # Migration: if breakdown_filter has a non-null breakdown, migrate to breakdowns array
+                # Migrate legacy breakdown format to breakdowns array
                 if breakdown_filter.breakdown is not None:
-                    # Create new Breakdown object from the breakdown_filter settings
                     from posthog.schema import Breakdown, MultipleBreakdownType
 
-                    # Map BreakdownType to MultipleBreakdownType
                     breakdown_type_mapping = {
                         "person": MultipleBreakdownType.PERSON,
                         "event": MultipleBreakdownType.EVENT,
@@ -1148,8 +1145,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         normalize_url=breakdown_filter.breakdown_normalize_url,
                     )
 
-                    # Create a modified breakdown filter with the breakdown migrated to breakdowns array
-                    # Clear all legacy fields that were moved to the Breakdown object
                     migrated_breakdown_filter = breakdown_filter.model_copy(
                         update={
                             "breakdown": None,
@@ -1161,7 +1156,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                     self.query.breakdownFilter = migrated_breakdown_filter
                 else:
-                    # No migration needed, apply as-is
                     self.query.breakdownFilter = breakdown_filter
             else:
                 capture_exception(

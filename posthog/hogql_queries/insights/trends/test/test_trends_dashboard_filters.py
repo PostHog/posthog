@@ -321,7 +321,6 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        # After migration, the breakdown should be None and breakdowns array should be populated
         expected_breakdown_filter = BreakdownFilter(
             breakdown=None,
             breakdown_group_type_index=None,
