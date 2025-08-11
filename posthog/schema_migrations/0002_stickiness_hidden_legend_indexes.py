@@ -1,6 +1,11 @@
 from posthog.schema import NodeKind
 from posthog.schema_migrations.base import SchemaMigration
 
+KIND_TO_FILTER_KEY = {
+    "TrendsQuery": "trendsFilter",
+    "StickinessQuery": "stickinessFilter",
+}
+
 
 class Migration(SchemaMigration):
     """Convert 'hiddenLegendIndexes' to a new 'hidden' field of 'resultCustomizations'."""
@@ -8,37 +13,28 @@ class Migration(SchemaMigration):
     targets = {NodeKind.TRENDS_QUERY: 1, NodeKind.STICKINESS_QUERY: 1}
 
     def transform(self, query: dict) -> dict:
-        # Only handle TrendsQuery and StickinessQuery
-        kind = query.get("kind")
-        if kind == "TrendsQuery":
-            filter_key = "trendsFilter"
-        elif kind == "StickinessQuery":
-            filter_key = "stickinessFilter"
-        else:
+        filter_key = KIND_TO_FILTER_KEY.get(query.get("kind"))
+        if not filter_key:
             return query
 
         insight_filter = query.get(filter_key)
-        if insight_filter is None:
+        if not isinstance(insight_filter, dict):
             return query
 
         hidden_indexes = insight_filter.get("hiddenLegendIndexes")
-        result_customizations = insight_filter.get("resultCustomizations")
+        result_customizations = insight_filter.get("resultCustomizations") or {}
+        result_customization_by = insight_filter.get("resultCustomizationBy")
 
-        # If no hiddenLegendIndexes, nothing to do
+        # Nothing to do, if there are no hiddenLegendIndexes
         if not hidden_indexes:
             return query
 
-        # If resultCustomizations is None or not present, treat as empty dict
-        if result_customizations is None:
-            result_customizations = {}
-
-        # If resultCustomizationBy == "value" or is empty, and has_value_assignment, we cannot convert hiddenLegendIndexes
+        # Handle case where we have resultCustomizations by value
         has_value_assignment = any(
             isinstance(v, dict) and v.get("assignmentBy") == "value" for v in result_customizations.values()
         )
-        result_customization_by = insight_filter.get("resultCustomizationBy")
         if (result_customization_by == "value" or not result_customization_by) and has_value_assignment:
-            # Allow conversion if no breakdown and no compare
+            # Allow conversion if there are no breakdown and no compare
             if not self._has_breakdown(query=query) and not self._has_compare(query=query):
                 # Convert hiddenLegendIndexes to resultCustomizations by value
                 new_result_customizations = dict(result_customizations)
@@ -54,14 +50,14 @@ class Migration(SchemaMigration):
                 query = dict(query)
                 query[filter_key] = new_insight_filter
                 return query
-            # Remove hiddenLegendIndexes, leave resultCustomizations as is
+            # Otherwise remove hiddenLegendIndexes
             new_insight_filter = dict(insight_filter)
             new_insight_filter.pop("hiddenLegendIndexes", None)
             query = dict(query)
             query[filter_key] = new_insight_filter
             return query
 
-        # Otherwise, convert hiddenLegendIndexes to resultCustomizations by position
+        # Handle case where we do not have resultCustomizations by value
         new_result_customizations = dict(result_customizations)
         for idx in hidden_indexes:
             idx_str = str(idx)
