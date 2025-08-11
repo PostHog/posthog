@@ -153,7 +153,7 @@ impl SourcePair {
 }
 
 pub fn read_pairs(directory: &PathBuf, ignore_globs: &Vec<String>) -> Result<Vec<SourcePair>> {
-    // Make sure the directory exists&
+    // Make sure the directory exists
     if !directory.exists() {
         bail!("Directory does not exist");
     }
