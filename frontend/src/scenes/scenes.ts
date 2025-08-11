@@ -49,196 +49,59 @@ export const preloadedScenes: Record<string, LoadedScene> = {
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
-    [Scene.Error404]: {
-        name: 'Not found',
+    [Scene.Action]: { projectBased: true, name: 'Action', defaultDocsPath: '/docs/data/actions' },
+    [Scene.Activity]: { projectBased: true, name: 'Activity', defaultDocsPath: '/docs/data/events' },
+    [Scene.AsyncMigrations]: { instanceLevel: true },
+    [Scene.BillingAuthorizationStatus]: {
+        hideProjectNotice: true,
+        organizationBased: true,
+        defaultDocsPath: '/pricing',
+    },
+    [Scene.BillingSection]: { name: 'Billing', hideProjectNotice: true, organizationBased: true },
+    [Scene.Billing]: { hideProjectNotice: true, organizationBased: true, defaultDocsPath: '/pricing' },
+    [Scene.Canvas]: {
         projectBased: true,
+        name: 'Canvas',
+        layout: 'app-raw',
+        defaultDocsPath: '/blog/introducing-notebooks',
     },
-    [Scene.ErrorAccessDenied]: {
-        name: 'Access denied',
-    },
-    [Scene.ErrorNetwork]: {
-        name: 'Network error',
-    },
-    [Scene.ErrorProjectUnavailable]: {
-        name: 'Project unavailable',
-    },
-    [Scene.NewTab]: {
-        projectBased: true,
-        name: 'New tab',
-    },
-    // Project-based routes
-    [Scene.Dashboards]: {
-        projectBased: true,
-        name: 'Dashboards',
-        activityScope: ActivityScope.DASHBOARD,
-    },
+    [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
+    [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
+    [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
-    [Scene.Insight]: {
-        projectBased: true,
-        name: 'Insights',
-        activityScope: ActivityScope.INSIGHT,
-        defaultDocsPath: '/docs/product-analytics/insights',
-    },
-    [Scene.WebAnalytics]: {
-        projectBased: true,
-        name: 'Web analytics',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics',
-    },
-    [Scene.WebAnalyticsWebVitals]: {
-        projectBased: true,
-        name: 'Web vitals',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics/web-vitals',
-    },
-    [Scene.WebAnalyticsPageReports]: {
-        projectBased: true,
-        name: 'Page reports',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics',
-    },
-    [Scene.WebAnalyticsMarketing]: {
-        projectBased: true,
-        name: 'Marketing',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics/marketing',
-    },
-    [Scene.RevenueAnalytics]: {
-        projectBased: true,
-        name: 'Revenue analytics',
-        layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
-    },
-    [Scene.Cohort]: {
-        projectBased: true,
-        name: 'Cohort',
-        defaultDocsPath: '/docs/data/cohorts',
-    },
-    [Scene.Activity]: {
-        projectBased: true,
-        name: 'Activity',
-        defaultDocsPath: '/docs/data/events',
-    },
+    [Scene.Dashboards]: { projectBased: true, name: 'Dashboards', activityScope: ActivityScope.DASHBOARD },
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
         activityScope: ActivityScope.DATA_MANAGEMENT,
         defaultDocsPath: '/docs/data',
     },
-    [Scene.EventDefinition]: {
-        projectBased: true,
-        name: 'Data management',
-        activityScope: ActivityScope.EVENT_DEFINITION,
-        defaultDocsPath: '/docs/data/events',
-    },
+    [Scene.DataPipelinesNew]: { projectBased: true, name: 'New data pipeline' },
+    [Scene.DataPipelines]: { projectBased: true, name: 'Data pipelines' },
+    [Scene.DataWarehouseSourceNew]: { projectBased: true, name: 'New data warehouse source' },
+    [Scene.DataWarehouseSource]: { projectBased: true, name: 'Data warehouse source' },
+    [Scene.DeadLetterQueue]: { instanceLevel: true },
+    [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
+    [Scene.DebugQuery]: { projectBased: true },
+    [Scene.Error404]: { name: 'Not found', projectBased: true },
+    [Scene.ErrorAccessDenied]: { name: 'Access denied' },
+    [Scene.ErrorNetwork]: { name: 'Network error' },
+    [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
     [Scene.EventDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
         activityScope: ActivityScope.EVENT_DEFINITION,
         defaultDocsPath: '/docs/data/events',
     },
-    [Scene.PropertyDefinition]: {
+    [Scene.EventDefinition]: {
         projectBased: true,
         name: 'Data management',
-        activityScope: ActivityScope.PROPERTY_DEFINITION,
-    },
-    [Scene.PropertyDefinitionEdit]: {
-        projectBased: true,
-        name: 'Data management',
-        activityScope: ActivityScope.PROPERTY_DEFINITION,
-    },
-    [Scene.Replay]: {
-        projectBased: true,
-        name: 'Session replay',
-        activityScope: ActivityScope.REPLAY,
-        defaultDocsPath: '/docs/session-replay',
-    },
-    [Scene.ReplaySingle]: {
-        projectBased: true,
-        name: 'Replay recording',
-        activityScope: ActivityScope.REPLAY,
-        defaultDocsPath: '/docs/session-replay',
-    },
-    [Scene.CustomCss]: {
-        projectBased: true,
-        name: 'Custom CSS',
-    },
-    [Scene.ReplayPlaylist]: {
-        projectBased: true,
-        name: 'Replay playlist',
-        activityScope: ActivityScope.REPLAY,
-        defaultDocsPath: '/docs/session-replay',
-    },
-    [Scene.ReplayFilePlayback]: {
-        projectBased: true,
-        name: 'File playback',
-        activityScope: ActivityScope.REPLAY,
-        defaultDocsPath: '/docs/session-replay',
-    },
-    [Scene.ReplaySettings]: {
-        projectBased: true,
-        name: 'Settings',
-        activityScope: ActivityScope.REPLAY,
-        defaultDocsPath: '/docs/session-replay',
-    },
-    [Scene.Person]: {
-        projectBased: true,
-        name: 'Person',
-        activityScope: ActivityScope.PERSON,
-        defaultDocsPath: '/docs/data/persons',
-    },
-    [Scene.PersonsManagement]: {
-        projectBased: true,
-        name: 'People & groups',
-        activityScope: ActivityScope.PERSON,
-        defaultDocsPath: '/docs/data/persons',
-    },
-    [Scene.Action]: {
-        projectBased: true,
-        name: 'Action',
-        defaultDocsPath: '/docs/data/actions',
-    },
-    [Scene.Groups]: {
-        projectBased: true,
-        name: 'Groups',
-        defaultDocsPath: '/docs/product-analytics/group-analytics',
-    },
-    [Scene.GroupsNew]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/product-analytics/group-analytics',
-    },
-    [Scene.Group]: {
-        projectBased: true,
-        name: 'People & groups',
-        defaultDocsPath: '/docs/product-analytics/group-analytics',
-    },
-    [Scene.PipelineNodeNew]: {
-        projectBased: true,
-        name: 'Pipeline new step',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.Pipeline]: {
-        projectBased: true,
-        name: 'Pipeline',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.PipelineNode]: {
-        projectBased: true,
-        name: 'Pipeline step',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.Experiments]: {
-        projectBased: true,
-        name: 'Experiments',
-        defaultDocsPath: '/docs/experiments',
-        activityScope: ActivityScope.EXPERIMENT,
+        activityScope: ActivityScope.EVENT_DEFINITION,
+        defaultDocsPath: '/docs/data/events',
     },
     [Scene.Experiment]: {
         projectBased: true,
@@ -258,33 +121,165 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
-    [Scene.FeatureFlags]: {
+    [Scene.Experiments]: {
         projectBased: true,
-        name: 'Feature flags',
-        defaultDocsPath: '/docs/feature-flags',
-        activityScope: ActivityScope.FEATURE_FLAG,
+        name: 'Experiments',
+        defaultDocsPath: '/docs/experiments',
+        activityScope: ActivityScope.EXPERIMENT,
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
-    [Scene.Surveys]: {
+    [Scene.FeatureFlags]: {
         projectBased: true,
-        name: 'Surveys',
-        defaultDocsPath: '/docs/surveys',
-        activityScope: ActivityScope.SURVEY,
+        name: 'Feature flags',
+        defaultDocsPath: '/docs/feature-flags',
+        activityScope: ActivityScope.FEATURE_FLAG,
     },
-    [Scene.Survey]: {
+    [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
+    [Scene.Group]: {
         projectBased: true,
-        name: 'Survey',
-        defaultDocsPath: '/docs/surveys',
-        activityScope: ActivityScope.SURVEY,
+        name: 'People & groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
-    [Scene.SurveyTemplates]: {
+    [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
+    [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
+    [Scene.Heatmaps]: { projectBased: true, name: 'Heatmaps' },
+    [Scene.HogFunction]: { projectBased: true, name: 'Hog function' },
+    [Scene.Insight]: {
         projectBased: true,
-        name: 'New survey',
-        defaultDocsPath: '/docs/surveys/creating-surveys',
+        name: 'Insights',
+        activityScope: ActivityScope.INSIGHT,
+        defaultDocsPath: '/docs/product-analytics/insights',
+    },
+    [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
+    [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
+    [Scene.Link]: { projectBased: true },
+    [Scene.Links]: { projectBased: true, name: 'Links' },
+    [Scene.Login2FA]: { onlyUnauthenticated: true },
+    [Scene.Login]: { onlyUnauthenticated: true },
+    [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
+    [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
+    [Scene.NewTab]: { projectBased: true, name: 'New tab' },
+    [Scene.Notebook]: {
+        projectBased: true,
+        hideProjectNotice: true,
+        name: 'Notebook',
+        layout: 'app-raw',
+        activityScope: ActivityScope.NOTEBOOK,
+        defaultDocsPath: '/blog/introducing-notebooks',
+    },
+    [Scene.Notebooks]: {
+        projectBased: true,
+        name: 'Notebooks',
+        activityScope: ActivityScope.NOTEBOOK,
+        defaultDocsPath: '/blog/introducing-notebooks',
+    },
+    [Scene.OAuthAuthorize]: {
+        name: 'Authorize',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+        allowUnauthenticated: true,
+    },
+    [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
+    [Scene.OrganizationCreateFirst]: {
+        name: 'Organization creation',
+        defaultDocsPath: '/docs/data/organizations-and-projects',
+    },
+    [Scene.OrganizationCreationConfirm]: {
+        name: 'Confirm organization creation',
+        onlyUnauthenticated: true,
+        defaultDocsPath: '/docs/data/organizations-and-projects',
+    },
+    [Scene.PasswordResetComplete]: { onlyUnauthenticated: true },
+    [Scene.PasswordReset]: { onlyUnauthenticated: true },
+    [Scene.Person]: {
+        projectBased: true,
+        name: 'Person',
+        activityScope: ActivityScope.PERSON,
+        defaultDocsPath: '/docs/data/persons',
+    },
+    [Scene.Persons]: {
+        projectBased: true,
+        name: 'Persons',
+        activityScope: ActivityScope.PERSON,
+        defaultDocsPath: '/docs/data/persons',
+    },
+    [Scene.PipelineNodeNew]: {
+        projectBased: true,
+        name: 'Pipeline new step',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
+    },
+    [Scene.PipelineNode]: {
+        projectBased: true,
+        name: 'Pipeline step',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
+    },
+    [Scene.Pipeline]: {
+        projectBased: true,
+        name: 'Pipeline',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
+    },
+    [Scene.PreflightCheck]: { onlyUnauthenticated: true },
+    [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
+    [Scene.ProjectCreateFirst]: {
+        name: 'Project creation',
+        organizationBased: true,
+        defaultDocsPath: '/docs/data/organizations-and-projects',
+    },
+    [Scene.ProjectHomepage]: { projectBased: true, name: 'Homepage' },
+    [Scene.PropertyDefinitionEdit]: {
+        projectBased: true,
+        name: 'Data management',
+        activityScope: ActivityScope.PROPERTY_DEFINITION,
+    },
+    [Scene.PropertyDefinition]: {
+        projectBased: true,
+        name: 'Data management',
+        activityScope: ActivityScope.PROPERTY_DEFINITION,
+    },
+    [Scene.ReplayFilePlayback]: {
+        projectBased: true,
+        name: 'File playback',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.ReplayPlaylist]: {
+        projectBased: true,
+        name: 'Replay playlist',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.ReplaySettings]: {
+        projectBased: true,
+        name: 'Settings',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.ReplaySingle]: {
+        projectBased: true,
+        name: 'Replay recording',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.Replay]: {
+        projectBased: true,
+        name: 'Session replay',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.RevenueAnalytics]: {
+        projectBased: true,
+        name: 'Revenue analytics',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
     },
     [Scene.SQLEditor]: {
         projectBased: true,
@@ -299,207 +294,57 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics',
     },
-    [Scene.ProjectHomepage]: {
+    [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
+    [Scene.Settings]: { projectBased: true, name: 'Settings' },
+    [Scene.Signup]: { onlyUnauthenticated: true },
+    [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
+    [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
+    [Scene.SurveyTemplates]: {
         projectBased: true,
-        name: 'Homepage',
+        name: 'New survey',
+        defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.Max]: {
+    [Scene.Survey]: {
         projectBased: true,
-        name: 'Max',
-        layout: 'app-raw',
-        hideProjectNotice: true,
+        name: 'Survey',
+        defaultDocsPath: '/docs/surveys',
+        activityScope: ActivityScope.SURVEY,
     },
-    [Scene.IntegrationsRedirect]: {
-        name: 'Integrations redirect',
-    },
-    [Scene.Products]: {
+    [Scene.Surveys]: {
         projectBased: true,
-        name: 'Products',
-        layout: 'plain',
+        name: 'Surveys',
+        defaultDocsPath: '/docs/surveys',
+        activityScope: ActivityScope.SURVEY,
     },
-    [Scene.Onboarding]: {
+    [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
+    [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar', defaultDocsPath: '/docs/toolbar' },
+    [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
+    [Scene.WebAnalyticsMarketing]: {
         projectBased: true,
-        name: 'Onboarding',
-        layout: 'plain',
-    },
-    [Scene.ToolbarLaunch]: {
-        projectBased: true,
-        name: 'Launch toolbar',
-        defaultDocsPath: '/docs/toolbar',
-    },
-    [Scene.Site]: {
-        projectBased: true,
-        hideProjectNotice: true,
-        layout: 'app-raw',
-    },
-    // Organization-based routes
-    [Scene.OrganizationCreateFirst]: {
-        name: 'Organization creation',
-        defaultDocsPath: '/docs/data/organizations-and-projects',
-    },
-    [Scene.OrganizationCreationConfirm]: {
-        name: 'Confirm organization creation',
-        onlyUnauthenticated: true,
-        defaultDocsPath: '/docs/data/organizations-and-projects',
-    },
-    [Scene.ProjectCreateFirst]: {
-        name: 'Project creation',
-        organizationBased: true,
-        defaultDocsPath: '/docs/data/organizations-and-projects',
-    },
-    // Onboarding/setup routes
-    [Scene.Login]: {
-        onlyUnauthenticated: true,
-    },
-    [Scene.Login2FA]: {
-        onlyUnauthenticated: true,
-    },
-    [Scene.Signup]: {
-        onlyUnauthenticated: true,
-    },
-    [Scene.PreflightCheck]: {
-        onlyUnauthenticated: true,
-    },
-    [Scene.PasswordReset]: {
-        onlyUnauthenticated: true,
-    },
-    [Scene.PasswordResetComplete]: {
-        onlyUnauthenticated: true,
-    },
-    [Scene.InviteSignup]: {
-        allowUnauthenticated: true,
-        layout: 'plain',
-    },
-    // Instance management routes
-    [Scene.SystemStatus]: {
-        instanceLevel: true,
-        name: 'Instance panel',
-    },
-    [Scene.AsyncMigrations]: {
-        instanceLevel: true,
-    },
-    [Scene.DeadLetterQueue]: {
-        instanceLevel: true,
-    },
-    // Cloud-only routes
-    [Scene.Billing]: {
-        hideProjectNotice: true,
-        organizationBased: true,
-        defaultDocsPath: '/pricing',
-    },
-    [Scene.BillingSection]: {
-        name: 'Billing',
-        hideProjectNotice: true,
-        organizationBased: true,
-    },
-    [Scene.BillingAuthorizationStatus]: {
-        hideProjectNotice: true,
-        organizationBased: true,
-        defaultDocsPath: '/pricing',
-    },
-    [Scene.Unsubscribe]: {
-        allowUnauthenticated: true,
-        layout: 'app-raw',
-    },
-    [Scene.DebugQuery]: {
-        projectBased: true,
-    },
-    [Scene.DebugHog]: {
-        projectBased: true,
-        name: 'Hog Repl',
-    },
-    [Scene.VerifyEmail]: {
-        allowUnauthenticated: true,
-        layout: 'plain',
-    },
-    [Scene.Notebook]: {
-        projectBased: true,
-        hideProjectNotice: true, // FIXME: Currently doesn't render well...
-        name: 'Notebook',
-        layout: 'app-raw',
-        activityScope: ActivityScope.NOTEBOOK,
-        defaultDocsPath: '/blog/introducing-notebooks',
-    },
-    [Scene.Notebooks]: {
-        projectBased: true,
-        name: 'Notebooks',
-        activityScope: ActivityScope.NOTEBOOK,
-        defaultDocsPath: '/blog/introducing-notebooks',
-    },
-    [Scene.Canvas]: {
-        projectBased: true,
-        name: 'Canvas',
-        layout: 'app-raw',
-        defaultDocsPath: '/blog/introducing-notebooks',
-    },
-    [Scene.Settings]: {
-        projectBased: true,
-        name: 'Settings',
-    },
-    [Scene.MoveToPostHogCloud]: {
-        name: 'Move to PostHog Cloud',
-        hideProjectNotice: true,
-    },
-    [Scene.Heatmaps]: {
-        projectBased: true,
-        name: 'Heatmaps',
-    },
-    [Scene.Links]: {
-        projectBased: true,
-        name: 'Links',
-    },
-    [Scene.Link]: {
-        projectBased: true,
-    },
-    [Scene.SessionAttributionExplorer]: {
-        projectBased: true,
-        name: 'Session attribution explorer (beta)',
-    },
-    [Scene.Wizard]: {
-        projectBased: true,
-        name: 'Wizard',
-        layout: 'plain',
-    },
-    [Scene.StartupProgram]: {
-        name: 'PostHog for Startups',
-        organizationBased: true,
+        name: 'Marketing',
         layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/marketing',
     },
-    [Scene.OAuthAuthorize]: {
-        name: 'Authorize',
-        layout: 'plain',
-        projectBased: false,
-        organizationBased: false,
-        allowUnauthenticated: true,
-    },
-    [Scene.HogFunction]: {
+    [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
-        name: 'Hog function',
+        name: 'Page reports',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics',
     },
-    [Scene.DataPipelines]: {
+    [Scene.WebAnalyticsWebVitals]: {
         projectBased: true,
-        name: 'Data pipelines',
+        name: 'Web vitals',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/web-vitals',
     },
-    [Scene.DataPipelinesNew]: {
+    [Scene.WebAnalytics]: {
         projectBased: true,
-        name: 'New data pipeline',
+        name: 'Web analytics',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics',
     },
-    [Scene.DataWarehouseSource]: {
-        projectBased: true,
-        name: 'Data warehouse source',
-    },
-    [Scene.DataWarehouseSourceNew]: {
-        projectBased: true,
-        name: 'New data warehouse source',
-    },
-    [Scene.LegacyPlugin]: {
-        projectBased: true,
-        name: 'Legacy plugin',
-    },
-    [Scene.Game368]: {
-        name: '368 Hedgehogs',
-        projectBased: true,
-    },
+    [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
 }
 
@@ -510,20 +355,24 @@ export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
-    '/new': urls.newTab(),
-    '/home': urls.projectHomepage(),
-    '/saved_insights': urls.savedInsights(),
-    '/dashboards': urls.dashboards(),
-    '/actions': urls.actions(),
-    '/organization/members': urls.settings('organization'),
-    '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
-    '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
+    '/action/:id': ({ id }) => urls.action(id),
+    '/actions': urls.actions(),
     '/activity': urls.activity(),
+    '/annotations': () => urls.annotations(),
+    '/annotations/:id': ({ id }) => urls.annotation(id),
+    '/apps': urls.pipeline(PipelineTab.Overview),
+    '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
+    '/batch_exports': urls.pipeline(PipelineTab.Destinations),
+    '/batch_exports/:id': ({ id }) => urls.pipelineNode(PipelineStage.Destination, id),
+    '/comments': () => urls.comments(),
+    '/dashboards': urls.dashboards(),
+    '/data-management': urls.eventDefinitions(),
+    '/data-management/database': urls.pipeline(PipelineTab.Sources),
+    '/data-pipelines': urls.dataPipelines('overview'),
+    '/data-warehouse': urls.dataWarehouse(),
+    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/events': urls.activity(),
-    '/events/actions': urls.actions(),
-    '/events/stats': urls.eventDefinitions(),
-    '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     '/events/:id/*': ({ id, _ }) => {
         const query = getDefaultEventsSceneQuery([
             {
@@ -542,15 +391,26 @@ export const redirects: Record<
         }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
     },
+    '/events/actions': urls.actions(),
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
-    '/annotations': () => urls.annotations(),
-    '/annotations/:id': ({ id }) => urls.annotation(id),
-    '/comments': () => urls.comments(),
-    '/recordings/:id': ({ id }) => urls.replaySingle(id),
-    '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
+    '/events/stats': urls.eventDefinitions(),
+    '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    '/home': urls.projectHomepage(),
+    '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
+    '/instance': urls.instanceStatus(),
+    '/me/settings': urls.settings('user'),
+    '/messaging': urls.messaging('campaigns'),
+    '/new': urls.newTab(),
+    '/organization/members': urls.settings('organization'),
+    '/organization/settings': urls.settings('organization'),
+    '/pipeline': urls.pipeline(),
+    '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
+    '/project/settings': urls.settings('project'),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
+    '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/settings': () => urls.replaySettings(),
+    '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
@@ -559,27 +419,11 @@ export const redirects: Record<
         return urls.replay()
     },
     '/replay': urls.replay(),
-    '/replay/recent': (_params, searchParams) => {
-        return urls.replay(undefined, searchParams.filters, searchParams.sessionRecordingId)
-    },
+    '/replay/recent': (_params, searchParams) =>
+        urls.replay(undefined, searchParams.filters, searchParams.sessionRecordingId),
+    '/saved_insights': urls.savedInsights(),
     '/settings': urls.settings(),
-    '/project/settings': urls.settings('project'),
-    '/organization/settings': urls.settings('organization'),
-    '/me/settings': urls.settings('user'),
-    '/pipeline': urls.pipeline(),
-    '/instance': urls.instanceStatus(),
-    '/data-management': urls.eventDefinitions(),
-    '/data-management/database': urls.pipeline(PipelineTab.Sources),
-    '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
-    '/batch_exports/:id': ({ id }) => urls.pipelineNode(PipelineStage.Destination, id),
-    '/batch_exports': urls.pipeline(PipelineTab.Destinations),
-    '/apps': urls.pipeline(PipelineTab.Overview),
-    '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/messaging': urls.messaging('campaigns'),
     '/settings/organization-rbac': urls.settings('organization-roles'),
-    '/data-pipelines': urls.dataPipelines('overview'),
-    '/data-warehouse': urls.dataWarehouse(),
-    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
 }
 
@@ -637,19 +481,19 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
     [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
-    [urls.persons()]: [Scene.PersonsManagement, 'persons'],
+    [urls.persons()]: [Scene.Persons, 'persons'],
     [urls.pipelineNodeNew(':stage')]: [Scene.PipelineNodeNew, 'pipelineNodeNew'],
     [urls.pipelineNodeNew(':stage', { id: ':id' })]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
     [urls.pipeline(':tab')]: [Scene.Pipeline, 'pipeline'],
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: [Scene.PipelineNode, 'pipelineNode'],
     [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
-    [urls.groups(':groupTypeIndex')]: [Scene.PersonsManagement, 'groups'],
+    [urls.groups(':groupTypeIndex')]: [Scene.Groups, 'groups'],
     [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
-    [urls.cohorts()]: [Scene.PersonsManagement, 'cohorts'],
+    [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
