@@ -125,15 +125,8 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
     },
 }
 
-for (const tool of Object.values(TOOL_DEFINITIONS)) {
-    if (tool.description && !tool.description.startsWith(tool.name)) {
-        // Ugly runtime check, but TypeScript can't infer this, and otherwise UI could break
-        throw new Error(`Tool description for ${tool.name} must start with the tool name!`)
-    }
-}
-
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
-const STATIC_TOOLS: ToolRegistration[] = [
+export const STATIC_TOOLS: ToolRegistration[] = [
     {
         identifier: 'navigate' as const,
         name: TOOL_DEFINITIONS['navigate'].name,

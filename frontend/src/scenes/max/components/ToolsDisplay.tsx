@@ -7,7 +7,7 @@ import React from 'react'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 
-import { ToolDefinition, TOOL_DEFINITIONS, ToolRegistration } from '../maxGlobalLogic'
+import { STATIC_TOOLS, ToolDefinition, TOOL_DEFINITIONS, ToolRegistration } from '../maxGlobalLogic'
 import './QuestionInput.scss'
 import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 import { identifierToHuman } from 'lib/utils'
@@ -37,6 +37,8 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
     const toolsContainerRef = useRef<HTMLDivElement>(null)
     const toolsRef = useRef<HTMLElement[]>([])
     const [firstToolOverflowing, setFirstToolOverflowing] = useState<AssistantContextualTool | null>(null)
+
+    useEffect(() => throwIfToolsMalformed(), [])
 
     const onResize = useCallback((): void => {
         let foundOverflow = false
@@ -214,4 +216,17 @@ function ToolPill({
             {tool.name}
         </em>
     )
+}
+
+function throwIfToolsMalformed(): void {
+    const definitionsToCheck = (STATIC_TOOLS as Pick<ToolRegistration, 'name' | 'description'>[]).concat(
+        Object.values(TOOL_DEFINITIONS)
+    )
+    // Ugly runtime check to ensure every tool description is in fact in the form of `${tool.name} ...`
+    // TypeScript can't guarantee it, but if violated, ToolsDisplay UI is broken
+    for (const tool of definitionsToCheck) {
+        if (tool.description && !tool.description.startsWith(tool.name)) {
+            throw new Error(`Tool description for "${tool.name}" must start with the tool name ("${tool.name} ...")!`)
+        }
+    }
 }
