@@ -325,28 +325,32 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
 
         # Validate blob_v2 parameters
         if source == "blob_v2":
+            if not blob_key and not start_blob_key and not end_blob_key:
+                raise serializers.ValidationError("Must provide either a blob key or start and end blob keys")
+
             if blob_key and (start_blob_key or end_blob_key):
                 raise serializers.ValidationError("Must provide a single blob key or start and end blob keys, not both")
 
-            if start_blob_key and not end_blob_key:
-                raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
-            if end_blob_key and not start_blob_key:
-                raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+            if blob_key and blob_key.startswith("/"):
+                # blob key that starts with / is (probably) an LTS path
+                pass
+            else:
+                if start_blob_key and not end_blob_key:
+                    raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+                if end_blob_key and not start_blob_key:
+                    raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
 
-            if not blob_key and not start_blob_key:
-                raise serializers.ValidationError("Must provide one of blob key or start and end blob keys")
+                try:
+                    min_blob_key = int(start_blob_key or blob_key)
+                    max_blob_key = int(end_blob_key or blob_key)
+                    data["min_blob_key"] = min_blob_key
+                    data["max_blob_key"] = max_blob_key
+                except (ValueError, TypeError):
+                    raise serializers.ValidationError("Blob key must be an integer")
 
-            try:
-                min_blob_key = int(start_blob_key or blob_key)
-                max_blob_key = int(end_blob_key or blob_key)
-                data["min_blob_key"] = min_blob_key
-                data["max_blob_key"] = max_blob_key
-            except (ValueError, TypeError):
-                raise serializers.ValidationError("Blob key must be an integer")
-
-            max_blobs_allowed = 20 if is_personal_api_key else 100
-            if max_blob_key - min_blob_key > max_blobs_allowed:
-                raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
+                max_blobs_allowed = 20 if is_personal_api_key else 100
+                if max_blob_key - min_blob_key > max_blobs_allowed:
+                    raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
         # Validate blob parameters (v1)
         elif source == "blob" and blob_key:
@@ -953,6 +957,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
+        # blob v1 API has been deprecated for a while now,
+        # we'll cut off access for new teams to give older teams time to migrate
+        # this defaults to True, and then is only maybe set to False for usage of personal api keys
+        blob_v1_sources_are_allowed = True
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
             used_key = personal_api_authenticator.personal_api_key
@@ -972,14 +980,26 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
+            blob_v1_sources_are_allowed = self.team.created_at <= datetime.fromisoformat(
+                settings.API_V1_DEPRECATION_DATE
+            )
+
         try:
             response: Response | HttpResponse
             if not source:
                 response = self._gather_session_recording_sources(recording, timer, is_v2_enabled, is_v2_lts_enabled)
             elif source == "realtime":
+                if not blob_v1_sources_are_allowed:
+                    raise exceptions.ValidationError(
+                        "Realtime snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
+                    )
                 with timer("send_realtime_snapshots_to_client"):
                     response = self._send_realtime_snapshots_to_client(recording)
             elif source == "blob":
+                if not blob_v1_sources_are_allowed:
+                    raise exceptions.ValidationError(
+                        "blob snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
+                    )
                 with timer("stream_blob_to_client"):
                     response = self._stream_blob_to_client(
                         recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
@@ -992,6 +1012,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         min_blob_key=validated_data["min_blob_key"],
                         max_blob_key=validated_data["max_blob_key"],
                     )
+                elif "blob_key" in validated_data:
+                    response = self._stream_lts_blob_v2_to_client(recording, timer, blob_key=validated_data["blob_key"])
                 else:
                     response = self._gather_session_recording_sources(
                         recording, timer, is_v2_enabled, is_v2_lts_enabled
@@ -1087,9 +1109,16 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         posthoganalytics.tag("recording_location", "recording.full_recording_v2_path")
                         LOADING_V2_LTS_COUNTER.inc()
                         try:
-                            blob_prefix = recording.full_recording_v2_path
-                            blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                            might_have_realtime = False
+                            # Parse S3 URL to extract prefix (path without query parameters)
+                            # Example: s3://bucket/path?range=bytes=0-1372588 -> path
+                            # s3:/the_bucket/the_session_recordings_lts_prefix/{uuid}?range=bytes=0-14468
+                            # for now we can ignore that v2 is in a different bucket and just use the path
+                            sources.append(
+                                {
+                                    "source": "blob_v2",
+                                    "blob_key": urlparse(recording.full_recording_v2_path).path,
+                                }
+                            )
                         except Exception as e:
                             capture_exception(e)
                     else:
@@ -1109,6 +1138,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 with timer("list_objects__gather_session_recording_sources"):
                     if recording.object_storage_path:
                         LOADING_V1_LTS_COUNTER.inc()
+                        # like session_recordings_lts/team_id/{team_id}/session_id/{uuid}/data
+                        # /data has 1 to n files (it should be 1, but we support multiple files)
+                        # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
                         blob_prefix = recording.object_storage_path
                         blob_keys = object_storage.list_objects(cast(str, blob_prefix))
                         might_have_realtime = False
@@ -1133,27 +1165,29 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             }
                         )
                 if sources:
-                    sources = sorted(sources, key=lambda x: x["start_timestamp"])
-                    oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                    newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", None))
 
-                    if might_have_realtime:
+                    if might_have_realtime and not is_v2_enabled:
+                        oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+                        newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+                        # if the oldest timestamp is more than 24 hours ago, we don't expect realtime snapshots
+                        # so set this to False even if though it was True before
                         might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
 
-                if might_have_realtime and not is_v2_enabled:
-                    sources.append(
-                        {
-                            "source": "realtime",
-                            "start_timestamp": newest_timestamp,
-                            "end_timestamp": None,
-                        }
-                    )
+                        if might_have_realtime:
+                            sources.append(
+                                {
+                                    "source": "realtime",
+                                    "start_timestamp": newest_timestamp,
+                                    "end_timestamp": None,
+                                }
+                            )
 
-                    # the UI will use this to try to load realtime snapshots
-                    # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                    # it takes a short while for the subscription to be sync'd into redis
-                    # let's use the network round trip time to get started
-                    publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+                            # the UI will use this to try to load realtime snapshots
+                            # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                            # it takes a short while for the subscription to be sync'd into redis
+                            # let's use the network round trip time to get started
+                            publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
                 response_data["sources"] = sources
 
@@ -1281,6 +1315,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 return response
 
+    async def _stream_lts_blob_v2_to_client_async(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        blob_key: str,
+    ) -> HttpResponse:
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
+            with (
+                timer("list_blocks__stream_lts_blob_v2_to_client_async"),
+                tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
+            ):
+                content = await asyncio.to_thread(session_recording_v2_object_storage.client().fetch_file, blob_key)
+
+            twenty_four_hours_in_seconds = 60 * 60 * 24
+            response = HttpResponse(
+                content=content,
+                content_type="application/jsonl",
+            )
+            response["Cache-Control"] = f"max-age={twenty_four_hours_in_seconds}"
+            response["Content-Disposition"] = "inline"
+            return response
+
     async def _stream_blob_v2_to_client_async(
         self,
         recording: SessionRecording,
@@ -1353,6 +1409,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         max_blob_key: int,
     ) -> HttpResponse:
         return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
+
+    def _stream_lts_blob_v2_to_client(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        blob_key: str,
+    ) -> HttpResponse:
+        return asyncio.run(self._stream_lts_blob_v2_to_client_async(recording, timer, blob_key))
 
     def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
