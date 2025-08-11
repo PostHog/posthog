@@ -50,6 +50,11 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     bigquery_default_fields,
     get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
+    insert_into_bigquery_activity_from_stage,
+)
+from products.batch_exports.backend.temporal.pipeline.internal_stage import (
+    BatchExportInsertIntoInternalStageInputs,
+    insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
@@ -68,7 +73,13 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
     reason="Google credentials not set in environment",
 )
 
-pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [
+    SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
+    pytest.mark.asyncio,
+    pytest.mark.django_db,
+    # While we migrate to the new workflow, we need to test both new and old activities
+    pytest.mark.parametrize("use_internal_stage", [False, True]),
+]
 
 TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -89,6 +100,81 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
 def activity_environment(activity_environment):
     activity_environment.heartbeat_class = BigQueryHeartbeatDetails
     return activity_environment
+
+
+async def _run_activity(
+    activity_environment,
+    bigquery_client,
+    clickhouse_client,
+    bigquery_config,
+    team,
+    data_interval_start,
+    data_interval_end,
+    table_id: str,
+    dataset_id: str,
+    use_json_type: bool,
+    batch_export_model: BatchExportModel | None = None,
+    batch_export_schema: BatchExportSchema | None = None,
+    exclude_events=None,
+    include_events=None,
+    sort_key: str = "event",
+    expected_fields=None,
+    expect_duplicates: bool = False,
+    use_internal_stage: bool = False,
+):
+    """Helper function to run insert_into_snowflake_activity and assert records in Snowflake"""
+    insert_inputs = BigQueryInsertInputs(
+        team_id=team.pk,
+        table_id=table_id,
+        dataset_id=dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        use_json_type=use_json_type,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    if use_internal_stage:
+        assert insert_inputs.batch_export_id is not None
+        # we first need to run the insert_into_internal_stage_activity so that we have data to export
+        await activity_environment.run(
+            insert_into_internal_stage_activity,
+            BatchExportInsertIntoInternalStageInputs(
+                team_id=insert_inputs.team_id,
+                batch_export_id=insert_inputs.batch_export_id,
+                data_interval_start=insert_inputs.data_interval_start,
+                data_interval_end=insert_inputs.data_interval_end,
+                exclude_events=insert_inputs.exclude_events,
+                include_events=None,
+                run_id=None,
+                backfill_details=None,
+                batch_export_model=insert_inputs.batch_export_model,
+                batch_export_schema=insert_inputs.batch_export_schema,
+                destination_default_fields=bigquery_default_fields(),
+            ),
+        )
+        await activity_environment.run(insert_into_bigquery_activity_from_stage, insert_inputs)
+    else:
+        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=table_id,
+        dataset_id=dataset_id,
+        team_id=team.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        exclude_events=exclude_events,
+        include_events=include_events,
+        batch_export_model=batch_export_model or batch_export_schema,
+        use_json_type=use_json_type,
+        min_ingested_timestamp=TEST_TIME,
+        sort_key=sort_key,
+        expected_fields=expected_fields,
+        expect_duplicates=expect_duplicates,
+    )
 
 
 async def assert_clickhouse_records_in_bigquery(
@@ -407,6 +493,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     data_interval_start,
     data_interval_end,
     ateam,
+    use_internal_stage,
 ):
     """Test that the `insert_into_bigquery_activity` function inserts data into a BigQuery table.
 
@@ -428,19 +515,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     elif model is not None:
         batch_export_schema = model
 
-    insert_inputs = BigQueryInsertInputs(
-        team_id=ateam.pk,
-        table_id=f"test_insert_activity_table_{ateam.pk}",
-        dataset_id=bigquery_dataset.dataset_id,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
-        exclude_events=exclude_events,
-        use_json_type=use_json_type,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
-        **bigquery_config,
-    )
-
     sort_key = "event"
     if batch_export_model is not None:
         if batch_export_model.name == "persons":
@@ -449,21 +523,22 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
             sort_key = "session_id"
 
     with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
-        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
-
-        await assert_clickhouse_records_in_bigquery(
+        await _run_activity(
+            activity_environment,
             bigquery_client=bigquery_client,
             clickhouse_client=clickhouse_client,
+            team=ateam,
             table_id=f"test_insert_activity_table_{ateam.pk}",
             dataset_id=bigquery_dataset.dataset_id,
-            team_id=ateam.pk,
-            date_ranges=[(data_interval_start, data_interval_end)],
+            data_interval_start=data_interval_start.isoformat(),
+            data_interval_end=data_interval_end.isoformat(),
             exclude_events=exclude_events,
-            include_events=None,
-            batch_export_model=model,
             use_json_type=use_json_type,
-            min_ingested_timestamp=TEST_TIME,
+            batch_export_schema=batch_export_schema,
+            batch_export_model=batch_export_model,
+            bigquery_config=bigquery_config,
             sort_key=sort_key,
+            use_internal_stage=use_internal_stage,
         )
 
 
