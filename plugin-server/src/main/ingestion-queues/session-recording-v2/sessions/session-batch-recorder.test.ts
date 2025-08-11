@@ -2,11 +2,10 @@ import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
 import { parseJSON } from '../../../../utils/json-parse'
-import { ValidRetentionPeriods } from '../constants'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
 import { SnapshotEvent } from '../kafka/types'
-import { MessageWithTeam } from '../teams/types'
+import { MessageWithRetention } from '../retention/types'
 import { RetentionPeriod } from '../types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
@@ -206,13 +205,13 @@ describe('SessionBatchRecorder', () => {
         metadata: MessageMetadata = {},
         teamId: number = 1,
         distinctId: string = 'distinct_id'
-    ): MessageWithTeam => ({
+    ): MessageWithRetention => ({
+        retentionPeriod: '30d',
         team: {
             teamId,
-            retentionPeriod: '30d',
             consoleLogIngestionEnabled: false,
         },
-        message: {
+        data: {
             distinct_id: distinctId,
             session_id: sessionId,
             eventsByWindowId: {
@@ -265,7 +264,7 @@ describe('SessionBatchRecorder', () => {
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines = parseLines(writtenData[0])
-            expect(lines).toEqual([['window1', message.message.eventsByWindowId.window1[0]]])
+            expect(lines).toEqual([['window1', message.data.eventsByWindowId.window1[0]]])
         })
 
         it('should process and flush a single session and track offsets', async () => {
@@ -279,18 +278,18 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.record(message)
             expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
-                partition: message.message.metadata.partition,
-                offset: message.message.metadata.offset,
+                partition: message.data.metadata.partition,
+                offset: message.data.metadata.offset,
             })
 
             await recorder.flush()
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const lines = parseLines(writtenData[0])
-            expect(lines).toEqual([['window1', message.message.eventsByWindowId.window1[0]]])
+            expect(lines).toEqual([['window1', message.data.eventsByWindowId.window1[0]]])
         })
 
         it('should handle multiple sessions in parallel', async () => {
@@ -314,22 +313,22 @@ describe('SessionBatchRecorder', () => {
             for (const message of messages) {
                 await recorder.record(message)
                 expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
-                    partition: message.message.metadata.partition,
-                    offset: message.message.metadata.offset,
+                    partition: message.data.metadata.partition,
+                    offset: message.data.metadata.offset,
                 })
             }
             expect(mockOffsetManager.trackOffset).toHaveBeenCalledTimes(2)
 
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines1 = parseLines(writtenData[0])
             const lines2 = parseLines(writtenData[1])
-            expect(lines1).toEqual([['window1', messages[0].message.eventsByWindowId.window1[0]]])
-            expect(lines2).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
+            expect(lines1).toEqual([['window1', messages[0].data.eventsByWindowId.window1[0]]])
+            expect(lines2).toEqual([['window1', messages[1].data.eventsByWindowId.window1[0]]])
         })
 
         it('should accumulate events for the same session', async () => {
@@ -355,14 +354,14 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines = parseLines(writtenData[0])
             expect(lines).toEqual([
-                ['window1', messages[0].message.eventsByWindowId.window1[0]],
-                ['window1', messages[1].message.eventsByWindowId.window1[0]],
+                ['window1', messages[0].data.eventsByWindowId.window1[0]],
+                ['window1', messages[1].data.eventsByWindowId.window1[0]],
             ])
         })
 
@@ -372,7 +371,7 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -417,7 +416,7 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -427,13 +426,13 @@ describe('SessionBatchRecorder', () => {
             // Events should be grouped by session, maintaining chronological order within each session
             expect(lines1).toEqual([
                 // All session1 events
-                ['window1', messages[0].message.eventsByWindowId.window1[0]],
-                ['window1', messages[2].message.eventsByWindowId.window1[0]],
+                ['window1', messages[0].data.eventsByWindowId.window1[0]],
+                ['window1', messages[2].data.eventsByWindowId.window1[0]],
             ])
             expect(lines2).toEqual([
                 // All session2 events
-                ['window1', messages[1].message.eventsByWindowId.window1[0]],
-                ['window1', messages[3].message.eventsByWindowId.window1[0]],
+                ['window1', messages[1].data.eventsByWindowId.window1[0]],
+                ['window1', messages[3].data.eventsByWindowId.window1[0]],
             ])
         })
 
@@ -498,7 +497,7 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -508,13 +507,13 @@ describe('SessionBatchRecorder', () => {
             // Events should be grouped by team ID despite having same session ID
             expect(lines1).toEqual([
                 // All team 1 events
-                ['window1', messages[0].message.eventsByWindowId.window1[0]],
-                ['window1', messages[2].message.eventsByWindowId.window1[0]],
+                ['window1', messages[0].data.eventsByWindowId.window1[0]],
+                ['window1', messages[2].data.eventsByWindowId.window1[0]],
             ])
             expect(lines2).toEqual([
                 // All team 2 events
-                ['window1', messages[1].message.eventsByWindowId.window1[0]],
-                ['window1', messages[3].message.eventsByWindowId.window1[0]],
+                ['window1', messages[1].data.eventsByWindowId.window1[0]],
+                ['window1', messages[3].data.eventsByWindowId.window1[0]],
             ])
 
             // Verify metadata store received separate session blocks for each team
@@ -823,7 +822,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             const writtenData1 = captureWrittenData(mockWriter.writeSession as jest.Mock)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Reset mock for second batch
@@ -842,13 +841,13 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             const writtenData2 = captureWrittenData(mockWriter.writeSession as jest.Mock)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             const lines1 = parseLines(writtenData1[0])
             const lines2 = parseLines(writtenData2[0])
-            expect(lines1).toEqual([['window1', message1.message.eventsByWindowId.window1[0]]])
-            expect(lines2).toEqual([['window1', message2.message.eventsByWindowId.window1[0]]])
+            expect(lines1).toEqual([['window1', message1.data.eventsByWindowId.window1[0]]])
+            expect(lines2).toEqual([['window1', message2.data.eventsByWindowId.window1[0]]])
         })
 
         it('should not create file on second flush if no new events', async () => {
@@ -863,16 +862,16 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await recorder.flush()
 
-            expect(mockStorage.newBatch).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockStorage.newBatch).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Second flush with no new events
             await recorder.flush()
 
             // Should not create a new batch or write any data
-            expect(mockStorage.newBatch).toHaveBeenCalledTimes(ValidRetentionPeriods.length) // Only from first flush
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length) // Only from first flush
+            expect(mockStorage.newBatch).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1) // Only from first flush
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1) // Only from first flush
 
             // Should still commit offsets
@@ -945,7 +944,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
@@ -990,7 +989,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
@@ -1011,7 +1010,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
@@ -1128,9 +1127,9 @@ describe('SessionBatchRecorder', () => {
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines1 = parseLines(writtenData[0])
             const lines2 = parseLines(writtenData[1])
-            expect(lines1).toEqual([['window1', messages[0].message.eventsByWindowId.window1[0]]])
-            expect(lines2).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
-            expect(mockWriter.finish).toHaveBeenCalledTimes(ValidRetentionPeriods.length)
+            expect(lines1).toEqual([['window1', messages[0].data.eventsByWindowId.window1[0]]])
+            expect(lines2).toEqual([['window1', messages[1].data.eventsByWindowId.window1[0]]])
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
@@ -1168,7 +1167,7 @@ describe('SessionBatchRecorder', () => {
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines = parseLines(writtenData[0])
             // Should only contain message from partition 2
-            expect(lines).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
+            expect(lines).toEqual([['window1', messages[1].data.eventsByWindowId.window1[0]]])
         })
 
         it('should correctly update size when discarding partitions', async () => {
@@ -1219,8 +1218,8 @@ describe('SessionBatchRecorder', () => {
 
             const bytesWritten = await recorder.record(message)
             expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
-                partition: message.message.metadata.partition,
-                offset: message.message.metadata.offset,
+                partition: message.data.metadata.partition,
+                offset: message.data.metadata.offset,
             })
             expect(recorder.size).toBe(bytesWritten)
 

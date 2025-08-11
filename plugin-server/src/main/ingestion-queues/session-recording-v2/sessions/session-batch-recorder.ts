@@ -5,7 +5,7 @@ import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 import { logger } from '../../../../utils/logger'
 import { ValidRetentionPeriods } from '../constants'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { MessageWithTeam } from '../teams/types'
+import { MessageWithRetention } from '../retention/types'
 import { RetentionPeriod } from '../types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -82,11 +82,11 @@ export class SessionBatchRecorder {
      * @param message - The message to record, including team context
      * @returns Number of raw bytes written (without compression)
      */
-    public async record(message: MessageWithTeam): Promise<number> {
-        const { partition } = message.message.metadata
-        const sessionId = message.message.session_id
+    public async record(message: MessageWithRetention): Promise<number> {
+        const { partition } = message.data.metadata
+        const sessionId = message.data.session_id
         const teamId = message.team.teamId
-        const retentionPeriod = message.team.retentionPeriod
+        const retentionPeriod = message.retentionPeriod
         const teamSessionKey = `${teamId}$${sessionId}`
 
         if (!this.partitionSessions.has(partition)) {
@@ -128,7 +128,7 @@ export class SessionBatchRecorder {
         }
 
         const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(teamSessionKey)!
-        const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
+        const bytesWritten = sessionBlockRecorder.recordMessage(message.data)
         await consoleLogRecorder.recordMessage(message)
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
@@ -136,8 +136,8 @@ export class SessionBatchRecorder {
         this._size += bytesWritten
 
         this.offsetManager.trackOffset({
-            partition: message.message.metadata.partition,
-            offset: message.message.metadata.offset,
+            partition: message.data.metadata.partition,
+            offset: message.data.metadata.offset,
         })
 
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {

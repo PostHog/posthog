@@ -28,7 +28,7 @@ import snappy from 'snappy'
 
 import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { MessageWithTeam } from '../teams/types'
+import { MessageWithRetention } from '../retention/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
@@ -104,13 +104,13 @@ describe('session recording integration', () => {
         sessionId: string,
         teamId: number,
         events: { type: EventType; data: any }[]
-    ): MessageWithTeam => ({
+    ): MessageWithRetention => ({
+        retentionPeriod: '30d',
         team: {
             teamId,
-            retentionPeriod: '30d',
             consoleLogIngestionEnabled: false,
         },
-        message: {
+        data: {
             distinct_id: 'distinct_id',
             session_id: sessionId,
             eventsByWindowId: {
@@ -187,8 +187,8 @@ describe('session recording integration', () => {
         // Read and verify each session's data
         for (const block of metadata) {
             const events = await readSessionFromBatch(block)
-            const originalMessage = messages.find((m) => m.message.session_id === block.sessionId)!
-            const originalEvents = originalMessage.message.eventsByWindowId.window1
+            const originalMessage = messages.find((m) => m.data.session_id === block.sessionId)!
+            const originalEvents = originalMessage.data.eventsByWindowId.window1
 
             expect(block.teamId).toBe(originalMessage.team.teamId)
             expect(events).toHaveLength(originalEvents.length)

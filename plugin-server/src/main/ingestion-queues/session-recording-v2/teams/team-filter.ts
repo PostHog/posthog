@@ -17,7 +17,7 @@ export class TeamFilter {
             if (team) {
                 messagesWithTeam.push({
                     team,
-                    message,
+                    data: message,
                 })
             }
         }

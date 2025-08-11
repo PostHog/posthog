@@ -2,7 +2,6 @@ import { Team } from '../../../../types'
 import { BackgroundRefresher } from '../../../../utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { logger } from '../../../../utils/logger'
-import { RetentionPeriod } from '../types'
 import { TeamForReplay } from './types'
 
 export class TeamService {
@@ -36,15 +35,10 @@ export class TeamService {
 }
 
 export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamForReplay>> {
-    const selectResult = await client.query<
-        { capture_console_log_opt_in: boolean; session_recording_retention_period: RetentionPeriod } & Pick<
-            Team,
-            'id' | 'api_token'
-        >
-    >(
+    const selectResult = await client.query<{ capture_console_log_opt_in: boolean } & Pick<Team, 'id' | 'api_token'>>(
         PostgresUse.COMMON_READ,
         `
-            SELECT id, api_token, capture_console_log_opt_in, session_recording_retention_period
+            SELECT id, api_token, capture_console_log_opt_in
             FROM posthog_team
             WHERE session_recording_opt_in = true
         `,
@@ -57,7 +51,6 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
             acc[row.api_token] = {
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
-                retentionPeriod: row.session_recording_retention_period,
             }
             return acc
         },

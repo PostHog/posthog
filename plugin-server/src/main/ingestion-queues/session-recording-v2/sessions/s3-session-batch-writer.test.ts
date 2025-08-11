@@ -295,7 +295,7 @@ describe('S3SessionBatchFileStorage', () => {
             // Advance timers past the default 5s timeout
             jest.advanceTimersByTime(6000)
 
-            await expect(finishPromise).rejects.toThrow('S3 upload timed out after 5000ms')
+            await expect(finishPromise).rejects.toThrow("S3 upload for retention period '30d' timed out after 5000ms")
         })
 
         it('should increment timeout metric when upload times out', async () => {
@@ -313,7 +313,7 @@ describe('S3SessionBatchFileStorage', () => {
             // Advance timers past the timeout
             jest.advanceTimersByTime(6000)
 
-            await expect(finishPromise).rejects.toThrow('S3 upload timed out after 5000ms')
+            await expect(finishPromise).rejects.toThrow("S3 upload for retention period '30d' timed out after 5000ms")
             expect(SessionBatchMetrics.incrementS3UploadTimeouts).toHaveBeenCalledTimes(1)
         })
 
@@ -346,7 +346,7 @@ describe('S3SessionBatchFileStorage', () => {
 
             // Advance past timeout
             jest.advanceTimersByTime(2)
-            await expect(finishPromise).rejects.toThrow('S3 upload timed out after 2000ms')
+            await expect(finishPromise).rejects.toThrow("S3 upload for retention period '30d' timed out after 2000ms")
         })
     })
 

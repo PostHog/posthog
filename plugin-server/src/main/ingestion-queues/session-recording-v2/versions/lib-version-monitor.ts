@@ -1,20 +1,20 @@
 import { MessageHeader } from 'node-rdkafka'
 
 import { logger } from '../../../../utils/logger'
-import { MessageWithTeam } from '../teams/types'
+import { MessageWithRetention } from '../retention/types'
 import { CaptureIngestionWarningFn } from '../types'
 import { VersionMetrics } from './version-metrics'
 
 export class LibVersionMonitor {
     constructor(private readonly captureWarning: CaptureIngestionWarningFn) {}
 
-    public async processBatch(messages: MessageWithTeam[]): Promise<MessageWithTeam[]> {
+    public async processBatch(messages: MessageWithRetention[]): Promise<MessageWithRetention[]> {
         await Promise.all(messages.map((message) => this.checkLibVersion(message)))
         return messages
     }
 
-    private async checkLibVersion(message: MessageWithTeam): Promise<void> {
-        const libVersion = this.readLibVersionFromHeaders(message.message.headers)
+    private async checkLibVersion(message: MessageWithRetention): Promise<void> {
+        const libVersion = this.readLibVersionFromHeaders(message.data.headers)
         const parsedVersion = this.parseVersion(libVersion)
 
         if (parsedVersion && parsedVersion.major === 1 && parsedVersion.minor < 75) {
