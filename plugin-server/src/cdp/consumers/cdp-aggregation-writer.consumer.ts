@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { Histogram } from 'prom-client'
 
 import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -17,6 +18,18 @@ export interface ParsedBatch {
 export interface AggregatedBehaviouralEvent extends CohortFilterPayload {
     counter: number
 }
+
+export const histogramDatabaseWriteTime = new Histogram({
+    name: 'cdp_aggregation_writer_db_write_duration_ms',
+    help: 'Time to write batch to database',
+    buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
+})
+
+export const histogramBatchSize = new Histogram({
+    name: 'cdp_aggregation_writer_batch_size',
+    help: 'Number of rows written per batch',
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+})
 
 export class CdpAggregationWriterConsumer extends CdpConsumerBase {
     protected name = 'CdpAggregationWriterConsumer'
@@ -155,6 +168,9 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             return
         }
 
+        const startTime = Date.now()
+        const totalRows = personEvents.length + behaviouralEvents.length
+
         try {
             const ctes: string[] = []
 
@@ -169,6 +185,11 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             // Build and execute the single combined query
             const query = `WITH ${ctes.join(', ')} SELECT 1`
             await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, undefined, 'counters-batch-upsert')
+
+            // Record execution time and batch size
+            const duration = Date.now() - startTime
+            histogramDatabaseWriteTime.observe(duration)
+            histogramBatchSize.observe(totalRows)
         } catch (error) {
             logger.error('Failed to write to COUNTERS postgres', { error })
             throw error
