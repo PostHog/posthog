@@ -6,6 +6,7 @@ use common_types::InternallyCapturedEvent;
 use model::{JobModel, JobState, PartState};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+use crate::metrics as metric_emit;
 
 use crate::{
     context::AppContext,
@@ -268,6 +269,7 @@ impl Job {
                             delay_secs = delay.as_secs(),
                             "rate limited (429): scheduling retry"
                         );
+                        metric_emit::backoff_event(delay.as_secs_f64());
 
                         let mut model = self.model.lock().await;
                         model

@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgQueryResult, PgPool};
 use tracing::{info, warn};
+use crate::metrics;
 use uuid::Uuid;
 
 use crate::context::AppContext;
@@ -222,6 +223,7 @@ impl JobModel {
             until = %until,
             "scheduled backoff for job"
         );
+        metrics::backoff_event(delay.as_secs_f64());
 
         Ok(())
     }
@@ -307,6 +309,7 @@ impl JobModel {
         .await?;
 
         info!(job_id = %self.id, "unpaused job and reset backoff state");
+        metrics::unpause_event();
 
         Ok(())
     }
