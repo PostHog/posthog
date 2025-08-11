@@ -142,7 +142,7 @@ where
         }
     };
 
-        let redis_cookieless_client =
+    let redis_cookieless_client =
         match RedisClient::new(config.get_redis_cookieless_url().to_string()).await {
             Ok(client) => Arc::new(client),
             Err(e) => {
