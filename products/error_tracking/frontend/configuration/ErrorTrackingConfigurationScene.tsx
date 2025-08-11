@@ -15,6 +15,7 @@ export type ConfigurationSceneTabType =
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-releases'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-alerting'
 
