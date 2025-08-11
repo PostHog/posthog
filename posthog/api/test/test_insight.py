@@ -3634,3 +3634,61 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], accessible_insight.id)
         self.assertEqual(results[0]["short_id"], accessible_insight_short_id)
+
+    def test_dashboard_breakdown_filter_migration(self):
+        """Test that dashboard breakdown filters work with retention queries and single breakdowns"""
+
+        retention_query = {
+            "kind": "RetentionQuery",
+            "dateRange": {"date_from": "-30d", "date_to": None},
+            "retentionFilter": {
+                "targetEntity": {"id": "$pageview", "type": "events"},
+                "returningEntity": {"id": "$pageview", "type": "events"},
+                "totalIntervals": 7,
+            },
+        }
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Retention Insight",
+            created_by=self.user,
+            query=retention_query,
+        )
+
+        # Create dashboard with legacy breakdown filter to test single breakdown support
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={
+                "breakdown_filter": {
+                    "breakdown": "browser",
+                    "breakdown_type": "person",
+                }
+            },
+        )
+
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        # Test that retention query doesn't error when breakdown is applied
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking&from_dashboard={dashboard.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+
+        self.assertEqual(response_data["id"], insight.id)
+        self.assertEqual(response_data["name"], "Test Retention Insight")
+
+        self.assertIn("query", response_data)
+        query_data = response_data["query"]
+        self.assertEqual(query_data["kind"], "RetentionQuery")
+
+        # Verify breakdown filter is applied correctly
+        self.assertIn("breakdownFilter", query_data)
+        breakdown_filter = query_data["breakdownFilter"]
+
+        # Should have the single breakdown applied
+        self.assertEqual(breakdown_filter.get("breakdown"), "browser")
+        self.assertEqual(breakdown_filter.get("breakdown_type"), "person")
