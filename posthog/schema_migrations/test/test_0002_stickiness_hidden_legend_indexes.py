@@ -114,3 +114,20 @@ def test_trends_query_hidden_legend_indexes_migration():
             },
         },
     }
+
+    # stickiness query is handled similarly
+    stickiness_query = {
+        "kind": "StickinessQuery",
+        "stickinessFilter": {"hiddenLegendIndexes": [0, 1]},
+    }
+    expected_result = {
+        "kind": "StickinessQuery",
+        "stickinessFilter": {
+            "resultCustomizationBy": "position",
+            "resultCustomizations": {
+                "0": {"assignmentBy": "position", "hidden": True},
+                "1": {"assignmentBy": "position", "hidden": True},
+            },
+        },
+    }
+    assert migration.transform(stickiness_query) == expected_result

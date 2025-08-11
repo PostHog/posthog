@@ -8,16 +8,21 @@ class Migration(SchemaMigration):
     targets = {NodeKind.TRENDS_QUERY: 1, NodeKind.STICKINESS_QUERY: 1}
 
     def transform(self, query: dict) -> dict:
-        # Only handle TrendsQuery
-        if query.get("kind") != "TrendsQuery":
+        # Only handle TrendsQuery and StickinessQuery
+        kind = query.get("kind")
+        if kind == "TrendsQuery":
+            filter_key = "trendsFilter"
+        elif kind == "StickinessQuery":
+            filter_key = "stickinessFilter"
+        else:
             return query
 
-        trends_filter = query.get("trendsFilter")
-        if trends_filter is None:
+        insight_filter = query.get(filter_key)
+        if insight_filter is None:
             return query
 
-        hidden_indexes = trends_filter.get("hiddenLegendIndexes")
-        result_customizations = trends_filter.get("resultCustomizations")
+        hidden_indexes = insight_filter.get("hiddenLegendIndexes")
+        result_customizations = insight_filter.get("resultCustomizations")
 
         # If no hiddenLegendIndexes, nothing to do
         if not hidden_indexes:
@@ -31,13 +36,13 @@ class Migration(SchemaMigration):
         has_value_assignment = any(
             isinstance(v, dict) and v.get("assignmentBy") == "value" for v in result_customizations.values()
         )
-        result_customization_by = trends_filter.get("resultCustomizationBy")
+        result_customization_by = insight_filter.get("resultCustomizationBy")
         if (result_customization_by == "value" or not result_customization_by) and has_value_assignment:
             # Remove hiddenLegendIndexes, leave resultCustomizations as is
-            new_trends_filter = dict(trends_filter)
-            new_trends_filter.pop("hiddenLegendIndexes", None)
+            new_insight_filter = dict(insight_filter)
+            new_insight_filter.pop("hiddenLegendIndexes", None)
             query = dict(query)
-            query["trendsFilter"] = new_trends_filter
+            query[filter_key] = new_insight_filter
             return query
 
         # Otherwise, convert hiddenLegendIndexes to resultCustomizations by position
@@ -48,11 +53,11 @@ class Migration(SchemaMigration):
                 new_result_customizations[idx_str] = {"assignmentBy": "position"}
             new_result_customizations[idx_str]["hidden"] = True
 
-        new_trends_filter = dict(trends_filter)
-        new_trends_filter["resultCustomizationBy"] = "position"
-        new_trends_filter["resultCustomizations"] = new_result_customizations
-        new_trends_filter.pop("hiddenLegendIndexes", None)
+        new_insight_filter = dict(insight_filter)
+        new_insight_filter["resultCustomizationBy"] = "position"
+        new_insight_filter["resultCustomizations"] = new_result_customizations
+        new_insight_filter.pop("hiddenLegendIndexes", None)
 
         query = dict(query)
-        query["trendsFilter"] = new_trends_filter
+        query[filter_key] = new_insight_filter
         return query
