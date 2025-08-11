@@ -143,7 +143,6 @@ export class DB {
         postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         redisPoolCookieless: GenericPool<Redis.Redis>,
-
         kafkaProducer: KafkaProducerWrapper,
         pluginsDefaultLogLevel: PluginLogLevel,
         personAndGroupsCacheTtl = 1
