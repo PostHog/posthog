@@ -189,10 +189,10 @@ export class SessionBatchRecorder {
 
         const writers = ValidRetentionPeriods.reduce(
             (writers, retentionPeriod) => {
-                writers[retentionPeriod] = this.storage.newBatch(retentionPeriod)
+                writers[retentionPeriod] = null
                 return writers
             },
-            {} as { [key in RetentionPeriod]: SessionBatchFileWriter }
+            {} as { [key in RetentionPeriod]: SessionBatchFileWriter | null }
         )
 
         const blockMetadata: SessionBlockMetadata[] = []
@@ -224,6 +224,10 @@ export class SessionBatchRecorder {
                     } = await sessionBlockRecorder.end()
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
+
+                    if (writers[retentionPeriod] === null) {
+                        writers[retentionPeriod] = this.storage.newBatch(retentionPeriod)
+                    }
 
                     const { bytesWritten, url } = await writers[retentionPeriod].writeSession(buffer)
 
@@ -258,9 +262,13 @@ export class SessionBatchRecorder {
                 totalSessions += sessions.size
             }
 
-            for (const writer of Object.values(writers)) {
-                await writer.finish()
-            }
+            await Promise.all(
+                ValidRetentionPeriods.map(async (retentionPeriod) => {
+                    if (writers[retentionPeriod] !== null) {
+                        await writers[retentionPeriod].finish()
+                    }
+                })
+            )
 
             await this.consoleLogStore.flush()
             await this.metadataStore.storeSessionBlocks(blockMetadata)

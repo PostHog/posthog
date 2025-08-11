@@ -6,7 +6,7 @@ describe('BlackholeSessionBatchFileStorage', () => {
 
     beforeEach(() => {
         storage = new BlackholeSessionBatchFileStorage()
-        writer = storage.newBatch()
+        writer = storage.newBatch('30d')
     })
 
     it('should write session data and return bytes written', async () => {

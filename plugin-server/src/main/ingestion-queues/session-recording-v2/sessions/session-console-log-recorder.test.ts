@@ -51,6 +51,7 @@ describe('SessionConsoleLogRecorder', () => {
     ): MessageWithTeam => ({
         team: {
             teamId,
+            retentionPeriod: '30d',
             consoleLogIngestionEnabled,
         },
         message: {

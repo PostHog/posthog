@@ -9,6 +9,7 @@ jest.mock('./team-service')
 
 const validTeam: TeamForReplay = {
     teamId: 1,
+    retentionPeriod: '30d',
     consoleLogIngestionEnabled: true,
 }
 

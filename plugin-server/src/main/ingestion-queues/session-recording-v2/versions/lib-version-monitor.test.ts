@@ -17,7 +17,7 @@ describe('LibVersionMonitor', () => {
     })
 
     const createMessage = (headers: any[] = []): MessageWithTeam => ({
-        team: { teamId: 1, consoleLogIngestionEnabled: false },
+        team: { teamId: 1, retentionPeriod: '30d', consoleLogIngestionEnabled: false },
         message: {
             metadata: {
                 partition: 1,

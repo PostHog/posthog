@@ -50,7 +50,9 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         })
 
         this.timeoutId = setTimeout(() => {
-            this.handleError(new Error(`S3 upload timed out after ${this.timeout}ms`))
+            this.handleError(
+                new Error(`S3 upload for retention period '${this.retentionPeriod}' timed out after ${this.timeout}ms`)
+            )
             SessionBatchMetrics.incrementS3UploadTimeouts()
             this.stream.destroy()
         }, this.timeout)
