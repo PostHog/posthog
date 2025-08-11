@@ -1,4 +1,3 @@
-import type { HedgehogModeInterface } from '@posthog/hedgehog-mode'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -11,6 +10,7 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HedgehogConfig } from '~/types'
 
 import type { hedgehogModeLogicType } from './hedgehogModeLogicType'
+import { HedgehogModeInterface } from './types'
 
 export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     path(['hedgehog', 'hedgehogModeLogic']),

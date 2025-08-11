@@ -1,4 +1,3 @@
-import type { HedgehogActorOptions } from '@posthog/hedgehog-mode'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
@@ -63,6 +62,7 @@ import type {
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */

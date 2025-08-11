@@ -11,7 +11,7 @@ import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
-import type { HedgehogActor } from '@posthog/hedgehog-mode'
+import { HedgehogActor } from 'lib/components/HedgehogMode/types'
 
 const MARGIN = 2
 const HEDGEHOG_OFFSET = 80

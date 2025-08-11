@@ -1,4 +1,3 @@
-import type { HedgehogModeConfig } from '@posthog/hedgehog-mode'
 import { useActions, useValues } from 'kea'
 import { lazy, Suspense } from 'react'
 
@@ -6,6 +5,7 @@ import { hedgehogModeLogic } from './hedgehogModeLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { inStorybook } from 'lib/utils'
+import { HedgehogModeConfig } from './types'
 
 export const HedgeHogModeRenderer =
     typeof window !== 'undefined'
