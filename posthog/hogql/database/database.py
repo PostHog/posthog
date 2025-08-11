@@ -123,6 +123,7 @@ from posthog.schema import (
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from posthog.hogql.database.s3_table import S3Table
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -407,6 +408,17 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 TableStore = dict[str, Table | TableGroup]
 
 
+class WarehouseProperties(VirtualTable):
+    fields: dict[str, FieldOrTable]
+    parent_table: S3Table
+
+    def to_printed_hogql(self):
+        return self.parent_table.to_printed_hogql()
+
+    def to_printed_clickhouse(self, context):
+        return self.parent_table.to_printed_clickhouse(context)
+
+
 def create_hogql_database(
     team_id: Optional[int] = None,
     *,
@@ -414,7 +426,6 @@ def create_hogql_database(
     modifiers: Optional[HogQLQueryModifiers] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
-    from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
@@ -558,18 +569,9 @@ def create_hogql_database(
 
                 # If the warehouse table has no _properties_ field, then set it as a virtual table
                 if s3_table.fields.get("properties") is None:
-
-                    class WarehouseProperties(VirtualTable):
-                        fields: dict[str, FieldOrTable] = s3_table.fields
-                        parent_table: S3Table = s3_table
-
-                        def to_printed_hogql(self):
-                            return self.parent_table.to_printed_hogql()
-
-                        def to_printed_clickhouse(self, context):
-                            return self.parent_table.to_printed_clickhouse(context)
-
-                    s3_table.fields["properties"] = WarehouseProperties(hidden=True)
+                    s3_table.fields["properties"] = WarehouseProperties(
+                        hidden=True, fields=s3_table.fields, parent_table=s3_table
+                    )
 
                 if table.external_data_source:
                     warehouse_tables[table.name] = s3_table
@@ -714,6 +716,8 @@ def create_hogql_database(
     database.add_views(**views)
 
     with timings.measure("data_warehouse_joins"):
+        from posthog.warehouse.models.join import join_function, join_function_for_experiments
+
         for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
             # Skip if either table is not present. This can happen if the table was deleted after the join was created.
             # User will be prompted on UI to resolve missing tables underlying the JOIN
@@ -767,9 +771,9 @@ def create_hogql_database(
                     to_field=to_field,
                     join_table=joining_table,
                     join_function=(
-                        join.join_function_for_experiments()
+                        join_function_for_experiments(join)
                         if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
-                        else join.join_function()
+                        else join_function(join)
                     ),
                 )
 
@@ -811,21 +815,21 @@ def create_hogql_database(
                                 to_field=to_field,
                                 join_table=joining_table,
                                 # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                                join_function=join.join_function(override_source_table_key=override_source_table_key),
+                                join_function=join_function(join, override_source_table_key=override_source_table_key),
                             )
                         else:
                             table_or_field.fields[join.field_name] = LazyJoin(
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
-                                join_function=join.join_function(),
+                                join_function=join_function(join),
                             )
                     elif isinstance(person_field, ast.LazyJoin):
                         person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
                             from_field=from_field,
                             to_field=to_field,
                             join_table=joining_table,
-                            join_function=join.join_function(),
+                            join_function=join_function(join),
                         )
 
             except Exception as e:

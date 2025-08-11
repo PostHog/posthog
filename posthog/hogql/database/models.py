@@ -2,7 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from posthog.hogql.base import Expr
 from posthog.hogql.errors import NotImplementedError, ResolutionError
@@ -218,6 +218,15 @@ class LazyJoin(FieldOrTable):
     from_field: list[str | int]
     to_field: Optional[list[str | int]] = None
 
+    @field_validator("join_function")
+    def validate_join_function(cls, v):
+        # Import a tiny predicate to avoid importing schema modules here (prevents circular deps)
+        from posthog.hogql.database.join_functions import is_join_function_allowed
+
+        if not is_join_function_allowed(v):
+            raise ValueError(f"Invalid join function: {v.__name__}")
+        return v
+
     def resolve_table(self, context: "HogQLContext") -> Table:
         if isinstance(self.join_table, Table):
             return self.join_table
@@ -226,6 +235,22 @@ class LazyJoin(FieldOrTable):
             raise ResolutionError("Database is not set")
 
         return context.database.get_table(self.join_table)
+
+    # dill serialization for cache
+    def __reduce_ex__(self, protocol):
+        data = {
+            "join_table": self.join_table,
+            "from_field": self.from_field,
+            "to_field": self.to_field,
+        }
+        return (self.__class__._rebuild_from_pickle, (data,))
+
+    @classmethod
+    def _rebuild_from_pickle(cls, data: dict):
+        m = cls.model_construct(**data)
+        # Mark fields as set so Pydantic doesn’t complain
+        object.__setattr__(m, "__pydantic_fields_set__", set(data.keys()))
+        return m
 
 
 class LazyTable(Table):

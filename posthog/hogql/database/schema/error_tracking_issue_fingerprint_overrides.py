@@ -3,6 +3,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
+from posthog.hogql.database.join_functions import register_join_function
 from posthog.hogql.database.models import (
     Table,
     IntegerDatabaseField,
@@ -22,6 +23,7 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
+@register_join_function
 def join_with_error_tracking_issue_fingerprint_overrides_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,

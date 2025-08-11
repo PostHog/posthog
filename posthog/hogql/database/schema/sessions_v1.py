@@ -3,6 +3,7 @@ from typing import cast, Optional, TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.join_functions import register_join_function
 from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
@@ -386,6 +387,7 @@ class SessionsTableV1(LazyTable):
         ]
 
 
+@register_join_function
 def join_events_table_to_sessions_table(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:

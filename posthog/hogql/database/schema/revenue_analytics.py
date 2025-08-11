@@ -1,6 +1,7 @@
 from collections import defaultdict
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.join_functions import register_join_function
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.database.models import (
     DecimalDatabaseField,
@@ -13,6 +14,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ResolutionError
 
 
+@register_join_function
 def join_with_persons_revenue_analytics_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
