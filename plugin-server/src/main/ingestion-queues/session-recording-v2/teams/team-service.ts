@@ -1,4 +1,3 @@
-import { TeamIDWithConfig } from '../../../../cdp/consumers/cdp-base.consumer'
 import { Team } from '../../../../types'
 import { BackgroundRefresher } from '../../../../utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
@@ -6,7 +5,7 @@ import { logger as logger } from '../../../../utils/logger'
 import { TeamForReplay } from './types'
 
 export class TeamService {
-    private readonly teamRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
+    private readonly teamRefresher: BackgroundRefresher<Record<string, TeamForReplay>>
 
     constructor(private postgres: PostgresRouter) {
         this.teamRefresher = new BackgroundRefresher(
@@ -27,18 +26,15 @@ export class TeamService {
             return null
         }
 
-        return {
-            teamId: teamConfig.teamId,
-            consoleLogIngestionEnabled: teamConfig.consoleLogIngestionEnabled,
-        }
+        return teamConfig
     }
 
-    private async fetchTeamTokensWithRecordings(): Promise<Record<string, TeamIDWithConfig>> {
+    private async fetchTeamTokensWithRecordings(): Promise<Record<string, TeamForReplay>> {
         return fetchTeamTokensWithRecordings(this.postgres)
     }
 }
 
-export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {
+export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamForReplay>> {
     const selectResult = await client.query<{ capture_console_log_opt_in: boolean } & Pick<Team, 'id' | 'api_token'>>(
         PostgresUse.COMMON_READ,
         `
@@ -52,9 +48,12 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
 
     return selectResult.rows.reduce(
         (acc, row) => {
-            acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
+            acc[row.api_token] = {
+                teamId: row.id,
+                consoleLogIngestionEnabled: row.capture_console_log_opt_in,
+            }
             return acc
         },
-        {} as Record<string, TeamIDWithConfig>
+        {} as Record<string, TeamForReplay>
     )
 }

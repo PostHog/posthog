@@ -1,4 +1,5 @@
 import { logger } from '../../../../utils/logger'
+import { RetentionPeriod } from '../types'
 import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
 
 class BlackholeBatchFileWriter implements SessionBatchFileWriter {
@@ -17,7 +18,7 @@ class BlackholeBatchFileWriter implements SessionBatchFileWriter {
 }
 
 export class BlackholeSessionBatchFileStorage implements SessionBatchFileStorage {
-    public newBatch(): SessionBatchFileWriter {
+    public newBatch(_: RetentionPeriod): SessionBatchFileWriter {
         logger.debug('🔁', 'blackhole_writer_creating_batch')
         return new BlackholeBatchFileWriter()
     }

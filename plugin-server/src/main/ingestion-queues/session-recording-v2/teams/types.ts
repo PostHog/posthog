@@ -8,5 +8,5 @@ export interface TeamForReplay {
 
 export interface MessageWithTeam {
     team: TeamForReplay
-    message: ParsedMessageData
+    data: ParsedMessageData
 }

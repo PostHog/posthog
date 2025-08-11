@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
 import { logger } from '../../../../utils/logger'
+import { RetentionPeriod } from '../types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
 
@@ -21,7 +22,8 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
-        private readonly timeout: number
+        private readonly timeout: number,
+        private readonly retentionPeriod: RetentionPeriod
     ) {
         this.stream = new PassThrough()
         this.key = this.generateKey()
@@ -48,7 +50,9 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         })
 
         this.timeoutId = setTimeout(() => {
-            this.handleError(new Error(`S3 upload timed out after ${this.timeout}ms`))
+            this.handleError(
+                new Error(`S3 upload for retention period '${this.retentionPeriod}' timed out after ${this.timeout}ms`)
+            )
             SessionBatchMetrics.incrementS3UploadTimeouts()
             this.stream.destroy()
         }, this.timeout)
@@ -149,7 +153,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private generateKey(): string {
         const timestamp = Date.now()
         const suffix = randomBytes(8).toString('hex')
-        return `${this.prefix}/${timestamp}-${suffix}`
+        return `${this.prefix}/${this.retentionPeriod}/${timestamp}-${suffix}`
     }
 }
 
@@ -163,8 +167,8 @@ export class S3SessionBatchFileStorage implements SessionBatchFileStorage {
         logger.debug('🔁', 's3_session_batch_writer_created', { bucket, prefix })
     }
 
-    public newBatch(): SessionBatchFileWriter {
-        return new S3SessionBatchFileWriter(this.s3, this.bucket, this.prefix, this.timeout)
+    public newBatch(retentionPeriod: RetentionPeriod): SessionBatchFileWriter {
+        return new S3SessionBatchFileWriter(this.s3, this.bucket, this.prefix, this.timeout, retentionPeriod)
     }
 
     public async checkHealth(): Promise<boolean> {
