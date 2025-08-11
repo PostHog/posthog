@@ -354,7 +354,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(minute="0", hour="*/12"),
+        crontab(minute="0", hour="*/3"),
         fill_insights_missing_query_metadata.s(),
         name="fill insights missing query metadata",
     )
