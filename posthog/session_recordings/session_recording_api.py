@@ -54,7 +54,7 @@ from posthog.rate_limit import (
     PersonalApiKeyRateThrottle,
 )
 from posthog.renderers import ServerSentEventRenderer
-from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery
+from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery, RecordingPropertyFilter, PropertyOperator
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -129,13 +129,15 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def _get_session_ids_from_comment_search(team: Team, comment_text: str) -> list[str] | None:
+def _get_session_ids_from_comment_search(
+    team: Team, comment_filter: RecordingPropertyFilter | None
+) -> list[str] | None:
     """
     Search for comments containing the given text and return the session IDs they're associated with.
     an empty list means "no session can possibly match"
     whereas None means "comment text does not restrict this search"
     """
-    if not comment_text:
+    if not comment_filter:
         return None
 
     # Search for comments with matching text in the content field
@@ -155,10 +157,25 @@ def _get_session_ids_from_comment_search(team: Team, comment_text: str) -> list[
         scope__in=["recording"],
     ).exclude(deleted=True)
 
-    matching_comments = base_query.values_list("item_id", flat=True).distinct()
+    operator = comment_filter.operator
+    value = comment_filter.value
 
-    # item_id contains the session_id for recording comments
-    return list(matching_comments)
+    if operator == PropertyOperator.IS_SET:
+        base_query = base_query.filter(content__isnull=False).exclude(content="")
+    elif operator == PropertyOperator.IS_NOT_SET:
+        base_query = base_query.filter(content__isnull=True) | base_query.filter(content="")
+    elif operator == PropertyOperator.EXACT:
+        base_query = base_query.filter(content=value)
+    elif operator == PropertyOperator.IS_NOT:
+        base_query = base_query.exclude(content=value)
+    elif operator == PropertyOperator.ICONTAINS:
+        base_query = base_query.filter(content__icontains=value)
+    elif operator == PropertyOperator.NOT_ICONTAINS:
+        base_query = base_query.exclude(content__icontains=value)
+    else:
+        raise ValidationError("Unsupported operator for comment search: " + str(operator))
+
+    return list(base_query.values_list("item_id", flat=True).distinct())
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:

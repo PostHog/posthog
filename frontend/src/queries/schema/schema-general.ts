@@ -40,6 +40,7 @@ import {
     PropertyMathType,
     PropertyOperator,
     QueryBasedInsightModel,
+    RecordingPropertyFilter,
     RetentionDashboardDisplayType,
     RetentionFilterType,
     RevenueAnalyticsPropertyFilter,
@@ -451,7 +452,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     properties?: AnyPropertyFilter[]
     console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
-    comment_text?: string // search comments by text content
+    comment_text?: RecordingPropertyFilter // search comments by text content
     filter_test_accounts?: boolean
     /**
      * @default "AND"
