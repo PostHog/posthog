@@ -16,7 +16,8 @@ export interface ExportedData extends SharingConfigurationSettings {
     themes?: DataColorThemeModel[]
     recording?: SessionRecordingType
     autoplay?: boolean
-    noBorder?: boolean // Player adds border by default - we want to remove it
+    /** Player adds border by default - we want to remove it **/
+    noBorder?: boolean 
     mode?: SessionRecordingPlayerMode
     exportToken?: string
 }
