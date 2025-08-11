@@ -6,7 +6,7 @@ import { ActionType, ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Actions',
     urls: {
-        createAction: (id: string | number): string => `/data-management/actions/${id}`,
+        createAction: (): string => `/data-management/actions/new`,
         duplicateAction: (action: ActionType | null): string => {
             const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
             return `/data-management/actions/new/${queryParams}`
@@ -29,9 +29,17 @@ export const manifest: ProductManifest = {
             defaultDocsPath: '/docs/data/actions',
             activityScope: 'Action',
         },
+        ActionNew: {
+            name: 'ActionNew',
+            import: () => import('./frontend/pages/Action'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data/actions',
+            activityScope: 'Action',
+        },
     },
     routes: {
         '/data-management/actions': ['Actions', 'actions'],
+        '/data-management/actions/new': ['ActionNew', 'actionNew'],
         '/data-management/actions/:id': ['Action', 'action'],
     },
     fileSystemTypes: {
