@@ -862,6 +862,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "changes": [
                             {
                                 "action": "changed",
+                                "after": {"events": [], "updated_at": mock.ANY},
+                                "before": {"events": [], "updated_at": mock.ANY},
+                                "field": "query_metadata",
+                                "type": "Insight",
+                            },
+                            {
+                                "action": "changed",
                                 "before": [{"id": dashboard_one_id, "name": "dash 1"}],
                                 "after": [
                                     {"id": dashboard_one_id, "name": "dash 1"},
@@ -869,7 +876,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                 ],
                                 "field": "dashboards",
                                 "type": "Insight",
-                            }
+                            },
                         ],
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
@@ -887,6 +894,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "changes": [
                             {
                                 "action": "changed",
+                                "after": {"events": [], "updated_at": mock.ANY},
+                                "before": {"events": [], "updated_at": mock.ANY},
+                                "field": "query_metadata",
+                                "type": "Insight",
+                            },
+                            {
+                                "action": "changed",
                                 "before": [
                                     {"id": dashboard_one_id, "name": "dash 1"},
                                     {"id": dashboard_two_id, "name": "dash 2"},
@@ -894,7 +908,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                 "after": [{"id": dashboard_one_id, "name": "dash 1"}],
                                 "field": "dashboards",
                                 "type": "Insight",
-                            }
+                            },
                         ],
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
@@ -1592,8 +1606,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
 
-            # extra query because of the metadata update task: posthog.tasks.insight_query_metadata.extract_insight_query_metadata
-            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
 
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
