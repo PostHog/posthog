@@ -114,51 +114,47 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
     }
 
-    // Helper to build person events CTE with parameters
+    // Helper to build person events CTE using unnest
     private buildPersonEventsCTE(
         personEvents: PersonEventPayload[],
         paramOffset: number
     ): { cte: string; params: any[] } {
-        const params: any[] = []
-        const valuePlaceholders: string[] = []
-
-        for (const event of personEvents) {
-            valuePlaceholders.push(`($${paramOffset++}, $${paramOffset++}, $${paramOffset++})`)
-            params.push(event.teamId, event.personId, event.eventName)
-        }
-
         const cte = `person_inserts AS (
             INSERT INTO person_performed_events (team_id, person_id, event_name)
-            VALUES ${valuePlaceholders.join(',')}
+            SELECT * FROM unnest($${paramOffset}::int[], $${paramOffset + 1}::uuid[], $${paramOffset + 2}::text[])
             ON CONFLICT (team_id, person_id, event_name) DO NOTHING
             RETURNING 1
         )`
 
+        const params = [
+            personEvents.map((e) => e.teamId),
+            personEvents.map((e) => e.personId),
+            personEvents.map((e) => e.eventName),
+        ]
+
         return { cte, params }
     }
 
-    // Helper to build behavioural events CTE with parameters
+    // Helper to build behavioural events CTE using unnest
     private buildBehaviouralEventsCTE(
         behaviouralEvents: AggregatedBehaviouralEvent[],
         paramOffset: number
     ): { cte: string; params: any[] } {
-        const params: any[] = []
-        const valuePlaceholders: string[] = []
-
-        for (const event of behaviouralEvents) {
-            valuePlaceholders.push(
-                `($${paramOffset++}, $${paramOffset++}, $${paramOffset++}, $${paramOffset++}, $${paramOffset++})`
-            )
-            params.push(event.teamId, event.personId, event.filterHash, event.date, event.counter)
-        }
-
         const cte = `behavioural_inserts AS (
             INSERT INTO behavioural_filter_matched_events (team_id, person_id, filter_hash, date, counter)
-            VALUES ${valuePlaceholders.join(',')}
+            SELECT * FROM unnest($${paramOffset}::int[], $${paramOffset + 1}::uuid[], $${paramOffset + 2}::text[], $${paramOffset + 3}::date[], $${paramOffset + 4}::int[])
             ON CONFLICT (team_id, person_id, filter_hash, date) 
             DO UPDATE SET counter = behavioural_filter_matched_events.counter + EXCLUDED.counter
             RETURNING 1
         )`
+
+        const params = [
+            behaviouralEvents.map((e) => e.teamId),
+            behaviouralEvents.map((e) => e.personId),
+            behaviouralEvents.map((e) => e.filterHash),
+            behaviouralEvents.map((e) => e.date),
+            behaviouralEvents.map((e) => e.counter),
+        ]
 
         return { cte, params }
     }
@@ -183,12 +179,13 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
                 const { cte, params } = this.buildPersonEventsCTE(personEvents, paramOffset)
                 ctes.push(cte)
                 allParams.push(...params)
-                paramOffset += params.length
+                paramOffset += params.length // person events use 3 array parameters
             }
             if (behaviouralEvents.length > 0) {
                 const { cte, params } = this.buildBehaviouralEventsCTE(behaviouralEvents, paramOffset)
                 ctes.push(cte)
                 allParams.push(...params)
+                // No need to update paramOffset here since we're done
             }
 
             // Build and execute the single combined query with parameters
