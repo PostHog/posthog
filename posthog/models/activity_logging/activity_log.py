@@ -432,7 +432,7 @@ def safely_get_field_value(instance: models.Model | None, field: str):
 
 
 def changes_between(
-    model_type: ActivityScope | str,
+    model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> list[Change]:
