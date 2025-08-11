@@ -976,7 +976,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
-            blob_v1_sources_are_allowed = self.team.created_at <= datetime.fromisoformat("2025-08-11")
+            blob_v1_sources_are_allowed = self.team.created_at <= datetime.fromisoformat(
+                settings.API_V1_DEPRECATION_DATE
+            )
 
         try:
             response: Response | HttpResponse
