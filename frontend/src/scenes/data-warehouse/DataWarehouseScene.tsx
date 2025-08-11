@@ -3,11 +3,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { PipelineTab } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { urls } from 'scenes/urls'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconCheckCircle } from '@posthog/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
@@ -15,6 +15,7 @@ import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic
 import { TZLabel } from 'lib/components/TZLabel'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { fetchExternalDataSourceJobs } from './externalDataSourcesLogic'
+import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
@@ -24,7 +25,6 @@ export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-
     const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
     const { billing } = useValues(billingLogic)
 
@@ -92,6 +92,23 @@ export function DataWarehouseScene(): JSX.Element {
     const totalPages = Math.max(1, Math.ceil(recentActivity.length / pageSize))
     const pageItems = recentActivity.slice(activityPage * pageSize, activityPage * pageSize + pageSize)
 
+    const StatusGlyph = ({ status }: { status?: string }): JSX.Element => {
+        const s = (status || '').toLowerCase()
+        if (s === 'failed' || s === 'error') {
+            return <IconCancel className="text-danger" />
+        }
+        if (s === 'warning' || s.includes('billing')) {
+            return <IconExclamation className="text-warning" />
+        }
+        if (s === 'running') {
+            return <IconSync className="animate-spin" />
+        }
+        if (s === 'completed' || s === 'success') {
+            return <IconCheckCircle className="text-success" />
+        }
+        return <IconRadioButtonUnchecked className="text-muted" />
+    }
+
     const StatusTag = ({ status }: { status?: string }): JSX.Element => {
         const s = (status || '').toLowerCase()
         const t =
@@ -135,11 +152,11 @@ export function DataWarehouseScene(): JSX.Element {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <LemonCard className="p-4">
+                <LemonCard className="p-4 hover:transform-none">
                     <div className="text-sm text-muted">Rows Synced (MTD)</div>
                     <div className="text-2xl font-semibold mt-1">{monthlyRowsSynced.toLocaleString()}</div>
                 </LemonCard>
-                <LemonCard className="p-4">
+                <LemonCard className="p-4 hover:transform-none">
                     <div className="text-sm text-muted">Materialized Views</div>
                     <div className="text-2xl font-semibold mt-1">{materializedCount}</div>
                     {runningCount > 0 && <div className="text-xs text-muted">{runningCount} running</div>}
@@ -184,7 +201,10 @@ export function DataWarehouseScene(): JSX.Element {
                                         className="flex items-center justify-between p-2 border rounded p-2"
                                     >
                                         <div className="flex-1 min-w-0 ">
-                                            <div className="font-medium text-sm">{item.name}</div>
+                                            <div className="font-medium text-sm flex items-center gap-1">
+                                                <StatusGlyph status={item.status as any} />
+                                                <span>{item.name}</span>
+                                            </div>
                                             <div className="text-xs text-muted mt-1">
                                                 Last sync: {item.lastSync ? <TZLabel time={item.lastSync} /> : '—'}
                                             </div>
@@ -221,7 +241,10 @@ export function DataWarehouseScene(): JSX.Element {
                             {viewsWithStatus.slice(0, LIST_SIZE).map((view) => (
                                 <div key={view.id} className="flex items-center justify-between border rounded p-2">
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-sm">{view.name}</div>
+                                        <div className="font-medium text-sm flex items-center gap-1">
+                                            <StatusGlyph status={view.status} />
+                                            <span>{view.name}</span>
+                                        </div>
                                         <div className="text-xs text-muted mt-1">
                                             Last run: {view.last_run_at ? <TZLabel time={view.last_run_at} /> : 'Never'}
                                         </div>
@@ -252,7 +275,10 @@ export function DataWarehouseScene(): JSX.Element {
                                     className="flex items-center justify-between border rounded p-2"
                                 >
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-sm">{activity.name}</div>
+                                        <div className="font-medium text-sm flex items-center gap-1">
+                                            <StatusGlyph status={activity.status} />
+                                            <span>{activity.name}</span>
+                                        </div>
                                         <div className="text-xs text-muted mt-1">
                                             {activity.type} • <TZLabel time={activity.time} />
                                         </div>
@@ -293,7 +319,7 @@ export function DataWarehouseScene(): JSX.Element {
                 </div>
 
                 <div>
-                    <LemonCard className="p-4">
+                    <LemonCard className="p-4 hover:transform-none">
                         <h3 className="font-semibold mb-3">Quick Actions</h3>
                         <div className="space-y-2">
                             <LemonButton
@@ -312,9 +338,6 @@ export function DataWarehouseScene(): JSX.Element {
                             </LemonButton>
                             <LemonButton to={`${urls.dataWarehouseSourceNew()}?kind=stripe`} fullWidth type="secondary">
                                 Connect Stripe
-                            </LemonButton>
-                            <LemonButton to={`${urls.dataWarehouseSourceNew()}?kind=csv`} fullWidth type="secondary">
-                                Import CSV
                             </LemonButton>
                         </div>
                     </LemonCard>
