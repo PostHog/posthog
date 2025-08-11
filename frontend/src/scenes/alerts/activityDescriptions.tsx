@@ -49,9 +49,11 @@ export function alertConfigurationActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> added {logItem?.detail?.context?.subscriber_name}{' '}
-                        ({logItem?.detail?.context?.subscriber_email}) as a subscriber for alert{' '}
-                        {formattedName(logItem?.detail?.context?.alert_name)}
+                        <strong>{userNameForLogItem(logItem)}</strong> added{' '}
+                        <strong>
+                            {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email})
+                        </strong>{' '}
+                        as a subscriber for alert {formattedName(logItem?.detail?.context?.alert_name)}
                         {contextDesc}
                     </>
                 ),
@@ -77,8 +79,10 @@ export function alertConfigurationActivityDescriber(
                 description: (
                     <>
                         <strong>{userNameForLogItem(logItem)}</strong> removed{' '}
-                        {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email}) as a
-                        subscriber from alert {formattedName(logItem?.detail?.context?.alert_name)}
+                        <strong>
+                            {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email})
+                        </strong>{' '}
+                        as a subscriber from alert {formattedName(logItem?.detail?.context?.alert_name)}
                         {contextDesc}
                     </>
                 ),
