@@ -74,8 +74,12 @@ class HyperCache:
 
     def get_cache_key(self, key: KeyType) -> str:
         if self.token_based:
+            if isinstance(key, Team):
+                key = key.api_token
             return f"cache/team_tokens/{key}/{self.namespace}/{self.value}"
         else:
+            if isinstance(key, Team):
+                key = key.id
             return f"cache/teams/{key}/{self.namespace}/{self.value}"
 
     def get_from_cache(self, key: KeyType) -> dict | None:
