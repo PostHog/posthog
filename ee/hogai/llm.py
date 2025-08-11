@@ -1,5 +1,6 @@
 import datetime
 from typing import TYPE_CHECKING, Any
+from posthog.settings import CLOUD_DEPLOYMENT
 
 from langchain_core.outputs import LLMResult
 from langchain_core.messages import BaseMessage, SystemMessage
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
 The user's name appears to be {{{user_full_name}}} ({{{user_email}}}). Feel free to use their first name when greeting. DO NOT use this name if it appears possibly fake.
+The user is accessing the PostHog App from the "{{{deployment_region}}}" region, therefore all PostHog App URLs should be prefixed with the region, e.g. https://{{{deployment_region}}}.posthog.com
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
 """.strip()
 
@@ -38,6 +40,12 @@ class MaxChatOpenAI(ChatOpenAI):
         project_timezone = self._team.timezone
         project_datetime = datetime.datetime.now(tz=pytz.timezone(project_timezone))
 
+        region = CLOUD_DEPLOYMENT or "us"
+        if region in ["US", "EU"]:
+            region = region.lower()
+        else:
+            region = "us"
+
         return {
             "project_name": self._team.name,
             "project_timezone": project_timezone,
@@ -45,6 +53,7 @@ class MaxChatOpenAI(ChatOpenAI):
             "organization_name": self._team.organization.name,
             "user_full_name": self._user.get_full_name(),
             "user_email": self._user.email,
+            "deployment_region": region,
         }
 
     def _get_project_org_system_message(self, project_org_user_variables: dict[str, Any]) -> BaseMessage:
