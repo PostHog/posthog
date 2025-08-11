@@ -17,7 +17,6 @@ export function StepView({ action, children }: { action: HogFlowAction; children
             style={{
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
-                inset: '-1px -1px 1px',
                 border: `${isSelected ? '1px' : '0.5px'} solid var(--border)`,
                 boxShadow: `0px 2px 0px 0px ${Step?.color ? `${Step.color}20` : 'var(--border-primary)'}`,
                 zIndex: 0,
