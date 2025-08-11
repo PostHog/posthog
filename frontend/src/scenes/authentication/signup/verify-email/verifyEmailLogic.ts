@@ -24,7 +24,6 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
         setView: (view: 'verify' | 'pending' | 'invalid' | 'success' | null) => ({ view }),
         setUuid: (uuid: string | null) => ({ uuid }),
         requestVerificationLink: (uuid: string) => ({ uuid }),
-        validateEmailTokenSuccess: (response: ValidatedTokenResponseType) => ({ response }),
     }),
     loaders(({ actions }) => ({
         validatedEmailToken: [
