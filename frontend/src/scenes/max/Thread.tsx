@@ -1,5 +1,4 @@
 import {
-    IconBolt,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -18,7 +17,6 @@ import {
     LemonInput,
     LemonSkeleton,
     ProfilePicture,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -62,7 +60,7 @@ import {
     isVisualizationMessage,
 } from './utils'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { MAX_SLASH_COMMANDS } from './components/SlashCommandAutocomplete'
+import { MAX_SLASH_COMMANDS } from './slash-commands'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -169,7 +167,9 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                 {messages.map((message, messageIndex) => {
                     const key = message.id || messageIndex
                     if (isHumanMessage(message)) {
-                        const maybeCommand = MAX_SLASH_COMMANDS.find((cmd) => cmd.name === message.content)
+                        const maybeCommand = MAX_SLASH_COMMANDS.find(
+                            (cmd) => cmd.name === message.content.split(' ', 1)[0]
+                        )
 
                         return (
                             <MessageTemplate
@@ -197,7 +197,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                                 </>
                                             }
                                         >
-                                            <IconBolt className="text-base mr-1.5" />
+                                            <span className="text-base mr-1.5">{maybeCommand.icon}</span>
                                         </Tooltip>
                                         <span className="font-mono">{message.content}</span>
                                     </div>
@@ -234,9 +234,12 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
-                                <div className="flex items-center gap-1.5">
-                                    <Spinner className="text-xl" />
-                                    <span>{message.content}…</span>
+                                <div className="flex items-center gap-2">
+                                    <img
+                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                    />
+                                    <span className="font-medium">{message.content}…</span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage
@@ -588,6 +591,18 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         size="xsmall"
                         tooltip="Try again"
                         onClick={() => retryLastMessage()}
+                    />
+                )}
+                {(user?.is_staff || location.hostname === 'localhost') && traceId && (
+                    <LemonButton
+                        to={`${
+                            location.hostname !== 'localhost' ? 'https://us.posthog.com/project/2' : ''
+                        }${urls.llmObservabilityTrace(traceId)}`}
+                        icon={<IconEye />}
+                        type="tertiary"
+                        size="xsmall"
+                        tooltip="View trace in LLM observability"
+                        targetBlank
                     />
                 )}
             </div>

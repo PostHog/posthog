@@ -15,7 +15,7 @@ export const posthogAppUrlParametersToEventProperties: LegacyTransformationPlugi
             'https://raw.githubusercontent.com/posthog/posthog-app-url-parameters-to-event-properties/main/logo.png',
         category: ['Transformation'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'parameters',

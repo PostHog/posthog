@@ -1,21 +1,44 @@
 from typing import Optional
+from django.db.models import Prefetch
 from posthog.models.team.team import Team
-from posthog.hogql import ast
-from posthog.hogql.database.models import SavedQuery
-from posthog.schema import (
-    DatabaseSchemaManagedViewTableKind,
-    HogQLQueryModifiers,
-)
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.hogql import ast
+from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.database.models import SavedQuery
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 import re
+
+SUPPORTED_SOURCES: list[ExternalDataSource.Type] = [ExternalDataSource.Type.STRIPE]
 
 
 class RevenueAnalyticsBaseView(SavedQuery):
     source_id: Optional[str] = None
     prefix: str
 
+    def is_event_view(self) -> bool:
+        return self.source_id is None
+
     @classmethod
-    def for_events(cls, team: "Team", modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
+    def for_team(cls, team: "Team", timings: HogQLTimings) -> list["RevenueAnalyticsBaseView"]:
+        with timings.measure("for_events"):
+            for_events = cls.for_events(team)
+
+        with timings.measure("for_schema_source"):
+            schema_sources = list(
+                ExternalDataSource.objects.filter(team_id=team.pk, source_type__in=SUPPORTED_SOURCES)
+                .exclude(deleted=True)
+                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+            )
+
+            for_schema_sources = [
+                view for schema_source in schema_sources for view in cls.for_schema_source(schema_source)
+            ]
+
+        return [*for_events, *for_schema_sources]
+
+    @classmethod
+    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
         from .revenue_analytics_charge_view import RevenueAnalyticsChargeView
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
         from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
@@ -23,17 +46,15 @@ class RevenueAnalyticsBaseView(SavedQuery):
         from .revenue_analytics_subscription_view import RevenueAnalyticsSubscriptionView
 
         return [
-            *RevenueAnalyticsChargeView.for_events(team, modifiers),
-            *RevenueAnalyticsCustomerView.for_events(team, modifiers),
-            *RevenueAnalyticsInvoiceItemView.for_events(team, modifiers),
-            *RevenueAnalyticsProductView.for_events(team, modifiers),
-            *RevenueAnalyticsSubscriptionView.for_events(team, modifiers),
+            *RevenueAnalyticsChargeView.for_events(team),
+            *RevenueAnalyticsCustomerView.for_events(team),
+            *RevenueAnalyticsInvoiceItemView.for_events(team),
+            *RevenueAnalyticsProductView.for_events(team),
+            *RevenueAnalyticsSubscriptionView.for_events(team),
         ]
 
     @classmethod
-    def for_schema_source(
-        cls, source: ExternalDataSource, modifiers: HogQLQueryModifiers
-    ) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         from .revenue_analytics_charge_view import RevenueAnalyticsChargeView
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
         from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
@@ -41,11 +62,11 @@ class RevenueAnalyticsBaseView(SavedQuery):
         from .revenue_analytics_subscription_view import RevenueAnalyticsSubscriptionView
 
         return [
-            *RevenueAnalyticsChargeView.for_schema_source(source, modifiers),
-            *RevenueAnalyticsCustomerView.for_schema_source(source, modifiers),
-            *RevenueAnalyticsInvoiceItemView.for_schema_source(source, modifiers),
-            *RevenueAnalyticsProductView.for_schema_source(source, modifiers),
-            *RevenueAnalyticsSubscriptionView.for_schema_source(source, modifiers),
+            *RevenueAnalyticsChargeView.for_schema_source(source),
+            *RevenueAnalyticsCustomerView.for_schema_source(source),
+            *RevenueAnalyticsInvoiceItemView.for_schema_source(source),
+            *RevenueAnalyticsProductView.for_schema_source(source),
+            *RevenueAnalyticsSubscriptionView.for_schema_source(source),
         ]
 
     # Used in child classes to generate view names
@@ -67,7 +88,7 @@ class RevenueAnalyticsBaseView(SavedQuery):
 
     @classmethod
     def get_view_prefix_for_event(cls, event: str) -> str:
-        return f"revenue_analytics.{re.sub(r'[^a-zA-Z0-9]', '_', event)}"
+        return f"revenue_analytics.events.{re.sub(r'[^a-zA-Z0-9]', '_', event)}"
 
     # These are generic ways to know how to call/use these views
     @classmethod

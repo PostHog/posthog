@@ -1,154 +1,131 @@
+import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
+import { Histogram } from 'prom-client'
 
-import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
-import { Action } from '../../utils/action-manager-cdp'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { HogFunctionFilterGlobals } from '../types'
-import { execHog } from '../utils/hog-exec'
-import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
-export type BehavioralEvent = {
+export type PersonEventPayload = {
+    type: 'person-performed-event'
+    personId: string
+    eventName: string
     teamId: number
-    filterGlobals: HogFunctionFilterGlobals
 }
 
-export const counterParseError = new Counter({
-    name: 'cdp_behavioural_function_parse_error',
-    help: 'A behavioural function invocation was parsed with an error',
-    labelNames: ['error'],
-})
+export type CohortFilterPayload = {
+    type: 'behavioural-filter-match-event'
+    personId: string
+    teamId: number
+    filterHash: string
+    date: string
+}
 
-export const counterEventsConsumed = new Counter({
-    name: 'cdp_behavioural_events_consumed_total',
-    help: 'Total number of events consumed by the behavioural consumer',
-})
+export type ProducedEvent = {
+    key: string
+    payload: PersonEventPayload | CohortFilterPayload
+}
 
-export const counterEventsMatchedTotal = new Counter({
-    name: 'cdp_behavioural_events_matched_total',
-    help: 'Total number of events that matched at least one action filter',
+export const histogramBatchProcessingSteps = new Histogram({
+    name: 'cdp_behavioural_batch_processing_steps_duration_ms',
+    help: 'Time spent in different batch processing steps',
+    labelNames: ['step'],
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
 })
 
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
-    protected kafkaConsumer: KafkaConsumer
+    private kafkaConsumer: KafkaConsumer
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
-    public async processBatch(events: BehavioralEvent[]): Promise<void> {
-        return await this.runInstrumented('processBatch', async () => {
-            if (!events.length) {
-                return
-            }
+    private async publishEvents(events: ProducedEvent[]): Promise<void> {
+        if (!this.kafkaProducer || events.length === 0) {
+            return
+        }
 
-            // Track events consumed and matched (absolute numbers)
-            let eventsMatched = 0
-
-            const results = await Promise.all(events.map((event) => this.processEvent(event)))
-            eventsMatched = results.reduce((sum, count) => sum + count, 0)
-
-            // Update metrics with absolute numbers
-            counterEventsConsumed.inc(events.length)
-            counterEventsMatchedTotal.inc(eventsMatched)
-        })
-    }
-
-    private async processEvent(event: BehavioralEvent): Promise<number> {
         try {
-            const actions = await this.loadActionsForTeam(event.teamId)
+            const messages = events.map((event) => ({
+                topic: KAFKA_CDP_AGGREGATION_WRITER_EVENTS,
+                value: JSON.stringify(event),
+                key: event.key,
+            }))
 
-            if (!actions.length) {
-                logger.debug('No actions found for team', { teamId: event.teamId })
-                return 0
-            }
-
-            const results = await Promise.all(
-                actions.map((action) => this.doesEventMatchAction(event.filterGlobals, action))
-            )
-
-            return results.filter(Boolean).length
+            await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_AGGREGATION_WRITER_EVENTS, messages })
         } catch (error) {
-            logger.error('Error processing event', {
-                eventName: event.filterGlobals.event,
+            logger.error('Error publishing events', {
                 error,
+                queueLength: events.length,
             })
-            return 0
+            // Don't clear queue on error - messages will be retried with next batch
         }
     }
 
-    private async loadActionsForTeam(teamId: number): Promise<Action[]> {
-        try {
-            const actions = await this.hub.actionManagerCDP.getActionsForTeam(teamId)
-            return actions
-        } catch (error) {
-            logger.error('Error loading actions for team', { teamId, error })
-            return []
-        }
-    }
-
-    private async doesEventMatchAction(filterGlobals: HogFunctionFilterGlobals, action: Action): Promise<boolean> {
-        if (!action.bytecode) {
-            return false
-        }
-
-        try {
-            // Execute bytecode directly with the filter globals
-            const execHogOutcome = await execHog(action.bytecode, {
-                globals: filterGlobals,
-                telemetry: false,
-            })
-
-            if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
-                throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
-            }
-
-            const matchedFilter =
-                typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
-
-            return matchedFilter
-        } catch (error) {
-            logger.error('Error executing action bytecode', {
-                actionId: String(action.id),
-                error,
-            })
-            return false
-        }
-    }
-
-    // This consumer always parses from kafka
-    public async _parseKafkaBatch(messages: Message[]): Promise<BehavioralEvent[]> {
+    // This consumer always parses from kafka and creates events directly
+    public async _parseKafkaBatch(messages: Message[]): Promise<ProducedEvent[]> {
         return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpBehaviouralEventsConsumer.handleEachBatch.parseKafkaMessages`,
                 func: () => {
-                    const events: BehavioralEvent[] = []
-
+                    const events: ProducedEvent[] = []
                     messages.forEach((message) => {
                         try {
                             const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                            // Convert directly to filter globals
-                            const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
+                            if (!clickHouseEvent.person_id) {
+                                const error = new Error(
+                                    `Event missing person_id. Event: ${clickHouseEvent.event}, Team: ${clickHouseEvent.team_id}, Event-UUID: ${clickHouseEvent.uuid}`
+                                )
+                                logger.error('Event missing person_id', {
+                                    teamId: clickHouseEvent.team_id,
+                                    event: clickHouseEvent.event,
+                                    uuid: clickHouseEvent.uuid,
+                                })
+                                throw error
+                            }
 
-                            events.push({
-                                teamId: clickHouseEvent.team_id,
-                                filterGlobals,
-                            })
+                            const timestamp = Math.floor(new Date(clickHouseEvent.timestamp).getTime() / 1000)
+                            const date = new Date(timestamp * 1000).toISOString().split('T')[0]
+
+                            // Create person-performed-event with partition key: teamId:personId:eventName
+                            const personPerformedEventKey = `${clickHouseEvent.team_id}:${clickHouseEvent.person_id}:${clickHouseEvent.event}`
+                            const personPerformedEvent: ProducedEvent = {
+                                key: personPerformedEventKey,
+                                payload: {
+                                    type: 'person-performed-event',
+                                    personId: clickHouseEvent.person_id,
+                                    eventName: clickHouseEvent.event,
+                                    teamId: clickHouseEvent.team_id,
+                                },
+                            }
+
+                            // Create behavioural-filter-match-event with partition key: teamId:personId:hash:date
+                            const filterHash = createHash('sha256').update(clickHouseEvent.event).digest('hex')
+                            const behaviouralFilterMatchEventKey = `${clickHouseEvent.team_id}:${clickHouseEvent.person_id}:${filterHash}:${date}`
+                            const behaviouralFilterMatchEvent: ProducedEvent = {
+                                key: behaviouralFilterMatchEventKey,
+                                payload: {
+                                    type: 'behavioural-filter-match-event',
+                                    teamId: clickHouseEvent.team_id,
+                                    personId: clickHouseEvent.person_id,
+                                    filterHash: filterHash,
+                                    date: date,
+                                },
+                            }
+
+                            events.push(personPerformedEvent, behaviouralFilterMatchEvent)
                         } catch (e) {
                             logger.error('Error parsing message', e)
-                            counterParseError.labels({ error: e.message }).inc()
                         }
                     })
                     // Return Promise.resolve to satisfy runInstrumentedFunction's Promise return type
-                    // without needing async/await since all operations are synchronous
                     return Promise.resolve(events)
                 },
             })
@@ -157,6 +134,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
+
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -165,9 +143,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
             return await this.runInstrumented('handleEachBatch', async () => {
                 const events = await this._parseKafkaBatch(messages)
-                await this.processBatch(events)
+                // Publish events in background
+                const backgroundTask = this.publishEvents(events).catch((error) => {
+                    throw new Error(`Failed to publish behavioural events: ${error.message}`)
+                })
 
-                return { backgroundTask: Promise.resolve() }
+                return { backgroundTask }
             })
         })
     }
@@ -175,6 +156,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping behavioural events consumer...')
         await this.kafkaConsumer.disconnect()
+
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Behavioural events consumer stopped!')

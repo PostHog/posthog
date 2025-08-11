@@ -681,7 +681,7 @@ describe('Hog Executor', () => {
         jest.setTimeout(10000)
         let server: any
         let baseUrl: string
-        let mockRequest = jest.fn()
+        const mockRequest = jest.fn()
         let timeoutHandle: NodeJS.Timeout | undefined
         let hogFunction: HogFunctionType
 
@@ -722,7 +722,7 @@ describe('Hog Executor', () => {
         beforeEach(() => {
             jest.spyOn(Math, 'random').mockReturnValue(0.5)
 
-            mockRequest = jest.fn((req, res) => {
+            mockRequest.mockImplementation((req, res) => {
                 res.writeHead(200, { 'Content-Type': 'text/plain' })
                 res.end('Hello, world!')
             })
@@ -897,7 +897,7 @@ describe('Hog Executor', () => {
             })
 
             // Set a very short timeout
-            hub.CDP_FETCH_TIMEOUT_MS = 100
+            hub.EXTERNAL_REQUEST_TIMEOUT_MS = 100
 
             const result = await executor.executeFetch(invocation)
 

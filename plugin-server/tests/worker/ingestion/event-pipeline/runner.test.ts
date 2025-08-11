@@ -4,7 +4,7 @@ import { v4 } from 'uuid'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { KAFKA_INGESTION_WARNINGS } from '../../../../src/config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
@@ -26,6 +26,7 @@ import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metric
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
@@ -162,8 +163,15 @@ describe('EventPipelineRunner', () => {
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
 
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+            new PostgresPersonRepository(hub.db.postgres),
+            hub.kafkaProducer
+        )
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         runner = new TestEventPipelineRunner(
             hub,
             pluginEvent,
@@ -209,6 +217,15 @@ describe('EventPipelineRunner', () => {
                 ...pluginEvent,
                 token: 'drop_token',
                 distinct_id: 'drop_id',
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([])
+        })
+
+        it('drops $exception events', async () => {
+            const event = {
+                ...pluginEvent,
+                event: '$exception',
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([])
@@ -347,8 +364,15 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
-                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+                const personsStore = new BatchWritingPersonsStoreForBatch(
+                    new PostgresPersonRepository(hub.db.postgres),
+                    hub.kafkaProducer
+                )
+                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+                    hub.db,
+                    hub.groupRepository,
+                    hub.clickhouseGroupRepository
+                )
                 runner = new TestEventPipelineRunner(
                     hub,
                     heatmapEvent,
@@ -372,62 +396,6 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(heatmapEvent, team)
 
                 expect(runner.steps).toEqual(['normalizeEventStep', 'prepareEventStep', 'extractHeatmapDataStep'])
-            })
-        })
-
-        describe('$exception events', () => {
-            let exceptionEvent: PluginEvent
-            beforeEach(() => {
-                exceptionEvent = {
-                    ...pluginEvent,
-                    event: '$exception',
-                    properties: {
-                        ...pipelineEvent.properties,
-                        $heatmap_data: {
-                            url1: ['data'],
-                            url2: ['more data'],
-                        },
-                    },
-                    team_id: 2,
-                }
-
-                // setup just enough mocks that the right pipeline runs
-
-                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
-                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
-
-                runner = new TestEventPipelineRunner(
-                    hub,
-                    exceptionEvent,
-                    undefined,
-                    undefined,
-                    personsStore,
-                    groupStoreForBatch
-                )
-
-                const heatmapPreIngestionEvent = {
-                    ...preIngestionEvent,
-                    event: '$exception',
-                    properties: {
-                        ...exceptionEvent.properties,
-                    },
-                }
-                jest.mocked(prepareEventStep).mockResolvedValue(heatmapPreIngestionEvent)
-            })
-
-            it('runs the expected steps for exceptions', async () => {
-                await runner.runEventPipeline(exceptionEvent, team)
-
-                expect(runner.steps).toEqual([
-                    'dropOldEventsStep',
-                    'transformEventStep',
-                    'normalizeEventStep',
-                    'processPersonsStep',
-                    'prepareEventStep',
-                    'extractHeatmapDataStep',
-                    'createEventStep',
-                    'produceExceptionSymbolificationEventStep',
-                ])
             })
         })
 

@@ -57,7 +57,7 @@ export const retentionLogic = kea<retentionLogicType>([
         results: [
             (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone],
             (insightQuery, insightData, retentionFilter, timezone): ProcessedRetentionPayload[] => {
-                const rawResults = isRetentionQuery(insightQuery) ? insightData?.result ?? [] : []
+                const rawResults = isRetentionQuery(insightQuery) ? (insightData?.result ?? []) : []
 
                 const results: ProcessedRetentionPayload[] = rawResults.map((result: RetentionResult) => ({
                     ...result,
@@ -136,7 +136,9 @@ export const retentionLogic = kea<retentionLogicType>([
 
                     const meanPercentagesForBreakdown: number[] = []
                     const isOverallGroupWithoutBreakdown = breakdownKey === OVERALL_MEAN_KEY && !hasValidBreakdown
-                    const label = isOverallGroupWithoutBreakdown ? 'Overall' : breakdownRows[0]?.breakdown_value ?? null
+                    const label = isOverallGroupWithoutBreakdown
+                        ? 'Overall'
+                        : (breakdownRows[0]?.breakdown_value ?? null)
 
                     for (let intervalIndex = 0; intervalIndex < totalIntervals; intervalIndex++) {
                         const validRows = breakdownRows.filter(

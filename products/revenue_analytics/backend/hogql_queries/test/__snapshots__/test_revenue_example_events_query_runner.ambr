@@ -24,7 +24,7 @@
             view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_a' AS source_label,
+               'revenue_analytics.events.purchase_a' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -73,7 +73,7 @@
                       view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_b' AS source_label,
+               'revenue_analytics.events.purchase_b' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -175,7 +175,7 @@
             view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_a' AS source_label,
+               'revenue_analytics.events.purchase_a' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -225,7 +225,7 @@
                       view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_b' AS source_label,
+               'revenue_analytics.events.purchase_b' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -275,7 +275,7 @@
                       view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_c' AS source_label,
+               'revenue_analytics.events.purchase_c' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -352,7 +352,7 @@
             view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_a' AS source_label,
+               'revenue_analytics.events.purchase_a' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -402,7 +402,7 @@
                       view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_b' AS source_label,
+               'revenue_analytics.events.purchase_b' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -452,7 +452,7 @@
                       view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_c' AS source_label,
+               'revenue_analytics.events.purchase_c' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -529,7 +529,7 @@
             view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_a' AS source_label,
+               'revenue_analytics.events.purchase_a' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -578,7 +578,7 @@
                       view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_b' AS source_label,
+               'revenue_analytics.events.purchase_b' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -627,7 +627,7 @@
                       view.timestamp AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
-               'revenue_analytics.purchase_c' AS source_label,
+               'revenue_analytics.events.purchase_c' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
                NULL AS invoice_id,
@@ -692,7 +692,7 @@
          view.timestamp AS timestamp
   FROM
     (SELECT toString(events.uuid) AS id,
-            'revenue_analytics.purchase' AS source_label,
+            'revenue_analytics.events.purchase' AS source_label,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.distinct_id AS customer_id,
             NULL AS invoice_id,
@@ -756,7 +756,7 @@
          view.timestamp AS timestamp
   FROM
     (SELECT toString(events.uuid) AS id,
-            'revenue_analytics.purchase' AS source_label,
+            'revenue_analytics.events.purchase' AS source_label,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.distinct_id AS customer_id,
             NULL AS invoice_id,

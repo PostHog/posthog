@@ -235,6 +235,9 @@ pub fn match_property(
         OperatorType::In | OperatorType::NotIn => Err(FlagMatchingError::ValidationError(
             "In/NotIn operators should be handled by cohort matching".to_string(),
         )),
+        OperatorType::FlagEvaluatesTo => Err(FlagMatchingError::ValidationError(
+            "FlagEvaluatesTo operator should be handled by flag dependency matching".to_string(),
+        )),
     }
 }
 

@@ -1,3 +1,4 @@
+// sync with ee/hogai/graph/billing/nodes.py
 export const USAGE_TYPES = [
     { label: 'Events', value: 'event_count_in_period' },
     { label: 'Recordings', value: 'recording_count_in_period' },

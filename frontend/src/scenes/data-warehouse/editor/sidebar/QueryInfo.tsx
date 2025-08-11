@@ -105,8 +105,8 @@ function getMaterializationDisabledReasons(
             currentJobStatus === 'Running'
                 ? 'Materialization is already running'
                 : startingMaterialization
-                ? 'Materialization is starting'
-                : false,
+                  ? 'Materialization is starting'
+                  : false,
         cancel: currentJobStatus !== 'Running' ? 'Materialization is not running' : false,
         revert: currentJobStatus === 'Running' ? 'Cannot revert while materialization is running' : false,
     }
@@ -195,8 +195,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         {startingMaterialization
                                             ? 'Starting...'
                                             : currentJobStatus === 'Running'
-                                            ? 'Running...'
-                                            : 'Sync now'}
+                                              ? 'Running...'
+                                              : 'Sync now'}
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"

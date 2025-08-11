@@ -10,7 +10,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/linear.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    hog: `
+    code: `
 let description :=f'{event.properties.description}
 
 [View Person in PostHog]({person.url})

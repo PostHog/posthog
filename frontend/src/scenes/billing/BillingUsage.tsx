@@ -23,7 +23,7 @@ export function BillingUsage(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-    const logic = billingUsageLogic({ dashboardItemId: 'usage' })
+    const logic = billingUsageLogic({ syncWithUrl: true })
     const {
         series,
         dates,
@@ -39,6 +39,7 @@ export function BillingUsage(): JSX.Element {
         showSeries,
         showEmptyState,
         teamOptions,
+        billingPeriodMarkers,
     } = useValues(logic)
     const {
         setFilters,
@@ -174,6 +175,7 @@ export function BillingUsage(): JSX.Element {
                         hiddenSeries={finalHiddenSeries}
                         showLegend={false}
                         interval={filters.interval}
+                        billingPeriodMarkers={billingPeriodMarkers}
                     />
                 )}
                 {showEmptyState && (

@@ -14,7 +14,7 @@ from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment,
 
 
 @pytest.mark.django_db
-async def eval_retention(call_root_for_insight_generation):
+async def eval_retention(call_root_for_insight_generation, pytestconfig):
     await MaxEval(
         experiment_name="retention",
         task=call_root_for_insight_generation,
@@ -204,4 +204,5 @@ Retention:
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )

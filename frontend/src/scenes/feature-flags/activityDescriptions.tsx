@@ -15,11 +15,30 @@ import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagFilters,
+    FeatureFlagGroupType,
+    FeatureFlagType,
+} from '~/types'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     const displayName = name || '(empty string)'
     return id ? <Link to={urls.featureFlag(id)}>{displayName}</Link> : displayName
+}
+
+const getRuntimeLabel = (runtime: string): string => {
+    switch (runtime) {
+        case FeatureFlagEvaluationRuntime.ALL:
+            return 'both client and server'
+        case FeatureFlagEvaluationRuntime.CLIENT:
+            return 'client-side only'
+        case FeatureFlagEvaluationRuntime.SERVER:
+            return 'server-side only'
+        default:
+            return runtime
+    }
 }
 
 const featureFlagActionsMapping: Record<
@@ -248,6 +267,19 @@ const featureFlagActionsMapping: Record<
 
         return { description: [<>{describeChange} experience continuity</>] }
     },
+    evaluation_runtime: function onEvaluationRuntime(change) {
+        const runtimeAfter = change?.after as string
+        const runtimeBefore = change?.before as string
+
+        return {
+            description: [
+                <>
+                    changed the evaluation runtime from <strong>{getRuntimeLabel(runtimeBefore)}</strong> to{' '}
+                    <strong>{getRuntimeLabel(runtimeAfter)}</strong>
+                </>,
+            ],
+        }
+    },
     tags: function onTags(change) {
         const tagsBefore = change?.before as string[]
         const tagsAfter = change?.after as string[]
@@ -298,6 +330,18 @@ const featureFlagActionsMapping: Record<
     _create_in_folder: () => null,
 }
 
+const getActorName = (logItem: ActivityLogItem): JSX.Element => {
+    const userName = userNameForLogItem(logItem)
+    if (logItem.detail.trigger?.job_type === 'scheduled_change') {
+        return (
+            <>
+                <strong>{userName}</strong> <span className="text-muted">(via scheduled change)</span>
+            </>
+        )
+    }
+    return <strong>{userName}</strong>
+}
+
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')
@@ -309,11 +353,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             description: (
                 <SentenceList
                     listParts={[<>created a new feature flag:</>]}
-                    prefix={
-                        <>
-                            <strong>{userNameForLogItem(logItem)}</strong>
-                        </>
-                    }
+                    prefix={getActorName(logItem)}
                     suffix={<> {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>}
                 />
             ),
@@ -334,7 +374,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const possibleLogItem = featureFlagActionsMapping[change.field](change, logItem)
+            const possibleLogItem = featureFlagActionsMapping[change.field as keyof FeatureFlagType](change, logItem)
             if (possibleLogItem) {
                 const { description, suffix } = possibleLogItem
                 if (description) {
@@ -348,17 +388,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
         if (changes.length) {
             return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={
-                            <>
-                                <strong>{userNameForLogItem(logItem)}</strong>
-                            </>
-                        }
-                        suffix={changeSuffix}
-                    />
-                ),
+                description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
             }
         }
     }

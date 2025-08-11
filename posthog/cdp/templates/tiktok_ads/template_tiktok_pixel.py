@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplateDC
 
 
 def build_inputs(multiProductEvent=False):
@@ -51,7 +51,7 @@ def build_inputs(multiProductEvent=False):
     ]
 
 
-template_tiktok_pixel: HogFunctionTemplate = HogFunctionTemplate(
+template_tiktok_pixel: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="alpha",
     free=False,
     type="site_destination",
@@ -61,7 +61,7 @@ template_tiktok_pixel: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/tiktok.png",
     category=["Advertisement"],
     code_language="javascript",
-    hog="""
+    code="""
 // Adds window.snaptr and lazily loads the TikTok Pixel script
 function initSnippet() {
     !function (w, d, t) {

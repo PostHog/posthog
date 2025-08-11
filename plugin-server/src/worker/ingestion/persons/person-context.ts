@@ -21,9 +21,7 @@ export class PersonContext {
         public readonly processPerson: boolean, // $process_person_profile flag from the event
         public readonly kafkaProducer: KafkaProducerWrapper,
         public readonly personStore: PersonsStoreForBatch,
-        public readonly measurePersonJsonbSize: number = 0,
-        public readonly useOptimizedJSONBUpdates: number = 0.0,
-        public readonly personBatchWritingMode: string = 'NONE'
+        public readonly measurePersonJsonbSize: number = 0
     ) {
         this.eventProperties = event.properties!
     }

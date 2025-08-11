@@ -1,7 +1,5 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
-import { isDevEnv } from '~/utils/env-utils'
-
 import { UUIDT } from '../../utils/utils'
 import {
     CyclotronJobInvocation,
@@ -10,7 +8,6 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
 } from '../types'
 import { HogFunctionType } from '../types'
-import { isSegmentPluginHogFunction } from '../utils'
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
@@ -26,7 +23,7 @@ export function createInvocation(
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,
         hogFunction,
-        queue: isDevEnv() ? 'hog' : isSegmentPluginHogFunction(hogFunction) ? 'segment' : 'hog',
+        queue: 'hog',
         queuePriority: 0,
     }
 }

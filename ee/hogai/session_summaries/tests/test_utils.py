@@ -2,11 +2,13 @@ from datetime import datetime, UTC
 
 import pytest
 
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.utils import (
     get_column_index,
     prepare_datetime,
     serialize_to_sse_event,
     shorten_url,
+    estimate_tokens_from_strings,
 )
 
 
@@ -98,3 +100,12 @@ def test_shorten_url(url: str, expected: str) -> None:
 def test_serialize_to_sse_event(event_label: str, event_data: str, expected: str) -> None:
     result = serialize_to_sse_event(event_label, event_data)
     assert result == expected
+
+
+def test_estimate_tokens_from_strings():
+    """Test exact token estimation for strings."""
+    # Empty input returns 0
+    assert estimate_tokens_from_strings(strings=[], model=SESSION_SUMMARIES_SYNC_MODEL) == 0
+    # Test with exact token count for o3 model
+    result = estimate_tokens_from_strings(strings=["Hello world", "Test content"], model=SESSION_SUMMARIES_SYNC_MODEL)
+    assert result == 4  # Exact token count for these strings with o3 model

@@ -1,18 +1,26 @@
 import asyncio
+from typing import cast
 
 from langchain_core.prompts import ChatPromptTemplate
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.warehouse import serialize_database_schema
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.errors import ExposedHogQLError, NotImplementedError as HogQLNotImplementedError, ResolutionError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
 from posthog.sync import database_sync_to_async
 
 from ..schema_generator.parsers import PydanticOutputParserException
-from .prompts import HOGQL_GENERATOR_SYSTEM_PROMPT
+from .prompts import (
+    HOGQL_GENERATOR_SYSTEM_PROMPT,
+    SQL_EXPRESSIONS_DOCS,
+    SQL_SUPPORTED_AGGREGATIONS_DOCS,
+    SQL_SUPPORTED_FUNCTIONS_DOCS,
+)
 
 
 class HogQLGeneratorMixin(AssistantContextMixin):
@@ -42,7 +50,13 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                 ("system", HOGQL_GENERATOR_SYSTEM_PROMPT),
             ],
             template_format="mustache",
-        ).partial(schema_description=schema_description, core_memory=core_memory)
+        ).partial(
+            sql_expressions_docs=SQL_EXPRESSIONS_DOCS,
+            sql_supported_functions_docs=SQL_SUPPORTED_FUNCTIONS_DOCS,
+            sql_supported_aggregations_docs=SQL_SUPPORTED_AGGREGATIONS_DOCS,
+            schema_description=schema_description,
+            core_memory=core_memory,
+        )
 
         return prompt
 
@@ -51,14 +65,24 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         if query is None:
             raise PydanticOutputParserException(llm_output="", validation_message="Output is empty")
         try:
-            print_ast(parse_select(query), context=hogql_context, dialect="clickhouse")
+            parsed_query = parse_select(query, placeholders={})
+
+            # Replace placeholders with dummy values to compile the generated query.
+            finder = find_placeholders(parsed_query)
+            if finder.placeholder_fields or finder.has_filters:
+                dummy_placeholders: dict[str, ast.Expr] = {
+                    str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
+                }
+                if finder.has_filters:
+                    dummy_placeholders["filters"] = ast.Constant(value=1)
+                parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
+
+            print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
-                err_msg = (
-                    f'This is not valid parsable SQL! The last 5 characters where we tripped up were "{query[-5:]}".'
-                )
+                err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
             raise PydanticOutputParserException(llm_output=query, validation_message=err_msg)
         except Exception as e:
             raise PydanticOutputParserException(llm_output=query, validation_message=str(e))

@@ -104,7 +104,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
         if (initialLoad && !isLoading) {
             setInitialLoad(false)
         }
-    }, [isLoading])
+    }, [isLoading, initialLoad])
 
     return (
         <>
@@ -463,7 +463,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
             resetSchemaIncrementalFields()
             loadSchemaIncrementalFields(currentSyncMethodModalSchema.id)
         }
-    }, [currentSyncMethodModalSchema?.id])
+    }, [currentSyncMethodModalSchema?.id, resetSchemaIncrementalFields, loadSchemaIncrementalFields])
 
     const schemaLoading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
     const showForm = !schemaLoading && schemaIncrementalFields

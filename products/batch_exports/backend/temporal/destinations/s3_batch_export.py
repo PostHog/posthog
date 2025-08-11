@@ -127,7 +127,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     use_virtual_style_addressing: bool = False
 
 
-def get_allowed_template_variables(inputs) -> dict[str, str]:
+def get_allowed_template_variables(inputs: S3InsertInputs) -> dict[str, str]:
     """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
     export_datetime = dt.datetime.fromisoformat(inputs.data_interval_end)
     return {
@@ -137,7 +137,7 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
         "day": f"{export_datetime:%d}",
         "month": f"{export_datetime:%m}",
         "year": f"{export_datetime:%Y}",
-        "data_interval_start": inputs.data_interval_start,
+        "data_interval_start": inputs.data_interval_start or "START",
         "data_interval_end": inputs.data_interval_end,
         "table": inputs.batch_export_model.name if inputs.batch_export_model is not None else "events",
     }
@@ -145,7 +145,13 @@ def get_allowed_template_variables(inputs) -> dict[str, str]:
 
 def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
     template_variables = get_allowed_template_variables(inputs)
-    return inputs.prefix.format(**template_variables)
+    try:
+        return inputs.prefix.format(**template_variables)
+    except KeyError as e:
+        EXTERNAL_LOGGER.warning(
+            f"The key prefix '{inputs.prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
+        )
+        return inputs.prefix
 
 
 def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:

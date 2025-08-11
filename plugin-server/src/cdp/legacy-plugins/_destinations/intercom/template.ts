@@ -15,7 +15,7 @@ export const intercomPlugin: LegacyDestinationPlugin = {
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-intercom-plugin/main/logo.png',
         category: [],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 templating: false,

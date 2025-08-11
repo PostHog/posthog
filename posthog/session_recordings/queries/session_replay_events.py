@@ -63,13 +63,14 @@ class SessionReplayEvents:
             FROM session_replay_events
             PREWHERE team_id = %(team_id)s
             AND session_id = %(session_id)s
-            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
-            AND min_first_timestamp <= now()
+            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
+            AND min_first_timestamp <= %(python_now)s
             """,
             {
                 "team_id": team.pk,
                 "session_id": session_id,
                 "days": days,
+                "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
         return result[0][0] > 0
@@ -113,14 +114,15 @@ class SessionReplayEvents:
             FROM session_replay_events
             PREWHERE team_id = %(team_id)s
             AND session_id IN %(session_ids)s
-            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
-            AND min_first_timestamp <= now()
+            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
+            AND min_first_timestamp <= %(python_now)s
             GROUP BY session_id
             """,
             {
                 "team_id": team.pk,
                 "session_ids": session_ids,
                 "days": days,
+                "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
         if not result:

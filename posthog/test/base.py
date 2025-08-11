@@ -98,6 +98,13 @@ from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
 )
+from posthog.models.web_preaggregated.team_selection import (
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
+    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
+    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
+)
 from posthog.models.raw_sessions.sql import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
@@ -113,6 +120,8 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_DAILY_SQL,
     WEB_BOUNCES_DAILY_SQL,
     WEB_STATS_COMBINED_VIEW_SQL,
+    WEB_STATS_SQL,
+    WEB_BOUNCES_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -1115,6 +1124,7 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_VIEW_SQL(),
             DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
+            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
         ]
     )
@@ -1122,6 +1132,7 @@ def reset_clickhouse_database() -> None:
         [
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
             DROP_EXCHANGE_RATE_TABLE_SQL(),
+            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
             DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
@@ -1159,6 +1170,11 @@ def reset_clickhouse_database() -> None:
             WEB_BOUNCES_HOURLY_SQL(),
             WEB_STATS_DAILY_SQL(),
             WEB_STATS_HOURLY_SQL(),
+            WEB_STATS_SQL(),
+            WEB_BOUNCES_SQL(),
+            WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
+            WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1175,6 +1191,7 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1188,6 +1205,7 @@ def reset_clickhouse_database() -> None:
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_STATS_COMBINED_VIEW_SQL(),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
         ]
     )
 

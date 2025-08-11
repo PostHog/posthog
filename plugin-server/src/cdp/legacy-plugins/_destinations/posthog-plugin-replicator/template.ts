@@ -15,7 +15,7 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-plugin-replicator/master/logo.png',
         category: [],
         code_language: 'javascript',
-        hog: 'return event',
+        code: 'return event',
         inputs_schema: [
             {
                 templating: false,

@@ -3,10 +3,10 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NotebookType } from '~/types'
 
 import notebook12345Json from './__mocks__/notebook-12345.json'
 import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
+import { NotebookType } from '../types'
 
 // a list of test cases to run, showing different types of content in notebooks
 const testCases: Record<string, NotebookType> = {

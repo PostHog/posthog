@@ -14,6 +14,7 @@ import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/se
 import React from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
+import { Comments } from 'scenes/data-management/comments/Comments'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -32,6 +33,7 @@ export enum DataManagementTab {
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
     Annotations = 'annotations',
+    Comments = 'comments',
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
@@ -94,6 +96,13 @@ const tabs: Record<
         label: 'Annotations',
         buttons: <NewAnnotationButton />,
         tooltipDocLink: 'https://posthog.com/docs/data/annotations',
+    },
+    [DataManagementTab.Comments]: {
+        url: urls.comments(),
+        content: <Comments />,
+        label: 'Comments',
+        buttons: undefined,
+        tooltipDocLink: 'https://posthog.com/docs/data/comments',
     },
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),

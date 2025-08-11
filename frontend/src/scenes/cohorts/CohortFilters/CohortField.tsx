@@ -215,7 +215,7 @@ export function CohortEventFiltersField({
                 parent.classList.remove('basis-full')
             }
         }
-    }, [componentRef, value])
+    }, [componentRef, value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div ref={componentRef}>

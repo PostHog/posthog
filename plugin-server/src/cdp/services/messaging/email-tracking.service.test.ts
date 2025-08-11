@@ -3,7 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import crypto from 'crypto'
-import express from 'express'
+import express from 'ultimate-express'
 
 import { closeHub, createHub } from '~/utils/db/hub'
 
@@ -11,7 +11,7 @@ import { Hub, Team } from '../../../types'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CdpApi } from '~/cdp/cdp-api'
 import supertest from 'supertest'
-import { setupExpressApp } from '~/router'
+import { setupExpressApp } from '~/api/router'
 import { insertHogFunction } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -20,6 +20,7 @@ import { MailjetEventBase, MailjetWebhookEvent } from './types'
 import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
 import { HogFunctionType } from '~/cdp/types'
 import { HogFlow } from '~/schema/hogflow'
+import { Server } from 'http'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -47,13 +48,14 @@ describe('EmailTrackingService', () => {
         let hogFunction: HogFunctionType
         let hogFlow: HogFlow
         const invocationId = 'invocation-id'
-
+        let server: Server
         let exampleEvent: MailjetWebhookEvent
 
         beforeEach(async () => {
             api = new CdpApi(hub)
             app = setupExpressApp()
             app.use('/', api.router())
+            server = app.listen(0, () => {})
 
             hogFunction = await insertHogFunction(hub.postgres, team.id)
             hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
@@ -71,6 +73,10 @@ describe('EmailTrackingService', () => {
                 CustomID: generateMailjetCustomId({ functionId: hogFunction.id, id: invocationId }),
                 Payload: JSON.stringify({}),
             }
+        })
+
+        afterEach(() => {
+            server.close()
         })
 
         const sendValidEvent = async (mailjetEvent: MailjetEventBase): Promise<supertest.Response> => {

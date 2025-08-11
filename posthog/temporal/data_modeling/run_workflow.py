@@ -21,13 +21,15 @@ import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
 
-from posthog.clickhouse.query_tagging import tag_queries, Product
+from posthog.clickhouse.query_tagging import Feature, tag_queries, Product
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import Team
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -45,6 +47,7 @@ from posthog.warehouse.models import (
     get_s3_client,
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from posthog.warehouse.s3 import ensure_bucket_exists
 from posthog.sync import database_sync_to_async
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
@@ -170,7 +173,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     failed = set()
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     await logger.adebug(f"DAG size = {len(inputs.dag)}")
 
@@ -604,6 +607,15 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
 
         saved_query.sync_frequency_interval = None
         saved_query.status = None
+        saved_query.last_run_at = None
+        saved_query.latest_error = None
+
+        # Clear the table reference so consumers will use the on-demand view instead
+        if saved_query.table is not None:
+            saved_query.table = None
+            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
+            await database_sync_to_async(table.soft_delete)()
+
         await database_sync_to_async(saved_query.save)()
 
         await logger.ainfo("Successfully reverted materialization for saved query %s", saved_query.name)
@@ -640,6 +652,9 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     query_node = parse_select(count_query)
 
+    settings = HogQLGlobalSettings()
+    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+
     context = HogQLContext(
         team=team,
         team_id=team.id,
@@ -650,12 +665,17 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        query_node, context=context, dialect="clickhouse", stack=[]
+        query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
     )
+
+    if prepared_hogql_query is None:
+        raise EmptyHogQLResponseColumnsError()
+
     printed = await database_sync_to_async(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
+        settings=settings,
         stack=[],
     )
 
@@ -673,6 +693,9 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     query_node = parse_select(query)
     assert query_node is not None
 
+    settings = HogQLGlobalSettings()
+    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+
     context = HogQLContext(
         team=team,
         team_id=team.id,
@@ -683,14 +706,16 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        query_node, context=context, dialect="clickhouse", stack=[]
+        query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
     )
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
+
     printed = await database_sync_to_async(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
+        settings=settings,
         stack=[],
     )
 
@@ -755,6 +780,24 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
 
 
 def _get_credentials():
+    if settings.USE_LOCAL_SETUP:
+        ensure_bucket_exists(
+            settings.BUCKET_URL,
+            settings.AIRBYTE_BUCKET_KEY,
+            settings.AIRBYTE_BUCKET_SECRET,
+            settings.OBJECT_STORAGE_ENDPOINT,
+        )
+
+        return {
+            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     if TEST:
         return {
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
@@ -818,7 +861,7 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     logger = await bind_temporal_worker_logger(inputs.team_id)
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
     async with Heartbeater():
         selector_paths: SelectorPaths = {}
 
@@ -1068,7 +1111,7 @@ class CreateTableActivityInputs:
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Create/attach tables and persist their row-count."""
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
     logger = await bind_temporal_worker_logger(inputs.team_id)
 
     for model in inputs.models:

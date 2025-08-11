@@ -4,8 +4,9 @@ from collections.abc import Iterable
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -20,83 +21,15 @@ from posthog.schema import (
     EventTaxonomyQuery,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-
-
-class retrieve_event_properties(BaseModel):
-    """
-    Use this tool to retrieve the property names of an event. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Try other events** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    event_name: str = Field(..., description="The name of the event that you want to retrieve properties for.")
-
-
-class retrieve_action_properties(BaseModel):
-    """
-    Use this tool to retrieve the property names of an action. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Try other actions or events** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    action_id: int = Field(..., description="The ID of the action that you want to retrieve properties for.")
-
-
-class retrieve_entity_properties(BaseModel):
-    """
-    Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Infer the property groups from the user's request.**
-    - **Try other entities** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    entity: Literal["person", "session"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
-
-
-class retrieve_event_property_values(BaseModel):
-    """
-    Use this tool to retrieve the property values for an event. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    event_name: str = Field(..., description="The name of the event that you want to retrieve values for.")
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class retrieve_action_property_values(BaseModel):
-    """
-    Use this tool to retrieve the property values for an action. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    action_id: int = Field(..., description="The ID of the action that you want to retrieve values for.")
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class retrieve_entity_property_values(BaseModel):
-    """
-    Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    entity: Literal["person", "session"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class ask_user_for_help(BaseModel):
-    """
-    Use this tool to ask a question to the user. Your question must be concise and clear.
-    """
-
-    request: str = Field(..., description="The question you want to ask the user.")
-
+from ee.hogai.graph.taxonomy.tools import (
+    retrieve_action_properties,
+    retrieve_action_property_values,
+    retrieve_entity_properties,
+    retrieve_entity_property_values,
+    retrieve_event_properties,
+    retrieve_event_property_values,
+    ask_user_for_help,
+)
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
@@ -106,8 +39,8 @@ class final_answer(BaseModel):
     Use this tool to finalize the answer to the user's question.
     """
 
-    query_kind: MaxSupportedQueryKind
     plan: str
+    query_kind: MaxSupportedQueryKind  # query_kind is intentionally AFTER plan so that these tokens are generated after decision explanation
 
     @field_validator("plan", mode="before")
     def normalize_plan(cls, plan: str) -> str:
@@ -255,7 +188,8 @@ class TaxonomyAgentToolkit:
             query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"action with ID {event_name_or_action_id}"
         runner = EventTaxonomyQueryRunner(query, self._team)
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         return response, verbose_name
 
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
@@ -407,9 +341,10 @@ class TaxonomyAgentToolkit:
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
-        response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        )
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
 
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
             return f"The entity {entity} does not exist in the taxonomy."
