@@ -1,4 +1,5 @@
 use thiserror::Error;
+use std::time::Duration;
 
 #[derive(Error, Debug, Clone)]
 #[error("User Error: {msg}")]
@@ -42,8 +43,39 @@ pub fn get_user_message(error: &anyhow::Error) -> &str {
     DEFAULT_USER_ERROR_MESSAGE
 }
 
+#[derive(Error, Debug)]
+#[error("Rate limited")]
+pub struct RateLimitedError {
+    pub retry_after: Option<Duration>,
+    #[source]
+    pub source: reqwest::Error,
+}
+
+/// Extracts a Retry-After duration if a RateLimitedError is present in the error chain
+pub fn extract_retry_after_from_error(error: &anyhow::Error) -> Option<Duration> {
+    // Check the error itself
+    if let Some(rl) = error.downcast_ref::<RateLimitedError>() {
+        return rl.retry_after;
+    }
+
+    // Traverse sources
+    let mut source = error.source();
+    while let Some(err) = source {
+        if let Some(rl) = err.downcast_ref::<RateLimitedError>() {
+            return rl.retry_after;
+        }
+        source = err.source();
+    }
+    None
+}
+
 /// Returns true if the error chain contains a reqwest::Error with HTTP 429.
 pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
+    // Our custom rate limit error also counts
+    if error.downcast_ref::<RateLimitedError>().is_some() {
+        return true;
+    }
+
     // Check the error itself
     if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
         if reqwest_err.status().map_or(false, |s| s.as_u16() == 429) {

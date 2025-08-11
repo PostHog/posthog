@@ -1,10 +1,11 @@
 use super::DataSource;
-use crate::error::ToUserError;
+use crate::error::{RateLimitedError, ToUserError};
 use crate::extractor::{ExtractedPartData, PartExtractor};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use reqwest::{Client, Error as ReqwestError};
+use reqwest::header::HeaderMap;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
 use tokio::{
@@ -39,6 +40,25 @@ fn extract_client_request_error(error: &ReqwestError) -> String {
     } else {
         "Unknown error -- try the job again or use a different source".to_string()
     }
+}
+
+// Parse Retry-After header per RFC7231: either delta-seconds or HTTP-date
+pub(crate) fn parse_retry_after_header(headers: &HeaderMap) -> Option<Duration> {
+    let value = headers.get(reqwest::header::RETRY_AFTER)?;
+    let s = value.to_str().ok()?;
+    // Try seconds first
+    if let Ok(seconds) = s.trim().parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+    // Try HTTP-date
+    if let Ok(date) = httpdate::parse_http_date(s) {
+        let now = std::time::SystemTime::now();
+        if let Ok(diff) = date.duration_since(now) {
+            // clamp to zero if in past
+            return Some(diff);
+        }
+    }
+    None
 }
 
 #[derive(Clone)]
@@ -370,6 +390,17 @@ impl DateRangeExportSource {
             });
         }
 
+        // Intercept 429 here to capture response headers for Retry-After
+        if response.status().as_u16() == 429 {
+            let headers_clone = response.headers().clone();
+            let http_err = response.error_for_status().unwrap_err();
+            let retry_after = parse_retry_after_header(&headers_clone);
+            let rl = RateLimitedError { retry_after, source: http_err };
+            let err = anyhow::Error::from(rl)
+                .context(crate::error::UserError::new("Rate limit exceeded -- pause the job and try again later"));
+            return Err(err);
+        }
+
         let response = response.error_for_status().or_else(|status_error| {
             let friendly_msg = extract_status_error(&status_error);
             Err(status_error).user_error(friendly_msg)
@@ -695,6 +726,25 @@ mod tests {
 
         assert!(keys[0].starts_with("2023-01-01T00:00:00"));
         assert!(keys[0].contains("2023-01-01T01:00:00"));
+    }
+
+    #[tokio::test]
+    async fn test_parse_retry_after_seconds() {
+        // delta-seconds parse
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(reqwest::header::RETRY_AFTER, reqwest::header::HeaderValue::from_static("120"));
+        let d = super::parse_retry_after_header(&headers).unwrap();
+        assert_eq!(d.as_secs(), 120);
+    }
+
+    #[tokio::test]
+    async fn test_parse_retry_after_http_date() {
+        // HTTP-date parse
+        let future = httpdate::fmt_http_date(std::time::SystemTime::now() + std::time::Duration::from_secs(90));
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(reqwest::header::RETRY_AFTER, reqwest::header::HeaderValue::from_str(&future).unwrap());
+        let d = super::parse_retry_after_header(&headers).unwrap();
+        assert!(d.as_secs() <= 90 && d.as_secs() > 0);
     }
 
     #[tokio::test]

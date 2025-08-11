@@ -10,8 +10,8 @@ use tracing::{debug, error, info, warn};
 use crate::{
     context::AppContext,
     emit::Emitter,
-    error::{get_user_message, is_rate_limited_error},
-    job::backoff::{format_backoff_messages, next_attempt_and_delay},
+    error::{get_user_message, is_rate_limited_error, extract_retry_after_from_error},
+    job::backoff::{format_backoff_messages, compute_next_delay},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
     spawn_liveness_loop,
@@ -43,7 +43,10 @@ fn decide_on_error(
     user_message: &str,
 ) -> ErrorHandlingDecision {
     if is_rate_limited_error(err) {
-        let (_next_attempt, delay) = next_attempt_and_delay(current_attempt, policy);
+        let mut delay = compute_next_delay(current_attempt, policy);
+        if let Some(ra) = extract_retry_after_from_error(err) {
+            delay = std::cmp::min(ra, policy.max_delay);
+        }
         let (status_msg, display_msg) = format_backoff_messages(current_date_range, delay);
         ErrorHandlingDecision::Backoff {
             delay,
@@ -221,8 +224,7 @@ impl Job {
                     let model = self.model.lock().await;
                     model.backoff_attempt.max(0) as u32
                 };
-                let (next_attempt, precomputed_delay) =
-                    next_attempt_and_delay(current_attempt, policy);
+                let next_attempt = current_attempt.saturating_add(1);
                 match decide_on_error(
                     &e,
                     current_date_range.as_deref(),
@@ -266,7 +268,7 @@ impl Job {
                         model
                             .schedule_backoff(
                                 &self.context.db,
-                                precomputed_delay.min(delay),
+                                delay,
                                 status_msg,
                                 Some(display_msg),
                                 next_attempt as i32,
@@ -505,6 +507,7 @@ mod tests {
     use async_trait::async_trait;
     use httpmock::MockServer;
     use reqwest::Client;
+    use httpmock::Method;
     use std::collections::HashMap;
 
     struct MockDataSource {
@@ -680,6 +683,52 @@ mod tests {
                 assert_eq!(display_msg, "Remote server error");
             }
             _ => panic!("expected pause"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_retry_after_overrides_backoff() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(Method::GET).path("/rl");
+            then.status(429).header("Retry-After", "2");
+        });
+
+        let resp = Client::new()
+            .get(server.url("/rl"))
+            .send()
+            .await
+            .unwrap();
+        // Clone headers from the actual response before turning it into an error
+        let headers_clone = resp.headers().clone();
+        let http_err = resp.error_for_status().unwrap_err();
+
+        // Wrap into our RateLimitedError manually to include Retry-After from response
+        let retry_after = crate::source::date_range_export::parse_retry_after_header(&headers_clone)
+            .expect("retry-after parsed");
+        let rl = crate::error::RateLimitedError {
+            retry_after: Some(retry_after),
+            source: http_err,
+        };
+        let err = anyhow::Error::from(rl);
+
+        let decision = super::decide_on_error(
+            &err,
+            None,
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "Rate limit exceeded",
+        );
+
+        match decision {
+            super::ErrorHandlingDecision::Backoff { delay, .. } => {
+                assert_eq!(delay.as_secs(), 2);
+            }
+            _ => panic!("expected backoff"),
         }
     }
 

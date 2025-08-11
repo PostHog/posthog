@@ -51,14 +51,6 @@ pub fn compute_next_delay(attempt: u32, policy: BackoffPolicy) -> Duration {
     scaled.min(policy.max_delay)
 }
 
-/// Convenience: given current attempt, return (next_attempt, delay_for_next_attempt)
-/// E.g. if current_attempt = 0, we return (1, initial_delay)
-pub fn next_attempt_and_delay(current_attempt: u32, policy: BackoffPolicy) -> (u32, Duration) {
-    let next_attempt = current_attempt.saturating_add(1);
-    let delay = compute_next_delay(current_attempt, policy);
-    (next_attempt, delay)
-}
-
 /// Build operator/developer status_message and user-facing display message.
 /// If a date range is provided, include it in the display message.
 pub fn format_backoff_messages(date_range: Option<&str>, delay: Duration) -> (String, String) {
@@ -118,17 +110,6 @@ mod tests {
             let d = compute_next_delay(attempt, p);
             assert_eq!(d.as_secs(), expected_secs, "attempt {}", attempt);
         }
-    }
-
-    #[test]
-    fn test_next_attempt_and_delay() {
-        let p = BackoffPolicy::new(Duration::from_secs(10), 2.0, Duration::from_secs(1000));
-        let (a1, d1) = next_attempt_and_delay(0, p);
-        assert_eq!(a1, 1);
-        assert_eq!(d1.as_secs(), 10);
-        let (a2, d2) = next_attempt_and_delay(a1, p);
-        assert_eq!(a2, 2);
-        assert_eq!(d2.as_secs(), 20);
     }
 
     #[test]
