@@ -189,15 +189,9 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
             threshold={"configuration": {"type": "absolute", "bounds": {"lower": 100, "upper": 500}}},
         )
 
-        from posthog.models.alert import AlertConfiguration
-
-        alert_config = AlertConfiguration.objects.select_related("threshold").get(id=alert["id"])
-        threshold = alert_config.threshold
-        self.assertIsNotNone(threshold)
-        assert threshold is not None
-
-        threshold.configuration = {"type": "absolute", "bounds": {"lower": 200, "upper": 800}}
-        threshold.save(update_fields=["configuration"])
+        self.update_alert_configuration(
+            alert["id"], {"threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 200, "upper": 800}}}}
+        )
 
         threshold_update_log = (
             ActivityLog.objects.filter(
