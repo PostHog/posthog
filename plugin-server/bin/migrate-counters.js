@@ -51,7 +51,7 @@ function main() {
         process.exit(1)
     }
 
-    console.log('Performing counters migrations for', countersDbUrl)
+    console.log('Performing counters migrations')
 
     const dbName = getDbName()
     console.log('Database name:', dbName)
