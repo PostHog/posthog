@@ -14,6 +14,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconExternal } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 import { IntegrationConfigureProps } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import clsx from 'clsx'
 
 export type EmailEditorMode = 'full' | 'preview'
 
@@ -81,7 +82,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                         renderError={() => null}
                     >
                         {({ value, onChange, error }) => (
-                            <div className="flex items-center gap-2">
+                            <div className="flex gap-2 items-center">
                                 <LemonLabel
                                     className={error ? 'text-danger' : ''}
                                     info={field.helpText}
@@ -144,7 +145,7 @@ function NativeEmailIntegrationChoice({ onChange, value }: IntegrationConfigureP
 
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
         return (
-            <div className="flex gap-2 items-center justify-end">
+            <div className="flex gap-2 justify-end items-center">
                 <span className="text-muted">No email senders configured yet</span>
                 <LemonButton
                     size="small"
@@ -171,6 +172,7 @@ function NativeEmailIntegrationChoice({ onChange, value }: IntegrationConfigureP
                     value: integration.id,
                 }))}
                 value={value}
+                size="small"
                 onChange={onChange}
             />
         </>
@@ -203,7 +205,7 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                         showOptional={field.optional}
                     >
                         {({ value, onChange, error }) => (
-                            <div className="flex items-center gap-2">
+                            <div className="flex gap-2 items-center">
                                 <LemonLabel
                                     className={error ? 'text-danger' : ''}
                                     info={field.helpText}
@@ -228,16 +230,14 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                 ))}
 
                 {isMessagingProductEnabled && (
-                    <div className="flex items-center gap-2 m-2">
+                    <div className="flex gap-2 items-center m-2">
                         <LemonLabel>Start from a template (optional)</LemonLabel>
                         <LemonSelect
+                            size="small"
                             placeholder="Choose template"
                             loading={templatesLoading}
                             value={appliedTemplate?.id}
-                            options={templates.map((template) => ({
-                                label: template.name,
-                                value: template.id,
-                            }))}
+                            options={}
                             onChange={(id) => {
                                 const template = templates.find((t) => t.id === id)
                                 if (template) {
@@ -271,7 +271,12 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                     <LemonField name="html" className="flex relative flex-col">
                         {({ value }) => (
                             <>
-                                <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
+                                <div
+                                    className={clsx(
+                                        'flex absolute inset-0 justify-center items-center p-2 opacity-0 transition-opacity hover:opacity-100',
+                                        value ? 'opacity-0' : 'opacity-100' // Hide if there is content
+                                    )}
+                                >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
                                     <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                         Click to modify content

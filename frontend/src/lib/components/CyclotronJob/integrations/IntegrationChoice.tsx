@@ -1,5 +1,5 @@
 import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -17,6 +17,7 @@ export type IntegrationConfigureProps = {
     schema?: CyclotronJobInputSchemaType
     integration?: string
     beforeRedirect?: () => void
+    buttonProps?: Omit<LemonButtonProps, 'onClick'>
 }
 
 export function IntegrationChoice({
