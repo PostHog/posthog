@@ -47,7 +47,7 @@ struct BulkUploadFinishRequest {
 pub fn upload(
     host: Option<String>,
     directory: &PathBuf,
-    ignore_globs: &Vec<String>,
+    ignore_globs: &[String],
     project: Option<String>,
     version: Option<String>,
     delete_after: bool,

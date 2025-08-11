@@ -5,7 +5,7 @@ use uuid;
 
 use crate::utils::{posthog::capture_command_invoked, sourcemaps::read_pairs};
 
-pub fn inject(directory: &Path, ignore_globs: &Vec<String>) -> Result<()> {
+pub fn inject(directory: &Path, ignore_globs: &[String]) -> Result<()> {
     let capture_handle = capture_command_invoked("sourcemap_inject", None::<&str>);
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
