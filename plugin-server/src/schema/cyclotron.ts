@@ -21,14 +21,14 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     type: z.literal('email'),
-    integrationId: z.number(),
     to: z.object({
         email: z.string(),
-        name: z.string(),
+        name: z.string().optional(),
     }),
     from: z.object({
         email: z.string(),
-        name: z.string(),
+        name: z.string().optional(),
+        integrationId: z.number(),
     }),
     subject: z.string(),
     text: z.string(),
