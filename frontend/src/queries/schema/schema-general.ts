@@ -2140,6 +2140,8 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
 }
 
 export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    last_seen: string
+    library: string | null
     event: string
     odds_ratio: number
     population: {
