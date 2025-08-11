@@ -1001,12 +1001,15 @@ class EmailIntegration:
         return MailjetProvider()
 
     @classmethod
-    def integration_from_email_address(
-        cls, email_address: str, team_id: int, created_by: Optional[User] = None
-    ) -> Integration:
+    def create_native_integration(cls, config: dict, team_id: int, created_by: Optional[User] = None) -> Integration:
+        email_address = config.get("email")
+        name = config.get("name")
+        domain = email_address.split("@")[1]
+
         mailjet = MailjetProvider()
+
         # TODO: Look for integration belonging to the team with the same domain
-        mailjet.create_email_domain(email_address, team_id=team_id)
+        mailjet.create_email_domain(domain, team_id=team_id)
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1015,6 +1018,8 @@ class EmailIntegration:
             defaults={
                 "config": {
                     "email": email_address,
+                    "domain": domain,
+                    "name": name,
                     "mailjet_verified": False,
                     "aws_ses_verified": False,
                 },

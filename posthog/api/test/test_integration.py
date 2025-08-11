@@ -217,7 +217,7 @@ class TestEmailIntegration:
         mock_client = MagicMock()
         mock_mailjet_provider_class.return_value = mock_client
 
-        integration = EmailIntegration.integration_from_email_address(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.domain, self.team.id, self.user)
         assert integration.kind == "email"
         assert integration.integration_id == self.domain
         assert integration.team_id == self.team.id
@@ -234,10 +234,10 @@ class TestEmailIntegration:
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_setup_email_valid_domain_parameter_required(self):
         with pytest.raises(exceptions.ValidationError):
-            EmailIntegration.integration_from_email_address("foobar", self.team.id, self.user)
+            EmailIntegration.create_native_integration("foobar", self.team.id, self.user)
 
         with pytest.raises(exceptions.ValidationError):
-            EmailIntegration.integration_from_email_address("foobar@test.com", self.team.id, self.user)
+            EmailIntegration.create_native_integration("foobar@test.com", self.team.id, self.user)
 
     @patch("posthog.models.integration.MailjetProvider")
     def test_email_verify_returns_mailjet_result(self, mock_mailjet_provider_class):
@@ -266,7 +266,7 @@ class TestEmailIntegration:
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.integration_from_email_address(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.domain, self.team.id, self.user)
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
@@ -308,7 +308,7 @@ class TestEmailIntegration:
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.integration_from_email_address(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.domain, self.team.id, self.user)
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
