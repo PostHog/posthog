@@ -259,13 +259,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         // Only capture exception if we don't have proper error details
                         // This indicates an unexpected failure (network, timeout, etc.)
                         if (!error.detail) {
-                            const contextualError = new Error('Cohort creation failed unexpectedly')
                             console.error('Cohort creation failed unexpectedly:', error, {
                                 cohort_name: cohort.name,
                                 operation_type: cohort.id === 'new' ? 'create' : 'update',
                                 is_static: cohort.is_static,
                             })
-                            posthog.captureException(contextualError, {
+                            posthog.captureException(error, {
+                                // Context explains what we were doing when error occurred
+                                cohort_operation: 'Cohort creation failed unexpectedly',
                                 // Cohort context (most valuable)
                                 cohort_name: cohort.name,
                                 is_static: cohort.is_static,
