@@ -7,6 +7,7 @@ import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
 import { generateMailjetCustomId } from './email-tracking.service'
+import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 
 export class EmailService {
     constructor(private hub: Hub) {}
@@ -27,11 +28,12 @@ export class EmailService {
     }
 
     private getEmailDeliveryMode(): 'mailjet' | 'maildev' | 'unsupported' {
-        if (isDevEnv()) {
-            return 'maildev'
-        }
         if (this.hub.MAILJET_PUBLIC_KEY && this.hub.MAILJET_SECRET_KEY) {
             return 'mailjet'
+        }
+
+        if (isDevEnv() && mailDevTransport) {
+            return 'maildev'
         }
         return 'unsupported'
     }
@@ -78,63 +80,23 @@ export class EmailService {
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)
-    private async executeSendEmailMaildev(
+    private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
-        const email = {
-            to: params.to.email,
-            toName: params.to.name,
-            from: params.from.email,
-            fromName: params.from.name,
+        const response = await mailDevTransport!.sendMail({
+            from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: params.subject,
             text: params.text,
             html: params.html,
-        }
-
-        const maildevHost = process.env.MAILDEV_HOST || 'localhost'
-        const maildevPort = process.env.MAILDEV_PORT || '1025'
-        const maildevWebPort = process.env.MAILDEV_WEB_PORT || '1080'
-        const maildevWebUrl = `http://${maildevHost}:${maildevWebPort}`
-        const maildevUrl = `http://${maildevHost}:${maildevPort}`
-
-        const requiredFields = ['to', 'from', 'subject', 'text', 'html'] as const
-        for (const field of requiredFields) {
-            if (!(field in email) || !email[field]) {
-                if (!email[field]) {
-                    throw new Error(`Missing required email field: ${field}`)
-                }
-            }
-        }
-
-        const emailData = {
-            from: email.fromName ? `"${email.fromName}" <${email.from}>` : email.from,
-            to: email.toName ? `"${email.toName}" <${email.to}>` : email.to,
-            subject: email.subject,
-            text: email.text,
-            html: email.html,
-        }
-        const maildevRequest = {
-            url: `${maildevUrl}/email`,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-            },
-            body: emailData,
-        }
-
-        const response = await fetch(maildevRequest.url, {
-            method: maildevRequest.method,
-            headers: maildevRequest.headers,
-            body: JSON.stringify(maildevRequest.body),
         })
 
-        if (response.status >= 400) {
-            throw new Error(`Failed to send email to maildev with status ${response.status}`)
+        if (!response.accepted) {
+            throw new Error(`Failed to send email to maildev: ${JSON.stringify(response)}`)
         }
 
-        result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${maildevWebUrl}`))
+        result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
     }
 
     // Send email
@@ -168,7 +130,7 @@ export class EmailService {
 
             switch (this.getEmailDeliveryMode()) {
                 case 'maildev':
-                    await this.executeSendEmailMaildev(result, params)
+                    await this.sendEmailWithMaildev(result, params)
                     break
                 case 'mailjet':
                     await this.sendEmailWithMailjet(result, params)
