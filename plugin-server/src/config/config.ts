@@ -25,6 +25,11 @@ export function getDefaultConfig(): PluginsServerConfig {
               : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
+        COUNTERS_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_counters'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/counters'
+              : '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
@@ -37,13 +42,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        CASSANDRA_HOST: 'localhost',
-        CASSANDRA_PORT: 9042,
-        CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
-        CASSANDRA_LOCAL_DATACENTER: 'datacenter1',
-        CASSANDRA_USER: null,
-        CASSANDRA_PASSWORD: null,
-        WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
+        POSTGRES_COUNTERS_HOST: 'localhost',
+        POSTGRES_COUNTERS_USER: 'postgres',
+        POSTGRES_COUNTERS_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -113,7 +114,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKAJS_LOG_LEVEL: 'WARN',
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         CLOUD_DEPLOYMENT: null,
-        EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        EXTERNAL_REQUEST_TIMEOUT_MS: 3000, // 3 seconds
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
@@ -188,12 +190,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
-        CDP_FETCH_TIMEOUT_MS: 3000, // 3 seconds
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: isProdEnv() ? false : true, // For prod we primarily use overflow and some more manual control
+        CDP_AGGREGATION_WRITER_ENABLED: false,
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -271,6 +273,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: 0,
+        PERSON_PROPERTIES_SIZE_LIMIT: 1024 * 1024, // 1MB default
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
@@ -319,6 +322,17 @@ export function overrideWithEnv(
         const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
         const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
+    }
+
+    if (
+        !newConfig.COUNTERS_DATABASE_URL &&
+        newConfig.POSTGRES_COUNTERS_HOST &&
+        newConfig.POSTGRES_COUNTERS_USER &&
+        newConfig.POSTGRES_COUNTERS_PASSWORD
+    ) {
+        const encodedUser = encodeURIComponent(newConfig.POSTGRES_COUNTERS_USER)
+        const encodedPassword = encodeURIComponent(newConfig.POSTGRES_COUNTERS_PASSWORD)
+        newConfig.COUNTERS_DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTGRES_COUNTERS_HOST}:5432/counters`
     }
 
     if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {
