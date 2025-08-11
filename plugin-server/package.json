@@ -31,7 +31,7 @@
         "setup:test:counters": "TEST=1 COUNTERS_DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_counters' ./bin/migrate-counters.sh",
         "migrate:counters": "./bin/migrate-counters.sh",
         "migrate:counters:test": "COUNTERS_DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_counters' node-pg-migrate up --migrations-dir src/migrations",
-        "migrate:counters:down": "node-pg-migrate down --database-url-var COUNTERS_DATABASE_URL --migrations-dir src/migrations",
+        "migrate:counters:down": "node-pg-migrate down --migrations-dir src/migrations",
         "migrate:counters:create": "node-pg-migrate create --javascript-file --migrations-dir src/migrations",
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
