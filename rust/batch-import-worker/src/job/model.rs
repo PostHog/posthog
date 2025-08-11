@@ -32,10 +32,6 @@ pub struct JobModel {
     pub import_config: JobConfig,
     pub secrets: JobSecrets,
 
-    // Backoff (DB columns to be added via migration):
-    // - backoff_attempt INTEGER NOT NULL DEFAULT 0
-    // - backoff_until TIMESTAMPTZ NULL
-    // For now these are populated with defaults and will be wired once columns exist
     pub backoff_attempt: i32,
     pub backoff_until: Option<DateTime<Utc>>,
 
@@ -123,7 +119,6 @@ impl JobModel {
             return Ok(None);
         };
 
-        // capture id before moving `row` into try_into so we can use it in the error path
         let id = row.id;
 
         let parsed: anyhow::Result<JobModel> =
@@ -181,8 +176,6 @@ impl JobModel {
             + chrono::Duration::from_std(delay)
                 .map_err(|_| anyhow::Error::msg("Invalid backoff duration"))?;
 
-        // Persist backoff attempt and until in DB
-
         let res = sqlx::query(
             r#"
             UPDATE posthog_batchimport
@@ -208,7 +201,6 @@ impl JobModel {
 
         throw_if_no_rows(res)?;
 
-        // Update in-memory representation
         self.status = JobStatus::Running;
         self.status_message = Some(status_message);
         self.display_status_message = display_message;
@@ -291,11 +283,9 @@ impl JobModel {
         self.status = JobStatus::Running;
         self.status_message = None;
         self.display_status_message = None;
-        // Reset in-memory backoff state
         self.backoff_attempt = 0;
         self.backoff_until = None;
 
-        // Persist regular fields and reset DB backoff columns
         self.flush(&context.db, true).await?;
         sqlx::query(
             r#"
@@ -311,6 +301,24 @@ impl JobModel {
         info!(job_id = %self.id, "unpaused job and reset backoff state");
         metrics::unpause_event();
 
+        Ok(())
+    }
+
+    /// Reset backoff columns in the database after a successful request and update in-memory fields.
+    pub async fn reset_backoff_in_db(&mut self, pool: &PgPool) -> Result<(), Error> {
+        sqlx::query(
+            r#"
+            UPDATE posthog_batchimport
+            SET backoff_attempt = 0, backoff_until = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(self.id)
+        .execute(pool)
+        .await?;
+
+        self.backoff_attempt = 0;
+        self.backoff_until = None;
         Ok(())
     }
 
@@ -545,6 +553,54 @@ mod tests {
         model.backoff_until = Some(Utc::now());
 
         model.unpause(context.clone()).await?;
+
+        let rec = sqlx::query(
+            r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let backoff_attempt: Option<i32> = rec.try_get("backoff_attempt")?;
+        let backoff_until: Option<DateTime<Utc>> = rec.try_get("backoff_until")?;
+        assert_eq!(backoff_attempt.unwrap_or_default(), 0);
+        assert!(backoff_until.is_none());
+
+        tx.rollback().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reset_backoff_in_db_resets_columns() -> Result<(), anyhow::Error> {
+        let Some(pool) = get_pool().await else {
+            return Ok(())
+        };
+
+        let mut tx = pool.begin().await?;
+
+        let id = Uuid::now_v7();
+        let team_id = 1;
+        let lease = "test-lease";
+        let inserted = sqlx::query(
+            r#"
+            INSERT INTO posthog_batchimport (id, team_id, status, import_config, secrets, lease_id, backoff_attempt, backoff_until)
+            VALUES ($1, $2, 'running', '{}'::jsonb, '', $3, 5, now())
+            "#,
+        )
+        .bind(id)
+        .bind(team_id)
+        .bind(lease)
+        .execute(&mut *tx)
+        .await;
+        if inserted.is_err() {
+            return Ok(())
+        }
+
+        let mut model = make_dummy_job_model(id, lease, team_id);
+        model.backoff_attempt = 5;
+        model.backoff_until = Some(Utc::now());
+
+        model.reset_backoff_in_db(&pool).await?;
 
         let rec = sqlx::query(
             r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,

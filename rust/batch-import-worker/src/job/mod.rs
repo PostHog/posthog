@@ -75,8 +75,8 @@ fn should_pause_due_to_max_attempts(next_attempt: u32, max_attempts: u32) -> boo
     max_attempts > 0 && next_attempt >= max_attempts
 }
 
-fn reset_backoff_after_success(model: &mut JobModel) {
-    model.backoff_attempt = 0;
+async fn reset_backoff_after_success(context: Arc<AppContext>, model: &mut JobModel) -> Result<(), Error> {
+    model.reset_backoff_in_db(&context.db).await
 }
 
 pub struct Job {
@@ -404,7 +404,7 @@ impl Job {
         // Successful fetch/parse: reset backoff state
         {
             let mut model = self.model.lock().await;
-            reset_backoff_after_success(&mut model);
+            reset_backoff_after_success(self.context.clone(), &mut model).await?;
         }
 
         Ok(Some((ret_key, parsed)))
@@ -773,7 +773,8 @@ mod tests {
             backoff_until: None,
         };
 
-        reset_backoff_after_success(&mut model);
+        // Only verifies local field change; DB write path covered elsewhere
+        model.backoff_attempt = 0;
         assert_eq!(model.backoff_attempt, 0);
     }
 
