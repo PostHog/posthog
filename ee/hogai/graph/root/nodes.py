@@ -44,6 +44,7 @@ from posthog.schema import (
 
 from ..base import AssistantNode
 from .prompts import (
+    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
@@ -368,14 +369,18 @@ class RootNode(RootNodeUIContextMixin):
         """
         has_billing_context = self._get_billing_context(config) is not None
 
-        if not has_billing_context:
-            return False, ""
-
         has_access = self._user.organization_memberships.get(organization=self._team.organization).level in (
             OrganizationMembership.Level.ADMIN,
             OrganizationMembership.Level.OWNER,
         )
-        prompt = ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT if has_access else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT
+        if has_access and not has_billing_context:
+            return False, ROOT_BILLING_CONTEXT_ERROR_PROMPT
+
+        prompt = (
+            ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT
+            if has_access and has_billing_context
+            else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT
+        )
 
         return has_access, prompt
 
