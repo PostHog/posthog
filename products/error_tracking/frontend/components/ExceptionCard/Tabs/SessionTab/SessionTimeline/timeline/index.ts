@@ -166,7 +166,7 @@ export class ItemCollector {
             const previousItems = await Promise.all(
                 currentLoaders.map((loader) => loader.previous(this.beforeCursor, count))
             )
-            const maxItem = this.findMaxTimestamp(previousItems.filter((item) => item !== null))
+            const maxItem = this.findMaxTimestamp(previousItems.filter((item) => item !== null) as TimelineItem[])
             if (maxItem) {
                 items.push(maxItem)
                 this.beforeCursor = maxItem.timestamp
@@ -184,7 +184,7 @@ export class ItemCollector {
             .filter((loader) => !!loader) as ItemLoader<TimelineItem>[]
         while (items.length < count) {
             const nextItems = await Promise.all(currentLoaders.map((loader) => loader.next(this.afterCursor, count)))
-            const minItem = this.findMinTimestamp(nextItems.filter((item) => item !== null))
+            const minItem = this.findMinTimestamp(nextItems.filter((item) => item !== null) as TimelineItem[])
             if (minItem) {
                 items.push(minItem)
                 this.afterCursor = minItem.timestamp
