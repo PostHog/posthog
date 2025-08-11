@@ -3,6 +3,10 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
+from django.db.models.signals import post_save
+
+from posthog.api.insight_variable import map_stale_to_latest
+from posthog.models.signals import mutable_receiver
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics
@@ -88,7 +92,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.models.insight_variable import InsightVariable
-from posthog.api.insight_variable import InsightVariableMappingMixin
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -303,7 +306,7 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
-class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -428,9 +431,6 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             **validated_data,
         )
 
-        # schedule the insight query metadata extraction
-        extract_insight_query_metadata.delay(insight_id=insight.id)
-
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
@@ -502,8 +502,17 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
-        if not before_update or before_update.query != updated_insight.query:
-            extract_insight_query_metadata.delay(insight_id=updated_insight.id)
+        if not before_update or before_update.query != updated_insight.query or updated_insight.query_metadata is None:
+            query_meta_task = extract_insight_query_metadata.apply_async(
+                kwargs={"insight_id": updated_insight.id},
+                countdown=10 * 60,  # 10 minutes
+            )
+            logger.warn(
+                "scheduled extract_insight_query_metadata",
+                insight_id=updated_insight.id,
+                task_id=query_meta_task.id,
+                trigger="update_insight",
+            )
 
         return updated_insight
 
@@ -633,7 +642,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             and query.get("kind") == "DataVisualizationNode"
             and query.get("source", {}).get("variables")
         ):
-            query["source"]["variables"] = self.map_stale_to_latest(
+            query["source"]["variables"] = map_stale_to_latest(
                 query["source"]["variables"], list(self.context["insight_variables"])
             )
 
@@ -672,7 +681,9 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         request: Optional[Request] = self.context.get("request")
         dashboard_filters_override = filters_override_requested_by_client(request) if request else None
-        dashboard_variables_override = variables_override_requested_by_client(request) if request else None
+        dashboard_variables_override = variables_override_requested_by_client(
+            request, dashboard, list(self.context["insight_variables"])
+        )
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -717,6 +728,13 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 
+        # Hide PII fields when hideExtraDetails from SharingConfiguration is enabled
+        if self.context.get("hide_extra_details", False):
+            representation.pop("created_by", None)
+            representation.pop("last_modified_by", None)
+            representation.pop("created_at", None)
+            representation.pop("last_modified_at", None)
+
         return representation
 
     @lru_cache(maxsize=1)
@@ -730,7 +748,9 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
                 filters_override = filters_override_requested_by_client(self.context["request"])
-                variables_override = variables_override_requested_by_client(self.context["request"])
+                variables_override = variables_override_requested_by_client(
+                    self.context["request"], dashboard, list(self.context["insight_variables"])
+                )
 
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
@@ -1281,3 +1301,18 @@ When set, the specified dashboard's filters and date range override will be appl
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+@mutable_receiver(post_save, sender=Insight)
+def schedule_query_metadata_extract(sender, instance: Insight, created: bool, **kwargs):
+    if created:
+        query_meta_task = extract_insight_query_metadata.apply_async(
+            kwargs={"insight_id": instance.pk},
+            countdown=10 * 60,  # 10 minutes
+        )
+        logger.warn(
+            "scheduled extract_insight_query_metadata",
+            insight_id=instance.id,
+            task_id=query_meta_task.id,
+            trigger="create_insight",
+        )

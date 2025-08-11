@@ -2,6 +2,7 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import algoliasearch from 'algoliasearch/lite'
 import { useActions } from 'kea'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useEffect, useRef, useState } from 'react'
 import { InstantSearch, useHits, useRefinementList, useSearchBox } from 'react-instantsearch'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -111,9 +112,7 @@ const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Elemen
         onClick(type)
     }
 
-    useEffect(() => {
-        refine(type)
-    }, [])
+    useOnMountEffect(() => refine(type))
 
     return (
         <button className="p-0 cursor-pointer bg-surface-primary" onClick={handleClick}>
@@ -230,9 +229,9 @@ const Search = (): JSX.Element => {
             })
             refine(activeTag)
         }
-    }, [activeTag])
+    }, [activeTag, items, refine])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const handleClick = (e: any): void => {
             if (!ref?.current?.contains(e.target)) {
                 setSearchOpen(false)
@@ -244,7 +243,7 @@ const Search = (): JSX.Element => {
         return () => {
             window.removeEventListener('click', handleClick)
         }
-    }, [])
+    })
 
     return (
         <div className="relative" ref={ref} onKeyDown={handleKeyDown}>

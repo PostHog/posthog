@@ -14,7 +14,8 @@ import {
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { Label } from 'lib/ui/Label/Label'
+
+import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -24,13 +25,10 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
     const { openMoveToModal } = useActions(moveToLogic)
 
     return projectTreeRefEntry ? (
-        <div className="flex flex-col">
-            <Label intent="menu" className="mx-2">
-                File
-            </Label>
+        <ScenePanelLabel title="File">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>
+                    <ButtonPrimitive variant="panel" menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>
                         <IconFolderOpen />
                         {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
                         <DropdownMenuOpenIndicator className="ml-auto" />
@@ -72,6 +70,6 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
-        </div>
+        </ScenePanelLabel>
     ) : null
 }

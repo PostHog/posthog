@@ -61,7 +61,7 @@ export function SurveyAppearancePreview({
                 root: feedbackWidgetPreviewRef.current,
             })
         }
-    }, [survey, previewPageIndex, onPreviewSubmit, positionStyles])
+    }, [survey, previewPageIndex, onPreviewSubmit, positionStyles]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return <div ref={surveyPreviewRef} />
 }

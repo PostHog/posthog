@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # and therefore using the exact same primary key as the Team model.
 class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
-    base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+
     filter_test_accounts = models.BooleanField(default=False)
     notified_first_sync = models.BooleanField(default=False, null=True)
 
@@ -22,6 +22,9 @@ class TeamRevenueAnalyticsConfig(models.Model):
     # that are then wrapped by schema-validation getters/setters
     _events = models.JSONField(default=list, db_column="events")
     _goals = models.JSONField(default=list, db_column="goals", null=True, blank=True)
+
+    # DEPRECATED: Use `team.base_currency` instead
+    base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     @property
     def events(self) -> list[RevenueAnalyticsEventItem]:
@@ -51,6 +54,14 @@ class TeamRevenueAnalyticsConfig(models.Model):
             self._goals = dumped_value
         except Exception as e:
             raise ValidationError(f"Invalid goals schema: {str(e)}")
+
+    # `goals` arent included here because they aren't used for computations (yet)
+    def to_cache_key_dict(self) -> dict:
+        return {
+            "base_currency": self.team.base_currency,
+            "filter_test_accounts": self.filter_test_accounts,
+            "events": [event.model_dump() for event in self.events],
+        }
 
 
 # This is best effort, we always attempt to create the config manually

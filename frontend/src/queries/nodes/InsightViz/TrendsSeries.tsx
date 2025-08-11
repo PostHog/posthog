@@ -48,8 +48,8 @@ export function TrendsSeries(): JSX.Element | null {
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
-        ? MathAvailability.ActorsOnly
-        : MathAvailability.All
+          ? MathAvailability.ActorsOnly
+          : MathAvailability.All
 
     return (
         <>

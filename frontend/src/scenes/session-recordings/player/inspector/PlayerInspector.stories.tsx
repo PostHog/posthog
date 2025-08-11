@@ -107,7 +107,7 @@ const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
     // 🫠
     useEffect(() => {
         loadEvents()
-    }, [sessionPlayerMetaData])
+    }, [sessionPlayerMetaData]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col gap-2 min-w-96 min-h-120">

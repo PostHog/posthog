@@ -3,7 +3,8 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { HTMLProps, useState } from 'react'
 
-import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation } from './types'
+import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation, LemonTableColumn } from './types'
+import { getStickyColumnInfo } from './columnUtils'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
@@ -17,6 +18,9 @@ export interface TableRowProps<T extends Record<string, any>> {
     expandable: ExpandableConfig<T> | undefined
     firstColumnSticky: boolean | undefined
     rowCount: number
+    pinnedColumns?: string[]
+    pinnedColumnWidths?: number[]
+    columns?: LemonTableColumn<T, any>[]
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -31,6 +35,9 @@ function TableRowRaw<T extends Record<string, any>>({
     expandable,
     firstColumnSticky,
     rowCount,
+    pinnedColumns,
+    pinnedColumnWidths,
+    columns,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -100,6 +107,15 @@ function TableRowRaw<T extends Record<string, any>>({
                                 ? column.render(value as T[keyof T], record, recordIndex, rowCount)
                                 : value
                             const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
+
+                            // Check if this column is pinned
+                            const { isSticky: isColumnSticky, leftPosition } = getStickyColumnInfo(
+                                columnKeyOrIndex.toString(),
+                                pinnedColumns,
+                                pinnedColumnWidths,
+                                columns
+                            )
+
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
                             return (
@@ -108,17 +124,19 @@ function TableRowRaw<T extends Record<string, any>>({
                                     className={clsx(
                                         columnIndex === 0 && 'LemonTable__boundary',
                                         isSticky && 'LemonTable__cell--sticky',
+                                        isColumnSticky && 'LemonTable__cell--pinned',
                                         column.align && `text-${column.align}`,
                                         typeof column.className === 'function'
                                             ? column.className(value as T[keyof T], record, recordIndex)
                                             : column.className
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={
-                                        typeof column.style === 'function'
+                                    style={{
+                                        ...(typeof column.style === 'function'
                                             ? column.style(value as T[keyof T], record, recordIndex)
-                                            : column.style
-                                    }
+                                            : column.style),
+                                        ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
+                                    }}
                                     {...extraCellProps}
                                 >
                                     {isTableCellRepresentation(contents) ? contents.children : contents}

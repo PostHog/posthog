@@ -27,6 +27,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'members_can_use_personal_api_keys'
         | 'is_ai_data_processing_approved'
         | 'default_experiment_stats_method'
+        | 'allow_publicly_shared_resources'
     >
 >
 

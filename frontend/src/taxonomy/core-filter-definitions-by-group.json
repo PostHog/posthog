@@ -327,13 +327,15 @@
         "$config_defaults": {
             "description": "The version of the PostHog config defaults that were used when capturing the event.",
             "label": "Config defaults",
-            "type": "String"
+            "type": "String",
+            "used_for_debug": true
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
             "examples": ["1800000"],
             "label": "Configured session timeout",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$console_log_recording_enabled_server_side": {
             "description": "If console log recording has been enabled server-side.",
@@ -830,6 +832,12 @@
             "examples": ["Google", "Bing", "Twitter", "Facebook"],
             "label": "Initial UTM source"
         },
+        "$initialization_time": {
+            "description": "The iso formatted timestamp of SDK initialization.",
+            "label": "initialization time",
+            "type": "String",
+            "used_for_debug": true
+        },
         "$insert_id": {
             "description": "Unique insert ID for the event.",
             "label": "Insert ID",
@@ -863,7 +871,8 @@
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": true,
             "label": "Timestamp of last call to `Reset` in the web sdk",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$lib": {
             "description": "What library was used to send the event.",
@@ -879,7 +888,8 @@
             "description": "Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.",
             "examples": ["100"],
             "ignored_in_assistant": true,
-            "label": "Clientside rate limit remaining tokens"
+            "label": "Clientside rate limit remaining tokens",
+            "used_for_debug": true
         },
         "$lib_version": {
             "description": "Version of the library used to send the event. Used in combination with Library.",
@@ -957,6 +967,7 @@
             "label": "Page loaded"
         },
         "$performance_raw": {
+            "deprecated": true,
             "description": "The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired",
             "label": "Browser performance",
             "system": true
@@ -1056,7 +1067,8 @@
         "$recording_status": {
             "description": "The status of session recording at the time the event was captured",
             "label": "Session recording status",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$referrer": {
             "description": "URL of where the user came from.",
@@ -1072,19 +1084,22 @@
             "description": "Config for minimum duration before emitting a session recording.",
             "examples": ["1000"],
             "label": "Replay config - minimum duration",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$replay_sample_rate": {
             "description": "Config for sampling rate of session recordings.",
             "examples": ["0.1"],
             "label": "Replay config - sample rate",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$replay_script_config": {
             "description": "Sets an alternative recorder script for the web sdk.",
             "examples": ["{\"script\": \"recorder-next\"}"],
             "label": "Replay script config",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$screen_density": {
             "description": "The logical density of the display. This is a scaling factor for the Density Independent Pixel unit, where one DIP is one pixel on an approximately 160 dpi screen (for example a 240x320, 1.5\"x2\" screen), providing the baseline of the system's display. Thus on a 160dpi screen this density value will be 1; on a 120 dpi screen it would be .75; etc.",
@@ -1105,26 +1120,69 @@
             "examples": ["1440", "1920"],
             "label": "Screen width"
         },
+        "$sdk_debug_current_session_duration": {
+            "description": "The current session duration in milliseconds.",
+            "label": "Current session duration",
+            "type": "Number",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_event_trigger_status": {
+            "description": "The status of the recording event trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "event trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer length",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$sdk_debug_replay_internal_buffer_size": {
             "description": "Useful for debugging. The internal buffer size for replay.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer size",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_linked_flag_trigger_status": {
+            "description": "The status of the linked flag trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "linked flag trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_remote_trigger_matching_config": {
+            "description": "Whether to match on all or any triggers.",
+            "examples": ["all", "any"],
+            "label": "remote trigger matching config",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_url_trigger_status": {
+            "description": "The status of the recording url trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "URL trigger status",
+            "type": "String",
+            "used_for_debug": true
         },
         "$sdk_debug_retry_queue_size": {
             "description": "Useful for debugging. The size of the retry queue.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Retry queue size",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_session_start": {
+            "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
+            "label": "Session start",
+            "type": "Number",
+            "used_for_debug": true
         },
         "$search_engine": {
             "description": "The search engine the user came in from (if any).",
@@ -1317,42 +1375,55 @@
             "examples": ["true", "false"],
             "ignored_in_assistant": true,
             "label": "Whether the session is sampled",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_canvas_recording": {
             "description": "Session recording canvas capture config.",
             "examples": ["{\"enabled\": false}"],
             "label": "Session recording canvas recording",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_masking": {
+            "description": "The masking configuration for the session recording.",
+            "label": "Replay config - masking",
+            "type": "String",
+            "used_for_debug": true
         },
         "$session_recording_network_payload_capture": {
             "description": "Session recording network payload capture config.",
             "examples": ["{\"recordHeaders\": false}"],
             "label": "Session recording network payload capture",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_recorder_version_server_side": {
             "description": "The version of the session recording recorder that is enabled server-side.",
             "examples": ["v2"],
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_start_reason": {
             "description": "Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.",
             "examples": ["sampling_override", "recording_initialized", "linked_flag_match"],
             "label": "Session recording start reason",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_url_trigger_activated_session": {
             "description": "Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.",
             "label": "Session recording URL trigger activated session",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_url_trigger_status": {
             "description": "Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.",
             "label": "Session recording URL trigger status",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$set": {
             "description": "Person properties to be set. Sent as `$set`.",
@@ -1434,6 +1505,16 @@
         "$touch_y": {
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
+        },
+        "$transformations_skipped": {
+            "description": "Array of transformations skipped during ingestion.",
+            "label": "Transformations skipped",
+            "used_for_debug": true
+        },
+        "$transformations_succeeded": {
+            "description": "Array of transformations that succeeded during ingestion.",
+            "label": "Transformations succeeded",
+            "used_for_debug": true
         },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
@@ -2126,13 +2207,15 @@
         "$config_defaults": {
             "description": "The version of the PostHog config defaults that were used when capturing the event.",
             "label": "Config defaults",
-            "type": "String"
+            "type": "String",
+            "used_for_debug": true
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
             "examples": ["1800000"],
             "label": "Configured session timeout",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$console_log_recording_enabled_server_side": {
             "description": "If console log recording has been enabled server-side.",
@@ -2921,6 +3004,12 @@
             "description": "Google Ads, app to web Data from the first time this user was seen.",
             "label": "Initial wbraid"
         },
+        "$initialization_time": {
+            "description": "The iso formatted timestamp of SDK initialization.",
+            "label": "initialization time",
+            "type": "String",
+            "used_for_debug": true
+        },
         "$insert_id": {
             "description": "Unique insert ID for the event.",
             "label": "Insert ID",
@@ -2954,7 +3043,8 @@
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": true,
             "label": "Timestamp of last call to `Reset` in the web sdk",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$lib": {
             "description": "What library was used to send the event.",
@@ -2970,7 +3060,8 @@
             "description": "Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.",
             "examples": ["100"],
             "ignored_in_assistant": true,
-            "label": "Clientside rate limit remaining tokens"
+            "label": "Clientside rate limit remaining tokens",
+            "used_for_debug": true
         },
         "$lib_version": {
             "description": "Version of the library used to send the event. Used in combination with Library.",
@@ -3048,6 +3139,7 @@
             "label": "Page loaded"
         },
         "$performance_raw": {
+            "deprecated": true,
             "description": "The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired",
             "label": "Browser performance",
             "system": true
@@ -3147,7 +3239,8 @@
         "$recording_status": {
             "description": "The status of session recording at the time the event was captured",
             "label": "Session recording status",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$referrer": {
             "description": "URL of where the user came from. Data from the last time this user was seen.",
@@ -3163,19 +3256,22 @@
             "description": "Config for minimum duration before emitting a session recording.",
             "examples": ["1000"],
             "label": "Replay config - minimum duration",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$replay_sample_rate": {
             "description": "Config for sampling rate of session recordings.",
             "examples": ["0.1"],
             "label": "Replay config - sample rate",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$replay_script_config": {
             "description": "Sets an alternative recorder script for the web sdk.",
             "examples": ["{\"script\": \"recorder-next\"}"],
             "label": "Replay script config",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$screen_density": {
             "description": "The logical density of the display. This is a scaling factor for the Density Independent Pixel unit, where one DIP is one pixel on an approximately 160 dpi screen (for example a 240x320, 1.5\"x2\" screen), providing the baseline of the system's display. Thus on a 160dpi screen this density value will be 1; on a 120 dpi screen it would be .75; etc.",
@@ -3196,26 +3292,69 @@
             "examples": ["1440", "1920"],
             "label": "Latest screen width"
         },
+        "$sdk_debug_current_session_duration": {
+            "description": "The current session duration in milliseconds.",
+            "label": "Current session duration",
+            "type": "Number",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_event_trigger_status": {
+            "description": "The status of the recording event trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "event trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer length",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$sdk_debug_replay_internal_buffer_size": {
             "description": "Useful for debugging. The internal buffer size for replay.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer size",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_linked_flag_trigger_status": {
+            "description": "The status of the linked flag trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "linked flag trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_remote_trigger_matching_config": {
+            "description": "Whether to match on all or any triggers.",
+            "examples": ["all", "any"],
+            "label": "remote trigger matching config",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_url_trigger_status": {
+            "description": "The status of the recording url trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "URL trigger status",
+            "type": "String",
+            "used_for_debug": true
         },
         "$sdk_debug_retry_queue_size": {
             "description": "Useful for debugging. The size of the retry queue.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Retry queue size",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_session_start": {
+            "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
+            "label": "Session start",
+            "type": "Number",
+            "used_for_debug": true
         },
         "$search_engine": {
             "description": "The search engine the user came in from (if any).",
@@ -3408,42 +3547,55 @@
             "examples": ["true", "false"],
             "ignored_in_assistant": true,
             "label": "Whether the session is sampled",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_canvas_recording": {
             "description": "Session recording canvas capture config.",
             "examples": ["{\"enabled\": false}"],
             "label": "Session recording canvas recording",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_masking": {
+            "description": "The masking configuration for the session recording.",
+            "label": "Replay config - masking",
+            "type": "String",
+            "used_for_debug": true
         },
         "$session_recording_network_payload_capture": {
             "description": "Session recording network payload capture config.",
             "examples": ["{\"recordHeaders\": false}"],
             "label": "Session recording network payload capture",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_recorder_version_server_side": {
             "description": "The version of the session recording recorder that is enabled server-side.",
             "examples": ["v2"],
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_start_reason": {
             "description": "Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.",
             "examples": ["sampling_override", "recording_initialized", "linked_flag_match"],
             "label": "Session recording start reason",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_url_trigger_activated_session": {
             "description": "Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.",
             "label": "Session recording URL trigger activated session",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_url_trigger_status": {
             "description": "Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.",
             "label": "Session recording URL trigger status",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$set": {
             "description": "Person properties to be set. Sent as `$set`.",
@@ -3525,6 +3677,16 @@
         "$touch_y": {
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
+        },
+        "$transformations_skipped": {
+            "description": "Array of transformations skipped during ingestion.",
+            "label": "Transformations skipped",
+            "used_for_debug": true
+        },
+        "$transformations_succeeded": {
+            "description": "Array of transformations that succeeded during ingestion.",
+            "label": "Transformations succeeded",
+            "used_for_debug": true
         },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",

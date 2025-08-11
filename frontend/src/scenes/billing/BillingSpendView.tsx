@@ -25,7 +25,7 @@ export function BillingSpendView(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-    const logic = billingSpendLogic({ dashboardItemId: 'spendView' })
+    const logic = billingSpendLogic({ syncWithUrl: true })
     const {
         series,
         dates,
@@ -41,6 +41,7 @@ export function BillingSpendView(): JSX.Element {
         showSeries,
         showEmptyState,
         teamOptions,
+        billingPeriodMarkers,
     } = useValues(logic)
     const {
         setFilters,
@@ -177,6 +178,7 @@ export function BillingSpendView(): JSX.Element {
                         valueFormatter={currencyFormatter}
                         showLegend={false}
                         interval={filters.interval}
+                        billingPeriodMarkers={billingPeriodMarkers}
                     />
                 )}
                 {showEmptyState && (

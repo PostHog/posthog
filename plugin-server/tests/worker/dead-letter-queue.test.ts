@@ -72,7 +72,11 @@ describe('events dead letter queue', () => {
             new PostgresPersonRepository(hub.db.postgres),
             hub.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const ingestResponse1 = await new EventPipelineRunner(
             hub,
             event,
