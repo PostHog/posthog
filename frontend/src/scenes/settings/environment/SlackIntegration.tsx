@@ -48,29 +48,8 @@ const getSlackAppManifest = (): any => ({
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
-    const { deleteIntegration } = useActions(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
-
-    const onDeleteClick = (id: number): void => {
-        LemonDialog.open({
-            title: `Do you want to disconnect from Slack?`,
-            description:
-                'This cannot be undone. PostHog resources configured to use this Slack workspace will remain but will stop working.',
-            primaryButton: {
-                children: 'Yes, disconnect',
-                status: 'danger',
-                onClick: () => {
-                    if (id) {
-                        deleteIntegration(id)
-                    }
-                },
-            },
-            secondaryButton: {
-                children: 'No thanks',
-            },
-        })
-    }
 
     return (
         <div>
@@ -86,20 +65,7 @@ export function SlackIntegration(): JSX.Element {
 
             <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
-                    <IntegrationView
-                        key={integration.id}
-                        integration={integration}
-                        suffix={
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                onClick={() => onDeleteClick(integration.id)}
-                                icon={<IconTrash />}
-                            >
-                                Disconnect
-                            </LemonButton>
-                        }
-                    />
+                    <IntegrationView key={integration.id} integration={integration} />
                 ))}
 
                 <div>
