@@ -27,7 +27,16 @@
             },
             "label": "$pageview",
             "count": 47258,
-            "data": [22870, 15044, 6675, 2557, 0, 0, 112, 0],
+            "data": [
+                22870,
+                15044,
+                6675,
+                2557,
+                0,
+                0,
+                112,
+                0
+            ],
             "labels": [
                 "8-Mar-2022",
                 "9-Mar-2022",
@@ -202,7 +211,8 @@
             "trendsFilter": {
                 "display": "ActionsBar",
                 "resultCustomizationBy": "value"
-            }
+            },
+            "version": 2
         },
         "full": true
     }

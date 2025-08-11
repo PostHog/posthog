@@ -25,7 +25,16 @@
             },
             "label": "$pageview - Chrome",
             "count": 872,
-            "data": [136, 150, 154, 137, 151, 117, 23, 4],
+            "data": [
+                136,
+                150,
+                154,
+                137,
+                151,
+                117,
+                23,
+                4
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -184,7 +193,16 @@
             },
             "label": "$pageview - Firefox",
             "count": 360,
-            "data": [65, 48, 72, 65, 74, 36, 0, 0],
+            "data": [
+                65,
+                48,
+                72,
+                65,
+                74,
+                36,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -343,7 +361,16 @@
             },
             "label": "$pageview - Mobile Safari",
             "count": 113,
-            "data": [21, 12, 19, 24, 24, 13, 0, 0],
+            "data": [
+                21,
+                12,
+                19,
+                24,
+                24,
+                13,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -502,7 +529,16 @@
             },
             "label": "$pageview - Android Mobile",
             "count": 101,
-            "data": [16, 11, 17, 18, 26, 13, 0, 0],
+            "data": [
+                16,
+                11,
+                17,
+                18,
+                26,
+                13,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -661,7 +697,16 @@
             },
             "label": "$pageview - Opera",
             "count": 89,
-            "data": [11, 12, 18, 25, 12, 11, 0, 0],
+            "data": [
+                11,
+                12,
+                18,
+                25,
+                12,
+                11,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -820,7 +865,16 @@
             },
             "label": "$pageview - Firefox iOS",
             "count": 66,
-            "data": [19, 13, 17, 4, 9, 4, 0, 0],
+            "data": [
+                19,
+                13,
+                17,
+                4,
+                9,
+                4,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -979,7 +1033,16 @@
             },
             "label": "$pageview - Safari",
             "count": 52,
-            "data": [12, 5, 9, 10, 13, 3, 0, 0],
+            "data": [
+                12,
+                5,
+                9,
+                10,
+                13,
+                3,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -1138,7 +1201,16 @@
             },
             "label": "$pageview - Chrome iOS",
             "count": 20,
-            "data": [1, 1, 1, 1, 11, 5, 0, 0],
+            "data": [
+                1,
+                1,
+                1,
+                1,
+                11,
+                5,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -1297,7 +1369,16 @@
             },
             "label": "$pageview - Internet Explorer",
             "count": 17,
-            "data": [0, 4, 6, 4, 3, 0, 0, 0],
+            "data": [
+                0,
+                4,
+                6,
+                4,
+                3,
+                0,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -1456,7 +1537,16 @@
             },
             "label": "$pageview - Microsoft Edge",
             "count": 17,
-            "data": [0, 1, 6, 1, 7, 2, 0, 0],
+            "data": [
+                0,
+                1,
+                6,
+                1,
+                7,
+                2,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -1615,7 +1705,16 @@
             },
             "label": "$pageview - Samsung Internet",
             "count": 14,
-            "data": [1, 5, 1, 1, 2, 4, 0, 0],
+            "data": [
+                1,
+                5,
+                1,
+                1,
+                2,
+                4,
+                0,
+                0
+            ],
             "labels": [
                 "16-Nov-2022",
                 "17-Nov-2022",
@@ -1809,7 +1908,8 @@
             "trendsFilter": {
                 "display": "ActionsAreaGraph",
                 "resultCustomizationBy": "value"
-            }
+            },
+            "version": 2
         },
         "full": true
     }

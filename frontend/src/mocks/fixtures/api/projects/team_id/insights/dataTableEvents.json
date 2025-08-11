@@ -18,14 +18,18 @@
                 "properties.$lib",
                 "timestamp"
             ],
-            "orderBy": ["timestamp DESC"]
+            "orderBy": [
+                "timestamp DESC"
+            ]
         },
         "propertiesViaUrl": true,
         "showSavedQueries": true
     },
     "order": null,
     "deleted": false,
-    "dashboards": [5],
+    "dashboards": [
+        5
+    ],
     "dashboard_tiles": [
         {
             "id": 12,
@@ -196,7 +200,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -236,7 +242,10 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonButtonWithSideAction", "LemonButtonWithSideAction--undefined"],
+                        "attr_class": [
+                            "LemonButtonWithSideAction",
+                            "LemonButtonWithSideAction--undefined"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -271,7 +280,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__slider__content"],
+                        "attr_class": [
+                            "SideBar__slider__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -284,7 +295,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__slider"],
+                        "attr_class": [
+                            "SideBar__slider"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -297,7 +310,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar"],
+                        "attr_class": [
+                            "SideBar"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 4,
@@ -310,7 +325,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "flex-col", "h-screen"],
+                        "attr_class": [
+                            "flex",
+                            "flex-col",
+                            "h-screen"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -533,7 +552,9 @@
                             "properties.$lib",
                             "timestamp"
                         ],
-                        "orderBy": ["timestamp DESC"],
+                        "orderBy": [
+                            "timestamp DESC"
+                        ],
                         "after": "-24h"
                     },
                     "duration": 271.1999999284744,
@@ -563,7 +584,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -777,7 +800,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -995,7 +1020,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -1209,7 +1236,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -1296,7 +1325,9 @@
                     "$lib": "posthog-python",
                     "$lib_version": "3.0.1",
                     "$geoip_disable": true,
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -1512,7 +1543,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -1529,7 +1562,12 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["grow", "overflow-y-auto", "px-2", "py-1"],
+                        "attr_class": [
+                            "grow",
+                            "overflow-y-auto",
+                            "px-2",
+                            "py-1"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -1564,7 +1602,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["DashboardTemplateChooser"],
+                        "attr_class": [
+                            "DashboardTemplateChooser"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1588,7 +1628,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["NewDashboardModal"],
+                        "attr_class": [
+                            "NewDashboardModal"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1601,7 +1643,9 @@
                     {
                         "text": null,
                         "tag_name": "section",
-                        "attr_class": ["LemonModal__content"],
+                        "attr_class": [
+                            "LemonModal__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -1614,7 +1658,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonModal__layout"],
+                        "attr_class": [
+                            "LemonModal__layout"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -1627,7 +1673,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonModal", "ReactModal__Content", "ReactModal__Content--after-open"],
+                        "attr_class": [
+                            "LemonModal",
+                            "ReactModal__Content",
+                            "ReactModal__Content--after-open"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1643,7 +1693,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonModal__overlay", "ReactModal__Overlay", "ReactModal__Overlay--after-open"],
+                        "attr_class": [
+                            "LemonModal__overlay",
+                            "ReactModal__Overlay",
+                            "ReactModal__Overlay--after-open"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1656,7 +1710,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["ReactModalPortal"],
+                        "attr_class": [
+                            "ReactModalPortal"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 131,
@@ -1669,7 +1725,9 @@
                     {
                         "text": null,
                         "tag_name": "body",
-                        "attr_class": ["ReactModal__Body--open"],
+                        "attr_class": [
+                            "ReactModal__Body--open"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -1884,7 +1942,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -1901,7 +1961,9 @@
                     {
                         "text": "Add to a new dashboard",
                         "tag_name": "span",
-                        "attr_class": ["LemonButton__content"],
+                        "attr_class": [
+                            "LemonButton__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1914,7 +1976,11 @@
                     {
                         "text": "Add to a new dashboard",
                         "tag_name": "button",
-                        "attr_class": ["LemonButton", "LemonButton--secondary", "LemonButton--status-primary"],
+                        "attr_class": [
+                            "LemonButton",
+                            "LemonButton--secondary",
+                            "LemonButton--status-primary"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1928,7 +1994,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex-1"],
+                        "attr_class": [
+                            "flex-1"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1941,7 +2009,9 @@
                     {
                         "text": null,
                         "tag_name": "footer",
-                        "attr_class": ["LemonModal__footer"],
+                        "attr_class": [
+                            "LemonModal__footer"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -1954,7 +2024,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonModal__layout"],
+                        "attr_class": [
+                            "LemonModal__layout"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -1967,7 +2039,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonModal", "ReactModal__Content", "ReactModal__Content--after-open"],
+                        "attr_class": [
+                            "LemonModal",
+                            "ReactModal__Content",
+                            "ReactModal__Content--after-open"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1983,7 +2059,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonModal__overlay", "ReactModal__Overlay", "ReactModal__Overlay--after-open"],
+                        "attr_class": [
+                            "LemonModal__overlay",
+                            "ReactModal__Overlay",
+                            "ReactModal__Overlay--after-open"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -1996,7 +2076,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["ReactModalPortal"],
+                        "attr_class": [
+                            "ReactModalPortal"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 130,
@@ -2009,7 +2091,9 @@
                     {
                         "text": null,
                         "tag_name": "body",
-                        "attr_class": ["ReactModal__Body--open"],
+                        "attr_class": [
+                            "ReactModal__Body--open"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -2224,7 +2308,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -2241,7 +2327,9 @@
                     {
                         "text": "Add to dashboard",
                         "tag_name": "span",
-                        "attr_class": ["LemonButton__content"],
+                        "attr_class": [
+                            "LemonButton__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -2273,7 +2361,9 @@
                     {
                         "text": null,
                         "tag_name": "span",
-                        "attr_class": ["save-to-dashboard"],
+                        "attr_class": [
+                            "save-to-dashboard"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 5,
@@ -2287,7 +2377,12 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "gap-2", "items-center", "justify-between"],
+                        "attr_class": [
+                            "flex",
+                            "gap-2",
+                            "items-center",
+                            "justify-between"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -2300,7 +2395,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["page-buttons"],
+                        "attr_class": [
+                            "page-buttons"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -2313,7 +2410,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "justify-between", "page-title-row"],
+                        "attr_class": [
+                            "flex",
+                            "justify-between",
+                            "page-title-row"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -2326,7 +2427,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["insights-page"],
+                        "attr_class": [
+                            "insights-page"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -2339,7 +2442,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["main-app-content"],
+                        "attr_class": [
+                            "main-app-content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -2352,7 +2457,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__content"],
+                        "attr_class": [
+                            "SideBar__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -2365,7 +2472,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar"],
+                        "attr_class": [
+                            "SideBar"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 4,
@@ -2378,7 +2487,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "flex-col", "h-screen"],
+                        "attr_class": [
+                            "flex",
+                            "flex-col",
+                            "h-screen"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -2616,7 +2729,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -2831,7 +2946,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -3047,7 +3164,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -3064,7 +3183,9 @@
                     {
                         "text": "Save",
                         "tag_name": "span",
-                        "attr_class": ["LemonButton__content"],
+                        "attr_class": [
+                            "LemonButton__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -3097,7 +3218,10 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonButtonWithSideAction", "LemonButtonWithSideAction--undefined"],
+                        "attr_class": [
+                            "LemonButtonWithSideAction",
+                            "LemonButtonWithSideAction--undefined"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 5,
@@ -3110,7 +3234,12 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "gap-2", "items-center", "justify-between"],
+                        "attr_class": [
+                            "flex",
+                            "gap-2",
+                            "items-center",
+                            "justify-between"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -3123,7 +3252,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["page-buttons"],
+                        "attr_class": [
+                            "page-buttons"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -3136,7 +3267,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "justify-between", "page-title-row"],
+                        "attr_class": [
+                            "flex",
+                            "justify-between",
+                            "page-title-row"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -3149,7 +3284,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["insights-page"],
+                        "attr_class": [
+                            "insights-page"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -3162,7 +3299,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["main-app-content"],
+                        "attr_class": [
+                            "main-app-content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -3175,7 +3314,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__content"],
+                        "attr_class": [
+                            "SideBar__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -3188,7 +3329,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar"],
+                        "attr_class": [
+                            "SideBar"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 4,
@@ -3201,7 +3344,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "flex-col", "h-screen"],
+                        "attr_class": [
+                            "flex",
+                            "flex-col",
+                            "h-screen"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -3440,7 +3587,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -3638,7 +3787,9 @@
                             "properties.$lib",
                             "timestamp"
                         ],
-                        "orderBy": ["timestamp DESC"],
+                        "orderBy": [
+                            "timestamp DESC"
+                        ],
                         "after": "-24h"
                     },
                     "duration": 323.60000002384186,
@@ -3668,7 +3819,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -3884,7 +4037,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -4100,7 +4255,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -4314,7 +4471,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -4530,7 +4689,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -4562,7 +4723,9 @@
                     {
                         "text": null,
                         "tag_name": "svg",
-                        "attr_class": ["LemonIcon"],
+                        "attr_class": [
+                            "LemonIcon"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -4582,7 +4745,9 @@
                     {
                         "text": null,
                         "tag_name": "span",
-                        "attr_class": ["LemonButton__icon"],
+                        "attr_class": [
+                            "LemonButton__icon"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -4618,7 +4783,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "gap-4", "items-center"],
+                        "attr_class": [
+                            "flex",
+                            "gap-4",
+                            "items-center"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -4631,7 +4800,12 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["h-full", "relative", "deprecated-space-y-4", "w-full"],
+                        "attr_class": [
+                            "h-full",
+                            "relative",
+                            "deprecated-space-y-4",
+                            "w-full"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -4644,7 +4818,9 @@
                     {
                         "text": null,
                         "tag_name": "span",
-                        "attr_class": ["DraggableToNotebook"],
+                        "attr_class": [
+                            "DraggableToNotebook"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 5,
@@ -4658,7 +4834,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["main-app-content"],
+                        "attr_class": [
+                            "main-app-content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -4671,7 +4849,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__content"],
+                        "attr_class": [
+                            "SideBar__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -4684,7 +4864,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar"],
+                        "attr_class": [
+                            "SideBar"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 4,
@@ -4697,7 +4879,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "flex-col", "h-screen"],
+                        "attr_class": [
+                            "flex",
+                            "flex-col",
+                            "h-screen"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -4919,7 +5105,9 @@
                             "properties.$lib",
                             "timestamp"
                         ],
-                        "orderBy": ["timestamp DESC"],
+                        "orderBy": [
+                            "timestamp DESC"
+                        ],
                         "after": "-24h"
                     },
                     "duration": 739.7000000476837,
@@ -4949,7 +5137,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -5163,7 +5353,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -5379,7 +5571,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -5396,7 +5590,10 @@
                     {
                         "text": "Event Explorer",
                         "tag_name": "span",
-                        "attr_class": ["grow", "text-default"],
+                        "attr_class": [
+                            "grow",
+                            "text-default"
+                        ],
                         "href": "/events",
                         "attr_id": null,
                         "nth_child": 1,
@@ -5410,7 +5607,9 @@
                     {
                         "text": null,
                         "tag_name": "span",
-                        "attr_class": ["LemonButton__content"],
+                        "attr_class": [
+                            "LemonButton__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -5467,7 +5666,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__slider__content"],
+                        "attr_class": [
+                            "SideBar__slider__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -5480,7 +5681,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__slider"],
+                        "attr_class": [
+                            "SideBar__slider"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -5493,7 +5696,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar"],
+                        "attr_class": [
+                            "SideBar"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 4,
@@ -5506,7 +5711,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "flex-col", "h-screen"],
+                        "attr_class": [
+                            "flex",
+                            "flex-col",
+                            "h-screen"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -5746,7 +5955,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -5960,7 +6171,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -6178,7 +6391,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -6394,7 +6609,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -6610,7 +6827,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -6671,7 +6890,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__slider__content"],
+                        "attr_class": [
+                            "SideBar__slider__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -6684,7 +6905,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__slider"],
+                        "attr_class": [
+                            "SideBar__slider"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -6697,7 +6920,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar"],
+                        "attr_class": [
+                            "SideBar"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 4,
@@ -6710,7 +6935,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "flex-col", "h-screen"],
+                        "attr_class": [
+                            "flex",
+                            "flex-col",
+                            "h-screen"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -6954,7 +7183,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -7168,7 +7399,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -7384,7 +7617,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -7603,7 +7838,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -7711,7 +7948,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1"
@@ -7924,7 +8163,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -8140,7 +8381,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -8356,7 +8599,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -8571,7 +8816,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -8787,7 +9034,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -9003,7 +9252,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -9219,7 +9470,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -9435,7 +9688,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -9650,7 +9905,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -9740,7 +9997,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1"
@@ -9961,7 +10220,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -10186,7 +10447,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -10402,7 +10665,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -10616,7 +10881,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -10830,7 +11097,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -11044,7 +11313,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -11264,7 +11535,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -11372,7 +11645,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1"
@@ -11588,7 +11863,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -11802,7 +12079,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -12018,7 +12297,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -12234,7 +12515,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -12450,7 +12733,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -12666,7 +12951,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -12881,7 +13168,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -13097,7 +13386,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -13313,7 +13604,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -13529,7 +13822,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -13744,7 +14039,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -13960,7 +14257,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -14050,7 +14349,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1"
@@ -14271,7 +14572,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -14496,7 +14799,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -14712,7 +15017,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -14926,7 +15233,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -15140,7 +15449,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -15354,7 +15665,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -15574,7 +15887,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -15790,7 +16105,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -15898,7 +16215,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1"
@@ -16109,7 +16428,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -16328,7 +16649,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -16544,7 +16867,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -16760,7 +17085,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -16976,7 +17303,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -17191,7 +17520,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -17407,7 +17738,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -17623,7 +17956,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -17839,7 +18174,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -18054,7 +18391,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -18270,7 +18609,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -18360,7 +18701,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1"
@@ -18581,7 +18924,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -18806,7 +19151,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -19020,7 +19367,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -19236,7 +19585,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -19450,7 +19801,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -19664,7 +20017,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -19884,7 +20239,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -20099,7 +20456,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -20313,7 +20672,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -20529,7 +20890,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -20566,7 +20929,9 @@
                     {
                         "text": null,
                         "tag_name": "li",
-                        "attr_class": ["LemonSegmentedButton__option"],
+                        "attr_class": [
+                            "LemonSegmentedButton__option"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 2,
@@ -20590,7 +20955,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonSegmentedButton"],
+                        "attr_class": [
+                            "LemonSegmentedButton"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -20615,7 +20982,13 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "items-center", "justify-between", "mb-4", "mt-2"],
+                        "attr_class": [
+                            "flex",
+                            "items-center",
+                            "justify-between",
+                            "mb-4",
+                            "mt-2"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 5,
@@ -20628,7 +21001,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["saved-insights"],
+                        "attr_class": [
+                            "saved-insights"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -20641,7 +21016,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["main-app-content"],
+                        "attr_class": [
+                            "main-app-content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -20654,7 +21031,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__content"],
+                        "attr_class": [
+                            "SideBar__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 3,
@@ -20667,7 +21046,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar"],
+                        "attr_class": [
+                            "SideBar"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 4,
@@ -20680,7 +21061,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "flex-col", "h-screen"],
+                        "attr_class": [
+                            "flex",
+                            "flex-col",
+                            "h-screen"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -20918,7 +21303,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -21136,7 +21523,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -21352,7 +21741,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -21369,7 +21760,9 @@
                     {
                         "text": null,
                         "tag_name": "span",
-                        "attr_class": ["LemonButton__content"],
+                        "attr_class": [
+                            "LemonButton__content"
+                        ],
                         "href": "/insights",
                         "attr_id": null,
                         "nth_child": 2,
@@ -21406,7 +21799,10 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["LemonButtonWithSideAction", "LemonButtonWithSideAction--undefined"],
+                        "attr_class": [
+                            "LemonButtonWithSideAction",
+                            "LemonButtonWithSideAction--undefined"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -21441,7 +21837,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__slider__content"],
+                        "attr_class": [
+                            "SideBar__slider__content"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -21454,7 +21852,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar__slider"],
+                        "attr_class": [
+                            "SideBar__slider"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -21467,7 +21867,9 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["SideBar"],
+                        "attr_class": [
+                            "SideBar"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 4,
@@ -21480,7 +21882,11 @@
                     {
                         "text": null,
                         "tag_name": "div",
-                        "attr_class": ["flex", "flex-col", "h-screen"],
+                        "attr_class": [
+                            "flex",
+                            "flex-col",
+                            "h-screen"
+                        ],
                         "href": null,
                         "attr_id": null,
                         "nth_child": 1,
@@ -21724,7 +22130,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -21949,7 +22357,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",
@@ -22057,7 +22467,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1"
@@ -22270,7 +22682,9 @@
                     "$geoip_time_zone": "Australia/Sydney",
                     "$geoip_subdivision_1_code": "NSW",
                     "$geoip_subdivision_1_name": "New South Wales",
-                    "$plugins_succeeded": ["GeoIP (1)"],
+                    "$plugins_succeeded": [
+                        "GeoIP (1)"
+                    ],
                     "$plugins_failed": [],
                     "$plugins_deferred": [],
                     "$ip": "127.0.0.1",

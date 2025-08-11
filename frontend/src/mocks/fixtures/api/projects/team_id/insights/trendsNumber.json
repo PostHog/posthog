@@ -7,7 +7,9 @@
     "filters_hash": "cache_e7e4a4edb0e8e08b135e84dd64714fc6",
     "order": null,
     "deleted": false,
-    "dashboards": [3],
+    "dashboards": [
+        3
+    ],
     "last_refresh": "2022-08-09T15:15:30.352651Z",
     "refreshing": false,
     "result": [
@@ -102,7 +104,8 @@
             "trendsFilter": {
                 "display": "BoldNumber",
                 "resultCustomizationBy": "value"
-            }
+            },
+            "version": 2
         },
         "full": true
     }
