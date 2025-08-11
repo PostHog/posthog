@@ -218,11 +218,11 @@ export function ActionFilterRow({
         if (selectedMath) {
             const math_property =
                 mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
-                    ? mathProperty ?? '$time'
+                    ? (mathProperty ?? '$time')
                     : undefined
             const math_hogql =
                 mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                    ? mathHogQL ?? 'count()'
+                    ? (mathHogQL ?? 'count()')
                     : undefined
             mathProperties = {
                 ...mathTypeToApiValues(selectedMath),
@@ -278,7 +278,7 @@ export function ActionFilterRow({
 
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
-            <SeriesGlyph style={{ borderColor: 'var(--border-primary)' }}>{index + 1}</SeriesGlyph>
+            <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>{index + 1}</SeriesGlyph>
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
@@ -656,8 +656,8 @@ export function ActionFilterRow({
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]
                                 : filter.type === TaxonomicFilterGroupType.Actions && filter.id
-                                ? getEventNamesForAction(parseInt(String(filter.id)), actions)
-                                : []
+                                  ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                                  : []
                         }
                         schemaColumns={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name

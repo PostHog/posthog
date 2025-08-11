@@ -67,8 +67,8 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                         {result.type === 'tree_item'
                             ? `Product`
                             : result.type !== 'group'
-                            ? tabToName[result.type]
-                            : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
+                              ? tabToName[result.type]
+                              : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
                     </span>
                     <span className="text-primary font-bold">
                         <ResultName result={result} />

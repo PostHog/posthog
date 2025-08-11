@@ -13,8 +13,8 @@ import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } 
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
 
-import revenueAnalyticsCustomerCountQueryMock from './__mocks__/RevenueAnalyticsCustomerCountQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
+import revenueAnalyticsMetricsQueryMock from './__mocks__/RevenueAnalyticsMetricsQuery.json'
 import revenueAnalyticsRevenueQueryMock from './__mocks__/RevenueAnalyticsRevenueQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
@@ -27,7 +27,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_MRR],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         pageUrl: urls.revenueAnalytics(),
         testOptions: {
             waitForLoadersToDisappear: true,
@@ -53,16 +53,16 @@ const meta: Meta = {
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, databaseSchemaMock]
-                    } else if (queryKind === 'RevenueAnalyticsCustomerCountQuery') {
-                        return [200, revenueAnalyticsCustomerCountQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsGrowthRateQuery') {
                         return [200, revenueAnalyticsGrowthRateMock]
-                    } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
-                        return [200, revenueAnalyticsTopCustomersMock]
+                    } else if (queryKind === 'RevenueAnalyticsMetricsQuery') {
+                        return [200, revenueAnalyticsMetricsQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
                     } else if (queryKind === 'RevenueAnalyticsRevenueQuery') {
                         return [200, revenueAnalyticsRevenueQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
+                        return [200, revenueAnalyticsTopCustomersMock]
                     }
                 },
             },

@@ -1,7 +1,7 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -80,8 +80,9 @@ export function SharingModalContent({
         embedCode,
         iframeProperties,
         shareLink,
+        sharingAllowed,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { preflight } = useValues(preflightLogic)
     const siteUrl = preflight?.site_url || window.location.origin
@@ -94,7 +95,7 @@ export function SharingModalContent({
 
     useEffect(() => {
         setIframeLoaded(false)
-    }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
+    }, [iframeProperties.src, iframeProperties.key, sharingConfiguration?.enabled, showPreview])
 
     return (
         <div className="deprecated-space-y-4">
@@ -125,17 +126,23 @@ export function SharingModalContent({
                 ) : (
                     <>
                         <h3>Sharing</h3>
+                        {!sharingAllowed && (
+                            <LemonBanner type="warning">
+                                Publicly sharing resources is disabled for this organization.
+                            </LemonBanner>
+                        )}
                         <LemonSwitch
                             id="sharing-switch"
                             label={`Share ${resource} publicly`}
-                            checked={sharingConfiguration.enabled}
+                            checked={sharingConfiguration.enabled && sharingAllowed}
                             data-attr="sharing-switch"
                             onChange={(active) => setIsEnabled(active)}
+                            disabled={!sharingAllowed}
                             bordered
                             fullWidth
                         />
 
-                        {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
+                        {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="deprecated-space-y-2">
                                     <LemonButton
@@ -174,7 +181,7 @@ export function SharingModalContent({
                                 <Form
                                     logic={sharingLogic}
                                     props={logicProps}
-                                    formKey="embedConfig"
+                                    formKey="sharingSettings"
                                     className="deprecated-space-y-2"
                                 >
                                     <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
@@ -208,8 +215,8 @@ export function SharingModalContent({
                                                     }
                                                     onChange={() =>
                                                         guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
-                                                            // setEmbedConfigValue is used to update the form state and report the event
-                                                            setEmbedConfigValue('whitelabel', !value)
+                                                            // setSharingSettingsValue is used to update the form state and report the event
+                                                            setSharingSettingsValue('whitelabel', !value)
                                                         })
                                                     }
                                                     checked={!value}
@@ -234,6 +241,27 @@ export function SharingModalContent({
                                                         label={<div>Show inspector panel</div>}
                                                         onChange={onChange}
                                                         checked={value}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
+
+                                        {dashboardId && (
+                                            <LemonField name="hideExtraDetails">
+                                                {({ value, onChange }) => (
+                                                    <LemonSwitch
+                                                        fullWidth
+                                                        bordered
+                                                        label={
+                                                            <div className="flex items-center">
+                                                                <span>Show insight details</span>
+                                                                <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
+                                                                    <IconInfo className="ml-1.5 text-secondary text-lg" />
+                                                                </Tooltip>
+                                                            </div>
+                                                        }
+                                                        onChange={() => onChange(!value)}
+                                                        checked={!value}
                                                     />
                                                 )}
                                             </LemonField>

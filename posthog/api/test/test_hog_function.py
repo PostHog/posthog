@@ -12,7 +12,7 @@ from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
+from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
@@ -290,7 +290,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "template": None,
             "masking": None,
             "mappings": None,
-            "status": {"rating": 0, "state": 0, "tokens": 0},
+            "status": {"state": 0, "tokens": 0},
             "execution_order": None,
         }
 
@@ -949,7 +949,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_loads_status_when_enabled_and_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             mock_get.return_value.status_code = status.HTTP_200_OK
-            mock_get.return_value.json.return_value = {"state": 1, "tokens": 0, "rating": 0}
+            mock_get.return_value.json.return_value = {
+                "state": 1,
+                "tokens": 0,
+            }
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
@@ -958,7 +961,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_201_CREATED, response.json()
 
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
-            assert response.json()["status"] == {"state": 1, "tokens": 0, "rating": 0}
+            assert response.json()["status"] == {
+                "state": 1,
+                "tokens": 0,
+            }
 
     def test_does_not_crash_when_status_not_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
@@ -977,7 +983,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
                 mock_get.return_value.status_code = status.HTTP_200_OK
-                mock_get.return_value.json.return_value = {"state": 4, "tokens": 0, "rating": 0}
+                mock_get.return_value.json.return_value = {
+                    "state": HogFunctionState.DISABLED.value,
+                    "tokens": 0,
+                }
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
@@ -988,7 +997,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 )
                 id = response.json()["id"]
 
-                assert response.json()["status"]["state"] == 4
+                assert response.json()["status"]["state"] == HogFunctionState.DISABLED.value
 
                 self.client.patch(
                     f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",

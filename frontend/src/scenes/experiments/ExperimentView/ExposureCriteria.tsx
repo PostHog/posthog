@@ -1,4 +1,3 @@
-import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -15,6 +14,7 @@ import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 import { modalsLogic } from '../modalsLogic'
+import { SelectableCard } from '../components/SelectableCard'
 
 export function ExposureCriteriaModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
@@ -55,35 +55,31 @@ export function ExposureCriteriaModal(): JSX.Element {
             }
         >
             <div className="flex gap-4 mb-4">
-                <LemonButton
-                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
-                        !experiment.exposure_criteria?.exposure_config
-                            ? 'border-accent bg-accent-highlight-secondary'
-                            : 'border-primary'
-                    }`}
+                <SelectableCard
+                    title="Default"
+                    description={
+                        <>
+                            When a <LemonTag>$feature_flag_called</LemonTag> event is recorded, a user is considered{' '}
+                            <strong>exposed</strong> to the experiment and included in the analysis.
+                        </>
+                    }
+                    selected={!experiment.exposure_criteria?.exposure_config}
                     onClick={() => {
                         setExposureCriteria({
                             exposure_config: undefined,
                         })
                     }}
-                >
-                    <div className="font-semibold flex justify-between items-center">
-                        <span>Default</span>
-                        {!experiment.exposure_criteria?.exposure_config && (
-                            <IconCheckCircle fontSize={18} color="var(--accent)" />
-                        )}
-                    </div>
-                    <div className="text-secondary text-sm leading-relaxed mt-1">
-                        When a <LemonTag>$feature_flag_called</LemonTag> event is recorded, a user is considered{' '}
-                        <strong>exposed</strong> to the experiment and included in the analysis.
-                    </div>
-                </LemonButton>
-                <LemonButton
-                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
-                        experiment.exposure_criteria?.exposure_config
-                            ? 'border-accent bg-accent-highlight-secondary'
-                            : 'border-primary'
-                    }`}
+                />
+                <SelectableCard
+                    title="Custom"
+                    description={
+                        <>
+                            If you can't rely on the <LemonTag>$feature_flag_called</LemonTag> event, you can select a
+                            custom event to signal that users reached the part of your app where the experiment runs.
+                            You can also filter out users you would like to exclude from the analysis.
+                        </>
+                    }
+                    selected={!!experiment.exposure_criteria?.exposure_config}
                     onClick={() => {
                         setExposureCriteria({
                             exposure_config: {
@@ -93,19 +89,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                             },
                         })
                     }}
-                >
-                    <div className="font-semibold flex justify-between items-center">
-                        <span>Custom</span>
-                        {experiment.exposure_criteria?.exposure_config && (
-                            <IconCheckCircle fontSize={18} color="var(--accent)" />
-                        )}
-                    </div>
-                    <div className="text-secondary text-sm leading-relaxed mt-1">
-                        If you can't rely on the <LemonTag>$feature_flag_called</LemonTag> event, you can select a
-                        custom event to signal that users reached the part of your app where the experiment runs. You
-                        can also filter out users you would like to exclude from the analysis.
-                    </div>
-                </LemonButton>
+                />
             </div>
             {experiment.exposure_criteria?.exposure_config && (
                 <div className="mb-4">

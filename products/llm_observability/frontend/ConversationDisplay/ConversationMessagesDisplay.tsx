@@ -1,39 +1,125 @@
-import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconEye, IconMarkdown, IconMarkdownFilled, IconCode } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { XMLViewer } from './XMLViewer'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
+import { looksLikeXml } from '../utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
-import { llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
+import { llmObservabilityTraceLogic, DisplayOption } from '../llmObservabilityTraceLogic'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
-import { normalizeMessages } from '../utils'
 
 export function ConversationMessagesDisplay({
-    input,
+    inputNormalized,
+    outputNormalized,
     output,
-    tools,
     httpStatus,
     raisedError,
     bordered = false,
 }: {
-    input: any
+    inputNormalized: CompatMessage[]
+    outputNormalized: CompatMessage[]
     output: any
-    tools?: any
     httpStatus?: number
     raisedError?: boolean
     bordered?: boolean
 }): JSX.Element {
-    const inputNormalized = normalizeMessages(input, 'user', tools)
-    const outputNormalized = normalizeMessages(output, 'assistant')
+    const { inputMessageShowStates, outputMessageShowStates, displayOption } = useValues(
+        llmObservabilityTraceLogic
+    ) as any
+    const {
+        setInputMessageShowStates,
+        setOutputMessageShowStates,
+        toggleInputMessage,
+        toggleOutputMessage,
+        showAllInputMessages,
+        hideAllInputMessages,
+        showAllOutputMessages,
+        hideAllOutputMessages,
+    } = useActions(llmObservabilityTraceLogic) as any
+
+    React.useEffect(() => {
+        const initialInputStates = inputNormalized.map((message, i) => {
+            if (displayOption === DisplayOption.ExpandAll) {
+                return true
+            }
+            // For 'collapse_except_output_and_last_input', show only the last input message (and not system/tool messages)
+            return (
+                i === inputNormalized.length - 1 &&
+                message.role !== 'system' &&
+                message.role !== 'tool' &&
+                message.role !== 'tools'
+            )
+        })
+
+        setInputMessageShowStates(initialInputStates)
+    }, [inputNormalized, displayOption, setInputMessageShowStates])
+
+    React.useEffect(() => {
+        const initialOutputStates = outputNormalized.map(() => {
+            return true
+        })
+        setOutputMessageShowStates(initialOutputStates)
+    }, [outputNormalized, displayOption, setOutputMessageShowStates])
+
+    const allInputsExpanded = inputMessageShowStates.every(Boolean)
+    const allInputsCollapsed = inputMessageShowStates.every((state: boolean) => !state)
+
+    const inputButtons =
+        inputNormalized.length > 0 ? (
+            <div className="flex items-center gap-1">
+                <LemonButton
+                    size="xsmall"
+                    onClick={showAllInputMessages}
+                    icon={<IconEye />}
+                    disabledReason={allInputsExpanded ? 'All inputs are already expanded' : undefined}
+                >
+                    Expand all
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    onClick={hideAllInputMessages}
+                    icon={<IconEyeHidden />}
+                    disabledReason={allInputsCollapsed ? 'All inputs are already collapsed' : undefined}
+                >
+                    Collapse all
+                </LemonButton>
+            </div>
+        ) : undefined
+
+    const allOutputsExpanded = outputMessageShowStates.every(Boolean)
+    const allOutputsCollapsed = outputMessageShowStates.every((state: boolean) => !state)
+
+    const outputButtons =
+        outputNormalized.length > 0 && !raisedError ? (
+            <div className="flex items-center gap-1">
+                <LemonButton
+                    size="xsmall"
+                    onClick={showAllOutputMessages}
+                    icon={<IconEye />}
+                    disabledReason={allOutputsExpanded ? 'All outputs are already expanded' : undefined}
+                >
+                    Expand all
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    onClick={hideAllOutputMessages}
+                    icon={<IconEyeHidden />}
+                    disabledReason={allOutputsCollapsed ? 'All outputs are already collapsed' : undefined}
+                >
+                    Collapse all
+                </LemonButton>
+            </div>
+        ) : undefined
 
     const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--color-bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
                 <JSONViewer src={output} collapsed={4} />
@@ -55,32 +141,45 @@ export function ConversationMessagesDisplay({
             )}
         </div>
     ) : outputNormalized.length > 0 ? (
-        outputNormalized.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />)
+        outputNormalized.map((message, i) => (
+            <LLMMessageDisplay
+                key={i}
+                message={message}
+                show={outputMessageShowStates[i] || false}
+                isOutput
+                onToggle={() => toggleOutputMessage(i)}
+            />
+        ))
     ) : (
-        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
+        <div className="rounded border text-default p-2 italic bg-[var(--color-bg-fill-error-tertiary)]">No output</div>
     )
+
+    const inputDisplay =
+        inputNormalized.length > 0 ? (
+            inputNormalized.map((message, i) => (
+                <React.Fragment key={i}>
+                    <LLMMessageDisplay
+                        message={message}
+                        show={inputMessageShowStates[i] || false}
+                        onToggle={() => toggleInputMessage(i)}
+                    />
+                    {i < inputNormalized.length - 1 && (
+                        <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                    )}
+                </React.Fragment>
+            ))
+        ) : (
+            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
+        )
 
     return (
         <LLMInputOutput
-            inputDisplay={
-                inputNormalized.length > 0 ? (
-                    inputNormalized.map((message, i) => (
-                        <React.Fragment key={i}>
-                            <LLMMessageDisplay message={message} />
-                            {i < inputNormalized.length - 1 && (
-                                <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                            )}
-                        </React.Fragment>
-                    ))
-                ) : (
-                    <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
-                        No input
-                    </div>
-                )
-            }
+            inputDisplay={inputDisplay}
             outputDisplay={outputDisplay}
             outputHeading={raisedError ? `Error (${httpStatus})` : 'Output'}
             bordered={bordered}
+            inputButtons={inputButtons}
+            outputButtons={outputButtons}
         />
     )
 }
@@ -91,25 +190,39 @@ export const ImageMessageDisplay = ({
     message: { content?: string | { type?: string; image?: string } }
 }): JSX.Element => {
     const { content } = message
+
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
         return <img src={content.image} alt="User sent image" />
     }
+
     return <span>{content}</span>
 }
 
 export const LLMMessageDisplay = React.memo(
-    ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
+    ({
+        message,
+        isOutput,
+        show,
+        onToggle,
+    }: {
+        message: CompatMessage
+        isOutput?: boolean
+        show: boolean
+        onToggle?: () => void
+    }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
-        const { toggleMarkdownRendering } = useActions(llmObservabilityTraceLogic)
-        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool' && role !== 'tools')
+        const { isRenderingMarkdown, isRenderingXml } = useValues(llmObservabilityTraceLogic)
+        const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmObservabilityTraceLogic)
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
         const isMarkdownCandidate =
             content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s|_|\*|~~)/.test(content) : false
+
+        // Compute whether the content looks like XML
+        const isXmlCandidate = looksLikeXml(content)
 
         // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
@@ -128,10 +241,48 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage
+            content: string | { type: string; content: string } | VercelSDKImageMessage | object[]
         ): JSX.Element | null => {
             if (!content) {
                 return null
+            }
+
+            // Handle array-based content
+            if (Array.isArray(content)) {
+                return (
+                    <>
+                        {content.map((item, index) => (
+                            <React.Fragment key={index}>
+                                {typeof item === 'string' ? (
+                                    <span className="whitespace-pre-wrap">{item}</span>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'text' &&
+                                  'text' in item ? (
+                                    <span className="whitespace-pre-wrap">{item.text}</span>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'image' &&
+                                  'image' in item &&
+                                  typeof item.image === 'string' ? (
+                                    <ImageMessageDisplay
+                                        message={{
+                                            content: {
+                                                type: 'image',
+                                                image: item.image,
+                                            },
+                                        }}
+                                    />
+                                ) : (
+                                    <JSONViewer src={item} name={null} collapsed={5} />
+                                )}
+                                {index < content.length - 1 && <div className="border-t my-2" />}
+                            </React.Fragment>
+                        ))}
+                    </>
+                )
             }
             const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
 
@@ -155,12 +306,23 @@ export const LLMMessageDisplay = React.memo(
                         }
                         return <ImageMessageDisplay message={message} />
                     }
+                    if (parsed.type === 'output_text' && parsed.text) {
+                        return <span className="whitespace-pre-wrap">{parsed.text}</span>
+                    }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return <JSONViewer src={parsed} name={null} collapsed={5} />
                     }
                 } catch {
                     // Not valid JSON. Fall through to Markdown/plain text handling.
                 }
+            }
+
+            // If the content appears to be XML, render based on the toggle.
+            if (isXmlCandidate && typeof content === 'string') {
+                if (isRenderingXml) {
+                    return <XMLViewer collapsed={3}>{content}</XMLViewer>
+                }
+                return <span className="font-mono whitespace-pre-wrap">{content}</span>
             }
 
             // If the content appears to be Markdown, render based on the toggle.
@@ -198,12 +360,12 @@ export const LLMMessageDisplay = React.memo(
                 className={clsx(
                     'rounded border text-default',
                     isOutput
-                        ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
+                        ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                        ? 'bg-[var(--bg-fill-tertiary)]'
-                        : role === 'assistant'
-                        ? 'bg-[var(--bg-fill-info-tertiary)]'
-                        : null
+                          ? 'bg-[var(--color-bg-fill-tertiary)]'
+                          : role === 'assistant'
+                            ? 'bg-[var(--color-bg-fill-info-tertiary)]'
+                            : null
                 )}
             >
                 <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
@@ -215,7 +377,7 @@ export const LLMMessageDisplay = React.memo(
                                 noPadding
                                 icon={show ? <IconEyeHidden /> : <IconEye />}
                                 tooltip="Toggle message content"
-                                onClick={() => setShow((prev) => !prev)}
+                                onClick={onToggle}
                             />
                             {isMarkdownCandidate && (
                                 <LemonButton
@@ -224,6 +386,16 @@ export const LLMMessageDisplay = React.memo(
                                     icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                                     tooltip="Toggle markdown rendering"
                                     onClick={toggleMarkdownRendering}
+                                />
+                            )}
+                            {isXmlCandidate && role !== 'tool' && role !== 'tools' && (
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={<IconCode />}
+                                    tooltip="Toggle XML syntax highlighting"
+                                    onClick={toggleXmlRendering}
+                                    active={isRenderingXml}
                                 />
                             )}
                             <CopyToClipboardInline

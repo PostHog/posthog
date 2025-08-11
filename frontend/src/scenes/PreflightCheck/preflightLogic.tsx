@@ -97,8 +97,8 @@ export const preflightLogic = kea<preflightLogicType>([
                         status: preflight?.redis
                             ? 'validated'
                             : preflightMode === 'experimentation'
-                            ? 'warning'
-                            : 'error',
+                              ? 'warning'
+                              : 'error',
                         caption:
                             !preflight?.redis && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
@@ -110,8 +110,8 @@ export const preflightLogic = kea<preflightLogicType>([
                         status: preflight?.celery
                             ? 'validated'
                             : preflightMode === 'experimentation'
-                            ? 'warning'
-                            : 'error',
+                              ? 'warning'
+                              : 'error',
                         caption:
                             !preflight?.celery && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
@@ -123,8 +123,8 @@ export const preflightLogic = kea<preflightLogicType>([
                         status: preflight?.plugins
                             ? 'validated'
                             : preflightMode === 'experimentation'
-                            ? 'warning'
-                            : 'error',
+                              ? 'warning'
+                              : 'error',
                         caption:
                             !preflight?.plugins && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
@@ -142,8 +142,8 @@ export const preflightLogic = kea<preflightLogicType>([
                             window.location.protocol === 'https:'
                                 ? 'validated'
                                 : preflightMode === 'experimentation'
-                                ? 'optional'
-                                : 'warning',
+                                  ? 'optional'
+                                  : 'warning',
                         caption:
                             !(window.location.protocol === 'https:') && preflightMode === 'experimentation'
                                 ? 'Not required for experimentation mode'
