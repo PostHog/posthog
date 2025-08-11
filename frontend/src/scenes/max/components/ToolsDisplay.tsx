@@ -2,7 +2,7 @@ import { IconCheck, IconX, IconWrench, IconInfo, IconArrowRight } from '@posthog
 import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { ReactNode, useState, useRef, useEffect } from 'react'
+import { ReactNode, useState, useRef, useEffect, useCallback } from 'react'
 import React from 'react'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
@@ -38,7 +38,7 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
     const toolsRef = useRef<HTMLElement[]>([])
     const [firstToolOverflowing, setFirstToolOverflowing] = useState<AssistantContextualTool | null>(null)
 
-    function onResize(): void {
+    const onResize = useCallback((): void => {
         let foundOverflow = false
         for (let i = 0; i < toolsRef.current.length; i++) {
             const toolEl = toolsRef.current[i]
@@ -57,11 +57,8 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
         if (!foundOverflow) {
             setFirstToolOverflowing(null)
         }
-    }
-
-    useEffect(() => {
-        onResize()
-    }, [tools.map((t) => t.name).join(';'), onResize])
+    }, [tools.map((t) => t.name).join(';'), tools, tools.length])
+    useEffect(() => onResize(), [onResize])
     useResizeObserver({ ref: toolsContainerRef, onResize })
 
     // We show the tools reversed, so the ones registered last (scene-specific) are shown first
