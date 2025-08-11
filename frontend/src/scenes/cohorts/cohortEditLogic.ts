@@ -255,6 +255,34 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         }
                     } catch (error: any) {
                         breakpoint()
+
+                        // Only capture exception if we don't have proper error details
+                        // This indicates an unexpected failure (network, timeout, etc.)
+                        if (!error.detail) {
+                            posthog.captureException(new Error('Cohort creation failed unexpectedly'), {
+                                // Cohort context (most valuable)
+                                cohort_name: cohort.name,
+                                is_static: cohort.is_static,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                has_csv: !!cohortFormData.get?.('csv'),
+                                file_size: cohortFormData.get?.('csv')?.size,
+
+                                // Error context
+                                error_status: error.status,
+                                error_status_text: error.statusText,
+                                error_message: error.message,
+                                error_name: error.name,
+                                error_type: typeof error,
+
+                                // Browser context
+                                user_agent: navigator.userAgent.substring(0, 100),
+                                is_online: navigator.onLine,
+
+                                // Request context
+                                timestamp: new Date().toISOString(),
+                            })
+                        }
+
                         lemonToast.error(error.detail || 'Failed to save cohort')
                         return values.cohort
                     }
