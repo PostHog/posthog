@@ -182,31 +182,55 @@ class ExperimentTimeseries:
         | control | 2025-05-27 | 25               | 325                  |
         | test-1  | 2025-05-27 | 8                | 64                   |
         """
+
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            # For funnel metrics, value is step number (0-indexed)
+            # Count conversions as users who completed the final step
+            num_steps = len(self.metric.series)
+            final_step = num_steps - 1
+
+            daily_metric_sum_expr = ast.Call(
+                name="countIf",
+                args=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["daily_metrics", "value"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=final_step),
+                    )
+                ],
+            )
+            # For funnel sum_of_squares, use same logic since conversions are binary
+            daily_sum_of_squares_expr = daily_metric_sum_expr
+        else:
+            # For mean metrics, preserve existing behavior
+            daily_metric_sum_expr = ast.Call(
+                name="sum",
+                args=[ast.Field(chain=["daily_metrics", "value"])],
+            )
+            daily_sum_of_squares_expr = ast.Call(
+                name="sum",
+                args=[
+                    ast.Call(
+                        name="power",
+                        args=[
+                            ast.Field(chain=["daily_metrics", "value"]),
+                            ast.Constant(value=2),
+                        ],
+                    )
+                ],
+            )
+
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["daily_metrics", "variant"]),
                 ast.Field(chain=["daily_metrics", "date"]),
                 ast.Alias(
                     alias="daily_metric_sum",
-                    expr=ast.Call(
-                        name="sum",
-                        args=[ast.Field(chain=["daily_metrics", "value"])],
-                    ),
+                    expr=daily_metric_sum_expr,
                 ),
                 ast.Alias(
                     alias="daily_sum_of_squares",
-                    expr=ast.Call(
-                        name="sum",
-                        args=[
-                            ast.Call(
-                                name="power",
-                                args=[
-                                    ast.Field(chain=["daily_metrics", "value"]),
-                                    ast.Constant(value=2),
-                                ],
-                            )
-                        ],
-                    ),
+                    expr=daily_sum_of_squares_expr,
                 ),
             ],
             select_from=ast.JoinExpr(table=daily_entity_metrics_query, alias="daily_metrics"),
@@ -525,7 +549,9 @@ class ExperimentTimeseries:
         timeseries = []
 
         # Group db results by date
-        grouped_by_date: dict[str, list[tuple[str, int, int, int]]] = {}
+        grouped_by_date: dict[
+            str, list[Union[tuple[str, int, int, int], tuple[str, int, int, int, tuple[int, ...]]]]
+        ] = {}
         for variant, date, num_users, total_sum, total_sum_of_squares in response.results:
             date_key = date.date().isoformat()  # e.g. '2024-01-01'
             if date_key not in grouped_by_date:
@@ -539,7 +565,7 @@ class ExperimentTimeseries:
             if date_key in grouped_by_date:
                 try:
                     variants_tuples = grouped_by_date[date_key]
-                    variants = get_new_variant_results(variants_tuples)
+                    variants = get_new_variant_results(variants_tuples, None)
                     control_variant, test_variants = split_baseline_and_test_variants(variants)
 
                     if self.stats_method == "bayesian":
