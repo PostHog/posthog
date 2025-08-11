@@ -1,15 +1,14 @@
 import json
 from datetime import timedelta
 
-from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
-from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, SessionRecording, Comment
 from posthog.models.utils import uuid7
+from posthog.schema import PropertyOperator
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
@@ -34,46 +33,6 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
         SessionRecording.objects.all().delete()
         Person.objects.all().delete()
 
-        with freeze_time("2023-01-01T12:00:00Z"):
-            self.session_id = str(uuid7())
-            self.produce_replay_summary(
-                "user",
-                self.session_id,
-                now() - relativedelta(days=1),
-                team_id=self.team.pk,
-            )
-
-    def produce_replay_summary(
-        self,
-        distinct_id,
-        session_id,
-        timestamp,
-        team_id=None,
-    ):
-        if team_id is None:
-            team_id = self.team.pk
-
-        produce_replay_summary(
-            team_id=team_id,
-            session_id=session_id,
-            distinct_id=distinct_id,
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
-            ensure_analytics_event_in_session=False,
-        )
-
-    @parameterized.expand(
-        [
-            ("no_match", "xyz123", []),
-            ("exact_match", "needle", ["session_with_needle"]),
-            ("partial_match", "need", ["session_with_needle", "session_with_need"]),
-            ("case_insensitive", "NEEDLE", ["session_with_needle"]),
-            ("phrase_match", "bug fix", ["session_with_bug"]),
-            ("emoji_match", "💖", ["session_with_emoji"]),
-            ("emoji_not_match", "😱", []),
-        ]
-    )
-    def test_comment_text_search(self, _name: str, search_text: str, expected_session_ids: list[str]) -> None:
         session_no_comment = str(uuid7())
         session_with_needle = "session_with_needle"
         session_with_bug = "session_with_bug"
@@ -129,6 +88,77 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
             created_by=self.user,
         )
 
+    def produce_replay_summary(
+        self,
+        distinct_id,
+        session_id,
+        timestamp,
+        team_id=None,
+    ):
+        if team_id is None:
+            team_id = self.team.pk
+
+        produce_replay_summary(
+            team_id=team_id,
+            session_id=session_id,
+            distinct_id=distinct_id,
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+            ensure_analytics_event_in_session=False,
+        )
+
+    @parameterized.expand(
+        [
+            ("no_match", "xyz123", PropertyOperator.ICONTAINS, []),
+            ("exact_match", "needle", PropertyOperator.ICONTAINS, ["session_with_needle"]),
+            ("partial_match", "need", PropertyOperator.ICONTAINS, ["session_with_needle", "session_with_need"]),
+            ("case_insensitive", "NEEDLE", PropertyOperator.ICONTAINS, ["session_with_needle"]),
+            ("phrase_match", "bug fix", PropertyOperator.ICONTAINS, ["session_with_bug"]),
+            ("emoji_match", "💖", PropertyOperator.ICONTAINS, ["session_with_emoji"]),
+            ("emoji_not_match", "😱", PropertyOperator.ICONTAINS, []),
+            (
+                "comments is set",
+                "",
+                PropertyOperator.IS_SET,
+                ["session_with_needle", "session_with_bug", "session_with_emoji", "session_with_need"],
+            ),
+            (
+                "comments equal",
+                "Fixed the bug fix issue in the login form",
+                PropertyOperator.EXACT,
+                ["session_with_bug"],
+            ),
+            ("comments equal with emoji", "heart eyes 💖", PropertyOperator.EXACT, ["session_with_emoji"]),
+            (
+                "comments not equal ",
+                "Fixed the bug fix issue in the login form",
+                PropertyOperator.IS_NOT,
+                [
+                    "session_with_emoji",
+                    "session_with_needle",
+                    "session_with_need",
+                ],
+            ),
+            (
+                "comments not icontains",
+                "need",
+                PropertyOperator.NOT_ICONTAINS,
+                [
+                    "session_with_emoji",
+                    "session_with_bug",
+                ],
+            ),
+        ]
+    )
+    def test_comment_text_search_icontains(
+        self, _name: str, search_text: str, operator: str, expected_session_ids: list[str]
+    ) -> None:
+        response_data = self._list_recordings_by_comment(search_text, operator)
+
+        actual_session_ids = [recording["id"] for recording in response_data["results"]]
+        assert set(actual_session_ids) == set(expected_session_ids)
+
+    def _list_recordings_by_comment(self, search_text: str, operator: str) -> dict:
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings",
             {
@@ -137,16 +167,11 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
                 "order_direction": "DESC",
                 "date_from": "-3d",
                 "comment_text": json.dumps(
-                    {"key": "comment_text", "value": search_text, "operator": "icontains", "type": "recording"}
+                    {"key": "comment_text", "value": search_text, "operator": operator, "type": "recording"}
                 ),
                 "limit": "20",
             },
         )
-
         assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
-        actual_session_ids = [recording["id"] for recording in response_data["results"]]
-
-        assert set(actual_session_ids) == set(
-            expected_session_ids
-        ), f"Search '{search_text}': Expected {expected_session_ids}, got {actual_session_ids}"
+        return response_data

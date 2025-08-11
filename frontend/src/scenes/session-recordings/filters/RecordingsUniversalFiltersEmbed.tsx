@@ -585,7 +585,6 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                             isCommentTextFilter(filterOrGroup)
                                 ? [
                                       PropertyOperator.IsSet,
-                                      PropertyOperator.IsNotSet,
                                       PropertyOperator.Exact,
                                       PropertyOperator.IsNot,
                                       PropertyOperator.IContains,

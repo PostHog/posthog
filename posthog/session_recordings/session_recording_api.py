@@ -140,16 +140,6 @@ def _get_session_ids_from_comment_search(
     if not comment_filter:
         return None
 
-    # Search for comments with matching text in the content field
-    # Filter by team and scope (both 'Replay' and 'recording' for compatibility)
-    # supports a subset of operators
-    # PropertyOperator.IsSet,
-    # PropertyOperator.IsNotSet,
-    # PropertyOperator.Exact,
-    # PropertyOperator.IsNot,
-    # PropertyOperator.IContains,
-    # PropertyOperator.NotIContains,
-
     base_query = Comment.objects.filter(
         team=team,
         # TODO: discussions created `Replay` and comments create `recording`
@@ -162,8 +152,6 @@ def _get_session_ids_from_comment_search(
 
     if operator == PropertyOperator.IS_SET:
         base_query = base_query.filter(content__isnull=False).exclude(content="")
-    elif operator == PropertyOperator.IS_NOT_SET:
-        base_query = base_query.filter(content__isnull=True) | base_query.filter(content="")
     elif operator == PropertyOperator.EXACT:
         base_query = base_query.filter(content=value)
     elif operator == PropertyOperator.IS_NOT:
