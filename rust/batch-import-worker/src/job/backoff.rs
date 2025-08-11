@@ -40,7 +40,6 @@ impl BackoffPolicy {
     }
 }
 
-
 /// Build operator/developer status_message and user-facing display message.
 /// If a date range is provided, include it in the display message.
 pub fn format_backoff_messages(date_range: Option<&str>, delay: Duration) -> (String, String) {

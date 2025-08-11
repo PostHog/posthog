@@ -4,7 +4,7 @@ use crate::metrics;
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgQueryResult, PgPool};
+use sqlx::{postgres::PgQueryResult, PgPool, Row};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -172,11 +172,10 @@ impl JobModel {
             anyhow::bail!("Cannot schedule backoff on a job with no lease")
         };
 
-        let until = Utc::now()
-            + chrono::Duration::from_std(delay)
-                .map_err(|_| anyhow::Error::msg("Invalid backoff duration"))?;
+        // Use DB clock for timestamps; pass delay in whole seconds
+        let delay_secs: i64 = std::cmp::min(delay.as_secs(), i64::MAX as u64) as i64;
 
-        let res = sqlx::query(
+        let rec = sqlx::query(
             r#"
             UPDATE posthog_batchimport
             SET
@@ -184,29 +183,33 @@ impl JobModel {
                 status_message = $3,
                 display_status_message = $4,
                 updated_at = now(),
-                leased_until = $2,
+                leased_until = now() + make_interval(secs => $2),
                 backoff_attempt = $5,
-                backoff_until = $2
+                backoff_until = leased_until
             WHERE id = $1 AND lease_id = $6
+            RETURNING leased_until, backoff_until, updated_at
             "#,
         )
         .bind(self.id)
-        .bind(until)
+        .bind(delay_secs)
         .bind(&status_message)
         .bind(&display_message)
         .bind(next_attempt)
         .bind(current_lease)
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
 
-        throw_if_no_rows(res)?;
+        let until: DateTime<Utc> = rec.try_get("leased_until")?;
+        let returned_backoff_until: DateTime<Utc> = rec.try_get("backoff_until")?;
+        let returned_updated_at: DateTime<Utc> = rec.try_get("updated_at")?;
 
         self.status = JobStatus::Running;
         self.status_message = Some(status_message);
         self.display_status_message = display_message;
         self.leased_until = Some(until);
         self.backoff_attempt = next_attempt;
-        self.backoff_until = Some(until);
+        self.backoff_until = Some(returned_backoff_until);
+        self.updated_at = returned_updated_at;
 
         info!(
             job_id = %self.id,
@@ -287,16 +290,19 @@ impl JobModel {
         self.backoff_until = None;
 
         self.flush(&context.db, true).await?;
-        sqlx::query(
+        let rec = sqlx::query(
             r#"
             UPDATE posthog_batchimport
             SET backoff_attempt = 0, backoff_until = NULL
             WHERE id = $1
+            RETURNING updated_at
             "#,
         )
         .bind(self.id)
-        .execute(&context.db)
+        .fetch_one(&context.db)
         .await?;
+
+        self.updated_at = rec.try_get("updated_at")?;
 
         info!(job_id = %self.id, "unpaused job and reset backoff state");
         metrics::unpause_event();
