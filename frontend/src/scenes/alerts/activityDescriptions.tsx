@@ -44,6 +44,20 @@ export function alertConfigurationActivityDescriber(
 
     if (logItem.activity == 'created') {
         const contextDesc = getContextDescription(logItem?.detail?.context)
+
+        if (logItem.detail?.type === 'alert_subscription_change') {
+            return {
+                description: (
+                    <>
+                        <strong>{userNameForLogItem(logItem)}</strong> added {logItem?.detail?.context?.subscriber_name}{' '}
+                        ({logItem?.detail?.context?.subscriber_email}) as a subscriber for alert{' '}
+                        {formattedName(logItem?.detail?.context?.alert_name)}
+                        {contextDesc}
+                    </>
+                ),
+            }
+        }
+
         return {
             description: (
                 <>
@@ -56,8 +70,22 @@ export function alertConfigurationActivityDescriber(
     }
 
     if (logItem.activity == 'deleted') {
-        const displayName = logItem.detail.name || 'Alert Configuration'
         const contextDesc = getContextDescription(logItem?.detail?.context)
+
+        if (logItem.detail?.type === 'alert_subscription_change') {
+            return {
+                description: (
+                    <>
+                        <strong>{userNameForLogItem(logItem)}</strong> removed{' '}
+                        {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email}) as a
+                        subscriber from alert {formattedName(logItem?.detail?.context?.alert_name)}
+                        {contextDesc}
+                    </>
+                ),
+            }
+        }
+
+        const displayName = logItem.detail.name || 'Alert Configuration'
         return {
             description: (
                 <>
@@ -76,7 +104,7 @@ export function alertConfigurationActivityDescriber(
                 description: (
                     <>
                         <strong>{userNameForLogItem(logItem)}</strong> updated the <strong>threshold</strong> for alert{' '}
-                        {formattedName(logItem?.detail.name)}
+                        {formattedName(logItem?.detail?.context?.alert_name)}
                         {contextDesc}
                     </>
                 ),
