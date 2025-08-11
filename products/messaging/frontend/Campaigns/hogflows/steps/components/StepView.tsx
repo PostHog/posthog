@@ -13,7 +13,7 @@ export function StepView({ action, children }: { action: HogFlowAction; children
 
     return (
         <div
-            className="relative flex cursor-pointer transition-all hover:translate-y-[-2px] rounded pointer-events-none bg-surface-primary hover:bg-surface-secondary"
+            className="relative flex cursor-pointer rounded pointer-events-none bg-surface-primary hover:bg-surface-secondary"
             style={{
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
