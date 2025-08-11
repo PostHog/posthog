@@ -53,12 +53,10 @@ pub struct RateLimitedError {
 
 /// Extracts a Retry-After duration if a RateLimitedError is present in the error chain
 pub fn extract_retry_after_from_error(error: &anyhow::Error) -> Option<Duration> {
-    // Check the error itself
     if let Some(rl) = error.downcast_ref::<RateLimitedError>() {
         return rl.retry_after;
     }
 
-    // Traverse sources
     let mut source = error.source();
     while let Some(err) = source {
         if let Some(rl) = err.downcast_ref::<RateLimitedError>() {
@@ -76,14 +74,12 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
         return true;
     }
 
-    // Check the error itself
     if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
         if reqwest_err.status().map_or(false, |s| s.as_u16() == 429) {
             return true;
         }
     }
 
-    // Traverse sources
     let mut source = error.source();
     while let Some(err) = source {
         if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {

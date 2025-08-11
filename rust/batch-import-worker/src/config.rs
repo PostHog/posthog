@@ -43,7 +43,7 @@ pub struct Config {
     )]
     pub kafka_topic_overflow: String,
 
-    // Exponential backoff defaults: 60s initial, 2.0x multiplier, 1h max
+    // Exponential backoff defaults
     #[envconfig(from = "BACKOFF_INITIAL_SECONDS", default = "60")]
     pub backoff_initial_seconds: u64,
 

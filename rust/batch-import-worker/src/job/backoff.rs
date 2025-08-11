@@ -21,7 +21,6 @@ impl BackoffPolicy {
         }
     }
 
-    /// Default policy: initial 60s, multiplier 2.0, max 1h
     pub const fn default_long() -> Self {
         Self {
             initial_delay: Duration::from_secs(60),
@@ -33,10 +32,8 @@ impl BackoffPolicy {
 
 /// Compute the next backoff delay for a given attempt, capped at policy.max_delay.
 ///
-/// attempt = 0 => initial_delay
 /// attempt = n => initial_delay * multiplier^n
 pub fn compute_next_delay(attempt: u32, policy: BackoffPolicy) -> Duration {
-    // Work in whole seconds for simplicity and determinism.
     let base_secs = policy.initial_delay.as_secs_f64();
     let pow = policy.multiplier.powi(attempt as i32);
     let scaled_secs = (base_secs * pow).round();

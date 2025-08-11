@@ -46,11 +46,11 @@ fn extract_client_request_error(error: &ReqwestError) -> String {
 pub(crate) fn parse_retry_after_header(headers: &HeaderMap) -> Option<Duration> {
     let value = headers.get(reqwest::header::RETRY_AFTER)?;
     let s = value.to_str().ok()?;
-    // Try seconds first
+
     if let Ok(seconds) = s.trim().parse::<u64>() {
         return Some(Duration::from_secs(seconds));
     }
-    // Try HTTP-date
+
     if let Ok(date) = httpdate::parse_http_date(s) {
         let now = std::time::SystemTime::now();
         if let Ok(diff) = date.duration_since(now) {
@@ -302,8 +302,7 @@ impl DateRangeExportSource {
         info!("Downloading and preparing key: {}", key);
 
         // Let errors (including 429 wrapped as RateLimitedError) bubble up to job-level backoff
-        self
-            .download_and_prepare_part_data_inner(key, start, end)
+        self.download_and_prepare_part_data_inner(key, start, end)
             .await
     }
 
@@ -365,7 +364,6 @@ impl DateRangeExportSource {
             });
         }
 
-        // Intercept 429 here to capture response headers for Retry-After
         if response.status().as_u16() == 429 {
             let headers_clone = response.headers().clone();
             let http_err = response.error_for_status().unwrap_err();
@@ -1158,7 +1156,11 @@ mod tests {
         assert!(crate::error::is_rate_limited_error(&err));
 
         // No internal retry loop anymore
-        assert_eq!(mock.hits(), 1, "Single request, surfaced to job-level backoff");
+        assert_eq!(
+            mock.hits(),
+            1,
+            "Single request, surfaced to job-level backoff"
+        );
 
         source.cleanup_after_job().await.unwrap();
     }

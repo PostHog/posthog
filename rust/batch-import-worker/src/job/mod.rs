@@ -2,11 +2,11 @@ use std::sync::{atomic::Ordering, Arc};
 
 use anyhow::{Context, Error};
 
+use crate::metrics as metric_emit;
 use common_types::InternallyCapturedEvent;
 use model::{JobModel, JobState, PartState};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
-use crate::metrics as metric_emit;
 
 use crate::{
     context::AppContext,
@@ -22,7 +22,6 @@ pub mod backoff;
 pub mod config;
 pub mod model;
 
-// Small, testable decision function to avoid mocking DB in unit tests
 #[derive(Debug, PartialEq)]
 enum ErrorHandlingDecision {
     Backoff {
@@ -70,12 +69,14 @@ fn decide_on_error(
     }
 }
 
-// Tiny pure helper to test max-attempts behavior independently
 fn should_pause_due_to_max_attempts(next_attempt: u32, max_attempts: u32) -> bool {
     max_attempts > 0 && next_attempt >= max_attempts
 }
 
-async fn reset_backoff_after_success(context: Arc<AppContext>, model: &mut JobModel) -> Result<(), Error> {
+async fn reset_backoff_after_success(
+    context: Arc<AppContext>,
+    model: &mut JobModel,
+) -> Result<(), Error> {
     model.reset_backoff_in_db(&context.db).await
 }
 
@@ -234,7 +235,6 @@ impl Job {
                         status_msg,
                         display_msg,
                     } => {
-                        // If max attempts is set and reached, pause instead of backoff
                         if should_pause_due_to_max_attempts(
                             next_attempt,
                             self.context.config.backoff_max_attempts,
@@ -398,10 +398,8 @@ impl Job {
 
         // Update the in-memory part state (the read will be committed to the DB once the write is done)
         next_part.current_offset += parsed.consumed as u64;
-        // Drop the mutable borrow of next_part before touching state/model again
-        let ret_key = key.clone();
 
-        // Successful fetch/parse: reset backoff state
+        let ret_key = key.clone();
         {
             let mut model = self.model.lock().await;
             reset_backoff_after_success(self.context.clone(), &mut model).await?;

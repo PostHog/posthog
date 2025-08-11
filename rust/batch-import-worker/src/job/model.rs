@@ -1,11 +1,11 @@
 use std::{fmt::Display, sync::Arc, time::Duration as StdDuration};
 
+use crate::metrics;
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgQueryResult, PgPool};
 use tracing::{info, warn};
-use crate::metrics;
 use uuid::Uuid;
 
 use crate::context::AppContext;
@@ -573,7 +573,7 @@ mod tests {
     #[tokio::test]
     async fn test_reset_backoff_in_db_resets_columns() -> Result<(), anyhow::Error> {
         let Some(pool) = get_pool().await else {
-            return Ok(())
+            return Ok(());
         };
 
         let mut tx = pool.begin().await?;
@@ -593,7 +593,7 @@ mod tests {
         .execute(&mut *tx)
         .await;
         if inserted.is_err() {
-            return Ok(())
+            return Ok(());
         }
 
         let mut model = make_dummy_job_model(id, lease, team_id);
