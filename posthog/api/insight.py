@@ -3,11 +3,7 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
-from django.db.models.signals import pre_save
-
 from posthog.api.insight_variable import map_stale_to_latest
-from posthog.exceptions_capture import capture_exception
-from posthog.models.signals import mutable_receiver
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics
@@ -1289,17 +1285,3 @@ When set, the specified dashboard's filters and date range override will be appl
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
-
-
-@mutable_receiver(pre_save, sender=Insight)
-def generate_insight_query_metadata_pre_save(sender, instance: Insight, **kwargs):
-    try:
-        instance.generate_query_metadata()
-    except Exception as e:
-        # log and ignore the error, as this is not critical
-        logger.exception(
-            "Failed to generate query metadata for insight",
-            insight_id=instance.id,
-            error=str(e),
-        )
-        capture_exception(e)
