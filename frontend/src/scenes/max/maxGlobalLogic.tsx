@@ -62,7 +62,7 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     callback?: (toolOutput: any) => void | Promise<void>
 }
 
-export const TOOL_DEFINITIONS: Record<AssistantContextualTool, ToolDefinition> = {
+export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefinition>, 'fix_hogql_query'> = {
     create_and_query_insight: {
         name: 'Edit the insight',
         description: "Edit the insight you're viewing",
