@@ -1,3 +1,4 @@
+import { resetCountersDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresUse } from '~/utils/db/postgres'
 
@@ -12,16 +13,6 @@ describe('CdpAggregationWriterConsumer', () => {
     let processor: CdpAggregationWriterConsumer
     let hub: Hub
     let team: Team
-
-    // Helper to reset counters database
-    const resetCountersDatabase = async () => {
-        await hub.postgres.query(
-            PostgresUse.COUNTERS_RW,
-            'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
-            undefined,
-            'reset-counters-db'
-        )
-    }
 
     beforeEach(async () => {
         // Create hub with explicit test counters database URL
@@ -39,12 +30,11 @@ describe('CdpAggregationWriterConsumer', () => {
             name: 'Test Team',
         } as unknown as Team
 
-        await resetCountersDatabase()
+        await resetCountersDatabase(hub.postgres)
         processor = new CdpAggregationWriterConsumer(hub)
     })
 
     afterEach(async () => {
-        await resetCountersDatabase()
         await closeHub(hub)
     })
 
