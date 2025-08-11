@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const { execSync } = require('child_process')
-const path = require('path')
 
 function getCountersDbUrl() {
     // Use environment variable if provided (for production/secrets)
