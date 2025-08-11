@@ -92,9 +92,12 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
             .first()
         )
 
+        self.assertIsNotNone(disable_log)
+        assert disable_log is not None
         changes = disable_log.detail.get("changes", [])
         enabled_change = next((change for change in changes if change.get("field") == "enabled"), None)
         self.assertIsNotNone(enabled_change)
+        assert enabled_change is not None
         self.assertEqual(enabled_change["action"], "changed")
         self.assertTrue(enabled_change["before"])
         self.assertFalse(enabled_change["after"])
@@ -109,9 +112,12 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
             .first()
         )
 
+        self.assertIsNotNone(name_log)
+        assert name_log is not None
         changes = name_log.detail.get("changes", [])
         name_change = next((change for change in changes if change.get("field") == "name"), None)
         self.assertIsNotNone(name_change)
+        assert name_change is not None
         self.assertEqual(name_change["action"], "changed")
         self.assertEqual(name_change["before"], "Alert for field tracking")
         self.assertEqual(name_change["after"], "Updated Alert Name")
@@ -126,9 +132,12 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
             .first()
         )
 
+        self.assertIsNotNone(interval_log)
+        assert interval_log is not None
         changes = interval_log.detail.get("changes", [])
         interval_change = next((change for change in changes if change.get("field") == "calculation_interval"), None)
         self.assertIsNotNone(interval_change)
+        assert interval_change is not None
         self.assertEqual(interval_change["action"], "changed")
         self.assertEqual(interval_change["before"], "daily")
         self.assertEqual(interval_change["after"], "hourly")
@@ -208,3 +217,59 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(config_change)
         assert config_change is not None
         self.assertEqual(config_change["action"], "changed")
+
+    def test_alert_subscription_activity_logging(self):
+        from posthog.models.alert import AlertSubscription
+        from posthog.models import User
+
+        alert = self.create_alert_configuration("Alert for subscription")
+        other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="subscriber@posthog.com",
+            password="password",
+        )
+
+        AlertSubscription.objects.create(
+            user=other_user,
+            alert_configuration_id=alert["id"],
+            created_by=self.user,
+        )
+
+        subscription_logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="AlertConfiguration", item_id=str(alert["id"])
+        ).filter(detail__type="alert_subscription_change")
+
+        self.assertTrue(len(subscription_logs) > 0)
+        subscription_log = subscription_logs.first()
+        self.assertIsNotNone(subscription_log)
+
+    def test_alert_subscription_deletion_logging(self):
+        from posthog.models.alert import AlertSubscription
+        from posthog.models import User
+
+        alert = self.create_alert_configuration("Alert for deletion")
+        other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="to_delete@posthog.com",
+            password="password",
+        )
+
+        subscription = AlertSubscription.objects.create(
+            user=other_user,
+            alert_configuration_id=alert["id"],
+            created_by=self.user,
+        )
+
+        subscription.delete()
+
+        delete_logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="AlertConfiguration", item_id=str(alert["id"]), activity="deleted"
+        ).filter(detail__type="alert_subscription_change")
+
+        self.assertTrue(len(delete_logs) > 0)
+        delete_log = delete_logs.first()
+        self.assertIsNotNone(delete_log)
+        assert delete_log is not None
+
+        context = delete_log.detail.get("context", {})
+        self.assertEqual(context["subscriber_email"], other_user.email)

@@ -331,17 +331,17 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 
 @dataclasses.dataclass(frozen=True)
 class AlertConfigurationContext(ActivityContextBase):
-    insight_id: int = None
-    insight_short_id: str = None
+    insight_id: Optional[int] = None
+    insight_short_id: Optional[str] = None
     insight_name: Optional[str] = "Insight"
-    alert_id: int = None
+    alert_id: Optional[int] = None
     alert_name: Optional[str] = "Alert"
 
 
 @dataclasses.dataclass(frozen=True)
 class AlertSubscriptionContext(AlertConfigurationContext):
-    subscriber_name: str = None
-    subscriber_email: str = None
+    subscriber_name: Optional[str] = None
+    subscriber_email: Optional[str] = None
 
 
 @receiver(model_activity_signal, sender=AlertConfiguration)
