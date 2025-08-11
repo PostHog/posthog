@@ -237,7 +237,10 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                             placeholder="Choose template"
                             loading={templatesLoading}
                             value={appliedTemplate?.id}
-                            options={}
+                            options={templates.map((template) => ({
+                                label: template.name,
+                                value: template.id,
+                            }))}
                             onChange={(id) => {
                                 const template = templates.find((t) => t.id === id)
                                 if (template) {
