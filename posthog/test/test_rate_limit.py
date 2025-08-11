@@ -145,7 +145,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "route": "api/projects/TEAM_ID/feature_flags/",
+                "route": "/api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -181,7 +181,7 @@ class TestUserAPI(APIBaseTest):
                     "team_id": self.team.pk,
                     "scope": "sustained",
                     "rate": "5/hour",
-                    "route": "api/projects/TEAM_ID/feature_flags/",
+                    "route": "/api/projects/TEAM_ID/feature_flags/",
                     "hashed_personal_api_key": self.hashed_personal_api_key,
                 },
             )
@@ -223,7 +223,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "clickhouse_burst",
                 "rate": "5/minute",
-                "route": "api/projects/TEAM_ID/events/",
+                "route": "/api/projects/TEAM_ID/events/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -256,7 +256,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "route": "api/projects/TEAM_ID/feature_flags/",
+                "route": "/api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -335,7 +335,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "route": "api/organizations/ORG_ID/plugins/",
+                "route": "/api/organizations/ORG_ID/plugins/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -396,7 +396,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "route": "api/login/",
+                "route": "/api/login/",
                 "hashed_personal_api_key": None,
             },
         )
@@ -601,13 +601,13 @@ class TestUserAPI(APIBaseTest):
             (
                 "/api/environments/123/query/abc-123-def/progress/",
                 "api/environments/<int:team_id>/query/<str:query_uuid>/progress/",
-                "api/environments/TEAM_ID/query/QUERY_UUID/progress/",
+                "/api/environments/TEAM_ID/query/QUERY_UUID/progress/",
                 "Django route pattern with int and str parameters",
             ),
             (
                 "/api/projects/123/feature_flags/",
                 "^api/projects/(?P<parent_lookup_project_id>[^/.]+)/feature_flags/?$",
-                "api/projects/TEAM_ID/feature_flags/",
+                "/api/projects/TEAM_ID/feature_flags/",
                 "Django route pattern with named regexp parameters",
             ),
             (

@@ -88,7 +88,10 @@ def patchable_resolve(path: str):
     return resolve(path)
 
 
-def replace_with_param_names(string, pattern):
+route_param_pattern = re.compile(r"/(?:\(.*?<(?:\w+:)?(\w+)>.*?\)|<(?:\w+:)?(\w+)>)(?:/|$)")
+
+
+def replace_with_param_names(route_pattern):
     """
     Replace matched groups in string with their parameter names from the regex pattern.
 
@@ -99,30 +102,6 @@ def replace_with_param_names(string, pattern):
     Returns:
         String with matched parts replaced by parameter names
     """
-    # First, extract the named groups from the pattern
-    compiled_pattern = re.compile(pattern)
-
-    def replacement_func(match):
-        # Get the group dictionary (named groups)
-        groups = match.groupdict()
-        if groups:
-            # Return the first named group's name in uppercase
-            return next(iter(groups.keys())).upper()
-        else:
-            # If no named groups, return the matched text as-is
-            return match.group(0)
-
-    return compiled_pattern.sub(replacement_func, string)
-
-
-def get_route_from_path(path: str | None) -> str:
-    """
-    Extract a generic route identifier from a request path to avoid high cardinality
-    in metrics. This uses Django's URL resolver to get the actual route pattern
-    and normalizes parameter names for use as metric labels.
-    """
-    if not path:
-        return ""
 
     def extract_param_name(m):
         param = m.group(1) or m.group(2)
@@ -134,22 +113,34 @@ def get_route_from_path(path: str | None) -> str:
             return "TEAM_ID"
         return param.upper()
 
-    param_names = re.compile(r"/(?:\(.*?<(?:\w+:)?(\w+)>.*?\)|<(?:\w+:)?(\w+)>)(?:/|$)")
+    # Convert Django URL parameter syntax to a label-friendly format
+    # e.g., "<team_id>" becomes "TEAM_ID
+    route_id = route_param_pattern.sub(lambda m: "/" + extract_param_name(m) + "/", route_pattern)
+    if route_id.startswith("^"):
+        route_id = route_id[1:]
+    if route_id.startswith("api/"):
+        route_id = "/" + route_id
+    if route_id.endswith("$"):
+        route_id = route_id[:-1]
+    if route_id.endswith("?"):
+        route_id = route_id[:-1]
+    return route_id
+
+
+def get_route_from_path(path: str | None) -> str:
+    """
+    Extract a generic route identifier from a request path to avoid high cardinality
+    in metrics. This uses Django's URL resolver to get the actual route pattern
+    and normalizes parameter names for use as metric labels.
+    """
+    if not path:
+        return ""
+
     with suppress(Exception):
         resolved = patchable_resolve(path)
         route_pattern = resolved.route
         if route_pattern:
-            # Convert Django URL parameter syntax to a label-friendly format
-            # e.g., "<team_id>" becomes "TEAM_ID
-            # return replace_with_param_names(route_id, route_pattern)
-            route_id = param_names.sub(lambda m: "/" + extract_param_name(m) + "/", route_pattern)
-            if route_id.startswith("^"):
-                route_id = route_id[1:]
-            if route_id.endswith("$"):
-                route_id = route_id[:-1]
-            if route_id.endswith("?"):
-                route_id = route_id[:-1]
-            return route_id
+            return replace_with_param_names(route_pattern)
 
     route_id = path_by_env_pattern.sub("/api/environments/TEAM_ID/", path)
     route_id = path_by_team_pattern.sub("/api/projects/TEAM_ID/", route_id)
