@@ -43,7 +43,9 @@ def extract_insight_query_metadata(insight_id: int) -> None:
     track_started=True,
 )
 def fill_insights_missing_query_metadata() -> None:
-    from django.db.models import Q, F
+    from django.db.models import Q, DateTimeField
+    from django.db.models.functions import Cast
+    from django.db.models.fields.json import KeyTextTransform
 
     insights = Insight.objects_including_soft_deleted.filter(
         # Insights with no metadata or empty metadata
@@ -53,7 +55,11 @@ def fill_insights_missing_query_metadata() -> None:
         (
             Q(query_metadata__isnull=False)
             & Q(query_metadata__has_key="updated_at")
-            & Q(last_modified_at__gt=F("query_metadata__updated_at"))
+            & Q(
+                last_modified_at__gt=Cast(
+                    KeyTextTransform("updated_at", "query_metadata"), output_field=DateTimeField()
+                )
+            )
         )
     ).only("id")
 
