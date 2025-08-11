@@ -11,10 +11,14 @@ export function useScrollObserver({ onScrollTop, onScrollBottom }: ScrollObserve
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const handleScroll = useCallback(
-        (evt) => {
-            const scrollTop = evt.target.scrollTop
-            const scrollHeight = evt.target.scrollHeight
-            const clientHeight = evt.target.clientHeight
+        (evt: Event) => {
+            const target = evt.target as HTMLElement
+            if (!target) {
+                return
+            }
+            const scrollTop = target.scrollTop
+            const scrollHeight = target.scrollHeight
+            const clientHeight = target.clientHeight
 
             if (scrollHeight == clientHeight) {
                 return
