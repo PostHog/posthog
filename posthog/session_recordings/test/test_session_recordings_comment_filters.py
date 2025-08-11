@@ -50,6 +50,13 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
         )
         Comment.objects.create(
             team=self.team,
+            content="This recording has two comments",
+            scope="recording",
+            item_id=session_with_needle,
+            created_by=self.user,
+        )
+        Comment.objects.create(
+            team=self.team,
             content="This comment contains the word need for searching",
             scope="recording",
             item_id=session_with_need,
@@ -117,29 +124,9 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
                 PropertyOperator.EXACT,
                 ["session_with_bug"],
             ),
-            ("comments equal with emoji", "heart eyes 💖", PropertyOperator.EXACT, ["session_with_emoji"]),
-            (
-                "comments not equal ",
-                "Fixed the bug fix issue in the login form",
-                PropertyOperator.IS_NOT,
-                [
-                    "session_with_emoji",
-                    "session_with_needle",
-                    "session_with_need",
-                ],
-            ),
-            (
-                "comments not icontains",
-                "need",
-                PropertyOperator.NOT_ICONTAINS,
-                [
-                    "session_with_emoji",
-                    "session_with_bug",
-                ],
-            ),
         ]
     )
-    def test_comment_text_search_icontains(
+    def test_comment_text_filtering(
         self, _name: str, search_text: str, operator: str, expected_session_ids: list[str]
     ) -> None:
         response_data = self._list_recordings_by_comment(search_text, operator)

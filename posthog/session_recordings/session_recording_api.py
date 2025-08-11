@@ -154,12 +154,8 @@ def _get_session_ids_from_comment_search(
         base_query = base_query.filter(content__isnull=False).exclude(content="")
     elif operator == PropertyOperator.EXACT:
         base_query = base_query.filter(content=value)
-    elif operator == PropertyOperator.IS_NOT:
-        base_query = base_query.exclude(content=value)
     elif operator == PropertyOperator.ICONTAINS:
         base_query = base_query.filter(content__icontains=value)
-    elif operator == PropertyOperator.NOT_ICONTAINS:
-        base_query = base_query.exclude(content__icontains=value)
     else:
         raise ValidationError("Unsupported operator for comment search: " + str(operator))
 

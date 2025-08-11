@@ -583,13 +583,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                         metadataSource={{ kind: NodeKind.RecordingsQuery }}
                         operatorAllowList={
                             isCommentTextFilter(filterOrGroup)
-                                ? [
-                                      PropertyOperator.IsSet,
-                                      PropertyOperator.Exact,
-                                      PropertyOperator.IsNot,
-                                      PropertyOperator.IContains,
-                                      PropertyOperator.NotIContains,
-                                  ]
+                                ? [PropertyOperator.IsSet, PropertyOperator.Exact, PropertyOperator.IContains]
                                 : undefined
                         }
                     />
