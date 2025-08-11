@@ -55,10 +55,10 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
             <ConversationMessagesDisplay
                 inputNormalized={normalizeMessages(eventProperties.$ai_input, 'user', eventProperties.$ai_tools)}
                 outputNormalized={normalizeMessages(
-                    eventProperties.$ai_output_choices ?? eventProperties.$ai_output ?? eventProperties.$ai_error,
+                    eventProperties.$ai_output_choices ?? eventProperties.$ai_output,
                     'assistant'
                 )}
-                output={eventProperties.$ai_output_choices ?? eventProperties.$ai_output ?? eventProperties.$ai_error}
+                errorData={eventProperties.$ai_error}
                 httpStatus={eventProperties.$ai_http_status}
                 raisedError={eventProperties.$ai_is_error}
                 bordered
