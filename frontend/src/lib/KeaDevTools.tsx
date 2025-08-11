@@ -5,7 +5,7 @@ import type { BuiltLogic, Context as KeaContext } from 'kea'
 
 type MountedMap = Record<string, BuiltLogic>
 type SortMode = 'alpha' | 'recent'
-type Tab = 'logics' | 'actions'
+type Tab = 'logics' | 'actions' | 'graph'
 
 type KeaDevtoolsProps = {
     defaultOpen?: boolean
@@ -53,7 +53,7 @@ function displayName(logic: BuiltLogic): string {
     return parts[parts.length - 1]
 }
 
-/** size metric → used for a subtle tint */
+/** size metric → used for a subtle tint & node size */
 function logicSize(logic: BuiltLogic): number {
     const c = Math.max(0, Object.keys(logic.connections || {}).length - 1)
     const a = Object.keys(logic.actions || {}).length
@@ -152,7 +152,7 @@ function ActionsList({ logic }: { logic: BuiltLogic }): JSX.Element | null {
         return null
     }
 
-    const run = async (name: string): void => {
+    const run = async (name: string): Promise<void> => {
         try {
             const raw = window.prompt(`Args for ${name} (JSON array)`, '[]')
             if (raw === null) {
@@ -227,6 +227,461 @@ function Values({ logic }: { logic: BuiltLogic }): JSX.Element | null {
     )
 }
 
+/* ---------- GRAPH TAB ---------- */
+
+type Node = {
+    id: string
+    name: string
+    size: number
+    x: number
+    y: number
+    vx: number
+    vy: number
+    fixed?: boolean
+}
+type Link = { source: string; target: string } // directed for highlights
+type Undirected = { a: string; b: string } // for layout
+
+function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: string) => void }): JSX.Element {
+    const width = 2400
+    const height = 1500
+
+    const { nodes, undirected, directed, outAdj, inAdj, avgDeg } = useMemo(() => {
+        const keys = Object.keys(mounted)
+
+        const degree: Record<string, number> = Object.fromEntries(keys.map((k) => [k, 0]))
+        const undirectedSeen = new Set<string>()
+        const undirected: Undirected[] = []
+        const directed: Link[] = []
+
+        const outAdj = new Map<string, Set<string>>(keys.map((k) => [k, new Set<string>()]))
+        const inAdj = new Map<string, Set<string>>(keys.map((k) => [k, new Set<string>()]))
+
+        for (const a of keys) {
+            for (const b of Object.keys(mounted[a]?.connections || {})) {
+                if (!mounted[b] || a === b) {
+                    continue
+                }
+                directed.push({ source: a, target: b })
+                outAdj.get(a)!.add(b)
+                inAdj.get(b)!.add(a)
+                const u = a < b ? `${a}|${b}` : `${b}|${a}`
+                if (!undirectedSeen.has(u)) {
+                    undirectedSeen.add(u)
+                    undirected.push({ a, b })
+                    degree[a]++
+                    degree[b]++
+                }
+            }
+        }
+
+        const degVals = Object.values(degree)
+        const avgDeg = degVals.length ? degVals.reduce((s, d) => s + d, 0) / degVals.length : 0
+
+        const nodes: Node[] = keys.map((k, i) => {
+            const deg = degree[k] ?? 0
+            const size = Math.max(8, Math.min(34, 8 + Math.sqrt(deg) * 6))
+            const angle = (i / Math.max(1, keys.length)) * Math.PI * 2
+            const r = 340 + (i % 200) * 3
+            return {
+                id: k,
+                name: displayName(mounted[k]),
+                size,
+                x: width / 2 + Math.cos(angle) * r + (Math.random() - 0.5) * 80,
+                y: height / 2 + Math.sin(angle) * r + (Math.random() - 0.5) * 80,
+                vx: 0,
+                vy: 0,
+            }
+        })
+
+        return { nodes, undirected, directed, outAdj, inAdj, avgDeg }
+    }, [mounted])
+
+    // max spread constants
+    const SPREAD = 3
+    const LINK_DISTANCE = 180 * SPREAD + 30 * Math.log(nodes.length + 1)
+    const SPRING = 0.06
+    const CHARGE = (2600 + 300 * avgDeg) * SPREAD * SPREAD
+    const DAMPING = 0.9
+    const CENTER_PULL = 0.0015
+    const COLLISION_PAD = 6
+
+    // simulation
+    const [simRunning, setSimRunning] = useState(true)
+    const nodesRef = useRef<Node[]>(nodes)
+    const undirectedRef = useRef<Undirected[]>(undirected)
+    const rafRef = useRef<number | null>(null)
+
+    useEffect(() => {
+        const prev = nodesRef.current
+        nodesRef.current = nodes.map((n) => prev.find((p) => p.id === n.id) ?? { ...n })
+        undirectedRef.current = undirected
+        setSimRunning(true)
+        return () => {
+            if (rafRef.current) {
+                cancelAnimationFrame(rafRef.current)
+            }
+            rafRef.current = null
+        }
+    }, [nodes, undirected])
+
+    const [, force] = useState(0)
+    const bump = (): void => force((t) => t + 1)
+
+    useEffect(() => {
+        if (!simRunning) {
+            return
+        }
+        let last = performance.now()
+
+        const tick = (): void => {
+            const now = performance.now()
+            const dt = Math.min(0.02, (now - last) / 1000)
+            last = now
+
+            const ns = nodesRef.current
+            const ls = undirectedRef.current
+
+            for (let i = 0; i < ns.length; i++) {
+                for (let j = i + 1; j < ns.length; j++) {
+                    const a = ns[i],
+                        b = ns[j]
+                    let dx = a.x - b.x,
+                        dy = a.y - b.y
+                    let d2 = dx * dx + dy * dy
+                    if (d2 === 0) {
+                        d2 = 0.01
+                    }
+                    const dist = Math.sqrt(d2)
+
+                    const rep = (CHARGE * dt) / d2
+                    const rx = (dx / dist) * rep,
+                        ry = (dy / dist) * rep
+                    if (!a.fixed) {
+                        a.vx += rx
+                        a.vy += ry
+                    }
+                    if (!b.fixed) {
+                        b.vx -= rx
+                        b.vy -= ry
+                    }
+
+                    const minD = a.size + b.size + COLLISION_PAD
+                    if (dist < minD) {
+                        const push = ((minD - dist) / minD) * 0.6
+                        const cx = (dx / (dist || 1)) * push,
+                            cy = (dy / (dist || 1)) * push
+                        if (!a.fixed) {
+                            a.x += cx
+                            a.y += cy
+                        }
+                        if (!b.fixed) {
+                            b.x -= cx
+                            b.y -= cy
+                        }
+                    }
+                }
+            }
+
+            for (const l of ls) {
+                const a = ns.find((n) => n.id === l.a)!,
+                    b = ns.find((n) => n.id === l.b)!
+                const dx = b.x - a.x,
+                    dy = b.y - a.y
+                const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy))
+                const diff = dist - LINK_DISTANCE
+                const f = diff * SPRING * dt
+                const fx = (dx / dist) * f,
+                    fy = (dy / dist) * f
+                if (!a.fixed) {
+                    a.vx += fx
+                    a.vy += fy
+                }
+                if (!b.fixed) {
+                    b.vx -= fx
+                    b.vy -= fy
+                }
+            }
+
+            const cx = width / 2,
+                cy = height / 2
+            let energy = 0
+            for (const n of ns) {
+                if (!n.fixed) {
+                    n.vx += (cx - n.x) * CENTER_PULL
+                    n.vy += (cy - n.y) * CENTER_PULL
+                    n.vx *= DAMPING
+                    n.vy *= DAMPING
+                    n.x += n.vx
+                    n.y += n.vy
+                }
+                energy += n.vx * n.vx + n.vy * n.vy
+            }
+
+            bump()
+            if (energy < 0.0006) {
+                rafRef.current = null
+                return
+            }
+            rafRef.current = requestAnimationFrame(tick)
+        }
+
+        rafRef.current = requestAnimationFrame(tick)
+        return () => {
+            if (rafRef.current) {
+                cancelAnimationFrame(rafRef.current)
+            }
+        }
+    }, [simRunning, LINK_DISTANCE, CHARGE])
+
+    // pan/zoom + drag (anchor zoom + no-jump drag + sticky hover)
+    const [k, setK] = useState(1)
+    const [tx, setTx] = useState(0)
+    const [ty, setTy] = useState(0)
+    const svgRef = useRef<SVGSVGElement | null>(null)
+    const draggingId = useRef<string | null>(null)
+    const dragOffset = useRef<{ dx: number; dy: number } | null>(null)
+    const lastPan = useRef<{ x: number; y: number } | null>(null)
+
+    const toWorld = (clientX: number, clientY: number): { x: number; y: number } => {
+        const { left, top } = svgRef.current!.getBoundingClientRect()
+        return { x: (clientX - left - tx) / k, y: (clientY - top - ty) / k }
+    }
+
+    const onWheel = (e: React.WheelEvent): void => {
+        e.preventDefault()
+        const { x: mx, y: my } = toWorld(e.clientX, e.clientY)
+        const mult = Math.exp(-e.deltaY * 0.001)
+        setK((prevK) => {
+            const unclamped = prevK * mult
+            const nextK = Math.min(4, Math.max(0.25, unclamped))
+            const r = nextK / prevK
+            setTx((prevTx) => (prevTx - mx) * r + mx)
+            setTy((prevTy) => (prevTy - my) * r + my)
+            return nextK
+        })
+    }
+
+    const onMouseDownSVG = (e: React.MouseEvent): void => {
+        if (draggingId.current) {
+            return
+        }
+        lastPan.current = { x: e.clientX, y: e.clientY }
+    }
+    const onMouseMoveSVG = (e: React.MouseEvent): void => {
+        if (!lastPan.current || draggingId.current) {
+            return
+        }
+        const dx = e.clientX - lastPan.current.x,
+            dy = e.clientY - lastPan.current.y
+        lastPan.current = { x: e.clientX, y: e.clientY }
+        setTx((t) => t + dx)
+        setTy((t) => t + dy)
+    }
+    const onMouseUpSVG = (): void => {
+        lastPan.current = null
+    }
+
+    const startDragNode =
+        (id: string) =>
+        (e: React.MouseEvent): void => {
+            e.preventDefault()
+            e.stopPropagation()
+            draggingId.current = id
+            lastPan.current = null
+            const node = nodesRef.current.find((n) => n.id === id)!
+            node.fixed = true
+            const { x, y } = toWorld(e.clientX, e.clientY)
+            dragOffset.current = { dx: x - node.x, dy: y - node.y }
+            setHoveredId(id) // keep active while dragging
+        }
+
+    const onMouseMove = (e: React.MouseEvent): void => {
+        if (!draggingId.current) {
+            return
+        }
+        const node = nodesRef.current.find((n) => n.id === draggingId.current)!
+        const { x, y } = toWorld(e.clientX, e.clientY)
+        const off = dragOffset.current || { dx: 0, dy: 0 }
+        node.x = x - off.dx
+        node.y = y - off.dy
+        node.vx = 0
+        node.vy = 0
+        bump()
+    }
+    const onMouseUp = (): void => {
+        if (!draggingId.current) {
+            return
+        }
+        const node = nodesRef.current.find((n) => n.id === draggingId.current)!
+        node.fixed = false
+        draggingId.current = null
+        dragOffset.current = null
+        setSimRunning(true)
+    }
+
+    // hover state
+    const [hoveredId, setHoveredId] = useState<string | null>(null)
+    const outNeighbors = hoveredId ? (outAdj.get(hoveredId) ?? new Set<string>()) : new Set<string>()
+    const inNeighbors = hoveredId ? (inAdj.get(hoveredId) ?? new Set<string>()) : new Set<string>()
+    const bothNeighbors = new Set<string>([...outNeighbors].filter((x) => inNeighbors.has(x)))
+
+    const fillFor = (id: string): string => {
+        if (id === hoveredId) {
+            return '#FACC15'
+        }
+        if (bothNeighbors.has(id)) {
+            return '#14B8A6'
+        }
+        if (outNeighbors.has(id)) {
+            return 'rgba(34,197,94,0.9)'
+        } // outgoing neighbor
+        if (inNeighbors.has(id)) {
+            return 'rgba(249,115,22,0.95)'
+        } // incoming neighbor
+        return `rgba(99, 102, 241, 0.28)`
+    }
+    const labelWeight = (id: string): number =>
+        id === hoveredId || outNeighbors.has(id) || inNeighbors.has(id) ? 700 : 400
+    const labelOpacity = (id: string): number =>
+        hoveredId && !(id === hoveredId || outNeighbors.has(id) || inNeighbors.has(id)) && !inNeighbors.has(id)
+            ? 0.25
+            : 1
+
+    return (
+        <div style={{ flex: 1, minHeight: 0, background: '#fff', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+            <div style={{ padding: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button type="button" onClick={() => setSimRunning((s) => !s)} style={simpleBtnStyle}>
+                    {simRunning ? 'Pause layout' : 'Resume layout'}
+                </button>
+                <button
+                    type="button"
+                    onClick={() => {
+                        setK(1)
+                        setTx(0)
+                        setTy(0)
+                    }}
+                    style={simpleBtnStyle}
+                >
+                    Reset view
+                </button>
+                <div style={{ color: 'rgba(0,0,0,0.55)', fontSize: 12 }}>
+                    Short names • Drag nodes • Scroll to zoom • Drag background to pan
+                </div>
+            </div>
+
+            <svg
+                ref={svgRef}
+                width="100%"
+                height="100%"
+                viewBox={`0 0 ${width} ${height}`}
+                style={{ display: 'block', cursor: draggingId.current ? 'grabbing' : 'grab' }}
+                onWheel={onWheel}
+                onMouseDown={onMouseDownSVG}
+                onMouseMove={(e) => {
+                    onMouseMoveSVG(e)
+                    onMouseMove(e)
+                }}
+                onMouseUp={() => {
+                    onMouseUpSVG()
+                    onMouseUp()
+                }}
+                onMouseLeave={onMouseUp}
+            >
+                {/* faster marching ants */}
+                <defs>
+                    <style>{`
+            .ants-fast { stroke-dasharray: 6 6; animation: ants 0.5s linear infinite; }
+            @keyframes ants { to { stroke-dashoffset: -24; } }
+          `}</style>
+                </defs>
+
+                <g transform={`translate(${tx},${ty}) scale(${k})`}>
+                    {/* base links */}
+                    <g stroke={hoveredId ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.15)'} strokeWidth={1}>
+                        {undirectedRef.current.map((l, i) => {
+                            const a = nodesRef.current.find((n) => n.id === l.a)!
+                            const b = nodesRef.current.find((n) => n.id === l.b)!
+                            return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+                        })}
+                    </g>
+
+                    {/* outgoing from hovered — animate TOWARDS hovered (reverse endpoints) */}
+                    {hoveredId ? (
+                        <g stroke="rgba(34,197,94,0.95)" strokeWidth={2} className="ants-fast">
+                            {directed
+                                .filter((l) => l.source === hoveredId)
+                                .map((l, i) => {
+                                    const h = nodesRef.current.find((n) => n.id === l.source)! // hovered
+                                    const n = nodesRef.current.find((n) => n.id === l.target)! // neighbor
+                                    // x1 = neighbor, x2 = hovered -> ants travel into hovered
+                                    return <line key={`out-${i}`} x1={n.x} y1={n.y} x2={h.x} y2={h.y} />
+                                })}
+                        </g>
+                    ) : null}
+
+                    {/* incoming to hovered — animate AWAY from hovered */}
+                    {hoveredId ? (
+                        <g stroke="rgba(249,115,22,0.95)" strokeWidth={2} className="ants-fast">
+                            {directed
+                                .filter((l) => l.target === hoveredId)
+                                .map((l, i) => {
+                                    const h = nodesRef.current.find((n) => n.id === l.target)! // hovered
+                                    const n = nodesRef.current.find((n) => n.id === l.source)! // neighbor
+                                    // x1 = hovered, x2 = neighbor -> ants travel away from hovered
+                                    return <line key={`in-${i}`} x1={h.x} y1={h.y} x2={n.x} y2={n.y} />
+                                })}
+                        </g>
+                    ) : null}
+
+                    {/* circles */}
+                    {nodesRef.current.map((n) => (
+                        <g
+                            key={`c-${n.id}`}
+                            transform={`translate(${n.x},${n.y})`}
+                            onMouseEnter={() => setHoveredId(n.id)}
+                            onMouseLeave={() => {
+                                if (!draggingId.current) {
+                                    setHoveredId(null)
+                                }
+                            }} // keep active while dragging
+                            style={{ cursor: 'pointer' }}
+                        >
+                            <circle
+                                r={n.size}
+                                fill={fillFor(n.id)}
+                                stroke={n.id === hoveredId ? '#CA8A04' : 'rgba(0,0,0,0.25)'}
+                                onMouseDown={startDragNode(n.id)}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onOpen(n.id)
+                                }}
+                            />
+                        </g>
+                    ))}
+
+                    {/* labels on top; fade non-neighbors when hovering */}
+                    <g style={{ pointerEvents: 'none' }}>
+                        {nodesRef.current.map((n) => (
+                            <text
+                                key={`t-${n.id}`}
+                                x={n.x + n.size + 8}
+                                y={n.y + 4}
+                                fontSize={12}
+                                fontWeight={labelWeight(n.id)}
+                                fill="rgba(0,0,0,0.92)"
+                                opacity={labelOpacity(n.id)}
+                            >
+                                {n.name}
+                            </text>
+                        ))}
+                    </g>
+                </g>
+            </svg>
+        </div>
+    )
+}
+
 /* ---------- main component ---------- */
 
 export default function KeaDevtools({
@@ -284,7 +739,7 @@ export default function KeaDevtools({
         }
     }, [store, paused, maxActions])
 
-    // keys + default selection (sort using displayName with `key` rule)
+    // keys + default selection
     const allKeys = useMemo(
         () => Object.keys(mounted).sort((a, b) => displayName(mounted[a]).localeCompare(displayName(mounted[b]))),
         [mounted]
@@ -319,8 +774,10 @@ export default function KeaDevtools({
             <div style={{ fontWeight: 800, fontSize: 16 }}>Kea Devtools</div>
             {activeTab === 'logics' ? (
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>{allKeys.length} mounted</div>
-            ) : (
+            ) : activeTab === 'actions' ? (
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>{actions.length} actions</div>
+            ) : (
+                <div style={{ color: 'rgba(0,0,0,0.55)' }}>Graph of {allKeys.length} logics</div>
             )}
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                 <button
@@ -336,6 +793,9 @@ export default function KeaDevtools({
                     style={tabBtnStyle(activeTab === 'actions')}
                 >
                     Actions
+                </button>
+                <button type="button" onClick={() => setActiveTab('graph')} style={tabBtnStyle(activeTab === 'graph')}>
+                    Graph
                 </button>
                 <button type="button" onClick={() => setOpen(false)} style={simpleBtnStyle}>
                     Close
@@ -508,13 +968,15 @@ export default function KeaDevtools({
                                     )}
                                 </div>
                             </div>
-                        ) : (
+                        ) : activeTab === 'actions' ? (
                             <ActionsTab
                                 actions={actions}
                                 paused={paused}
                                 onPauseToggle={() => setPaused((p) => !p)}
                                 onClear={() => setActions([])}
                             />
+                        ) : (
+                            <GraphTab mounted={mounted} onOpen={(path) => setSelectedKey(path)} />
                         )}
                     </div>
                 </div>
@@ -597,7 +1059,12 @@ function ActionsTab({
                                         >
                                             {a.type}
                                         </code>
-                                        <span style={{ color: 'rgba(0,0,0,0.5)', fontSize: 12 }}>
+                                        <span
+                                            style={{
+                                                color: 'rgba(0,0,0,0.5)',
+                                                fontSize: 12,
+                                            }}
+                                        >
                                             {new Date(a.ts).toLocaleTimeString()}
                                         </span>
                                     </div>
