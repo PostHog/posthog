@@ -1,3 +1,22 @@
+"""This module contains an AST-to-AST transformation that converts queries on the `events` table to queries on predefined pre-aggregated tables.
+
+These tables are populated by a background process (running in dagster) that aggregates data from the `events` table,
+making heavy use of ClickHouse's -state suffix functions, like `uniqState`, to make the calculation at query time much faster.
+
+This is especially useful for queries from very large teams, as the query disk / memory / compute no longer scale linearly with the number of events.
+
+The transformation works by:
+* Recursing through the AST to find `SelectQuery` nodes.
+* For each `SelectQuery`, check the SELECT, WHERE, and GROUP BY clauses to see if they can be transformed to use pre-aggregated fields.
+* If the query can be transformed, it replaces the `events` table with a pre-aggregated table (e.g., `web_stats_daily`).
+
+This transformation doesn't need to be applied to the root query only, e.g. in the case of Trends queries, the inner query
+is the one that will be transformed, and the other queries (which are quite complex, making use functions which are hard to optimize like arrayMap) will be left intact.
+
+Exports:
+* do_preaggregated_table_transforms
+"""
+
 from typing import TypeVar, cast, Optional
 
 from posthog.hogql import ast
