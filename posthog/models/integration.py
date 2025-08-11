@@ -107,6 +107,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "email":
+            return self.config.get("email", self.integration_id)
 
         return f"ID: {self.integration_id}"
 

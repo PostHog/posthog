@@ -4226,6 +4226,11 @@ export interface IntegrationType {
     errors?: string
 }
 
+export interface EmailIntegrationDomainGroupedType {
+    domain: string
+    integrations: IntegrationType[]
+}
+
 export interface SlackChannelType {
     id: string
     name: string

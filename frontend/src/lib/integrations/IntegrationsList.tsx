@@ -4,6 +4,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 
 import { IntegrationKind } from '~/types'
+import { IntegrationEmailDomainView } from './IntegrationEmailDomainView'
 
 export function IntegrationsList({
     integrationKinds,
@@ -12,7 +13,7 @@ export function IntegrationsList({
     integrationKinds: IntegrationKind[]
     titleText?: string
 }): JSX.Element {
-    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { integrations, integrationsLoading, domainGroupedEmailIntegrations } = useValues(integrationsLogic)
     const filteredIntegrations = integrations?.filter((integration) => integrationKinds.includes(integration.kind))
 
     return (
@@ -20,6 +21,11 @@ export function IntegrationsList({
             {titleText ? <p>{titleText}</p> : null}
 
             <div className="deprecated-space-y-2">
+                {domainGroupedEmailIntegrations?.length
+                    ? domainGroupedEmailIntegrations.map((integration) => (
+                          <IntegrationEmailDomainView key={integration.domain} integration={integration} />
+                      ))
+                    : null}
                 {filteredIntegrations?.length ? (
                     filteredIntegrations.map((integration) => (
                         <IntegrationView key={integration.id} integration={integration} />
