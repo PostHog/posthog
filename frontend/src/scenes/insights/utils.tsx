@@ -500,7 +500,7 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
 }
 
 export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
-    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
+    return dataset.seriesIndex ?? dataset.colorIndex ?? ((dataset as any).index as number)
 }
 
 /** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
