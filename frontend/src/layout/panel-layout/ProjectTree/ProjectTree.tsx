@@ -10,6 +10,7 @@ import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import {
     ContextMenuGroup,
     ContextMenuItem,
@@ -382,7 +383,28 @@ export function ProjectTree({
                 if (!item.record?.href) {
                     return false
                 }
-                return window.location.href.endsWith(item.record?.href)
+
+                const currentPath = removeProjectIdIfPresent(window.location.pathname)
+                const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+
+                if (currentPath === itemHref) {
+                    return true
+                }
+
+                // Current path is a sub-path of item (e.g., /insights/new under /insights)
+                if (currentPath.startsWith(itemHref + '/')) {
+                    return true
+                }
+
+                // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+                if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+                    return true
+                }
+                if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
+                    return true
+                }
+
+                return false
             }}
             size={treeSize}
             onItemChecked={onItemChecked}
