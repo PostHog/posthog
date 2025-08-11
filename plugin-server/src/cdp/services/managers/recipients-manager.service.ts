@@ -19,7 +19,7 @@ export type PreferenceStatus = 'OPTED_IN' | 'OPTED_OUT' | 'NO_PREFERENCE'
 
 // Type for the query result from the database
 type MessageRecipientPreferenceRow = {
-    uuid: string
+    id: string
     team_id: number
     identifier: string
     preferences: Record<string, string>
@@ -88,7 +88,7 @@ export class RecipientsManagerService {
             .join(' OR ')
 
         const queryString = `SELECT
-                uuid,
+                id,
                 team_id,
                 identifier,
                 preferences,
@@ -127,7 +127,7 @@ export class RecipientsManagerService {
             }
 
             result[key] = {
-                id: row.uuid,
+                id: row.id,
                 team_id: row.team_id,
                 identifier: row.identifier,
                 preferences: typedPreferences,

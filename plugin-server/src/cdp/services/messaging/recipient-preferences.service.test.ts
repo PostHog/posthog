@@ -3,6 +3,7 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { UUIDT } from '~/utils/utils'
 
 import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '../../types'
@@ -40,7 +41,7 @@ describe('RecipientPreferencesService', () => {
     })
 
     const createRecipient = (identifier: string, preferences: Record<string, string> = {}) => ({
-        id: 'recipient-1',
+        id: new UUIDT().toString(),
         team_id: team.id,
         identifier,
         preferences,
@@ -83,7 +84,7 @@ describe('RecipientPreferencesService', () => {
                 description: 'Send an email to the recipient',
                 type: 'function_email',
                 config: {
-                    template_id: 'template-email-native',
+                    template_id: 'template-email',
                     message_category_id: categoryId,
                     inputs: {
                         email: {
@@ -191,7 +192,7 @@ describe('RecipientPreferencesService', () => {
                     type: 'function_email',
                     config: {
                         message_category_id: '123e4567-e89b-12d3-a456-426614174000',
-                        template_id: 'template-email-native',
+                        template_id: 'template-email',
                         inputs: {
                             email: {
                                 value: {},
