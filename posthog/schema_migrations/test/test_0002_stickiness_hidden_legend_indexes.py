@@ -1,19 +1,25 @@
 import importlib
 
 
-def test_trends_query_hidden_legend_indexes_migration():
+def _get_migration():
     migration_module = importlib.import_module("posthog.schema_migrations.0002_stickiness_hidden_legend_indexes")
-    migration = migration_module.Migration()
+    return migration_module.Migration()
 
-    # non-trends query is unchanged
+
+def test_non_trends_query_is_unchanged():
+    migration = _get_migration()
     other_query = {"kind": "NotTrendsQuery"}
     assert migration.transform(other_query) == other_query
 
-    # query without trendsFilter is unchanged
+
+def test_query_without_trends_filter_is_unchanged():
+    migration = _get_migration()
     no_filter_query = {"kind": "TrendsQuery", "trendsFilter": None}
     assert migration.transform(no_filter_query) == no_filter_query
 
-    # no result customizations
+
+def test_no_result_customizations():
+    migration = _get_migration()
     no_result_customizations_query = {
         "kind": "TrendsQuery",
         "trendsFilter": {"hiddenLegendIndexes": [0, 1]},
@@ -40,7 +46,9 @@ def test_trends_query_hidden_legend_indexes_migration():
     assert migration.transform(none_result_customizations_query) == expected_result
     assert migration.transform(empty_result_customizations_query) == expected_result
 
-    # result customizations by position
+
+def test_result_customizations_by_position():
+    migration = _get_migration()
     result_customization_by_position_query = {
         "kind": "TrendsQuery",
         "trendsFilter": {
@@ -51,7 +59,7 @@ def test_trends_query_hidden_legend_indexes_migration():
             "hiddenLegendIndexes": [0, 1],
         },
     }
-    assert migration.transform(result_customization_by_position_query) == {
+    expected = {
         "kind": "TrendsQuery",
         "trendsFilter": {
             "resultCustomizationBy": "position",
@@ -62,8 +70,11 @@ def test_trends_query_hidden_legend_indexes_migration():
             },
         },
     }
+    assert migration.transform(result_customization_by_position_query) == expected
 
-    # result customizations by value (removes hiddenLegendIndexes, as we can't convert them without fetching breakdown values)
+
+def test_result_customizations_by_value_removes_hidden_legend_indexes():
+    migration = _get_migration()
     result_customization_by_value_query = {
         "kind": "TrendsQuery",
         "trendsFilter": {
@@ -81,7 +92,7 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
         "breakdownFilter": {"breakdown_type": "event", "breakdown": "browser"},
     }
-    assert migration.transform(result_customization_by_value_query) == {
+    expected = {
         "kind": "TrendsQuery",
         "trendsFilter": {
             "resultCustomizations": {
@@ -97,8 +108,11 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
         "breakdownFilter": {"breakdown_type": "event", "breakdown": "browser"},
     }
+    assert migration.transform(result_customization_by_value_query) == expected
 
-    # result customizations by value, but result customizations are empty
+
+def test_result_customizations_by_value_empty():
+    migration = _get_migration()
     result_customization_by_value_empty_query = {
         "kind": "TrendsQuery",
         "trendsFilter": {
@@ -106,7 +120,7 @@ def test_trends_query_hidden_legend_indexes_migration():
             "hiddenLegendIndexes": [0, 1],
         },
     }
-    assert migration.transform(result_customization_by_value_empty_query) == {
+    expected = {
         "kind": "TrendsQuery",
         "trendsFilter": {
             "resultCustomizationBy": "position",
@@ -116,8 +130,11 @@ def test_trends_query_hidden_legend_indexes_migration():
             },
         },
     }
+    assert migration.transform(result_customization_by_value_empty_query) == expected
 
-    # stickiness query is handled similarly
+
+def test_stickiness_query_handled_similarly():
+    migration = _get_migration()
     stickiness_query = {
         "kind": "StickinessQuery",
         "stickinessFilter": {"hiddenLegendIndexes": [0, 1]},
@@ -134,7 +151,9 @@ def test_trends_query_hidden_legend_indexes_migration():
     }
     assert migration.transform(stickiness_query) == expected_result
 
-    # result customizations by position, but also present for value (should leave value ones intact)
+
+def test_result_customizations_by_position_and_value():
+    migration = _get_migration()
     mixed_result_customizations_query = {
         "kind": "StickinessQuery",
         "stickinessFilter": {
@@ -150,7 +169,7 @@ def test_trends_query_hidden_legend_indexes_migration():
             "hiddenLegendIndexes": [0, 2],
         },
     }
-    assert migration.transform(mixed_result_customizations_query) == {
+    expected = {
         "kind": "StickinessQuery",
         "stickinessFilter": {
             "resultCustomizationBy": "position",
@@ -164,8 +183,11 @@ def test_trends_query_hidden_legend_indexes_migration():
             },
         },
     }
+    assert migration.transform(mixed_result_customizations_query) == expected
 
-    # result customizations by value, no breakdown, no compare (should convert)
+
+def test_result_customizations_by_value_no_breakdown_no_compare():
+    migration = _get_migration()
     result_customization_by_value_no_breakdown_compare_query = {
         "kind": "TrendsQuery",
         "trendsFilter": {
@@ -182,7 +204,7 @@ def test_trends_query_hidden_legend_indexes_migration():
             "hiddenLegendIndexes": [0, 1],
         },
     }
-    assert migration.transform(result_customization_by_value_no_breakdown_compare_query) == {
+    expected = {
         "kind": "TrendsQuery",
         "trendsFilter": {
             "resultCustomizationBy": "value",
@@ -203,8 +225,11 @@ def test_trends_query_hidden_legend_indexes_migration():
             },
         },
     }
+    assert migration.transform(result_customization_by_value_no_breakdown_compare_query) == expected
 
-    # result customizations by value, with breakdown (should NOT convert, just remove hiddenLegendIndexes)
+
+def test_result_customizations_by_value_with_breakdown():
+    migration = _get_migration()
     result_customization_by_value_with_breakdown_query = {
         "kind": "TrendsQuery",
         "trendsFilter": {
@@ -218,7 +243,7 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
         "breakdownFilter": {"breakdown_type": "event", "breakdown": "browser"},
     }
-    assert migration.transform(result_customization_by_value_with_breakdown_query) == {
+    expected = {
         "kind": "TrendsQuery",
         "trendsFilter": {
             "resultCustomizations": {
@@ -230,8 +255,11 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
         "breakdownFilter": {"breakdown_type": "event", "breakdown": "browser"},
     }
+    assert migration.transform(result_customization_by_value_with_breakdown_query) == expected
 
-    # result customizations by value, with breakdowns array (should NOT convert, just remove hiddenLegendIndexes)
+
+def test_result_customizations_by_value_with_breakdowns_array():
+    migration = _get_migration()
     result_customization_by_value_with_breakdowns_array_query = {
         "kind": "TrendsQuery",
         "trendsFilter": {
@@ -245,7 +273,7 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
         "breakdownFilter": {"breakdowns": [{"type": "event", "property": "browser"}]},
     }
-    assert migration.transform(result_customization_by_value_with_breakdowns_array_query) == {
+    expected = {
         "kind": "TrendsQuery",
         "trendsFilter": {
             "resultCustomizations": {
@@ -257,8 +285,11 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
         "breakdownFilter": {"breakdowns": [{"type": "event", "property": "browser"}]},
     }
+    assert migration.transform(result_customization_by_value_with_breakdowns_array_query) == expected
 
-    # result customizations by value, with compare (should NOT convert, just remove hiddenLegendIndexes)
+
+def test_result_customizations_by_value_with_compare():
+    migration = _get_migration()
     result_customization_by_value_with_compare_query = {
         "kind": "TrendsQuery",
         "trendsFilter": {
@@ -272,7 +303,7 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
         "compareFilter": {"compare": True},
     }
-    assert migration.transform(result_customization_by_value_with_compare_query) == {
+    expected = {
         "kind": "TrendsQuery",
         "trendsFilter": {
             "resultCustomizations": {
@@ -284,5 +315,4 @@ def test_trends_query_hidden_legend_indexes_migration():
         },
         "compareFilter": {"compare": True},
     }
-    migration_module = importlib.import_module("posthog.schema_migrations.0002_stickiness_hidden_legend_indexes")
-    migration = migration_module.Migration()
+    assert migration.transform(result_customization_by_value_with_compare_query) == expected

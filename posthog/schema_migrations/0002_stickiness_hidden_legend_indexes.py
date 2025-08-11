@@ -32,25 +32,6 @@ class Migration(SchemaMigration):
         if result_customizations is None:
             result_customizations = {}
 
-        # Helper: check for breakdown
-        def has_breakdown():
-            breakdown_filter = query.get("breakdownFilter")
-            if not breakdown_filter:
-                return False
-            if breakdown_filter.get("breakdown_type") and breakdown_filter.get("breakdown"):
-                return True
-            breakdowns = breakdown_filter.get("breakdowns")
-            if isinstance(breakdowns, list) and len(breakdowns) > 0:
-                return True
-            return False
-
-        # Helper: check for compare
-        def has_compare():
-            compare_filter = query.get("compareFilter")
-            if not compare_filter:
-                return False
-            return compare_filter.get("compare") is True
-
         # If resultCustomizationBy == "value" or is empty, and has_value_assignment, we cannot convert hiddenLegendIndexes
         has_value_assignment = any(
             isinstance(v, dict) and v.get("assignmentBy") == "value" for v in result_customizations.values()
@@ -58,7 +39,7 @@ class Migration(SchemaMigration):
         result_customization_by = insight_filter.get("resultCustomizationBy")
         if (result_customization_by == "value" or not result_customization_by) and has_value_assignment:
             # Allow conversion if no breakdown and no compare
-            if not has_breakdown() and not has_compare():
+            if not self._has_breakdown(query=query) and not self._has_compare(query=query):
                 # Convert hiddenLegendIndexes to resultCustomizations by value
                 new_result_customizations = dict(result_customizations)
                 for idx in hidden_indexes:
@@ -96,3 +77,22 @@ class Migration(SchemaMigration):
         query = dict(query)
         query[filter_key] = new_insight_filter
         return query
+
+    @staticmethod
+    def _has_breakdown(query: dict) -> bool:
+        breakdown_filter = query.get("breakdownFilter")
+        if not breakdown_filter:
+            return False
+        if breakdown_filter.get("breakdown_type") and breakdown_filter.get("breakdown"):
+            return True
+        breakdowns = breakdown_filter.get("breakdowns")
+        if isinstance(breakdowns, list) and len(breakdowns) > 0:
+            return True
+        return False
+
+    @staticmethod
+    def _has_compare(query: dict) -> bool:
+        compare_filter = query.get("compareFilter")
+        if not compare_filter:
+            return False
+        return compare_filter.get("compare") is True
