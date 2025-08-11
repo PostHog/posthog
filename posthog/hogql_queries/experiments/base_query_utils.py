@@ -483,16 +483,16 @@ def get_metric_events_query(
     entity_key: str,
     experiment: Experiment,
     date_range_query: QueryDateRange,
-    source_type: str = "main",
+    source_type: Literal["numerator", "denominator"] | None = None,
 ) -> ast.SelectQuery:
     """
     Returns the query to get the relevant metric events. One row per event, so multiple rows per entity.
     Columns: timestamp, entity_identifier, variant, value
-    For ratio metrics, source_type can be "main" (numerator) or "denominator".
+    For ratio metrics, source_type can be "numerator" or "denominator".
     """
     # For ratio metrics, determine which source to use and delegate to source-based function
     if isinstance(metric, ExperimentRatioMetric):
-        source = metric.numerator if source_type == "main" else metric.denominator
+        source = metric.numerator if source_type == "numerator" else metric.denominator
         return get_source_events_query(
             source,
             exposure_query,
@@ -505,6 +505,7 @@ def get_metric_events_query(
         )
     # For mean metrics, delegate to source-based function
     elif isinstance(metric, ExperimentMeanMetric):
+        assert source_type is None
         return get_source_events_query(
             metric.source,
             exposure_query,
@@ -517,6 +518,7 @@ def get_metric_events_query(
         )
     # For funnel metrics, use the existing logic
     else:
+        assert source_type is None
         return _get_metric_events_for_source(
             metric, exposure_query, team, entity_key, experiment, date_range_query, None
         )
@@ -719,7 +721,7 @@ def get_metric_aggregation_expr(
     experiment: Experiment,
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
     team: Team,
-    source_type: Literal["numerator", "denominator"] = "numerator",
+    source_type: Literal["numerator", "denominator"] | None = None,
 ) -> ast.Expr:
     """
     Returns the aggregation expression for the metric.

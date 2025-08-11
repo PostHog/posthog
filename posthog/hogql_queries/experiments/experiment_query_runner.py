@@ -125,7 +125,7 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Field(chain=["exposures", "variant"]),
             ast.Field(chain=["exposures", "entity_id"]),
             ast.Alias(
-                expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team, "numerator"),
+                expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
             ),
         ]
@@ -192,7 +192,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
                 ast.Alias(
-                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team, "numerator"),
+                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team, source_type="numerator"),
                     alias="numerator_value",
                 ),
             ],
@@ -374,7 +374,7 @@ class ExperimentQueryRunner(QueryRunner):
             self.entity_key,
             self.experiment,
             self.date_range_query,
-            "numerator",
+            "numerator" if self.is_ratio_metric else None,
         )
 
         # For ratio metrics, also get denominator events
