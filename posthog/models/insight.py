@@ -10,14 +10,12 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 from django.db.models import QuerySet
-from django.db.models.signals import pre_save
 from django.contrib.postgres.indexes import GinIndex
 
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.utils import get_filter
-from posthog.models.signals import mutable_receiver
 from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -124,6 +122,29 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     def __str__(self):
         return self.name or self.derived_name or self.short_id
+
+    def save(self, *args, **kwargs) -> None:
+        # generate query metadata if needed
+        if not self.id or self.query != self._original_query or self.query_metadata is None:
+            try:
+                self.generate_query_metadata()
+                if "update_fields" in kwargs:
+                    kwargs["update_fields"].append("query_metadata")
+            except Exception as e:
+                # log and ignore the error, as this is not critical
+                logger.exception(
+                    "Failed to generate query metadata for insight",
+                    insight_id=self.id or "new",
+                    team_id=self.team_id,
+                    query=self.query,
+                    error=str(e),
+                )
+                capture_exception(e)
+        super().save(*args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_query = self.query
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Insight"]:
@@ -306,17 +327,3 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboar
             exc_info=True,
         )
         raise
-
-
-@mutable_receiver(pre_save, sender=Insight)
-def generate_insight_query_metadata_pre_save(sender, instance: Insight, **kwargs):
-    try:
-        instance.generate_query_metadata()
-    except Exception as e:
-        # log and ignore the error, as this is not critical
-        logger.exception(
-            "Failed to generate query metadata for insight",
-            insight_id=instance.id,
-            error=str(e),
-        )
-        capture_exception(e)
