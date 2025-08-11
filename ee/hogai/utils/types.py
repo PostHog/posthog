@@ -185,6 +185,10 @@ class _SharedAssistantState(BaseState):
     """
     The user's query for summarizing sessions.
     """
+    show_tool_call_messages: Annotated[bool, merge] = Field(default=False)
+    """
+    Whether to show Max tool call messages.
+    """
 
 
 class AssistantState(_SharedAssistantState):
