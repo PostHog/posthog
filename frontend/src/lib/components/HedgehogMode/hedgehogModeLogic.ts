@@ -30,7 +30,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
 
     reducers(() => ({
         hedgehogMode: [
-            null as Game | null,
+            null as HedgehogModeInterface | null,
             {
                 setHedgehogMode: (_, { hedgeHogMode }) => hedgeHogMode,
             },
