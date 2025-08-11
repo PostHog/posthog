@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PipelineTab } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -91,9 +91,6 @@ export function DataWarehouseScene(): JSX.Element {
         return items.sort((a, b) => new Date(b.time).valueOf() - new Date(a.time).valueOf())
     }, [materializedViews, dataWarehouseSources?.results])
 
-    const [viewsSearchTerm] = useState('')
-    // setViewsSearchTerm intentionally removed to simplify type safety implementation
-
     // Type-safe data sources transformation following PostHog selector pattern
     const allSources = useMemo(
         (): DashboardDataSource[] => [
@@ -125,19 +122,10 @@ export function DataWarehouseScene(): JSX.Element {
         [dataWarehouseSources?.results, selfManagedTables]
     )
 
-    const filteredViews = useMemo(() => {
-        const views = materializedViews || []
-        if (!viewsSearchTerm.trim()) {
-            return views
-        }
-        const normalizedSearch = viewsSearchTerm.toLowerCase()
-        return views.filter((view) => view.name.toLowerCase().includes(normalizedSearch))
-    }, [materializedViews, viewsSearchTerm])
-
     // PostHog's pagination system - professional grade with URL sync
     const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
     const sourcesPagination = usePagination(allSources, { pageSize: LIST_SIZE }, 'sources')
-    const viewsPagination = usePagination(filteredViews, { pageSize: LIST_SIZE }, 'views')
+    const viewsPagination = usePagination(materializedViews || [], { pageSize: LIST_SIZE }, 'views')
 
     const StatusIcon = ({ status }: { status?: string }): JSX.Element => {
         const s = (status || '').toLowerCase()
@@ -278,7 +266,7 @@ export function DataWarehouseScene(): JSX.Element {
                         <div className="flex items-center gap-2">
                             <h3 className="font-semibold text-xl">Views</h3>
                             <LemonTag size="medium" type="muted" className="mb-2 p-1 px-2 rounded-xl">
-                                {filteredViews.length} views
+                                {materializedViews?.length || 0} views
                             </LemonTag>
                         </div>
                         <div className="space-y-2">
