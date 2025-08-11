@@ -1,5 +1,5 @@
 import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
