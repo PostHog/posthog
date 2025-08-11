@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+import { PipelineTab } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
@@ -13,7 +14,7 @@ import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
 import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import api from 'lib/api'
+import { fetchExternalDataSourceJobs } from './externalDataSourcesLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
@@ -55,8 +56,7 @@ export function DataWarehouseScene(): JSX.Element {
             const jobGroups = await Promise.all(
                 sources.map(async (s: any) => {
                     try {
-                        const res: any = await api.externalDataSources.jobs(s.id, null, null)
-                        const jobs: any[] = Array.isArray(res) ? res : res?.results || []
+                        const jobs: any[] = await fetchExternalDataSourceJobs(s.id, null, null)
                         return jobs.slice(0, 3).map((j: any) => ({
                             name: j.schema?.name ? `${j.schema.name} (${s.source_type})` : `${s.source_type} schema`,
                             type: 'Sync' as const,
@@ -163,7 +163,7 @@ export function DataWarehouseScene(): JSX.Element {
                                     {(dataWarehouseSources?.results?.length || 0) + selfManagedTables.length} connected
                                 </LemonTag>
                             </div>
-                            <LemonButton to={urls.dataWarehouse()} size="small" type="secondary">
+                            <LemonButton to={urls.pipeline(PipelineTab.Sources)} size="small" type="secondary">
                                 View All
                             </LemonButton>
                         </div>

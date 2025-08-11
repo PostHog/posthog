@@ -12,6 +12,7 @@ import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
+import { fetchExternalDataSourceJobs } from '../../externalDataSourcesLogic'
 
 export interface DataWarehouseSourceSettingsLogicProps {
     id: string
@@ -72,17 +73,17 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             {
                 loadJobs: async () => {
                     if (values.jobs.length === 0) {
-                        return await api.externalDataSources.jobs(values.sourceId, null, null)
+                        return await fetchExternalDataSourceJobs(values.sourceId, null, null)
                     }
 
-                    const newJobs = await api.externalDataSources.jobs(values.sourceId, null, values.jobs[0].created_at)
+                    const newJobs = await fetchExternalDataSourceJobs(values.sourceId, null, values.jobs[0].created_at)
                     return [...newJobs, ...values.jobs]
                 },
                 loadMoreJobs: async () => {
                     const hasJobs = values.jobs.length >= 0
                     if (hasJobs) {
                         const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
-                        const oldJobs = await api.externalDataSources.jobs(values.sourceId, lastJobCreatedAt, null)
+                        const oldJobs = await fetchExternalDataSourceJobs(values.sourceId, lastJobCreatedAt, null)
 
                         if (oldJobs.length === 0) {
                             actions.setCanLoadMoreJobs(false)

@@ -2,7 +2,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 
-import { ExternalDataSource } from '~/types'
+import { ExternalDataJob, ExternalDataSource } from '~/types'
 
 import type { externalDataSourcesLogicType } from './externalDataSourcesLogicType'
 
@@ -62,3 +62,12 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
         },
     })),
 ])
+
+export const fetchExternalDataSourceJobs = async (
+    sourceId: string,
+    before?: string | null,
+    after?: string | null
+): Promise<ExternalDataJob[]> => {
+    const res: any = await api.externalDataSources.jobs(sourceId, before ?? null, after ?? null)
+    return (Array.isArray(res) ? res : res?.results || []) as ExternalDataJob[]
+}
