@@ -4,7 +4,7 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { setupExpressApp } from '~/router'
+import { setupExpressApp } from '~/api/router'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { resetTestDatabase } from '../../tests/helpers/sql'

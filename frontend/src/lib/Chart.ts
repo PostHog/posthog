@@ -1,4 +1,4 @@
-/* eslint-disable no-restricted-imports */
+/* oxlint-disable no-restricted-imports */
 import { Chart as RawChart, ChartType, DefaultDataPoint, registerables, Tooltip } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
 import { inStorybookTestRunner } from 'lib/utils'
@@ -18,7 +18,7 @@ Tooltip.positioners.cursor = function (_, coordinates) {
 export class Chart<
     TType extends ChartType = ChartType,
     TData = DefaultDataPoint<TType>,
-    TLabel = unknown
+    TLabel = unknown,
 > extends RawChart<TType, TData, TLabel> {
     draw(): void {
         if (inStorybookTestRunner()) {
@@ -57,4 +57,4 @@ export type {
     TooltipPositionerFunction,
 } from 'chart.js'
 export { defaults, registerables } from 'chart.js'
-/* eslint-enable no-restricted-imports */
+/* oxlint-enable no-restricted-imports */

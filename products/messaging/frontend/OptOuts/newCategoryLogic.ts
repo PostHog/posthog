@@ -55,8 +55,8 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                     key: !key.trim()
                         ? 'Key is required'
                         : !keyRegex.test(key)
-                        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed'
-                        : undefined,
+                          ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed'
+                          : undefined,
                 }
             },
             submit: async (formValues: CategoryForm) => {

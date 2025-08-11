@@ -87,7 +87,7 @@ export function PathCleaningRulesDebugger({
                                 {debugSteps.map((step) => (
                                     <div
                                         key={step.stepNumber}
-                                        className="flex gap-3 items-center px-3 text-xs hover:bg-accent-light border-b border-gray-100"
+                                        className="flex gap-3 items-center px-3 text-xs hover:bg-accent-light border-b border-border"
                                     >
                                         <div className="w-8 flex-shrink-0 text-center text-muted-alt font-medium">
                                             {step.stepNumber}
@@ -97,7 +97,7 @@ export function PathCleaningRulesDebugger({
                                                 className={`font-mono text-xs px-2 py-1 rounded flex-shrink-0 max-w-32 overflow-hidden text-ellipsis whitespace-nowrap ${
                                                     step.isValidRegex
                                                         ? 'bg-accent-light text-accent'
-                                                        : 'bg-red-50 text-danger'
+                                                        : 'bg-danger-light text-danger'
                                                 }`}
                                                 title={step.filter.regex || '(Empty)'}
                                             >
@@ -135,13 +135,13 @@ export function PathCleaningRulesDebugger({
                                     </div>
                                 ))}
 
-                                <div className="flex gap-3 items-center py-3 px-3 bg-blue-50 border border-blue-200 rounded mt-3">
-                                    <div className="w-20 flex-shrink-0 text-xs font-medium text-blue-700">
+                                <div className="flex gap-3 items-center py-3 px-3 bg-primary-light border border-primary rounded mt-3">
+                                    <div className="w-20 flex-shrink-0 text-xs font-medium text-primary">
                                         Final result:
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <code
-                                            className="font-mono text-xs text-blue-800 block overflow-hidden text-ellipsis whitespace-nowrap"
+                                            className="font-mono text-xs text-primary block overflow-hidden text-ellipsis whitespace-nowrap"
                                             title={String(finalResult)}
                                         >
                                             {finalResult}

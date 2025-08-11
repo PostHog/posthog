@@ -20,9 +20,7 @@ export const storiesLogic = kea<storiesLogicType>([
         setActiveStoryIndex: (storyIndex: number) => ({ storyIndex }),
         setOpenStoriesModal: (openStoriesModal: boolean) => ({ openStoriesModal }),
         markStoryAsViewed: (storyId: string) => ({ storyId }),
-        loadViewedStories: true,
         toggleStoriesCollapsed: true,
-        setInitialCollapsedState: (collapsed: boolean) => ({ collapsed }),
     }),
 
     loaders(() => ({
@@ -62,10 +60,10 @@ export const storiesLogic = kea<storiesLogicType>([
             },
         ],
         storiesCollapsedValue: [
-            true,
+            false,
+            { persist: true },
             {
                 toggleStoriesCollapsed: (state) => !state,
-                setInitialCollapsedState: (_, { collapsed }) => collapsed,
             },
         ],
     }),
@@ -80,13 +78,6 @@ export const storiesLogic = kea<storiesLogicType>([
                 }
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
                 actions.loadViewedStories()
-            }
-        },
-        loadViewedStoriesSuccess: () => {
-            // Set initial collapsed state based on whether there are unseen stories
-            // Only do this once when stories are first loaded (if still at default collapsed=true)
-            if (values.storiesCollapsedValue === true) {
-                actions.setInitialCollapsedState(!values.hasUnseenStories)
             }
         },
     })),

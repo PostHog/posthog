@@ -1,7 +1,10 @@
+import random
+import time
 from typing import Any, Optional
 from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.oauth2 import service_account
+from cachetools import TTLCache, cached, Cache
 import gspread
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -22,6 +25,39 @@ def google_sheets_client() -> gspread.Client:
     return gspread.authorize(credentials)
 
 
+cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds
+max_attempts = 10
+jitter_in_seconds = 10
+sleep_per_attempt_in_seconds = 30
+
+
+@cached(cache)
+def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
+    """Attempt to get a worksheet with linear backoff. Google Sheets has a 300
+    request quota per minute. We add a +- 10s jitter to the sleep per attempt so
+    that multiple jobs blocked by quota limits dont all retry at the same time"""
+
+    def execute():
+        client = google_sheets_client()
+        spreadsheet = client.open_by_url(spreadsheet_url)
+        return spreadsheet.get_worksheet_by_id(worksheet_id)
+
+    attempts = 1
+
+    while True:
+        try:
+            return execute()
+        except gspread.exceptions.APIError as e:
+            if e.code != 429 or attempts >= max_attempts:
+                raise
+
+            jitter = random.uniform(-jitter_in_seconds, jitter_in_seconds)
+            sleep_with_jitter = sleep_per_attempt_in_seconds + jitter
+
+            time.sleep(sleep_with_jitter * attempts)
+            attempts = attempts + 1
+
+
 def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
@@ -40,9 +76,7 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
 
     worksheet_id = selected_worksheet[0]
 
-    client = google_sheets_client()
-    spreadsheet = client.open_by_url(config.spreadsheet_url)
-    worksheet = spreadsheet.get_worksheet_by_id(worksheet_id)
+    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
     rows = worksheet.get_all_values("1:2")  # Get the first two rows
 
@@ -75,9 +109,7 @@ def google_sheets_source(
 
     worksheet_id = selected_worksheet[0]
 
-    client = google_sheets_client()
-    spreadsheet = client.open_by_url(config.spreadsheet_url)
-    worksheet = spreadsheet.get_worksheet_by_id(worksheet_id)
+    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
     headers = worksheet.get_all_values("1:1")  # Get the first row
     primary_keys = None
@@ -85,10 +117,7 @@ def google_sheets_source(
         primary_keys = ["id"]
 
     def get_rows():
-        client = google_sheets_client()
-        spreadsheet = client.open_by_url(config.spreadsheet_url)
-
-        worksheet = spreadsheet.get_worksheet_by_id(worksheet_id)
+        worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
         values = worksheet.get_all_records()
 

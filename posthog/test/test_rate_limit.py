@@ -19,6 +19,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import HogQLQueryThrottle, AISustainedRateThrottle, AIBurstRateThrottle
+from posthog.api.feature_flag import LocalEvaluationThrottle
 from posthog.test.base import APIBaseTest
 
 
@@ -519,3 +520,76 @@ class TestUserAPI(APIBaseTest):
 
             # Should call report_user_action with correct parameters
             mock_report_user_action.assert_called_once_with(self.user, "ai sustained rate limited")
+
+    def test_local_evaluation_throttle_uses_default_rate_when_no_custom_limit(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Rate should remain default
+            self.assertEqual(throttle.rate, "600/minute")
+
+    def test_local_evaluation_throttle_handles_empty_settings(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Should use default rate
+            self.assertEqual(throttle.rate, "600/minute")
+
+    def test_local_evaluation_throttle_handles_missing_team_gracefully(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view without team_id
+        mock_view = Mock()
+        mock_view.team_id = None
+
+        # Test with missing team
+        with patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True):
+            with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True):
+                result = throttle.allow_request(Mock(), mock_view)
+
+                self.assertTrue(result)
+                # Should keep default rate
+                self.assertEqual(throttle.rate, "600/minute")
+
+    def test_local_evaluation_throttle_uses_custom_rate_for_team(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {123: "1200/minute"}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Should use custom rate
+            self.assertEqual(throttle.rate, "1200/minute")
+            self.assertEqual(throttle.num_requests, 1200)
+            self.assertEqual(throttle.duration, 60)  # 1 minute in seconds

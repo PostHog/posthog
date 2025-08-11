@@ -822,8 +822,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             values.batchExportConfig
                 ? actions.resetConfiguration(getConfigurationFromBatchExportConfig(values.batchExportConfig))
                 : values.service
-                ? actions.resetConfiguration(getDefaultConfiguration(values.service))
-                : actions.resetConfiguration()
+                  ? actions.resetConfiguration(getDefaultConfiguration(values.service))
+                  : actions.resetConfiguration()
         },
     })),
 

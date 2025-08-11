@@ -75,19 +75,22 @@ const histogramKafkaConsumeInterval = new Histogram({
 
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
     // We only need to commit the highest offset for a batch of messages
-    const messagesByTopicPartition = messages.reduce((acc, message) => {
-        if (!acc[message.topic]) {
-            acc[message.topic] = {}
-        }
+    const messagesByTopicPartition = messages.reduce(
+        (acc, message) => {
+            if (!acc[message.topic]) {
+                acc[message.topic] = {}
+            }
 
-        if (!acc[message.topic][message.partition]) {
-            acc[message.topic][message.partition] = []
-        }
+            if (!acc[message.topic][message.partition]) {
+                acc[message.topic][message.partition] = []
+            }
 
-        acc[message.topic][message.partition].push(message)
+            acc[message.topic][message.partition].push(message)
 
-        return acc
-    }, {} as { [topic: string]: { [partition: number]: TopicPartitionOffset[] } })
+            return acc
+        },
+        {} as { [topic: string]: { [partition: number]: TopicPartitionOffset[] } }
+    )
 
     // Then we find the highest offset for each topic partition
     const highestOffsets = Object.entries(messagesByTopicPartition).flatMap(([topic, partitions]) => {
@@ -145,7 +148,10 @@ export class KafkaConsumer {
         rebalanceStartTime: 0,
     }
 
-    constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
+    constructor(
+        private config: KafkaConsumerConfig,
+        rdKafkaConfig: RdKafkaConsumerConfig = {}
+    ) {
         this.backgroundTask = []
         this.podName = process.env.HOSTNAME || hostname()
 
@@ -514,7 +520,7 @@ export class KafkaConsumer {
                         Math.round(processingTimeMs / 10) / 100
                     }s`
                     if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
-                        logger.warn('🕒', `Slow batch: ${logSummary}`)
+                        logger.warn('🕒', `Slow batch: ${logSummary}, groupId: ${groupId}`)
                     }
 
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,

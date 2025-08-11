@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'hidden',
+    status: 'alpha',
     type: 'source_webhook',
     id: 'template-source-webhook',
     name: 'HTTP Incoming Webhook',
@@ -27,17 +27,31 @@ if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.header
 }
 
 if(empty(inputs.event)) {
-  throw Error('"event" cannot be empty')
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': {
+        'error': '"event" could not be parsed correctly',
+      }
+    }
+  }
 }
 
 if(empty(inputs.distinct_id)) {
-  throw Error('"distinct_id" cannot be empty')
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': {
+        'error': '"distinct_id" could not be parsed correctly',
+      }
+    }
+  }
 }
 
 postHogCapture({
-    'event': inputs.event,
-    'distinct_id': inputs.distinct_id,
-    'properties': inputs.properties
+  'event': inputs.event,
+  'distinct_id': inputs.distinct_id,
+  'properties': inputs.properties
 })
 `,
     inputs_schema: [

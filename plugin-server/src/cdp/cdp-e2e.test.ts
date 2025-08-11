@@ -195,7 +195,6 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                       "Authorization": "Bearer super-secret-token",
                     },
                     "method": "POST",
-                    "timeoutMs": 3000,
                   },
                 ]
             `)
