@@ -5,6 +5,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Copy Python base
 COPY --from=python-base /usr/local /usr/local
 
+# Set working directory
+WORKDIR /code
+
 # Copy Docker scripts
 COPY docker/ ./docker/
 

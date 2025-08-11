@@ -63,29 +63,33 @@ def dump_model(*, s3: S3Resource, schema: type[AvroBase], file_key: str):
 SnapshotModelOutput = tuple[str, str]
 
 
-def snapshot_project(s3: S3Resource, project_id: int) -> SnapshotModelOutput:
-    file_key = compose_postgres_dump_path(project_id, "team.avro")
+def snapshot_project(s3: S3Resource, project_id: int, code_version: str | None = None) -> SnapshotModelOutput:
+    file_key = compose_postgres_dump_path(project_id, "team", code_version)
     with dump_model(s3=s3, schema=TeamSchema, file_key=file_key) as dump:
         dump(TeamSchema.serialize_for_project(project_id))
     return "project", file_key
 
 
-def snapshot_property_definitions(s3: S3Resource, project_id: int) -> SnapshotModelOutput:
-    file_key = compose_postgres_dump_path(project_id, "prop_defs.avro")
+def snapshot_property_definitions(
+    s3: S3Resource, project_id: int, code_version: str | None = None
+) -> SnapshotModelOutput:
+    file_key = compose_postgres_dump_path(project_id, "prop_defs", code_version)
     with dump_model(s3=s3, schema=PropertyDefinitionSchema, file_key=file_key) as dump:
         dump(PropertyDefinitionSchema.serialize_for_project(project_id))
     return "property_definitions", file_key
 
 
-def snapshot_group_type_mappings(s3: S3Resource, project_id: int) -> SnapshotModelOutput:
-    file_key = compose_postgres_dump_path(project_id, "group_type_mappings.avro")
+def snapshot_group_type_mappings(
+    s3: S3Resource, project_id: int, code_version: str | None = None
+) -> SnapshotModelOutput:
+    file_key = compose_postgres_dump_path(project_id, "group_type_mappings", code_version)
     with dump_model(s3=s3, schema=GroupTypeMappingSchema, file_key=file_key) as dump:
         dump(GroupTypeMappingSchema.serialize_for_project(project_id))
     return "group_type_mappings", file_key
 
 
-def snapshot_data_warehouse_tables(s3: S3Resource, project_id: int):
-    file_key = compose_postgres_dump_path(project_id, "dwh_tables.avro")
+def snapshot_data_warehouse_tables(s3: S3Resource, project_id: int, code_version: str | None = None):
+    file_key = compose_postgres_dump_path(project_id, "dwh_tables", code_version)
     with dump_model(s3=s3, schema=DataWarehouseTableSchema, file_key=file_key) as dump:
         dump(DataWarehouseTableSchema.serialize_for_project(project_id))
     return "data_warehouse_tables", file_key
@@ -94,16 +98,18 @@ def snapshot_data_warehouse_tables(s3: S3Resource, project_id: int):
 @dagster.op(
     description="Snapshots Postgres project data (property definitions, DWH schema, etc.)",
     tags={"owner": JobOwners.TEAM_MAX_AI.value},
+    code_version="v1",
 )
 def snapshot_postgres_project_data(
     context: dagster.OpExecutionContext, project_id: int, s3: S3Resource
 ) -> PostgresProjectDataSnapshot:
+    context.log.info(f"Snapshotting Postgres project data for {project_id}")
     deps = dict(
         (
-            snapshot_project(s3, project_id),
-            snapshot_property_definitions(s3, project_id),
-            snapshot_group_type_mappings(s3, project_id),
-            snapshot_data_warehouse_tables(s3, project_id),
+            snapshot_project(s3, project_id, context.op_def.version),
+            snapshot_property_definitions(s3, project_id, context.op_def.version),
+            snapshot_group_type_mappings(s3, project_id, context.op_def.version),
+            snapshot_data_warehouse_tables(s3, project_id, context.op_def.version),
         )
     )
     context.log_event(
@@ -125,19 +131,8 @@ def call_query_runner(callable: Callable[[], C]) -> C:
     return callable()
 
 
-def snapshot_events_taxonomy(s3: S3Resource, team: Team):
-    file_key = compose_clickhouse_dump_path(team.id, "events_taxonomy.avro")
-    res = call_query_runner(lambda: TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).calculate())
-    if not res.results:
-        raise ValueError("No results from events taxonomy query")
-    with dump_model(s3=s3, schema=TeamTaxonomyItemSchema, file_key=file_key) as dump:
-        dumped_items = TeamTaxonomyItemSchema(results=res.results)
-        dump([dumped_items])
-    return file_key, res.results
-
-
 def snapshot_properties_taxonomy(
-    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, events: list[TeamTaxonomyItem]
+    context: dagster.OpExecutionContext, s3: S3Resource, file_key: str, team: Team, events: list[TeamTaxonomyItem]
 ):
     results: list[PropertyTaxonomySchema] = []
 
@@ -150,14 +145,39 @@ def snapshot_properties_taxonomy(
         )
 
     for item in events:
-        context.log.info(f"Snapshotting properties taxonomy for event {item.event}")
-        results.append(PropertyTaxonomySchema(event=item.event, results=snapshot_event(item)))
+        context.log.info(f"Snapshotting properties taxonomy for event {item.event} of {team.id}")
+        results.append(PropertyTaxonomySchema(event=item.event, results=snapshot_event(item).results))
 
-    file_key = compose_clickhouse_dump_path(team.id, "properties_taxonomy.avro")
     context.log.info(f"Dumping properties taxonomy to {file_key}")
     with dump_model(s3=s3, schema=PropertyTaxonomySchema, file_key=file_key) as dump:
         dump(results)
-    return file_key
+
+
+def snapshot_events_taxonomy(
+    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, code_version: str | None = None
+):
+    # Check if files are cached
+    events_file_key = compose_clickhouse_dump_path(team.id, "events_taxonomy", code_version=code_version)
+    properties_file_key = compose_clickhouse_dump_path(team.id, "properties_taxonomy", code_version=code_version)
+    if check_dump_exists(s3, events_file_key) and check_dump_exists(s3, properties_file_key):
+        context.log.info(f"Skipping events and properties taxonomy snapshot for {team.id} because it already exists")
+        return events_file_key, properties_file_key
+
+    context.log.info(f"Snapshotting events taxonomy for {team.id}")
+
+    res = call_query_runner(lambda: TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).calculate())
+    if not res.results:
+        raise ValueError("No results from events taxonomy query")
+
+    # Dump properties
+    snapshot_properties_taxonomy(context, s3, properties_file_key, team, res.results)
+
+    # Dump later to ensure caching
+    with dump_model(s3=s3, schema=TeamTaxonomyItemSchema, file_key=events_file_key) as dump:
+        dumped_items = TeamTaxonomyItemSchema(results=res.results)
+        dump([dumped_items])
+
+    return events_file_key, properties_file_key
 
 
 T = TypeVar("T")
@@ -172,7 +192,14 @@ def chunked(iterable: Iterable[T], size: int = 200) -> Iterator[list[T]]:
         yield batch
 
 
-def snapshot_actors_property_taxonomy(context: dagster.OpExecutionContext, s3: S3Resource, team: Team):
+def snapshot_actors_property_taxonomy(
+    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, code_version: str | None = None
+):
+    file_key = compose_clickhouse_dump_path(team.id, "actors_property_taxonomy", code_version=code_version)
+    if check_dump_exists(s3, file_key):
+        context.log.info(f"Skipping actors property taxonomy snapshot for {team.id} because it already exists")
+        return file_key
+
     # Snapshot all group type mappings and person
     results: list[ActorsPropertyTaxonomySchema] = []
     group_type_mappings: list[int | None] = [
@@ -220,7 +247,6 @@ def snapshot_actors_property_taxonomy(context: dagster.OpExecutionContext, s3: S
                     ActorsPropertyTaxonomySchema(property=prop, group_type_index=index, results=prop_results)
                 )
 
-    file_key = compose_clickhouse_dump_path(team.id, "actors_property_taxonomy.avro")
     context.log.info(f"Dumping actors property taxonomy to {file_key}")
     with dump_model(s3=s3, schema=ActorsPropertyTaxonomySchema, file_key=file_key) as dump:
         dump(results)
@@ -230,19 +256,24 @@ def snapshot_actors_property_taxonomy(context: dagster.OpExecutionContext, s3: S
 @dagster.op(
     description="Snapshots ClickHouse project data",
     tags={"owner": JobOwners.TEAM_MAX_AI.value},
+    code_version="v1",
 )
 def snapshot_clickhouse_project_data(
     context: dagster.OpExecutionContext, project_id: int, s3: S3Resource
 ) -> ClickhouseProjectDataSnapshot:
     team = Team.objects.get(id=project_id)
-    event_taxonomy_file_key, event_taxonomy = snapshot_events_taxonomy(s3, team)
-    properties_taxonomy_file_key = snapshot_properties_taxonomy(context, s3, team, event_taxonomy)
-    actors_property_taxonomy_file_key = snapshot_actors_property_taxonomy(context, s3, team)
+
+    event_taxonomy_file_key, properties_taxonomy_file_key = snapshot_events_taxonomy(
+        context, s3, team, context.op_def.version
+    )
+    actors_property_taxonomy_file_key = snapshot_actors_property_taxonomy(context, s3, team, context.op_def.version)
+
     materialized_result = ClickhouseProjectDataSnapshot(
         event_taxonomy=event_taxonomy_file_key,
         properties_taxonomy=properties_taxonomy_file_key,
         actors_property_taxonomy=actors_property_taxonomy_file_key,
     )
+
     context.log_event(
         dagster.AssetMaterialization(
             asset_key="project_clickhouse_snapshots",
@@ -254,4 +285,5 @@ def snapshot_clickhouse_project_data(
             tags={"owner": JobOwners.TEAM_MAX_AI.value},
         )
     )
+
     return materialized_result
