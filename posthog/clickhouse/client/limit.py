@@ -14,6 +14,7 @@ from posthog.clickhouse.cluster import ExponentialBackoff
 from posthog.constants import AvailableFeature
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
+from posthog.models.utils import UUIDT
 
 # Default concurrency limits
 DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20
@@ -352,7 +353,7 @@ def limit_concurrency(
     return decorator
 
 
-def get_org_concurrency_limit(org_id: int) -> Optional[int]:
+def get_org_concurrency_limit(org_id: UUIDT) -> Optional[int]:
     """
     Get organization concurrency limit with Redis caching.
     Returns None if no org-specific limit is found.
