@@ -124,6 +124,7 @@
         calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - 2 * var(--lemon-switch-handle-gutter))
     );
 
+    position: relative;
     width: var(--lemon-switch-handle-width);
     height: var(--lemon-switch-handle-height);
     pointer-events: none;

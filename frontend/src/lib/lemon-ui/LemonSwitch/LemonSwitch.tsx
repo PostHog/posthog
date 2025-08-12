@@ -100,7 +100,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                     {loading && (
                         <div
                             className={cn(
-                                'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex w-full pointer-events-none'
+                                'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex pointer-events-none'
                             )}
                         >
                             <Spinner textColored={true} className="LemonSwitch__spinner-icon" />
