@@ -291,10 +291,13 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
         if charge_schema is not None and charge_schema.table is not None:
             charge_table = cast(DataWarehouseTable, charge_schema.table)
 
-        if invoice_table is None and charge_table is None:
+        if invoice_table is not None:
+            team = invoice_table.team
+        elif charge_table is not None:
+            team = charge_table.team
+        else:
             return []
 
-        team = (invoice_table or charge_table).team
         prefix = RevenueAnalyticsBaseView.get_view_prefix_for_source(source)
 
         # Build the query for invoice items with revenue recognition splitting
@@ -616,14 +619,23 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
         if len(queries) == 0:
             return []
 
+        query: ast.SelectQuery | ast.SelectSetQuery
         if len(queries) == 1:
             query = queries[0]
         else:
             query = ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
+        # Very cumbersome, but mypy won't be happy otherwise
+        if invoice_table is not None:
+            id = invoice_table.id
+        elif charge_table is not None:
+            id = charge_table.id
+        else:
+            id = None
+
         return [
             RevenueAnalyticsInvoiceItemView(
-                id=str((invoice_table or charge_table).id),
+                id=str(id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
                 prefix=prefix,
                 query=query.to_hogql(),
