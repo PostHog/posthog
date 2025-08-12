@@ -3,7 +3,7 @@ import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
 import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 import { useActions, useValues } from 'kea'
-import { ErrorTrackingSceneToolOutput } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueFilteringToolOutput } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { taxonomicFilterLogicKey, taxonomicGroupTypes } from './ErrorFilters/FilterGroup'
@@ -58,7 +58,7 @@ function updateFilterGroup(
     }
 }
 
-export function ErrorTrackingSceneTool(): JSX.Element {
+export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
     const { setDateRange, setFilterGroup, setFilterTestAccounts } = useActions(errorFiltersLogic)
     const { setOrderBy, setOrderDirection, setStatus } = useActions(issueQueryOptionsLogic)
@@ -70,7 +70,7 @@ export function ErrorTrackingSceneTool(): JSX.Element {
         })
     )
 
-    const callback = (update: ErrorTrackingSceneToolOutput): void => {
+    const callback = (update: ErrorTrackingIssueFilteringToolOutput): void => {
         if (update.orderBy) {
             setOrderBy(update.orderBy)
         }
@@ -105,7 +105,7 @@ export function ErrorTrackingSceneTool(): JSX.Element {
             context={{
                 current_query: query,
             }}
-            callback={(toolOutput: ErrorTrackingSceneToolOutput) => {
+            callback={(toolOutput: ErrorTrackingIssueFilteringToolOutput) => {
                 callback(toolOutput)
             }}
             suggestions={[]}

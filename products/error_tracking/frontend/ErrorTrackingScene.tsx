@@ -30,10 +30,11 @@ import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
-import { ErrorTrackingSceneTool } from './components/SceneTool'
+import { ErrorTrackingIssueFilteringTool } from './components/IssueFilteringTool'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { ErrorTrackingIssueImpactTool } from './components/IssueImpactTool'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -69,7 +70,8 @@ export function ErrorTrackingScene(): JSX.Element {
     // TODO - fix feature flag check once the feature flag is created etc
     return (
         <ErrorTrackingSetupPrompt>
-            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingIssueFilteringTool />}
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL] && <ErrorTrackingIssueImpactTool />}
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}

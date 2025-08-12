@@ -2083,13 +2083,15 @@ export interface ErrorTrackingIssueCorrelationQueryResponse
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
-export interface ErrorTrackingSceneToolOutput
+export interface ErrorTrackingIssueFilteringToolOutput
     extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
     newFilters?: AnyPropertyFilter[]
     removedFilterIndexes?: integer[]
     dateRange?: DateRange
     filterTestAccounts?: boolean
 }
+
+export interface ErrorTrackingIssueImpactToolOutput extends Pick<ErrorTrackingIssueCorrelationQuery, 'events'> {}
 
 export interface ErrorTrackingIssueAssignee {
     type: 'user' | 'role'

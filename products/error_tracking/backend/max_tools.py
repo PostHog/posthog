@@ -1,15 +1,22 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
-from posthog.schema import ErrorTrackingSceneToolOutput
+from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool, base_final_answer
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.tool import MaxTool
+from langchain_core.prompts import ChatPromptTemplate
+from posthog.models import Team, User
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
     ERROR_TRACKING_FILTER_PROPERTIES_PROMPT,
     ERROR_TRACKING_SYSTEM_PROMPT,
     PREFER_FILTERS_PROMPT,
 )
-from ee.hogai.tool import MaxTool
 from typing import Optional
 import json
 import re
@@ -19,14 +26,14 @@ class UpdateIssueQueryArgs(BaseModel):
     change: str = Field(description="The specific change to be made to issue filters, briefly described.")
 
 
-class ErrorTrackingSceneTool(MaxTool):
+class ErrorTrackingIssueFilteringTool(MaxTool):
     name: str = "search_error_tracking_issues"
     description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
     thinking_message: str = "Updating your error tracking filters..."
     root_system_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
-    def _run_impl(self, change: str) -> tuple[str, ErrorTrackingSceneToolOutput]:
+    def _run_impl(self, change: str) -> tuple[str, ErrorTrackingIssueFilteringToolOutput]:
         if "current_query" not in self.context:
             raise ValueError("Context `current_query` is required for the `search_error_tracking_issues` tool")
 
@@ -68,7 +75,7 @@ class ErrorTrackingSceneTool(MaxTool):
     def _model(self):
         return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
 
-    def _parse_output(self, output: str) -> ErrorTrackingSceneToolOutput:
+    def _parse_output(self, output: str) -> ErrorTrackingIssueFilteringToolOutput:
         match = re.search(r"<output>(.*?)</output>", output, re.DOTALL)
         if not match:
             # The model may have returned the JSON without tags, or with markdown
@@ -90,4 +97,101 @@ class ErrorTrackingSceneTool(MaxTool):
                 llm_output=json_str, validation_message=f"The filters JSON failed to parse: {str(e)}"
             )
 
-        return ErrorTrackingSceneToolOutput(**data)
+        return ErrorTrackingIssueFilteringToolOutput(**data)
+
+
+class final_answer(base_final_answer[ErrorTrackingIssueImpactToolOutput]):
+    __doc__ = base_final_answer.__doc__  # Inherit from the base final answer or create your own.
+
+
+class hello_world(BaseModel):
+    """Tool for saying hello to the user, should be used in the very beginning of the conversation. Use it before you use any other tool."""
+
+    name: str = Field(description="The name of the person to say hello to.")
+
+
+def hello_world_tool(name: str) -> str:
+    return f"Hello, {name}!"
+
+
+class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
+    def __init__(self, team: Team):
+        super().__init__(team)
+
+    # You must override this method if you are adding a custom tool that is only applicable to your usecase
+    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
+        """Override the handle_tools method to add custom tools."""
+        if tool_name == "hello_world":
+            result = hello_world_tool(tool_input.arguments.name)
+            return tool_name, result
+        return super().handle_tools(tool_name, tool_input)
+
+    def _get_custom_tools(self) -> list:
+        return [final_answer, hello_world]
+
+    # Optional: prefer YAML over XML for property lists, but not a must to override
+    # If not overriden XML will be used
+    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
+        return self._format_properties_yaml(props)
+
+
+class ErrorTrackingIssueImpactLoopNode(
+    TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
+):
+    def __init__(self, team: Team, user: User, toolkit_class: type[ErrorTrackingIssueImpactToolkit]):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+    def _get_system_prompt(self) -> ChatPromptTemplate:
+        system = [*super()._get_default_system_prompts()]
+        return ChatPromptTemplate([("system", m) for m in system], template_format="mustache")
+
+
+class ErrorTrackingIssueImpactToolsNode(
+    TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
+):
+    def __init__(self, team: Team, user: User, toolkit_class: type[ErrorTrackingIssueImpactToolkit]):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+
+class ErrorTrackingIssueImpactGraph(
+    TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
+):
+    def __init__(self, team: Team, user: User):
+        super().__init__(
+            team,
+            user,
+            loop_node_class=ErrorTrackingIssueImpactLoopNode,
+            tools_node_class=ErrorTrackingIssueImpactToolsNode,
+            toolkit_class=ErrorTrackingIssueImpactToolkit,
+        )
+
+
+class ErrorTrackingIssueImpactTool(MaxTool):
+    name: str = "find_error_tracking_impactful_issues"
+    description: str = "Find error tracking issues that are impacting the occurrence of your events."
+    thinking_message: str = "Finding impactful issues..."
+    # root_system_prompt_template: str = "Current issue filters are: {current_query}"
+    # args_schema: type[BaseModel] = UpdateIssueQueryArgs
+
+    async def _run_impl(self) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
+        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
+
+        graph_context = {
+            "change": "Show me recordings of users in Germany that used a mobile device while performing a payment",
+            "output": None,
+            "tool_progress_messages": [],
+            **self.context,
+        }
+
+        result = await graph.compile_full_graph().ainvoke(graph_context)
+
+        if type(result["output"]) is not ErrorTrackingIssueImpactToolOutput:
+            content = "❌ I need to know what events you are looking to understand the impact for."
+            events = []
+        else:
+            try:
+                content = "✅ Updated session recordings filters."
+                events = ErrorTrackingIssueImpactToolOutput.model_validate(result["output"])
+            except Exception as e:
+                raise ValueError(f"Failed to generate ErrorTrackingIssueImpactToolOutput: {e}")
+        return content, events
