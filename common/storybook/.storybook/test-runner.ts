@@ -171,7 +171,20 @@ async function takeSnapshotWithTheme(
     await waitForPageReady(page)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
-        await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+        await page.waitForFunction(() => {
+            const allImages = Array.from(document.images)
+            const areAllImagesLoaded = allImages.every((i: HTMLImageElement) => !!i.naturalWidth)
+            if (areAllImagesLoaded) {
+                // Hide gifs to prevent their animations causing flakiness
+                for (const image of allImages) {
+                    if (image.src.endsWith('.gif')) {
+                        image.style.visibility = 'hidden'
+                        image.style.background = 'red'
+                    }
+                }
+            }
+            return areAllImagesLoaded
+        })
     }
     await page.waitForTimeout(2000)
 

@@ -402,9 +402,7 @@ export function HogFunctionFilters({
 
     return (
         <MaxTool
-            name="create_hog_function_filters"
-            displayName="Set up filters with AI"
-            description="Max can set up filters for your function"
+            identifier="create_hog_function_filters"
             context={{
                 current_filters: JSON.stringify(configuration?.filters ?? {}),
                 function_type: type,

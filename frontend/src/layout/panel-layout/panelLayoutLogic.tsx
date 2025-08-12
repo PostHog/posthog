@@ -1,5 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
@@ -166,6 +168,22 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         isLayoutNavCollapsed: [
             (s) => [s.isLayoutNavCollapsedDesktop, s.mobileLayout],
             (isLayoutNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isLayoutNavCollapsedDesktop,
+        ],
+        activePanelIdentifierFromUrl: [
+            () => [router.selectors.location],
+            (location): PanelLayoutNavIdentifier | '' => {
+                const cleanPath = removeProjectIdIfPresent(location.pathname)
+
+                if (cleanPath.startsWith('/data-management/')) {
+                    return 'DataManagement'
+                }
+
+                if (cleanPath === '/persons' || cleanPath === '/cohorts' || cleanPath.startsWith('/groups/')) {
+                    return 'People'
+                }
+
+                return ''
+            },
         ],
     }),
 ])
