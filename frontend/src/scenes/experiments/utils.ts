@@ -669,7 +669,6 @@ export function getMathAvailability(metricType: ExperimentMetricType): MathAvail
 export function getAllowedMathTypes(metricType: ExperimentMetricType): ExperimentMetricMathType[] {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
-        case ExperimentMetricType.RATIO:
             return [
                 ExperimentMetricMathType.TotalCount,
                 ExperimentMetricMathType.Sum,
@@ -678,6 +677,14 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Max,
                 ExperimentMetricMathType.UniqueSessions,
                 ExperimentMetricMathType.HogQL,
+            ]
+        case ExperimentMetricType.RATIO:
+            return [
+                ExperimentMetricMathType.TotalCount,
+                ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.Avg,
+                ExperimentMetricMathType.Min,
+                ExperimentMetricMathType.Max,
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]
