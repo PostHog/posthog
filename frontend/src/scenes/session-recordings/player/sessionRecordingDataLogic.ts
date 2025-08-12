@@ -211,12 +211,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         await breakpoint(breakpointLength)
                     }
 
+                    var blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
+
                     const headers: Record<string, string> = {}
                     if (props.accessToken) {
                         headers.Authorization = `Bearer ${props.accessToken}`
+                        /** For export we always want to use blob_v2 */
+                        blob_v2 = true
                     }
 
-                    const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
                     const blob_v2_lts = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY]
                     const response = await api.recordings.listSnapshotSources(
                         props.sessionRecordingId,
