@@ -115,3 +115,4 @@ export const SizesLoading = (): JSX.Element => {
         </table>
     )
 }
+SizesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
