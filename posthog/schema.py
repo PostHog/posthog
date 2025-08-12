@@ -83,6 +83,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    SEARCH_DOCS = "search_docs"
 
 
 class AssistantDateRange(BaseModel):
@@ -10084,6 +10085,7 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 8
 
