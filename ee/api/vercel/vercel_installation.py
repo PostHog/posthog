@@ -7,16 +7,15 @@ See:
 https://vercel.com/docs/integrations/create-integration/marketplace-api
 """
 
+import re
 from typing import Any
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework import mixins
 from rest_framework.permissions import BasePermission
 from rest_framework import decorators
 
 from ee.api.authentication import VercelAuthentication
-from ee.models.vercel.vercel_installation import VercelInstallation
 from ee.vercel.integration import VercelIntegration
 
 
@@ -107,17 +106,10 @@ class UpsertInstallationPayloadSerializer(serializers.Serializer):
     )
 
 
-class VercelInstallationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = VercelInstallation
-        fields = "__all__"
+INSTALLATION_ID_PATTERN = re.compile(r"^inst_[A-Za-z0-9]{9,}$")
 
 
-class VercelInstallationViewSet(
-    mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
-):
-    queryset = VercelInstallation.objects.all()
-    serializer_class = VercelInstallationSerializer
+class VercelInstallationViewSet(viewsets.GenericViewSet):
     lookup_field = "installation_id"
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelInstallationPermission]
@@ -129,6 +121,23 @@ class VercelInstallationViewSet(
         "retrieve": ["System"],
         "plans": ["System"],
     }
+
+    def get_object(self):
+        from ee.models.vercel.vercel_installation import VercelInstallation
+
+        installation_id = self.kwargs.get("installation_id")
+
+        if not installation_id:
+            raise exceptions.ValidationError({"installation_id": "Missing installation_id in URL."})
+
+        if not INSTALLATION_ID_PATTERN.match(installation_id):
+            raise exceptions.ValidationError({"installation_id": "Invalid installation_id format."})
+
+        try:
+            installation = VercelInstallation.objects.get(installation_id=installation_id)
+            return installation
+        except VercelInstallation.DoesNotExist:
+            raise exceptions.NotFound("Installation not found")
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
