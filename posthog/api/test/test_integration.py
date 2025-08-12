@@ -207,7 +207,10 @@ class TestSlackIntegration:
 class TestEmailIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
-        self.domain = "test.com"
+        self.valid_config = {
+            "email": "test@posthog.com",
+            "name": "Test User",
+        }
         self.user = User.objects.create(email="test@posthog.com")
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -217,27 +220,21 @@ class TestEmailIntegration:
         mock_client = MagicMock()
         mock_mailjet_provider_class.return_value = mock_client
 
-        integration = EmailIntegration.create_native_integration(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         assert integration.kind == "email"
-        assert integration.integration_id == self.domain
+        assert integration.integration_id == self.valid_config["email"]
         assert integration.team_id == self.team.id
         assert integration.config == {
-            "domain": self.domain,
+            "email": self.valid_config["email"],
+            "name": self.valid_config["name"],
+            "domain": "posthog.com",
             "mailjet_verified": False,
             "aws_ses_verified": False,
         }
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_client.create_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
-
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_setup_email_valid_domain_parameter_required(self):
-        with pytest.raises(exceptions.ValidationError):
-            EmailIntegration.create_native_integration("foobar", self.team.id, self.user)
-
-        with pytest.raises(exceptions.ValidationError):
-            EmailIntegration.create_native_integration("foobar@test.com", self.team.id, self.user)
+        mock_client.create_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
 
     @patch("posthog.models.integration.MailjetProvider")
     def test_email_verify_returns_mailjet_result(self, mock_mailjet_provider_class):
@@ -266,17 +263,19 @@ class TestEmailIntegration:
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.create_native_integration(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
 
         integration.refresh_from_db()
         assert integration.config == {
-            "domain": self.domain,
+            "email": self.valid_config["email"],
+            "name": self.valid_config["name"],
+            "domain": "posthog.com",
             "mailjet_verified": False,
             "aws_ses_verified": False,
         }
@@ -308,17 +307,19 @@ class TestEmailIntegration:
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.create_native_integration(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
 
         integration.refresh_from_db()
         assert integration.config == {
-            "domain": self.domain,
+            "email": self.valid_config["email"],
+            "name": self.valid_config["name"],
+            "domain": "posthog.com",
             "mailjet_verified": True,
             "aws_ses_verified": False,
         }
