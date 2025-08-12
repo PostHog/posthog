@@ -428,7 +428,7 @@ const MarketingDashboard = (): JSX.Element => {
     )
 }
 
-const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
         return []
     }
@@ -443,11 +443,12 @@ const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label
                     </LemonTag>
                 </div>
             ),
+            link: '/web/page-reports',
         },
     ]
 }
 
-const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         return []
     }
@@ -462,6 +463,7 @@ const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: 
                     </LemonTag>
                 </div>
             ),
+            link: '/web/marketing',
         },
     ]
 }
@@ -491,8 +493,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             activeKey={productTab}
                             onChange={setProductTab}
                             tabs={[
-                                { key: ProductTab.ANALYTICS, label: 'Web analytics' },
-                                { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                                { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
+                                { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                                 ...pageReportsTab(featureFlags),
                                 ...marketingTab(featureFlags),
                             ]}
