@@ -294,9 +294,22 @@ class CohortSerializer(serializers.ModelSerializer):
 
                 # Extract distinct IDs from the identified column
                 distinct_ids = []
+                skipped_rows = 0
                 for row in reader:
-                    if len(row) > distinct_id_col and row[distinct_id_col].strip():
-                        distinct_ids.append(row[distinct_id_col].strip())
+                    # Skip rows with incorrect number of columns
+                    if len(row) <= distinct_id_col:
+                        skipped_rows += 1
+                        continue
+
+                    # Extract distinct ID if present and non-empty
+                    distinct_id = row[distinct_id_col].strip()
+                    if distinct_id:
+                        distinct_ids.append(distinct_id)
+
+                if skipped_rows > 0:
+                    logger.info(
+                        f"Skipped {skipped_rows} rows with incorrect column count in CSV for cohort {cohort.pk}"
+                    )
 
             if not distinct_ids:
                 raise ValidationError(

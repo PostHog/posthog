@@ -613,6 +613,41 @@ Jane Smith,	user456	,jane@example.com
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_inconsistent_column_count(self, patch_calculate_cohort_from_list):
+        """Test that rows with incorrect column count are gracefully skipped in multi-column CSV"""
+        Person.objects.create(team=self.team, distinct_ids=["user123"])
+        Person.objects.create(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "inconsistent_columns.csv",
+            str.encode(
+                """email,distinct_id
+myemail@posthog.com,user123
+incomplete_row_missing_distinct_id
+anotheremail@posthog.com,user456
+another_incomplete_row
+user789
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_inconsistent", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify only rows with correct column count are processed
+        # Should skip: "incomplete_row_missing_distinct_id", "another_incomplete_row", "user789"
+        # Should include: "user123", "user456"
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["user123", "user456"], team_id=self.team.id
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_static_cohort_to_dynamic_cohort(self, patch_calculate_cohort, patch_calculate_cohort_from_list):
         self.team.app_urls = ["http://somewebsite.com"]
