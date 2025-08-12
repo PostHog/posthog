@@ -2329,6 +2329,7 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.1
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -2496,6 +2497,7 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.1
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
