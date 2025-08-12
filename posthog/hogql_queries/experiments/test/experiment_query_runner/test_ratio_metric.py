@@ -591,3 +591,146 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 190)  # 50 + 60 + 80
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 19)  # 5 + 6 + 8
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_ratio_metric_with_hogql_math_type(self):
+        """Test ratio metric with HogQL math type for custom expressions"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create a ratio metric with HogQL expressions:
+        # Numerator: custom calculation using HogQL (sum of revenue * discount_multiplier)
+        # Denominator: total count of orders
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="sum(toFloat(properties.revenue) * toFloat(properties.discount_multiplier))",
+            ),
+            denominator=EventsNode(
+                event="order",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        def _create_events_for_user(variant: str, purchases: list[dict], orders: int) -> list[dict]:
+            events = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+            ]
+
+            # Add purchase events with HogQL-calculable properties
+            for i, purchase in enumerate(purchases):
+                events.append(
+                    {
+                        "event": "purchase",
+                        "timestamp": f"2024-01-02T12:0{i+1}:00",
+                        "properties": {
+                            ff_property: variant,
+                            "revenue": purchase["revenue"],
+                            "discount_multiplier": purchase["discount_multiplier"],
+                        },
+                    }
+                )
+
+            # Add order events
+            for i in range(orders):
+                events.append(
+                    {
+                        "event": "order",
+                        "timestamp": f"2024-01-02T12:1{i}:00",
+                        "properties": {
+                            ff_property: variant,
+                        },
+                    }
+                )
+
+            return events
+
+        journeys_for(
+            {
+                # Control: HogQL calculation should be 100*0.9 + 50*0.8 = 90 + 40 = 130, 2 orders
+                "control_1": _create_events_for_user(
+                    "control",
+                    [
+                        {"revenue": 100, "discount_multiplier": 0.9},
+                        {"revenue": 50, "discount_multiplier": 0.8},
+                    ],
+                    2,
+                ),
+                # Control user 2: HogQL calculation should be 200*1.0 = 200, 3 orders
+                "control_2": _create_events_for_user(
+                    "control",
+                    [
+                        {"revenue": 200, "discount_multiplier": 1.0},
+                    ],
+                    3,
+                ),
+                # Test: HogQL calculation should be 150*0.95 + 80*0.7 = 142.5 + 56 = 198.5, 2 orders
+                "test_1": _create_events_for_user(
+                    "test",
+                    [
+                        {"revenue": 150, "discount_multiplier": 0.95},
+                        {"revenue": 80, "discount_multiplier": 0.7},
+                    ],
+                    2,
+                ),
+                # Test user 2: HogQL calculation should be 120*1.1 = 132, 1 order
+                "test_2": _create_events_for_user(
+                    "test",
+                    [
+                        {"revenue": 120, "discount_multiplier": 1.1},
+                    ],
+                    1,
+                ),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Control: HogQL sum = 130 + 200 = 330, total orders = 2 + 3 = 5
+        self.assertEqual(control_variant.sum, 330)
+        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(control_variant.denominator_sum, 5)
+
+        # Test: HogQL sum = 198.5 + 132 = 330.5, total orders = 2 + 1 = 3
+        self.assertEqual(test_variant.sum, 330.5)
+        self.assertEqual(test_variant.number_of_samples, 2)
+        self.assertEqual(test_variant.denominator_sum, 3)
+
+        # Verify that the ratio metric fields are present
+        self.assertIsNotNone(control_variant.denominator_sum_squares)
+        self.assertIsNotNone(test_variant.denominator_sum_squares)
+        self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
+        self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
