@@ -12,10 +12,10 @@ export interface ToolDefinition<N extends string = string> {
     /** A user-friendly display name for the tool. Must be a verb phrase, like "Create surveys" or "Search docs" */
     name: N
     /**
-     * Optional user-friendly description for the tool, if more detail beyond the name useful.
-     * Must be a sentence that's an extension of the name, e.g. "Create surveys in seconds"
+     * The tool's description, which must be a sentence that's an extension of the name,
+     * e.g. "Create surveys in seconds"
      */
-    description?: `${N} ${string}`
+    description: `${N} ${string}`
     /**
      * If the tool is global, set explicitly to null. If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -71,7 +71,8 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         product: null,
     },
     search_session_recordings: {
-        name: 'Search session recordings',
+        name: 'Search recordings',
+        description: 'Search recordings for interesting sessions',
         product: Scene.Replay,
     },
     generate_hogql_query: {
@@ -101,7 +102,8 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         product: Scene.DataPipelines,
     },
     search_error_tracking_issues: {
-        name: 'Filter error tracking issues',
+        name: 'Filter issues',
+        description: 'Filter issues to dig into errors',
         product: Scene.ErrorTracking,
         flag: 'error-tracking-scene-max-tool',
     },
@@ -127,6 +129,6 @@ export const MAX_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
     'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
-    'Guarantee correctness of the queries created',
+    'Guarantee correctness',
     'Order tungsten cubes',
 ] as const
