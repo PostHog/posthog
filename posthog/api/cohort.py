@@ -336,7 +336,7 @@ class CohortSerializer(serializers.ModelSerializer):
     def _validate_and_process_distinct_ids(self, distinct_ids: list[str], cohort: Cohort) -> None:
         """Final validation and task scheduling"""
         if not distinct_ids:
-            raise ValidationError(CSVConfig.ErrorMessages.NO_VALID_IDS)
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
         logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(distinct_ids)} distinct IDs")
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids, team_id=self.context["team_id"])
@@ -345,15 +345,16 @@ class CohortSerializer(serializers.ModelSerializer):
         """Centralized error handling with consistent exception capture"""
 
         if isinstance(e, UnicodeDecodeError):
-            raise ValidationError(CSVConfig.ErrorMessages.ENCODING_ERROR)
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
         elif isinstance(e, csv.Error):
             capture_exception(e, extra={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
-            raise ValidationError(CSVConfig.ErrorMessages.FORMAT_ERROR.format(error=str(e)))
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.FORMAT_ERROR.format(error=str(e))]})
         elif isinstance(e, ValidationError):
-            raise  # Re-raise as-is
+            # If it's already a ValidationError, just re-raise it to preserve format
+            raise
         else:
             capture_exception(e, extra={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
-            raise ValidationError(CSVConfig.ErrorMessages.GENERIC_ERROR)
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.GENERIC_ERROR]})
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
@@ -367,9 +368,13 @@ class CohortSerializer(serializers.ModelSerializer):
                 if distinct_id_col is None:
                     available_headers = [h for h in first_row if h.strip()]
                     raise ValidationError(
-                        CSVConfig.ErrorMessages.MISSING_DISTINCT_ID.format(
-                            columns=", ".join(available_headers) if available_headers else "none"
-                        )
+                        {
+                            "csv": [
+                                CSVConfig.ErrorMessages.MISSING_DISTINCT_ID.format(
+                                    columns=", ".join(available_headers) if available_headers else "none"
+                                )
+                            ]
+                        }
                     )
 
                 distinct_ids = self._extract_distinct_ids_multi_column(reader, distinct_id_col, cohort.pk)

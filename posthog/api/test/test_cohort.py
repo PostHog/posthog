@@ -450,8 +450,10 @@ Jane Smith,jane@example.com,25
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("distinct_id", response.json()["csv"][0])
-        self.assertIn("name, email, age", response.json()["csv"][0])
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("distinct_id", response_data["detail"])
+        self.assertIn("name, email, age", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -470,7 +472,9 @@ Jane Smith,jane@example.com,25
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("empty", response.json()["csv"][0])
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("empty", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -479,7 +483,9 @@ Jane Smith,jane@example.com,25
         csv = SimpleUploadedFile(
             "no_ids.csv",
             str.encode(
-                """distinct_id
+                """
+
+
 """
             ),
             content_type="application/csv",
@@ -492,7 +498,9 @@ Jane Smith,jane@example.com,25
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("no valid distinct IDs", response.json()["csv"][0])
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("no valid distinct IDs", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
