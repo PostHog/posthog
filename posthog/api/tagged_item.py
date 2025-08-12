@@ -1,10 +1,17 @@
+import dataclasses
+from typing import Optional
+
 from django.db.models import Prefetch, Q, QuerySet
+from django.dispatch import receiver
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem, User
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
+from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
+from posthog.models.signals import model_activity_signal
 from posthog.models.tag import tagify
 
 
@@ -117,3 +124,73 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return response.Response([], status=status.HTTP_402_PAYMENT_REQUIRED)
 
         return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())
+
+
+@dataclasses.dataclass(frozen=True)
+class TagContext(ActivityContextBase):
+    team_id: int
+    name: str
+
+
+@dataclasses.dataclass(frozen=True)
+class TaggedItemContext(ActivityContextBase):
+    tag_name: str
+    tag_id: str
+    team_id: int
+    related_object_type: Optional[str] = None
+    related_object_id: Optional[str] = None
+    related_object_name: Optional[str] = None
+
+
+@receiver(model_activity_signal, sender=Tag)
+def handle_tag_change(sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs):
+    context = TagContext(
+        team_id=after_update.team_id,
+        name=after_update.name,
+    )
+
+    log_activity(
+        organization_id=after_update.team.organization_id if after_update.team else None,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+            context=context,
+        ),
+    )
+
+
+@receiver(model_activity_signal, sender=TaggedItem)
+def handle_tagged_item_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(after_update)
+
+    context = TaggedItemContext(
+        tag_name=after_update.tag.name,
+        tag_id=str(after_update.tag.id),
+        team_id=after_update.tag.team_id,
+        related_object_type=related_object_type,
+        related_object_id=related_object_id,
+        related_object_name=related_object_name,
+    )
+
+    log_activity(
+        organization_id=after_update.tag.team.organization_id if after_update.tag and after_update.tag.team else None,
+        team_id=after_update.tag.team_id if after_update.tag else None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.tag.name if after_update.tag else None,
+            context=context,
+        ),
+    )

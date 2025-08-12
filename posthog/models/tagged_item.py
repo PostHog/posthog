@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel, build_unique_relationship_check, build_partial_uniqueness_constraint
 
 RELATED_OBJECTS = (
@@ -14,7 +15,7 @@ RELATED_OBJECTS = (
 )
 
 
-class TaggedItem(UUIDModel):
+class TaggedItem(ModelActivityMixin, UUIDModel):
     """
     Taggable describes global tag-object relationships.
     Note: This is an EE only feature, however the model exists in posthog so that it is backwards accessible from all
