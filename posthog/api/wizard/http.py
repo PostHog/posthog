@@ -194,7 +194,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 capture_exception(
                     error,
                     {
-                        "team_id": wizard_data.get("project_api_key", "unknown"),
                         "model": model,
                         "ai_product": "wizard",
                     },
@@ -232,7 +231,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 capture_exception(
                     error,
                     {
-                        "team_id": wizard_data.get("project_api_key", "unknown"),
                         "model": model,
                         "ai_product": "wizard",
                         "trace_id": trace_id,
@@ -283,7 +281,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 capture_exception(
                     e,
                     {
-                        "team_id": wizard_data.get("project_api_key", "unknown"),
                         "model": model,
                         "ai_product": "wizard",
                         "trace_id": trace_id,
