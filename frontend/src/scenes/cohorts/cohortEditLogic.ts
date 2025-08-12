@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
@@ -271,7 +272,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 is_static: cohort.is_static,
                                 operation_type: cohort.id === 'new' ? 'create' : 'update',
                                 has_csv: !!cohortFormData.get?.('csv'),
-                                file_size: cohortFormData.get?.('csv')?.size,
+                                file_size: (() => {
+                                    const csvFile = cohortFormData.get?.('csv')
+                                    return csvFile instanceof File ? csvFile.size : undefined
+                                })(),
 
                                 // Error context
                                 error_status: error.status,
