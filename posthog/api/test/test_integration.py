@@ -1,8 +1,6 @@
 from unittest.mock import patch, MagicMock
 
 import pytest
-from rest_framework import exceptions
-from django.test import override_settings
 from posthog.api.test.test_team import create_team
 from posthog.models.integration import Integration
 from posthog.models.integration import EmailIntegration, SlackIntegration, PRIVATE_CHANNEL_WITHOUT_ACCESS
