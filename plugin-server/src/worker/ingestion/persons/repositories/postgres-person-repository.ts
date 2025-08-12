@@ -52,7 +52,10 @@ export class PostgresPersonRepository
 {
     private options: PostgresPersonRepositoryOptions
 
-    constructor(private postgres: PostgresRouter, options?: Partial<PostgresPersonRepositoryOptions>) {
+    constructor(
+        private postgres: PostgresRouter,
+        options?: Partial<PostgresPersonRepositoryOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 

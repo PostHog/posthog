@@ -67,7 +67,10 @@ interface PersonUpdateResult {
 }
 
 class MaxRetriesError extends Error {
-    constructor(message: string, public latestPersonUpdate: PersonUpdate) {
+    constructor(
+        message: string,
+        public latestPersonUpdate: PersonUpdate
+    ) {
         super(message)
         this.name = 'MaxRetriesError'
     }
