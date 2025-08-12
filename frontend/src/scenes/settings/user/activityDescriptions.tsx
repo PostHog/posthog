@@ -23,6 +23,17 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         }
     }
 
+    if (logItem.activity === 'revoked') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> revoked access for personal API key{' '}
+                    <strong>{logItem.detail.name}</strong>
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity === 'updated') {
         const nameChangeDescription = logItem.detail.changes?.find((change) => change.field === 'label')
 
@@ -33,47 +44,6 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
                         <strong>{userNameForLogItem(logItem)}</strong> renamed personal API key from{' '}
                         <strong>{nameChangeDescription.before}</strong> to{' '}
                         <strong>{nameChangeDescription.after}</strong>
-                    </>
-                ),
-            }
-        }
-
-        const scopeChangeDescription = logItem.detail.changes?.find((change) => change.field === 'scopes')
-
-        if (scopeChangeDescription) {
-            return {
-                description: (
-                    <>
-                        <strong>{userNameForLogItem(logItem)}</strong> updated scopes for personal API key{' '}
-                        <strong>{logItem.detail.name}</strong>
-                    </>
-                ),
-            }
-        }
-
-        const scopedTeamsChangeDescription = logItem.detail.changes?.find((change) => change.field === 'scoped_teams')
-
-        if (scopedTeamsChangeDescription) {
-            return {
-                description: (
-                    <>
-                        <strong>{userNameForLogItem(logItem)}</strong> updated team scope for personal API key{' '}
-                        <strong>{logItem.detail.name}</strong>
-                    </>
-                ),
-            }
-        }
-
-        const scopedOrgsChangeDescription = logItem.detail.changes?.find(
-            (change) => change.field === 'scoped_organizations'
-        )
-
-        if (scopedOrgsChangeDescription) {
-            return {
-                description: (
-                    <>
-                        <strong>{userNameForLogItem(logItem)}</strong> updated organization scope for personal API key{' '}
-                        <strong>{logItem.detail.name}</strong>
                     </>
                 ),
             }

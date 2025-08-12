@@ -71,7 +71,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
 ]
-ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
+ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported", "revoked"]
 
 
 @dataclasses.dataclass(frozen=True)
