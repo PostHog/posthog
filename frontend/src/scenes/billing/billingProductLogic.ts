@@ -93,6 +93,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setBillingLimitInput: (billingLimitInput: number | null) => ({ billingLimitInput }),
         billingLoaded: true,
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
+        toggleVariantExpanded: (variantKey: string) => ({ variantKey }),
         toggleIsPricingModalOpen: true,
         toggleIsPlanComparisonModalOpen: (highlightedFeatureKey?: string) => ({ highlightedFeatureKey }),
         setSurveyResponse: (key: string, value: string | string[]) => ({ key, value }),
@@ -148,6 +149,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
             false,
             {
                 setShowTierBreakdown: (_, { showTierBreakdown }) => showTierBreakdown,
+            },
+        ],
+        variantExpandedStates: [
+            {} as Record<string, boolean>,
+            {
+                toggleVariantExpanded: (state, { variantKey }) => ({
+                    ...state,
+                    [variantKey]: !state[variantKey],
+                }),
             },
         ],
         isPricingModalOpen: [

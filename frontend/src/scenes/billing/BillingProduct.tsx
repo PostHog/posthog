@@ -23,6 +23,7 @@ import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -55,10 +56,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         billingProductLoading,
         isSessionReplayWithAddons,
         visibleAddons,
+        variantExpandedStates,
+        customLimitUsd,
     } = useValues(billingProductLogic({ product }))
-    const { setShowTierBreakdown, toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
-        billingProductLogic({ product, productRef })
-    )
+    const {
+        setShowTierBreakdown,
+        toggleIsPricingModalOpen,
+        reportSurveyShown,
+        setSurveyResponse,
+        toggleVariantExpanded,
+    } = useActions(billingProductLogic({ product, productRef }))
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { upgradePlan, currentPlan } = currentAndUpgradePlans
@@ -180,123 +187,315 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </LemonBanner>
                     )}
 
-                    {/* Usage and projected usage */}
-                    <div className="sm:flex w-full items-center gap-x-8">
-                        {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
-                            <div className="py-8">
-                                {!billing?.has_active_subscription && (
-                                    <p className="ml-0">
-                                        Every product subsciption comes with free platform features such as{' '}
-                                        <b>Multiple projects, Integrations, Apps, and more</b>. Subscribe to one of the
-                                        products above to get instant access.
-                                    </p>
-                                )}
-                                <p className="m-0">
-                                    Need additional platform and support (aka enterprise) features like <b>SAML SSO</b>,{' '}
-                                    <b>advanced permissioning</b>, and more?{' '}
-                                    <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
-                                        Get in touch
-                                    </Link>{' '}
-                                    for a quick chat.
-                                </p>
-                            </div>
-                        ) : (
-                            !isUnlicensedDebug && (
-                                <>
-                                    {isTemporaryFreeProduct ? (
-                                        <div className="grow">
-                                            <div className="grow">
-                                                <BillingGauge items={billingGaugeItems} product={product} />
-                                            </div>
-                                            {/* TODO: rms: remove this notice after August 8 2024 */}
-                                            {product.type == ProductKey.DATA_WAREHOUSE &&
-                                                [
-                                                    'free-20240530-beta-users-initial',
-                                                    'free-20240813-beta-users-initial',
-                                                ].includes(currentPlan?.plan_key || '') &&
-                                                new Date() < new Date('2024-09-04') && (
-                                                    <LemonBanner type="info" className="mb-6">
-                                                        <p>
-                                                            Free usage for beta users until September 2, 2024. Then, get
-                                                            2 million rows free every month.
-                                                        </p>
-                                                    </LemonBanner>
-                                                )}
+                    {/* Combined monetary gauge for variants */}
+                    {isSessionReplayWithAddons && (
+                        <div className="mt-6 mb-4 ml-2">
+                            <div className="flex items-center gap-x-8">
+                                <div className="grow">
+                                    <BillingGauge
+                                        items={
+                                            [
+                                                customLimitUsd && {
+                                                    type: BillingGaugeItemKind.BillingLimit,
+                                                    text: 'Billing limit',
+                                                    value: parseFloat(customLimitUsd.toFixed(2)),
+                                                    prefix: '$',
+                                                },
+                                                {
+                                                    type: BillingGaugeItemKind.ProjectedUsage,
+                                                    text: 'Projected',
+                                                    value: parseFloat(
+                                                        (
+                                                            parseFloat(product.projected_amount_usd_with_limit || '0') *
+                                                            (1 -
+                                                                (billing?.discount_percent
+                                                                    ? billing.discount_percent / 100
+                                                                    : 0))
+                                                        ).toFixed(2)
+                                                    ),
+                                                    prefix: '$',
+                                                },
+                                                {
+                                                    type: BillingGaugeItemKind.CurrentUsage,
+                                                    text: 'Current',
+                                                    value: parseFloat(
+                                                        (
+                                                            parseFloat(product.current_amount_usd || '0') *
+                                                            (1 -
+                                                                (billing?.discount_percent
+                                                                    ? billing.discount_percent / 100
+                                                                    : 0))
+                                                        ).toFixed(2)
+                                                    ),
+                                                    prefix: '$',
+                                                },
+                                            ].filter(Boolean) as BillingGaugeItemType[]
+                                        }
+                                        product={{ ...product, unit: '$' }}
+                                    />
+                                </div>
+                                <div className="flex gap-8 flex-wrap items-end shrink-0">
+                                    <div className="flex flex-col items-center">
+                                        <div className="font-bold text-3xl leading-7">
+                                            {humanFriendlyCurrency(
+                                                parseFloat(product.current_amount_usd || '0') *
+                                                    (1 -
+                                                        (billing?.discount_percent
+                                                            ? billing.discount_percent / 100
+                                                            : 0))
+                                            )}
                                         </div>
-                                    ) : product.tiered ? (
-                                        <>
-                                            <div className="flex w-full items-center gap-x-8">
-                                                {product.subscribed && (
-                                                    <LemonButton
-                                                        icon={
-                                                            showTierBreakdown ? (
-                                                                <IconChevronDown />
-                                                            ) : (
-                                                                <IconChevronRight />
-                                                            )
-                                                        }
-                                                        onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                                                    />
+                                        <span className="text-xs text-secondary">Month-to-date</span>
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                        <div className="font-bold text-secondary text-lg leading-5">
+                                            {humanFriendlyCurrency(
+                                                parseFloat(product.projected_amount_usd_with_limit || '0') *
+                                                    (1 -
+                                                        (billing?.discount_percent
+                                                            ? billing.discount_percent / 100
+                                                            : 0))
+                                            )}
+                                        </div>
+                                        <span className="text-xs text-secondary">Projected</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Product variants display (session replay + mobile replay) */}
+                    {isSessionReplayWithAddons && product.subscribed && !isUnlicensedDebug ? (
+                        <div className="space-y-4 mt-6">
+                            {/* Session Replay Variant */}
+                            <div>
+                                <div
+                                    className="flex items-center justify-between cursor-pointer"
+                                    onClick={() => toggleVariantExpanded('session_replay')}
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <LemonButton
+                                            icon={
+                                                variantExpandedStates?.['session_replay'] ? (
+                                                    <IconChevronDown />
+                                                ) : (
+                                                    <IconChevronRight />
+                                                )
+                                            }
+                                            size="small"
+                                        />
+                                        <h4 className="mb-0 font-bold">Session Replay (Web)</h4>
+                                    </div>
+                                    <div className="flex gap-8 items-end">
+                                        <div className="flex flex-col items-end">
+                                            <span className="font-bold text-lg">
+                                                {humanFriendlyCurrency(
+                                                    parseFloat(product.current_amount_usd_before_addons || '0') *
+                                                        (1 -
+                                                            (billing?.discount_percent
+                                                                ? billing.discount_percent / 100
+                                                                : 0))
                                                 )}
+                                            </span>
+                                            <span className="text-xs text-secondary">Month-to-date</span>
+                                        </div>
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-secondary">
+                                                {humanFriendlyCurrency(
+                                                    parseFloat(product.projected_amount_usd || '0') * // This needs to be fixed to get session-only projection
+                                                        (1 -
+                                                            (billing?.discount_percent
+                                                                ? billing.discount_percent / 100
+                                                                : 0))
+                                                )}
+                                            </span>
+                                            <span className="text-xs text-secondary">Projected</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                {variantExpandedStates?.['session_replay'] && (
+                                    <div className="mt-4">
+                                        <div className="ml-16">
+                                            <BillingGauge
+                                                items={billingGaugeItems.filter(
+                                                    (item) => item.type !== BillingGaugeItemKind.BillingLimit
+                                                )}
+                                                product={product}
+                                            />
+                                        </div>
+                                        <BillingProductPricingTable product={product} />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Mobile Replay Variant */}
+                            {(() => {
+                                const mobileReplay = product.addons?.find((a) => a.type === 'mobile_replay')
+                                if (!mobileReplay) {
+                                    return null
+                                }
+
+                                return (
+                                    <div>
+                                        <div
+                                            className="flex items-center justify-between cursor-pointer"
+                                            onClick={() => toggleVariantExpanded('mobile_replay')}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <LemonButton
+                                                    icon={
+                                                        variantExpandedStates?.['mobile_replay'] ? (
+                                                            <IconChevronDown />
+                                                        ) : (
+                                                            <IconChevronRight />
+                                                        )
+                                                    }
+                                                    size="small"
+                                                />
+                                                <h4 className="mb-0 font-bold">Mobile Replay</h4>
+                                            </div>
+                                            <div className="flex gap-8 items-end">
+                                                <div className="flex flex-col items-end">
+                                                    <span className="font-bold text-lg">
+                                                        {humanFriendlyCurrency(
+                                                            parseFloat(mobileReplay.current_amount_usd || '0') *
+                                                                (1 -
+                                                                    (billing?.discount_percent
+                                                                        ? billing.discount_percent / 100
+                                                                        : 0))
+                                                        )}
+                                                    </span>
+                                                    <span className="text-xs text-secondary">Month-to-date</span>
+                                                </div>
+                                                <div className="flex flex-col items-end">
+                                                    <span className="text-secondary">
+                                                        {humanFriendlyCurrency(
+                                                            parseFloat(mobileReplay.projected_amount_usd || '0') *
+                                                                (1 -
+                                                                    (billing?.discount_percent
+                                                                        ? billing.discount_percent / 100
+                                                                        : 0))
+                                                        )}
+                                                    </span>
+                                                    <span className="text-xs text-secondary">Projected</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {variantExpandedStates?.['mobile_replay'] && (
+                                            <div className="mt-4">
+                                                <div className="ml-16">
+                                                    <BillingGauge
+                                                        items={
+                                                            [
+                                                                mobileReplay.free_allocation && {
+                                                                    type: BillingGaugeItemKind.FreeTier,
+                                                                    text: 'Free tier limit',
+                                                                    value: mobileReplay.free_allocation,
+                                                                },
+                                                                mobileReplay.projected_usage &&
+                                                                    mobileReplay.projected_usage >
+                                                                        (mobileReplay.current_usage || 0) && {
+                                                                        type: BillingGaugeItemKind.ProjectedUsage,
+                                                                        text: 'Projected',
+                                                                        value: mobileReplay.projected_usage || 0,
+                                                                    },
+                                                                {
+                                                                    type: BillingGaugeItemKind.CurrentUsage,
+                                                                    text: 'Current',
+                                                                    value: mobileReplay.current_usage || 0,
+                                                                },
+                                                            ].filter(Boolean) as BillingGaugeItemType[]
+                                                        }
+                                                        product={mobileReplay}
+                                                    />
+                                                </div>
+                                                <BillingProductPricingTable product={mobileReplay} />
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })()}
+                        </div>
+                    ) : (
+                        /* Standard product display (non-variants) */
+                        <div className="sm:flex w-full items-center gap-x-8">
+                            {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
+                                <div className="py-8">
+                                    {!billing?.has_active_subscription && (
+                                        <p className="ml-0">
+                                            Every product subsciption comes with free platform features such as{' '}
+                                            <b>Multiple projects, Integrations, Apps, and more</b>. Subscribe to one of
+                                            the products above to get instant access.
+                                        </p>
+                                    )}
+                                    <p className="m-0">
+                                        Need additional platform and support (aka enterprise) features like{' '}
+                                        <b>SAML SSO</b>, <b>advanced permissioning</b>, and more?{' '}
+                                        <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
+                                            Get in touch
+                                        </Link>{' '}
+                                        for a quick chat.
+                                    </p>
+                                </div>
+                            ) : (
+                                !isUnlicensedDebug && (
+                                    <>
+                                        {isTemporaryFreeProduct ? (
+                                            <div className="grow">
                                                 <div className="grow">
                                                     <BillingGauge items={billingGaugeItems} product={product} />
                                                 </div>
+                                                {/* TODO: rms: remove this notice after August 8 2024 */}
+                                                {product.type == ProductKey.DATA_WAREHOUSE &&
+                                                    [
+                                                        'free-20240530-beta-users-initial',
+                                                        'free-20240813-beta-users-initial',
+                                                    ].includes(currentPlan?.plan_key || '') &&
+                                                    new Date() < new Date('2024-09-04') && (
+                                                        <LemonBanner type="info" className="mb-6">
+                                                            <p>
+                                                                Free usage for beta users until September 2, 2024. Then,
+                                                                get 2 million rows free every month.
+                                                            </p>
+                                                        </LemonBanner>
+                                                    )}
                                             </div>
-                                            {product.subscribed ? (
-                                                <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
-                                                    <Tooltip
-                                                        title={`The current ${
-                                                            billing?.discount_percent ? 'discounted ' : ''
-                                                        }amount you have been billed for this ${
-                                                            billing?.billing_period?.interval
-                                                        } so far. This number updates once daily.`}
-                                                    >
-                                                        <div className="flex flex-col items-center">
-                                                            <div className="font-bold text-3xl leading-7">
-                                                                {humanFriendlyCurrency(
-                                                                    parseFloat(
-                                                                        isSessionReplayWithAddons
-                                                                            ? product.current_amount_usd_before_addons ||
-                                                                                  '0'
-                                                                            : product.current_amount_usd || '0'
-                                                                    ) *
-                                                                        (1 -
-                                                                            (billing?.discount_percent
-                                                                                ? billing.discount_percent / 100
-                                                                                : 0))
-                                                                )}
-                                                            </div>
-                                                            <span className="text-xs text-secondary">
-                                                                {capitalizeFirstLetter(
-                                                                    billing?.billing_period?.interval || ''
-                                                                )}
-                                                                -to-date <IconInfo className="text-muted text-sm" />
-                                                            </span>
-                                                        </div>
-                                                    </Tooltip>
-                                                    {product.tiers && (
+                                        ) : product.tiered ? (
+                                            <>
+                                                <div className="flex w-full items-center gap-x-8">
+                                                    {product.subscribed && (
+                                                        <LemonButton
+                                                            icon={
+                                                                showTierBreakdown ? (
+                                                                    <IconChevronDown />
+                                                                ) : (
+                                                                    <IconChevronRight />
+                                                                )
+                                                            }
+                                                            onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                                                        />
+                                                    )}
+                                                    <div className="grow">
+                                                        <BillingGauge items={billingGaugeItems} product={product} />
+                                                    </div>
+                                                </div>
+                                                {product.subscribed ? (
+                                                    <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
                                                         <Tooltip
-                                                            title={`This is roughly calculated based on your current bill${
-                                                                billing?.discount_percent
-                                                                    ? ', discounts on your account,'
-                                                                    : ''
-                                                            } and the remaining time left in this billing period. This number updates once daily.${
-                                                                product.projected_amount_usd_with_limit !==
-                                                                product.projected_amount_usd
-                                                                    ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then your projected total would be ${humanFriendlyCurrency(
-                                                                          parseFloat(
-                                                                              product.projected_amount_usd || '0'
-                                                                          )
-                                                                      )}`
-                                                                    : ''
-                                                            }`}
+                                                            title={`The current ${
+                                                                billing?.discount_percent ? 'discounted ' : ''
+                                                            }amount you have been billed for this ${
+                                                                billing?.billing_period?.interval
+                                                            } so far. This number updates once daily.`}
                                                         >
-                                                            <div className="flex flex-col items-center justify-end">
-                                                                <div className="font-bold text-secondary text-lg leading-5">
+                                                            <div className="flex flex-col items-center">
+                                                                <div className="font-bold text-3xl leading-7">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
-                                                                            product.projected_amount_usd_with_limit ||
-                                                                                '0'
+                                                                            isSessionReplayWithAddons
+                                                                                ? product.current_amount_usd_before_addons ||
+                                                                                      '0'
+                                                                                : product.current_amount_usd || '0'
                                                                         ) *
                                                                             (1 -
                                                                                 (billing?.discount_percent
@@ -305,35 +504,74 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     )}
                                                                 </div>
                                                                 <span className="text-xs text-secondary">
-                                                                    Projected{' '}
-                                                                    <IconInfo className="text-muted text-sm" />
+                                                                    {capitalizeFirstLetter(
+                                                                        billing?.billing_period?.interval || ''
+                                                                    )}
+                                                                    -to-date <IconInfo className="text-muted text-sm" />
                                                                 </span>
                                                             </div>
                                                         </Tooltip>
-                                                    )}
-                                                </div>
-                                            ) : null}
-                                        </>
-                                    ) : product.current_amount_usd ? (
-                                        <div className="mt-8 mb-4 flex justify-end w-full">
-                                            <Tooltip
-                                                title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
-                                            >
-                                                <div className="flex flex-col items-center">
-                                                    <div className="font-bold text-3xl leading-7">
-                                                        {humanFriendlyCurrency(product.current_amount_usd)}
+                                                        {product.tiers && (
+                                                            <Tooltip
+                                                                title={`This is roughly calculated based on your current bill${
+                                                                    billing?.discount_percent
+                                                                        ? ', discounts on your account,'
+                                                                        : ''
+                                                                } and the remaining time left in this billing period. This number updates once daily.${
+                                                                    product.projected_amount_usd_with_limit !==
+                                                                    product.projected_amount_usd
+                                                                        ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then your projected total would be ${humanFriendlyCurrency(
+                                                                              parseFloat(
+                                                                                  product.projected_amount_usd || '0'
+                                                                              )
+                                                                          )}`
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                <div className="flex flex-col items-center justify-end">
+                                                                    <div className="font-bold text-secondary text-lg leading-5">
+                                                                        {humanFriendlyCurrency(
+                                                                            parseFloat(
+                                                                                product.projected_amount_usd_with_limit ||
+                                                                                    '0'
+                                                                            ) *
+                                                                                (1 -
+                                                                                    (billing?.discount_percent
+                                                                                        ? billing.discount_percent / 100
+                                                                                        : 0))
+                                                                        )}
+                                                                    </div>
+                                                                    <span className="text-xs text-secondary">
+                                                                        Projected{' '}
+                                                                        <IconInfo className="text-muted text-sm" />
+                                                                    </span>
+                                                                </div>
+                                                            </Tooltip>
+                                                        )}
                                                     </div>
-                                                    <span className="text-xs text-secondary">
-                                                        per {billing?.billing_period?.interval || 'period'}
-                                                    </span>
-                                                </div>
-                                            </Tooltip>
-                                        </div>
-                                    ) : null}
-                                </>
-                            )
-                        )}
-                    </div>
+                                                ) : null}
+                                            </>
+                                        ) : product.current_amount_usd ? (
+                                            <div className="mt-8 mb-4 flex justify-end w-full">
+                                                <Tooltip
+                                                    title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
+                                                >
+                                                    <div className="flex flex-col items-center">
+                                                        <div className="font-bold text-3xl leading-7">
+                                                            {humanFriendlyCurrency(product.current_amount_usd)}
+                                                        </div>
+                                                        <span className="text-xs text-secondary">
+                                                            per {billing?.billing_period?.interval || 'period'}
+                                                        </span>
+                                                    </div>
+                                                </Tooltip>
+                                            </div>
+                                        ) : null}
+                                    </>
+                                )
+                            )}
+                        </div>
+                    )}
 
                     {product.price_description ? (
                         <LemonBanner type="info">
@@ -344,8 +582,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {/* Table with tiers */}
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
 
-                    {/* Add-ons */}
-                    {product.addons?.length > 0 && (
+                    {/* Add-ons (hide for session replay variants) */}
+                    {product.addons?.length > 0 && !isSessionReplayWithAddons && (
                         <div className="pb-8">
                             {/* Legacy teams addon */}
                             {product.type === 'platform_and_support' &&
@@ -394,7 +632,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 </div>
 
                 {/* Billing limit */}
-                {!isTemporaryFreeProduct && <BillingLimit product={product} />}
+                {!isTemporaryFreeProduct && (
+                    <div className={isSessionReplayWithAddons ? 'mt-8' : ''}>
+                        <BillingLimit product={product} />
+                    </div>
+                )}
 
                 {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />
