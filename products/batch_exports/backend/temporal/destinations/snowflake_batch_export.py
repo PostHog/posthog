@@ -233,7 +233,7 @@ class SnowflakeClient:
 
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Snowflake. 0.2 seemed a good compromise, based on local testing.
-    DEFAULT_POLL_INTERVAL = 0.2
+    DEFAULT_POLL_INTERVAL = 0.20
 
     def __init__(
         self,
