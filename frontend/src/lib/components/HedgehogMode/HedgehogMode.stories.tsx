@@ -4,7 +4,7 @@ import { HedgehogModeStatic } from './HedgehogModeStatic'
 import { MinimalHedgehogConfig } from '~/types'
 
 const meta: Meta<typeof HedgehogModeStatic> = {
-    title: 'HedgehogMode',
+    title: 'Components/HedgehogMode',
     component: HedgehogModeStatic,
     tags: ['autodocs'],
 }
