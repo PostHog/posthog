@@ -10,22 +10,13 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
-import { maxGlobalLogic, TOOL_DEFINITIONS, ToolRegistration } from './maxGlobalLogic'
+import { maxGlobalLogic } from './maxGlobalLogic'
+import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     /** The child element(s) that will be wrapped by this component */
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
-    /**
-     * An override of the user-friendly display name for the tool.  Must be a verb phrase, like "Create smth" or "Search smth".
-     * @deprecated Set the name for this tool identifier in TOOL_DEFINITIONS. The override should only be used if shadowing a default tool.
-     */
-    nameOverride?: string
-    /**
-     * An override of the tool's description.
-     * @deprecated Set the description for this tool identifier in TOOL_DEFINITIONS. The override should only be used if shadowing a default tool.
-     */
-    descriptionOverride?: string
     /** Whether MaxTool functionality is active. When false, just renders children without MaxTool wrapper. */
     active?: boolean
     initialMaxPrompt?: string
@@ -36,8 +27,6 @@ interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
 
 export function MaxTool({
     identifier,
-    nameOverride,
-    descriptionOverride,
     icon,
     context,
     introOverride,
@@ -54,8 +43,7 @@ export function MaxTool({
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
 
-    const name = nameOverride || TOOL_DEFINITIONS[identifier]?.name
-    const description = descriptionOverride || TOOL_DEFINITIONS[identifier]?.description
+    const definition = TOOL_DEFINITIONS[identifier as keyof typeof TOOL_DEFINITIONS]
 
     const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG') && active
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
@@ -64,8 +52,8 @@ export function MaxTool({
         if (active) {
             registerTool({
                 identifier,
-                name,
-                description,
+                name: definition.name,
+                description: definition.description,
                 icon,
                 context,
                 introOverride,
@@ -78,8 +66,8 @@ export function MaxTool({
     }, [
         active,
         identifier,
-        nameOverride,
-        descriptionOverride,
+        definition.name,
+        definition.description,
         icon,
         JSON.stringify(context),
         introOverride,
