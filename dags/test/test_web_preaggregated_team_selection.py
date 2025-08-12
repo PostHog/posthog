@@ -221,7 +221,9 @@ class TestStrategyClasses:
         strategy = ProjectSettingsStrategy()
         mock_team_objects.filter.return_value.values_list.return_value = [123, 456]
 
-        with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"):
+        with patch(
+            "posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"
+        ):
             result = strategy.get_teams(self.mock_context)
 
         assert result == {123, 456}
