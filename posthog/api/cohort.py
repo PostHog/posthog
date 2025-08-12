@@ -353,14 +353,11 @@ class CohortSerializer(serializers.ModelSerializer):
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
         try:
-            # Parse the CSV file and get the first row
             first_row, reader = self._parse_csv_file(file)
 
-            # Determine format and extract distinct IDs accordingly
             if self._is_single_column_format(first_row):
                 distinct_ids = self._extract_distinct_ids_single_column(first_row, reader)
             else:
-                # Find the distinct_id column
                 distinct_id_col = self._find_distinct_id_column(first_row)
                 if distinct_id_col is None:
                     available_headers = [h for h in first_row if h.strip()]
@@ -372,7 +369,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
                 distinct_ids = self._extract_distinct_ids_multi_column(reader, distinct_id_col, cohort.pk)
 
-            # Final validation and processing
             self._validate_and_process_distinct_ids(distinct_ids, cohort)
 
         except Exception as e:
