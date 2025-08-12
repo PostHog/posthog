@@ -15,10 +15,21 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
     },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query': () => {
+                    // empty query results, unless specified below
+                    return [200, { results: [], message: 'Generic POST to /api/query mock for PersonSceneStory' }]
+                },
+            },
+        }),
+    ],
 }
 export default meta
 
 type Story = StoryObj<typeof meta>
+
 export const PersonsEmpty: Story = { parameters: { pageUrl: urls.persons() } }
 export const Cohorts: Story = { parameters: { pageUrl: urls.cohorts() } }
 export const Groups: Story = { parameters: { pageUrl: urls.groups(0) } }
@@ -28,7 +39,7 @@ export const Persons: Story = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/': (req) => {
+                '/api/environments/:team_id/query': (req) => {
                     const query = (req.body as any)?.query
                     // Check if it's a DataTableNode query, which is used for Events/Exceptions tabs
                     if (query && query.kind === 'ActorsQuery') {
