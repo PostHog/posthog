@@ -196,6 +196,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                     {
                         "model": model,
                         "ai_product": "wizard",
+                        "team": "growth",
                     },
                 )
                 raise error
@@ -233,6 +234,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                     {
                         "model": model,
                         "ai_product": "wizard",
+                        "team": "growth",
                         "trace_id": trace_id,
                         "distinct_id": distinct_id,
                     },
@@ -283,6 +285,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                     {
                         "model": model,
                         "ai_product": "wizard",
+                        "team": "growth",
                         "trace_id": trace_id,
                         "distinct_id": distinct_id,
                         "response_content": result.choices[0].message.content[:500]
@@ -337,6 +340,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
                     "project_id": project_id,
                     "user_id": request.user.id if request.user else None,
                     "user_distinct_id": request.user.distinct_id if request.user else None,
+                    "ai_product": "wizard",
+                    "team": "growth",
                 },
             )
             raise serializers.ValidationError({"projectId": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
