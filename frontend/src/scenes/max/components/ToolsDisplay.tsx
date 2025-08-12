@@ -41,9 +41,9 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
             >
                 <div
                     className={clsx(
-                        'relative flex items-center text-xs font-medium justify-between gap-1 pl-1 overflow-hidden',
+                        'relative flex items-center text-xs font-medium justify-between gap-1 px-1.5 overflow-hidden',
                         !isFloating
-                            ? 'w-[calc(100%-1rem)] py-0.75 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                            ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                             : `w-full pb-1`
                     )}
                 >
@@ -53,12 +53,12 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                             // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
                             // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
                             <em className="relative inline-flex items-center gap-1" key={tool.identifier}>
-                                <span className="text-sm">{tool.icon || <IconWrench />}</span>
+                                <span className="flex text-sm">{tool.icon || <IconWrench />}</span>
                                 {tool.name}
                             </em>
                         ))}
                     </TruncatedHorizontalCollection>
-                    <IconInfo className="text-sm p-1 shrink-0 box-content z-10" />
+                    <IconInfo className="text-sm shrink-0 box-content z-10" />
                 </div>
             </Tooltip>
             {bottomActions && <div className="ml-auto">{bottomActions}</div>}
@@ -123,7 +123,10 @@ function TruncatedHorizontalCollection<Children extends React.ReactElement>({
                     <span
                         key={index}
                         ref={(e) => e && (collectionRef.current[index] = e)}
-                        className={clsx('relative flex-shrink-0', index >= visibleElementsCount && '*:first:invisible')}
+                        className={clsx(
+                            'flex relative flex-shrink-0',
+                            index >= visibleElementsCount && '*:first:invisible'
+                        )}
                     >
                         {React.cloneElement(child, {
                             ref: (e: HTMLElement) => e && (collectionRef.current[index] = e),
