@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 import structlog
 from pydantic import BaseModel, Field
@@ -68,7 +68,7 @@ class ExecuteTasksTool(MaxTool):
     async def arun(
         self,
         tasks: list[TaskDefinition],
-        run_manager: Optional[Any] = None,
+        config: RunnableConfig,
     ):
         """
         Execute tasks in parallel using insights subgraph and yield results as they complete.
@@ -87,9 +87,7 @@ class ExecuteTasksTool(MaxTool):
         task_executor = RunnableLambda(self._execute_task_with_insights).with_config(run_name="TaskExecutor")
 
         # Prepare inputs for batch processing
-        batch_inputs = [{"task": task, "index": i} for i, task in enumerate(tasks)]
-
-        config = RunnableConfig()
+        batch_inputs = [{"task": task, "index": i, "config": config} for i, task in enumerate(tasks)]
 
         # Use abatch_as_completed to process tasks as they complete
         async for task_index, output in task_executor.abatch_as_completed(batch_inputs, config=config):
@@ -98,7 +96,7 @@ class ExecuteTasksTool(MaxTool):
 
             processing_start_time = time.time()
             logger.info(
-                "PROCESSING TASK RESULT",
+                "PROCESSING TASK RESULT (from tools.py)",
                 task_index=task_index,
                 task_description=task.description,
                 result_available=bool(result),
@@ -107,21 +105,6 @@ class ExecuteTasksTool(MaxTool):
             # Process the result and check for clarification requests
             result_content = self._extract_result_content(result)
             artifacts = self._extract_artifacts(result, task_index)
-
-            # # Check if the result contains a clarification request
-            # if self._is_clarification_request(result_content):
-            #     logger.warning(
-            #         "CLARIFICATION_REQUEST_DETECTED",
-            #         task_index=task_index,
-            #         task_description=task.description,
-            #         result_preview=result_content[:200] + "..." if len(result_content) > 200 else result_content,
-            #     )
-            #     # Transform clarification request into a task result
-            #     result_content = f"Task analysis: {task.description}\n\nThe system attempted to gather more information but proceeded with available data. {result_content}"
-
-            # Store artifacts
-            for artifact in artifacts:
-                self._artifact_store.store_artifact(artifact)
 
             processing_end_time = time.time()
             processing_duration = processing_end_time - processing_start_time
@@ -142,11 +125,12 @@ class ExecuteTasksTool(MaxTool):
     async def _execute_task_with_insights(self, input_dict: dict) -> dict:
         """Execute a single task using the full insights pipeline."""
         from ee.hogai.utils.types import AssistantState
-        from posthog.schema import HumanMessage, AssistantMessage
+        from posthog.schema import HumanMessage
         import time
 
         task = input_dict["task"]
         task_index = input_dict["index"]
+        config = input_dict.get("config")
 
         task_start_time = time.time()
         logger.info(
@@ -159,7 +143,7 @@ class ExecuteTasksTool(MaxTool):
         # Add artificial delay for testing parallel execution
         # TODO: Re-enable this for testing
         if "Create pageviews trends chart" in task.description:
-            delay_seconds = 15
+            delay_seconds = 5
             delay_start_time = time.time()
             logger.info(
                 "ARTIFICIAL DELAY APPLIED",
@@ -183,7 +167,6 @@ class ExecuteTasksTool(MaxTool):
         human_message = HumanMessage(content=task.instructions, id=str(uuid.uuid4()))
         task_tool_call_id = f"task_{task_index}_{uuid.uuid4().hex[:8]}"
 
-        # TODO: Added root_tool_insight_plan to trigger the insights pipeline to plan the task (not sure if this is needed)
         input_state = AssistantState(
             messages=[human_message],
             start_id=human_message.id,
@@ -191,32 +174,18 @@ class ExecuteTasksTool(MaxTool):
             root_tool_insight_plan=task.instructions,
         )
 
-        # Execute using the full insights pipeline with error handling
-        config = RunnableConfig()
         try:
             raw_result = await self._insights_subgraph.ainvoke(input_state, config)
 
-            # Convert LangGraph AddableValuesDict to AssistantState if needed
             if hasattr(raw_result, "messages"):
                 # Already an AssistantState-like object
                 result = raw_result
-            elif isinstance(raw_result, dict) and "messages" in raw_result:
+            else:
                 # Convert dict result to AssistantState
-                # TODO: Should this be a PartialAssistantState?
                 result = AssistantState(
                     messages=raw_result["messages"],
                     start_id=raw_result.get("start_id", human_message.id),
                     root_tool_call_id=raw_result.get("root_tool_call_id", task_tool_call_id),
-                )
-            else:
-                # Fallback - create minimal AssistantState
-                fallback_message = AssistantMessage(
-                    content=f"Task completed but result format was unexpected: {type(raw_result).__name__}",
-                    id=str(uuid.uuid4()),
-                )
-                result = AssistantState(
-                    messages=[fallback_message],
-                    start_id=human_message.id,
                 )
         except Exception as e:
             # Handle cases where the insights subgraph has validation errors or asks for clarification
@@ -227,15 +196,7 @@ class ExecuteTasksTool(MaxTool):
                 error_type=type(e).__name__,
                 error_message=str(e),
             )
-            # Create a fallback result indicating the issue
-            fallback_message = AssistantMessage(
-                content=f"Task could not be completed due to technical limitations. Error: {str(e)[:200]}...",
-                id=str(uuid.uuid4()),
-            )
-            result = AssistantState(
-                messages=[fallback_message],
-                start_id=human_message.id,
-            )
+            raise Exception(f"Error executing task {task_index}: {str(e)}")
 
         task_end_time = time.time()
         task_duration = task_end_time - task_start_time
@@ -266,7 +227,8 @@ class ExecuteTasksTool(MaxTool):
         """Extract markdown result content from insights subgraph execution."""
         from posthog.schema import HumanMessage
 
-        # Handle AssistantState result from InsightsAssistantGraph
+        # Check if we have stored original messages (which include VisualizationMessages)
+        # We want to use the filtered messages for content extraction
         if hasattr(subgraph_result, "messages"):
             messages = subgraph_result.messages
         elif isinstance(subgraph_result, dict):
@@ -301,7 +263,10 @@ class ExecuteTasksTool(MaxTool):
         artifacts = []
 
         # Handle AssistantState result from InsightsAssistantGraph
-        if hasattr(subgraph_result, "messages"):
+        # Use original messages if available (contains VisualizationMessage), otherwise filtered messages
+        if hasattr(subgraph_result, "_original_messages"):
+            messages = subgraph_result._original_messages
+        elif hasattr(subgraph_result, "messages"):
             messages = subgraph_result.messages
         elif isinstance(subgraph_result, dict):
             messages = subgraph_result.get("messages", [])
@@ -320,23 +285,6 @@ class ExecuteTasksTool(MaxTool):
                     },
                 )
                 artifacts.append(artifact)
-
-        # Check if the result contains any query/insight data that could be an artifact
-        # TODO: This would trigger useless "InsightArtifact"s
-        # has_plan = (hasattr(subgraph_result, "plan") and subgraph_result.plan) or (
-        #     isinstance(subgraph_result, dict) and "plan" in subgraph_result
-        # )
-        # has_query = "query" in str(subgraph_result)
-
-        # if has_plan or has_query:
-        #     artifact = ArtifactResult(
-        #         short_id=f"insight_{task_index}_{uuid.uuid4().hex[:8]}",
-        #         description=f"Insight generated from task {task_index + 1}",
-        #         artifact_type="InsightArtifact",
-        #         data={"result": subgraph_result, "task_index": task_index},
-        #     )
-        #     artifacts.append(artifact)
-
         return artifacts
 
     def _is_clarification_request(self, result_messages: list) -> bool:

@@ -468,8 +468,12 @@ class Assistant:
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
         if update[1] == "custom":
-            # Custom streams come from a tool call
-            update = update[2]
+            # Custom streams come from a tool call - return the message directly
+            # for Deep Research (Agent Subgraph) this is needed since we stream the messages directly from the subgraph
+            message = update[2]
+            if isinstance(message, BaseModel):
+                return [message]
+            return None
         update = update[1:]  # we remove the first element, which is the node/subgraph node name
         if is_state_update(update):
             _, new_state = update
@@ -497,7 +501,7 @@ class Assistant:
             node_val = state_update[node_name]
             if not isinstance(node_val, PartialAssistantState):
                 return None
-            if node_val.messages:
+            if node_val.messages and self._mode != AssistantMode.DEEP_RESEARCH:
                 return list(node_val.messages)
             elif node_val.intermediate_steps:
                 return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]

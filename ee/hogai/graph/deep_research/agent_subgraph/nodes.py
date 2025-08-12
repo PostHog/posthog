@@ -4,6 +4,7 @@ import uuid
 import structlog
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 
 from ee.hogai.graph.base import BaseAssistantNode
 from .tools import ExecuteTasksTool
@@ -105,7 +106,16 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                 estimated_duration="varies by task complexity",
             )
 
-            async for task_result in self._execute_tasks_tool.arun(tasks):
+            writer = get_stream_writer()
+
+            # Stream initial task start message
+            start_message = AssistantMessage(
+                content=f"🚀 Starting {len(tasks)} research tasks in parallel...", id=str(uuid.uuid4())
+            )
+            messages.append(start_message)
+            writer(start_message)
+
+            async for task_result in self._execute_tasks_tool.arun(tasks, config):
                 task_count += 1
                 current_time = time.time()
                 elapsed_total = current_time - execution_start_time
@@ -136,11 +146,14 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                     else task_result.result or "No result",
                 )
 
-                # Add a "Finished task" message for streaming
+                # Add a "Finished task" message for streaming with progress
+                progress_percentage = round((task_count / len(tasks)) * 100, 1)
                 finished_message = AssistantMessage(
-                    content=f"✅ Finished task #{task_count}: {task_result.description}", id=str(uuid.uuid4())
+                    content=f"✅ **Task {task_count}/{len(tasks)} Complete** ({progress_percentage}%)\n\n**{task_result.description}**",
+                    id=str(uuid.uuid4()),
                 )
                 messages.append(finished_message)
+                writer(finished_message)
 
                 # Extract VisualizationMessage objects from artifacts
                 current_viz_messages = []
@@ -154,7 +167,11 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                                     visualization_messages.append(viz_msg)
                                     current_viz_messages.append(viz_msg)
                                     messages.append(viz_msg)
-                                    logger.info("Retrieved VisualizationMessage", viz_id=viz_msg.id)
+
+                                    # Stream the visualization message immediately to the user
+                                    writer(viz_msg)
+
+                                    logger.info("Retrieved and streamed VisualizationMessage", viz_id=viz_msg.id)
                                 except Exception as e:
                                     logger.warning("Could not reconstruct VisualizationMessage", error=str(e))
 
@@ -234,6 +251,9 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                 summary_message = AssistantMessage(content=summary_content, id=str(uuid.uuid4()))
                 messages.append(summary_message)
 
+                # Stream the completion summary message immediately
+                writer(summary_message)
+
                 logger.info("Added completion summary message")
 
             # Extract IDs from visualization messages
@@ -251,8 +271,8 @@ class TaskExecutorNode(BaseAssistantNode[AgentSubgraphState, PartialAgentSubgrap
                 task_statuses=updated_task_statuses,
             )
 
-            # Filter out human messages and visualization messages (already streamed)
-            # Keep only the completion summary message
+            # Filter out human messages (original commands) + visualization messages
+            # Visualization messages are streamed directly, not added to messages list
             filtered_messages = [
                 msg
                 for msg in messages

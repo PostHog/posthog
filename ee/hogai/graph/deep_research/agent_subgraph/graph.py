@@ -18,8 +18,7 @@ class AgentSubgraph(BaseAssistantGraph[AgentSubgraphState]):
     def __init__(self, team: Team, user: User):
         super().__init__(team, user, AgentSubgraphState)
         # Create compiled insights subgraph for task execution
-        insights_graph = InsightsAssistantGraph(team, user)
-        self._compiled_insights_subgraph = insights_graph.compile_full_graph()
+        self._compiled_insights_subgraph = InsightsAssistantGraph(team, user).compile_full_graph()
 
     def add_task_executor(self, next_node: AssistantNodeName = AssistantNodeName.END):
         """
