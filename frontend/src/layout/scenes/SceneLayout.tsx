@@ -48,9 +48,11 @@ export const ScenePanelCommonActions = ({ children }: { children: React.ReactNod
     return (
         <>
             <div
-                className={cn(
-                    'flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] py-2 border-b border-primary -mx-2 px-2 mb-2'
-                )}
+                // This is a hack to make the meta info panel have a margin top of 0 when it's the first child of the panel
+                className={`
+                    [&+.scene-panel-meta-info]:mt-0 
+                    flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] py-2 border-b border-primary -mx-2 px-2 mb-2
+                `}
             >
                 {children}
             </div>
@@ -60,7 +62,7 @@ export const ScenePanelCommonActions = ({ children }: { children: React.ReactNod
 
 // Should be second!
 export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="pl-1 pb-1 flex flex-col gap-2">{children}</div>
+    return <div className="scene-panel-meta-info pl-1 pb-1 flex flex-col gap-2 mt-2">{children}</div>
 }
 
 // Should be third!

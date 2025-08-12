@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { actionEditLogic } from '../logics/actionEditLogic'
 import { actionLogic } from '../logics/actionLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { SceneSection } from '~/layout/scenes/SceneContent'
 
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
@@ -14,10 +15,11 @@ export function ActionHogFunctions(): JSX.Element | null {
     }
 
     return (
-        <div className="my-4 deprecated-space-y-2">
-            <h2 className="flex-1 subtitle">Connected destinations</h2>
-            <p>Actions can be used a filters for destinations such as Slack or Webhook delivery</p>
-
+        <SceneSection
+            className="@container"
+            title="Connected destinations"
+            description="Actions can be used a filters for destinations such as Slack or Webhook delivery"
+        >
             {showCohortDisablesFunctionsWarning ? (
                 <LemonBanner type="error">Adding a cohort filter will disable all connected destinations!</LemonBanner>
             ) : null}
@@ -43,6 +45,6 @@ export function ActionHogFunctions(): JSX.Element | null {
                           : undefined
                 }
             />
-        </div>
+        </SceneSection>
     )
 }
