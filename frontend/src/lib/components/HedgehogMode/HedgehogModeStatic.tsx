@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 
 import { HedgehogConfig } from '~/types'
 
-export type HedgehogModeStaticProps = Partial<HedgehogConfig['actor_options']> & { size?: number | string }
+export type HedgehogModeStaticProps = Pick<HedgehogConfig['actor_options'], 'accessories' | 'color' | 'skin'> & {
+    size?: number | string
+}
 
 const staticHedgehogRenderer = new StaticHedgehogRenderer({
     assetsUrl: '/static/hedgehog-mode/',
