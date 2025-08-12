@@ -12,12 +12,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.api.authentication import VercelAuthentication
-from ee.api.vercel.vercel_installation import VercelInstallationPermission, get_vercel_plans
-from ee.models.vercel.vercel_installation import VercelInstallation
+from ee.api.vercel.vercel_installation import VercelInstallationPermission
 from ee.models.vercel.vercel_resource import VercelResource
-from posthog.models import ProductIntent
-from posthog.models.organization import Organization
-from posthog.models.team.team import Team
+from ee.vercel.integration import VercelIntegration
 
 
 class VercelResourceSerializer(serializers.ModelSerializer):
@@ -159,44 +156,6 @@ class VercelResourceViewSet(
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelInstallationPermission]
 
-    def _get_installation_and_billing_plan(self):
-        """Get installation and current billing plan"""
-        installation_id = self.kwargs.get("parent_lookup_installation_id")
-        installation = VercelInstallation.objects.get(installation_id=installation_id)
-
-        billing_plans = get_vercel_plans()
-        current_plan_id = installation.billing_plan_id
-        current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
-
-        return installation, current_plan
-
-    def _build_secrets(self, team: Team) -> list[dict[str, str]]:
-        """Build the secrets array for the resource response"""
-        return [
-            {
-                "name": "POSTHOG_PROJECT_API_KEY",
-                "value": team.api_token,
-            },
-            {
-                "name": "POSTHOG_HOST",
-                "value": "https://app.posthog.com",
-            },
-        ]
-
-    def _build_resource_response(self, resource: VercelResource) -> dict[str, Any]:
-        """Build the standard resource response data"""
-        _, current_plan = self._get_installation_and_billing_plan()
-
-        return {
-            "id": str(resource.pk),
-            "productId": resource.config.get("productId", ""),
-            "name": resource.config.get("name", resource.team.name),
-            "metadata": resource.config.get("metadata", {}),
-            "status": "ready",
-            "secrets": self._build_secrets(resource.team),
-            "billingPlan": current_plan,
-        }
-
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Used to provision a resource via POST.
@@ -204,46 +163,19 @@ class VercelResourceViewSet(
         """
         serializer = ResourcePayloadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        validated_data = serializer.validated_data
 
-        installation, _ = self._get_installation_and_billing_plan()
-        organization: Organization = installation.organization
-
-        team = Team.objects.create_with_data(
-            initiating_user=None,
-            organization=organization,
-            name=validated_data["name"],
-            has_completed_onboarding_for={
-                "product_analytics": True
-            },  # Mark one product as onboarded to show activation sidebar
-        )
-
-        ProductIntent.objects.create(
-            team=team,
-            product_type="feature_flags",
-            contexts={"vercel native integration": 1},
-        )
-
-        ProductIntent.objects.create(
-            team=team,
-            product_type="experiments",
-            contexts={"vercel native integration": 1},
-        )
-
-        resource: VercelResource = VercelResource.objects.create(
-            team=team,
-            installation=installation,
-            config=validated_data,
-        )
-
-        return Response(self._build_resource_response(resource), status=200)
+        installation_id = self.kwargs.get("parent_lookup_installation_id")
+        response_data = VercelIntegration.create_resource(installation_id, serializer.validated_data)
+        return Response(response_data, status=200)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#get-resource
         """
-        resource = self.get_object()
-        return Response(self._build_resource_response(resource), status=200)
+        resource_id = self.kwargs.get("id")
+        installation_id = self.kwargs.get("parent_lookup_installation_id")
+        response_data = VercelIntegration.get_resource(resource_id, installation_id)
+        return Response(response_data, status=200)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
@@ -251,20 +183,16 @@ class VercelResourceViewSet(
         """
         serializer = ResourcePayloadSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        validated_data = serializer.validated_data
 
-        resource = self.get_object()
-
-        updated_config = resource.config.copy()
-        updated_config.update(validated_data)
-        resource.config = updated_config
-        resource.save(update_fields=["config"])
-
-        return Response(self._build_resource_response(resource), status=200)
+        resource_id = self.kwargs.get("id")
+        installation_id = self.kwargs.get("parent_lookup_installation_id")
+        response_data = VercelIntegration.update_resource(resource_id, installation_id, serializer.validated_data)
+        return Response(response_data, status=200)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-resource
         """
-        # TODO: Implement resource deletion logic
-        raise serializers.MethodNotAllowed("DELETE")
+        resource_id = self.kwargs.get("id")
+        VercelIntegration.delete_resource(resource_id)
+        return Response(status=204)

@@ -8,64 +8,16 @@ https://vercel.com/docs/integrations/create-integration/marketplace-api
 """
 
 from typing import Any
-from django.conf import settings
-from django.db import IntegrityError
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import mixins
 from rest_framework.permissions import BasePermission
-from ee.api.authentication import VercelAuthentication
-from posthog.event_usage import report_user_signed_up
-from posthog.models.user import User
-from ee.models.vercel.vercel_installation import VercelInstallation
 from rest_framework import decorators
 
-
-def get_vercel_plans() -> list[dict[str, Any]]:
-    """Get PostHog plans formatted for Vercel Marketplace"""
-    return [
-        {
-            "id": "free",
-            "type": "subscription",
-            "name": "Free",
-            "description": "No credit card required",
-            "scope": "installation",
-            "paymentMethodRequired": False,
-            "details": [
-                {"label": "Data retention", "value": "1 year"},
-                {"label": "Projects", "value": "1"},
-                {"label": "Team members", "value": "Unlimited"},
-                {"label": "API Access", "value": "✓"},
-                {"label": "No limits on tracked users", "value": "✓"},
-                {"label": "Community support", "value": "Support via community forum"},
-            ],
-            "highlightedDetails": [
-                {"label": "Feature Flags", "value": "1 million free requests"},
-                {"label": "Experiments", "value": "1 million free requests"},
-            ],
-        },
-        {
-            "id": "pay_as_you_go",
-            "type": "subscription",
-            "name": "Pay-as-you-go",
-            "description": "Usage-based pricing after free tier",
-            "scope": "installation",
-            "paymentMethodRequired": True,
-            "details": [
-                {"label": "Data retention", "value": "7 years"},
-                {"label": "Projects", "value": "6"},
-                {"label": "Team members", "value": "Unlimited"},
-                {"label": "API Access", "value": "✓"},
-                {"label": "No limits on tracked users", "value": "✓"},
-                {"label": "Standard support", "value": "Support via email, Slack-based over $2k/mo"},
-            ],
-            "highlightedDetails": [
-                {"label": "Feature flags", "value": "1 million requests for free, then from $0.0001/request"},
-                {"label": "Experiments", "value": "Billed with feature flags"},
-            ],
-        },
-    ]
+from ee.api.authentication import VercelAuthentication
+from ee.models.vercel.vercel_installation import VercelInstallation
+from ee.vercel.integration import VercelIntegration
 
 
 class VercelInstallationPermission(BasePermission):
@@ -182,92 +134,35 @@ class VercelInstallationViewSet(
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#upsert-installation
         """
-        serializer: UpsertInstallationPayloadSerializer = UpsertInstallationPayloadSerializer(data=request.data)
+        serializer = UpsertInstallationPayloadSerializer(data=request.data)
         if not serializer.is_valid():
             raise exceptions.ValidationError(detail=serializer.errors)
 
         installation_id = self.kwargs["installation_id"]
 
-        try:
-            # TODO: Not sure if this is the best move because users might be confused
-            # by the default project created here and their "Resource" project.
-            organization, _, user = User.objects.bootstrap(
-                is_staff=False,
-                is_email_verified=False,
-                role_at_organization="admin",
-                email=serializer.validated_data["account"]["contact"]["email"],
-                first_name=serializer.validated_data["account"]["contact"].get("name", ""),
-                organization_name=serializer.validated_data["account"].get(
-                    "name", f"Vercel Installation {installation_id}"
-                ),
-                password=None,  # SSO instead of password. Users will still be able to reset their password.
-            )
-        except IntegrityError:
-            raise exceptions.ValidationError(
-                {"email": "There is already an account with this email address."},
-                code="unique",
-            )
-
-        report_user_signed_up(
-            user,
-            is_instance_first_user=False,
-            is_organization_first_user=True,  # Always true because we're always creating a new organization
-            backend_processor="VercelInstallationViewSet",
-            user_analytics_metadata=user.get_analytics_metadata(),
-            org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
-            social_provider="vercel",
-            referral_source="vercel",
-        )
-
-        VercelInstallation.objects.create(
-            installation_id=installation_id,
-            organization=organization,
-            upsert_data=serializer.validated_data,
-            # If the provider is using installation-level billing plans,
-            # a default plan must be assigned in provider systems (default "free")
-            billing_plan_id="free",
-        )
-
+        VercelIntegration.upsert_installation(installation_id, serializer.validated_data)
         return Response(status=204)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#get-installation
         """
+        installation_id = self.kwargs.get("installation_id", "")
 
-        installation_id = self.kwargs.get("installation_id")
-
-        installation = VercelInstallation.objects.get(installation_id=installation_id)
-
-        billing_plans = get_vercel_plans()
-        current_plan_id = installation.billing_plan_id
-
-        current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
-        response_data = {
-            "billingplan": current_plan,
-        }
+        response_data = VercelIntegration.get_installation(installation_id)
         return Response(response_data, status=200)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#update-installation
         """
-        serializer: UpsertInstallationPayloadSerializer = UpsertInstallationPayloadSerializer(data=request.data)
+        serializer = UpsertInstallationPayloadSerializer(data=request.data)
         if not serializer.is_valid():
             raise exceptions.ValidationError(detail=serializer.errors)
 
         installation_id = self.kwargs["installation_id"]
 
-        try:
-            installation = VercelInstallation.objects.get(installation_id=installation_id)
-        except VercelInstallation.DoesNotExist:
-            raise exceptions.NotFound("Installation not found")
-
-        # TODO: Handle billing plan updates
-
-        installation.upsert_data = serializer.validated_data
-        installation.save(update_fields=["upsert_data"])
-
+        VercelIntegration.update_installation(installation_id, serializer.validated_data)
         return Response(status=204)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -275,18 +170,7 @@ class VercelInstallationViewSet(
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-installation
         """
         installation_id = self.kwargs["installation_id"]
-
-        try:
-            installation = VercelInstallation.objects.get(installation_id=installation_id)
-        except VercelInstallation.DoesNotExist:
-            raise exceptions.NotFound("Installation not found")
-
-        installation.delete()
-
-        # In production, installation stays in "delete pending" state for 24 hours for invoicing
-        is_dev = settings.DEBUG
-        response_data = {"finalized": is_dev}
-
+        response_data = VercelIntegration.delete_installation(installation_id)
         return Response(response_data, status=200)
 
     @decorators.action(detail=True, methods=["get"])
@@ -294,7 +178,7 @@ class VercelInstallationViewSet(
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#get-installation-plans
         """
-        return Response({"plans": get_vercel_plans()})
+        return Response({"plans": VercelIntegration.get_vercel_plans()})
 
 
 class VercelProductViewSet(viewsets.GenericViewSet):
@@ -315,8 +199,5 @@ class VercelProductViewSet(viewsets.GenericViewSet):
         """
         Get plans for a specific product. Currently only supports 'posthog' as productSlug.
         """
-        product_slug = self.kwargs.get("product_slug")
-        if product_slug != "posthog":
-            raise exceptions.NotFound("Product not found")
-
-        return Response({"plans": get_vercel_plans()})
+        product_slug = self.kwargs.get("product_slug", "")
+        return Response(VercelIntegration.get_product_plans(product_slug))
