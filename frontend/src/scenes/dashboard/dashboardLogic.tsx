@@ -135,7 +135,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         return props.id
     }),
 
-    actions(({ values }) => ({
+    actions(() => ({
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
@@ -1470,7 +1470,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.resetDashboardFilters()
                     actions.resetVariables()
 
-                    // reset tile data by relaoding dashboard
+                    // reset tile data by reloading dashboard
                     actions.loadDashboard({ action: DashboardLoadAction.Preview })
 
                     // also reset layout to that we stored in dashboardLayouts
