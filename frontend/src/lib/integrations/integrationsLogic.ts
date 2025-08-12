@@ -238,7 +238,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 const domainGroupedIntegrations: Record<string, EmailIntegrationDomainGroupedType> = {}
 
                 integrations
-                    ?.filter((x) => x.kind == 'email')
+                    ?.filter((x) => x.kind === 'email')
                     .forEach((integration) => {
                         const domain = integration.config.domain
                         if (!domainGroupedIntegrations[domain]) {

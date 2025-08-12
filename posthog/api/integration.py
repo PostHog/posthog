@@ -67,8 +67,6 @@ class IntegrationSerializer(serializers.ModelSerializer):
             serializer = NativeEmailIntegrationSerializer(data=config)
             serializer.is_valid(raise_exception=True)
 
-            if not (config.get("email")):
-                raise ValidationError("Email is required for email integration")
             instance = EmailIntegration.create_native_integration(
                 serializer.validated_data,
                 team_id,
