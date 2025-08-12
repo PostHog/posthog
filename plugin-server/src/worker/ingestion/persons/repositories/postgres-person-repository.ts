@@ -273,21 +273,25 @@ export class PostgresPersonRepository
         try {
             const { rows } = await this.postgres.query<RawPerson>(
                 tx ?? PostgresUse.PERSONS_WRITE,
-                `${forcedId ? `WITH inserted_person AS (
+                `${
+                    forcedId
+                        ? `WITH inserted_person AS (
                         INSERT INTO posthog_person (
                             id, created_at, properties, properties_last_updated_at,
                             properties_last_operation, team_id, is_user_id, is_identified, uuid, version
                         )
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                         RETURNING *
-                    )` : `WITH inserted_person AS (
+                    )`
+                        : `WITH inserted_person AS (
                         INSERT INTO posthog_person (
                             created_at, properties, properties_last_updated_at,
                             properties_last_operation, team_id, is_user_id, is_identified, uuid, version
                         )
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                         RETURNING *
-                    )`} ` +
+                    )`
+                } ` +
                     distinctIds
                         .map(
                             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
