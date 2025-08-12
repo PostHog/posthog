@@ -98,7 +98,7 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                                 or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct */}
                                 <ToolPill tool={tool} hidden={toolsHidden.includes(tool.identifier)} />
                                 {tool.identifier === firstToolOverflowing && (
-                                    <span className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center">
+                                    <span className="absolute left-0 top-0 bottom-0 text-xs text-muted flex items-center">
                                         + {toolsHidden.length} more
                                     </span>
                                 )}
@@ -128,8 +128,8 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
     /** Dynamic list of things Max can do right now, i.e. general capabilities + tools registered. */
     const maxCanHere = useMemo(
         () =>
-            (MAX_GENERALLY_CAN as { icon?: JSX.Element; name?: string; description?: string }[])
-                .concat(toolsInReverse)
+            (toolsInReverse as { icon?: JSX.Element; name?: string; description?: string }[])
+                .concat(MAX_GENERALLY_CAN)
                 .map((tool) => (
                     <>
                         <span className="flex text-base text-success shrink-0 ml-1 mr-2 h-[1.25em]">
@@ -173,7 +173,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
         () =>
             Object.entries(maxCanElsewhereByProduct).map(([product, tools]) => (
                 <>
-                    <IconArrowRight className="text-base text-muted shrink-0 ml-1 mr-2 h-[1.25em]" />
+                    <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
                     <span>
                         <em>In {sceneConfigurations[product]?.name || identifierToHuman(product)}: </em>
                         {tools.map((tool, index) => (

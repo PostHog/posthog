@@ -9,11 +9,11 @@ import { Scene } from 'scenes/sceneTypes'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
-    /** A user-friendly display name for the tool. Must be a verb phrase, like "Create insights" or "Search docs" */
+    /** A user-friendly display name for the tool. Must be a verb phrase, like "Create surveys" or "Search docs" */
     name: N
     /**
      * Optional user-friendly description for the tool, if more detail beyond the name useful.
-     * Must be a sentence that's an extension of the name, e.g. "Create insights to learn everything"
+     * Must be a sentence that's an extension of the name, e.g. "Create surveys in seconds"
      */
     description?: `${N} ${string}`
     /**
@@ -107,13 +107,13 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
     },
     experiment_results_summary: {
         name: 'Summarize experiment results',
-        description: 'Summarize experiment results for a comprehensive overview',
+        description: 'Summarize experiment results for a comprehensive rundown',
         product: Scene.Experiment,
         flag: 'experiments-ai-summary',
     },
     create_survey: {
         name: 'Create surveys',
-        description: 'Create surveys to collect qualitative feedback from your users',
+        description: 'Create surveys in seconds',
         product: Scene.Surveys,
     },
 }
