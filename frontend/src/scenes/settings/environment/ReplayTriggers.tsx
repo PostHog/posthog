@@ -722,7 +722,6 @@ export function ReplayTriggers(): JSX.Element {
                     <LinkedFlagSelector />
                 </PayGateMini>
                 <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
-                    <LinkedFlagSelector />
                     <Sampling />
                 </PayGateMini>
             </div>

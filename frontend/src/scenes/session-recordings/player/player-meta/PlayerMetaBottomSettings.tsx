@@ -8,7 +8,6 @@ import {
 } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -94,16 +93,13 @@ function Screenshot(): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
-        <>
-            <ScreenShotEditor screenshotKey="replay" />
-            <SettingsButton
-                title="Take a screenshot of the current frame"
-                label="Screenshot"
-                data-attr="screenshot"
-                onClick={takeScreenshot}
-                icon={<IconLlmPromptEvaluation />}
-            />
-        </>
+        <SettingsButton
+            title="Take a screenshot of the current frame"
+            label="Screenshot"
+            data-attr="replay-screenshot"
+            onClick={takeScreenshot}
+            icon={<IconLlmPromptEvaluation />}
+        />
     )
 }
 
