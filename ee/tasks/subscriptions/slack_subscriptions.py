@@ -6,7 +6,6 @@ from django.conf import settings
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
-from slack_sdk.web.async_client import AsyncWebClient
 
 logger = structlog.get_logger(__name__)
 
@@ -171,10 +170,10 @@ async def send_slack_message_with_integration_async(
 ) -> None:
     """Send Slack message using provided integration (async version)."""
     message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
-    async_client = AsyncWebClient(integration.sensitive_config["access_token"])
+    slack_integration = SlackIntegration(integration)
 
     # Send main message
-    message_res = await async_client.chat_postMessage(
+    message_res = await slack_integration.async_client.chat_postMessage(
         channel=message_data.channel, blocks=message_data.blocks, text=message_data.title
     )
 
@@ -182,4 +181,6 @@ async def send_slack_message_with_integration_async(
     if thread_ts:
         # Send thread messages
         for thread_msg in message_data.thread_messages:
-            await async_client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
+            await slack_integration.async_client.chat_postMessage(
+                channel=message_data.channel, thread_ts=thread_ts, **thread_msg
+            )
