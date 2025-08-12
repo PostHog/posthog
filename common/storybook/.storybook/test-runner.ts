@@ -51,6 +51,7 @@ declare module '@storybook/types' {
         msw?: {
             mocks?: Mocks
         }
+
         [name: string]: any
     }
 
@@ -171,7 +172,40 @@ async function takeSnapshotWithTheme(
     await waitForPageReady(page)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
-        await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+        // right before your waitForFunction (or after it times out in a catch)
+        const badImages = await page.evaluate(() => {
+            const toRow = (i: HTMLImageElement): Record<string, any> => {
+                const cs = getComputedStyle(i)
+                const r = i.getBoundingClientRect()
+                return {
+                    src: (i as any).currentSrc || i.src || '',
+                    alt: i.alt || '',
+                    loading: i.getAttribute('loading') || '',
+                    widthAttr: i.getAttribute('width'),
+                    heightAttr: i.getAttribute('height'),
+                    domWidth: i.width,
+                    domHeight: i.height,
+                    naturalWidth: i.naturalWidth,
+                    naturalHeight: i.naturalHeight,
+                    complete: i.complete,
+                    display: cs.display,
+                    visibility: cs.visibility,
+                    opacity: cs.opacity,
+                    rect: { x: r.x, y: r.y, w: r.width, h: r.height },
+                    outerHTML: i.outerHTML.slice(0, 300) + '…', // trim for log
+                }
+            }
+            return Array.from(document.images)
+                .filter((i) => !i.complete || i.naturalWidth === 0)
+                .map(toRow)
+        })
+
+        if (badImages.length) {
+            // Optional: force a test failure with details instead of a generic timeout
+            throw new Error(`Images missing width:\n${badImages.map((b) => `- ${b.src} (alt="${b.alt}")`).join('\n')}`)
+        }
+        //
+        // await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
     }
     await page.waitForTimeout(2000)
 
