@@ -38,12 +38,8 @@ export function HedgehogModeStatic({ config, size }: HedgehogModeStaticProps): J
                 accessories,
                 color,
             })
-            .then((src) => {
-                setDataUrl(src)
-            })
-            .catch((e) => {
-                console.error('Error rendering hedgehog', e)
-            })
+            .then((src) => setDataUrl(src))
+            .catch((e) => console.error('Error rendering hedgehog', e))
     }, [skin, accessories, color])
 
     return (
