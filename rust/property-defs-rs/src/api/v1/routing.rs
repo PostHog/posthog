@@ -62,8 +62,7 @@ async fn project_property_definitions_handler(
         Ok(row) => row.get(0),
         Err(e) => {
             return Err(ApiError::QueryError(format!(
-                "executing count query: {}",
-                e
+                "executing count query: {e}"
             )))
         }
     };
@@ -73,15 +72,14 @@ async fn project_property_definitions_handler(
         Ok(result) => {
             for row in result {
                 let pd = PropertyDefinition::from_row(&row).map_err(|e| {
-                    ApiError::QueryError(format!("deserializing prop defs row: {}", e))
+                    ApiError::QueryError(format!("deserializing prop defs row: {e}"))
                 })?;
                 prop_defs.push(pd);
             }
         }
         Err(e) => {
             return Err(ApiError::QueryError(format!(
-                "executing prop defs query: {}",
-                e
+                "executing prop defs query: {e}"
             )))
         }
     }

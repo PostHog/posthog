@@ -301,9 +301,35 @@ impl DateRangeExportSource {
 
         info!("Downloading and preparing key: {}", key);
 
-        // Let errors (including 429 wrapped as RateLimitedError) bubble up to job-level backoff
-        self.download_and_prepare_part_data_inner(key, start, end)
-            .await
+        let mut retries = self.retries;
+        loop {
+            match self
+                .download_and_prepare_part_data_inner(key, start, end)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    // Check if this is a rate limit error by looking for a 429 status in the error chain
+                    let is_rate_limit_error = e.chain().any(|err| {
+                        if let Some(reqwest_err) = err.downcast_ref::<ReqwestError>() {
+                            reqwest_err
+                                .status()
+                                .is_some_and(|status| status.as_u16() == 429)
+                        } else {
+                            false
+                        }
+                    });
+
+                    if is_rate_limit_error && retries > 0 {
+                        info!("Rate limit hit (429), sleeping for {:?} before retry. Retries remaining: {retries}", self.retry_delay);
+                        tokio::time::sleep(self.retry_delay).await;
+                        retries -= 1;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
     }
 
     async fn download_and_prepare_part_data_inner(
@@ -424,17 +450,13 @@ impl DateRangeExportSource {
             .extract_compressed_to_seekable_file(key, &raw_file_path, temp_dir.as_path())
             .await
             .with_context(|| {
-                format!(
-                    "Failed to extract compressed to seekable file for key: {}",
-                    key
-                )
+                format!("Failed to extract compressed to seekable file for key: {key}")
             })?;
 
         if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
             warn!(
-                "Failed to remove raw file {}: {}",
-                raw_file_path.display(),
-                e
+                "Failed to remove raw file {0}: {e}",
+                raw_file_path.display()
             );
         }
 
@@ -456,7 +478,7 @@ impl DateRangeExportSource {
             let prepared_keys = self.prepared_keys.lock().await;
             prepared_keys
                 .get(key)
-                .ok_or_else(|| Error::msg(format!("Key not prepared: {}", key)))?
+                .ok_or_else(|| Error::msg(format!("Key not prepared: {key}")))?
                 .clone()
         };
 
@@ -474,26 +496,22 @@ impl DateRangeExportSource {
 
         let mut file = File::open(extracted_part.data_file_path)
             .await
-            .with_context(|| format!("Failed to open extracted data file for key: {}", key))?;
+            .with_context(|| format!("Failed to open extracted data file for key: {key}"))?;
         file.seek(std::io::SeekFrom::Start(offset))
             .await
             .with_context(|| {
-                format!(
-                    "Failed to seek to offset {} in extracted data file for key: {}",
-                    offset, key
-                )
+                format!("Failed to seek to offset {offset} in extracted data file for key: {key}")
             })?;
         let mut buffer = vec![0u8; read_size];
         file.read_exact(&mut buffer).await.with_context(|| {
             format!(
-                "Failed to read exact {} bytes from extracted data file for key: {}",
-                read_size, key
+                "Failed to read exact {read_size} bytes from extracted data file for key: {key}"
             )
         })?;
 
         if end_offset == total_size {
             if let Err(e) = self.cleanup_key(key).await {
-                warn!("Failed to cleanup key {}: {:?}", key, e);
+                warn!("Failed to cleanup key {key}: {e:?}");
             }
         }
 

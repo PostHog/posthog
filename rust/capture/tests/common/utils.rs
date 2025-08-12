@@ -347,5 +347,5 @@ pub fn random_string(prefix: &str, length: usize) -> String {
         .take(length)
         .map(char::from)
         .collect();
-    format!("{}_{}", prefix, suffix)
+    format!("{prefix}_{suffix}")
 }
