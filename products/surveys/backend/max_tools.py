@@ -202,23 +202,13 @@ class FeatureFlagToolkit(TaxonomyAgentToolkit):
             else:
                 message += " (no variants)"
 
-            # Store the result for the final answer
-            # self._last_lookup_result = FeatureFlagLookupResult(
-            #     flag_id=feature_flag.id, flag_key=feature_flag.key, variants=variants, exists=True
-            # )
-
             return message
 
         except FeatureFlag.DoesNotExist:
-            # self._last_lookup_result = FeatureFlagLookupResult(
-            #     flag_id=None, flag_key=flag_key, variants=[], exists=False
-            # )
             return f"Feature flag '{flag_key}' not found in the team's feature flags."
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id})
-            # self._last_lookup_result = FeatureFlagLookupResult(
-            #     flag_id=None, flag_key=flag_key, variants=[], exists=False
-            # )
+
             return f"Error looking up feature flag: {str(e)}"
 
 

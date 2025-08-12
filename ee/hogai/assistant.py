@@ -404,7 +404,7 @@ class Assistant:
                 if node_name == AssistantNodeName.QUERY_PLANNER:
                     content = self._last_reasoning_headline or "Picking relevant events and properties"
                 else:
-                    content = self._last_reasoning_headline or "Picking the relevant information from the taxonomy"
+                    content = self._last_reasoning_headline or "Picking the relevant information"
                 return ReasoningMessage(
                     content=content,
                     substeps=substeps,
