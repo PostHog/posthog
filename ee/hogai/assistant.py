@@ -29,7 +29,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
+from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import (
@@ -87,29 +87,30 @@ VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]]
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
 
-STREAMING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
+STREAMING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
     AssistantNodeName.ROOT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-    FilterOptionsNodeName.FILTER_OPTIONS,
+    TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.AGENT_SUBGRAPH_EXECUTOR,
 }
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES: set[AssistantNodeName | FilterOptionsNodeName] = STREAMING_NODES | {
+VERBOSE_NODES: set[AssistantNodeName | TaxonomyNodeName] = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
-    FilterOptionsNodeName.FILTER_OPTIONS_TOOLS,
+    TaxonomyNodeName.TOOLS_NODE,
 }
 """Nodes that can send messages to the client."""
 
-THINKING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
+THINKING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
-    FilterOptionsNodeName.FILTER_OPTIONS,
+    TaxonomyNodeName.LOOP_NODE,
+    AssistantNodeName.SESSION_SUMMARIZATION,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -382,10 +383,10 @@ class Assistant:
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: AssistantNodeName | FilterOptionsNodeName, input: AssistantState
+        self, node_name: AssistantNodeName | TaxonomyNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.QUERY_PLANNER | FilterOptionsNodeName.FILTER_OPTIONS:
+            case AssistantNodeName.QUERY_PLANNER | TaxonomyNodeName.LOOP_NODE:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
@@ -457,6 +458,8 @@ class Assistant:
                 if ui_context and (ui_context.dashboards or ui_context.insights):
                     return ReasoningMessage(content="Calculating context")
                 return None
+            case AssistantNodeName.SESSION_SUMMARIZATION:
+                return ReasoningMessage(content="Summarizing session recordings")
             case _:
                 return None
 
@@ -491,7 +494,7 @@ class Assistant:
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
-            node_name: AssistantNodeName | FilterOptionsNodeName = intersected_nodes.pop()
+            node_name: AssistantNodeName | TaxonomyNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if not isinstance(node_val, PartialAssistantState):
                 return None
@@ -522,7 +525,7 @@ class Assistant:
         if not isinstance(langchain_message, AIMessageChunk):
             return None
 
-        node_name: AssistantNodeName | FilterOptionsNodeName = langgraph_state["langgraph_node"]
+        node_name: AssistantNodeName | TaxonomyNodeName = langgraph_state["langgraph_node"]
 
         # Check for reasoning content first (for all nodes that support it)
         if reasoning := langchain_message.additional_kwargs.get("reasoning"):

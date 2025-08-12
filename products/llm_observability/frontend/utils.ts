@@ -15,6 +15,8 @@ import {
     OpenAICompletionMessage,
     OpenAIToolCall,
     VercelSDKImageMessage,
+    VercelSDKInputImageMessage,
+    VercelSDKInputTextMessage,
     VercelSDKTextMessage,
 } from './types'
 
@@ -184,6 +186,28 @@ export function isVercelSDKImageMessage(input: unknown): input is VercelSDKImage
         typeof input.content.image === 'string'
     )
 }
+
+export function isVercelSDKInputImageMessage(input: unknown): input is VercelSDKInputImageMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'input_image' &&
+        'image_url' in input &&
+        typeof input.image_url === 'string'
+    )
+}
+
+export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKInputTextMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'input_text' &&
+        'text' in input &&
+        typeof input.text === 'string'
+    )
+}
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Observability schema.
  *
@@ -226,6 +250,31 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             {
                 role,
                 content: output.content,
+            },
+        ]
+    }
+
+    // Vercel SDK Input Image
+    if (isVercelSDKInputImageMessage(output)) {
+        return [
+            {
+                role,
+                content: [
+                    {
+                        type: 'image',
+                        image: output.image_url,
+                    },
+                ],
+            },
+        ]
+    }
+
+    // Vercel SDK Input Text
+    if (isVercelSDKInputTextMessage(output)) {
+        return [
+            {
+                role,
+                content: output.text,
             },
         ]
     }
@@ -379,4 +428,31 @@ export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     }
 
     return event.traceName ?? 'Trace'
+}
+
+/**
+ * Lightweight XML-ish content detector for UI toggles.
+ * - NOTE: Scans only the first 2KB for signals (to avoid performance issues with regex)
+ */
+export function looksLikeXml(input: unknown): boolean {
+    if (typeof input !== 'string') {
+        return false
+    }
+
+    const sampleLimit = 2048
+    const sample = input.length > sampleLimit ? input.slice(0, sampleLimit) : input
+
+    if (sample.indexOf('<') === -1 || sample.indexOf('>') === -1) {
+        return false
+    }
+
+    if (sample.includes('</') || sample.includes('/>') || sample.includes('<?xml') || sample.includes('<!DOCTYPE')) {
+        return true
+    }
+
+    const lt = sample.indexOf('<')
+    const next = sample[lt + 1]
+    const isNameStart =
+        !!next && ((next >= 'A' && next <= 'Z') || (next >= 'a' && next <= 'z') || next === '_' || next === ':')
+    return isNameStart
 }

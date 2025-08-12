@@ -185,12 +185,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             { results: [] as HogFunctionType[], count: 0 as number },
             {
                 loadHogFunctions: async () => {
-                    const siteDesinationsEnabled = !!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS]
-                    const destinationTypes = siteDesinationsEnabled
-                        ? props.types
-                        : props.types.filter((type) => type !== 'site_destination')
                     return await api.hogFunctions.list({
-                        types: destinationTypes,
+                        types: props.types,
                         search: values.filters.search,
                         limit: values.hogFunctionsLimit,
                     })
