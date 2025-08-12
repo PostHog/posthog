@@ -2,11 +2,10 @@
 MaxTool for AI-powered survey creation.
 """
 
-from typing import Any, cast
-
+from typing import Any
+from asgiref.sync import async_to_sync
 import django.utils.timezone
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from ee.hogai.tool import MaxTool
@@ -20,11 +19,21 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Survey, Team, FeatureFlag, User
 from posthog.schema import SurveyCreationSchema
 
+
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
 
 
 class SurveyCreatorArgs(BaseModel):
     instructions: str = Field(description="Natural language description of the survey to create")
+
+
+def get_team_survey_config(team: Team) -> dict[str, Any]:
+    """Get team survey configuration for context."""
+    survey_config = getattr(team, "survey_config", {}) or {}
+    return {
+        "appearance": survey_config.get("appearance", {}),
+        "default_settings": {"type": "popover", "enable_partial_responses": True},
+    }
 
 
 class FeatureFlagLookupResult(BaseModel):
@@ -45,33 +54,22 @@ class CreateSurveyTool(MaxTool):
         """
         Create a survey from natural language instructions.
         """
-        # Create the prompt
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", SURVEY_CREATION_SYSTEM_PROMPT),
-                ("human", "Create a survey based on these instructions: {{{instructions}}}"),
-            ],
-            template_format="mustache",
-        )
 
-        # Set up the LLM with structured output
-        model = (
-            ChatOpenAI(model="gpt-4.1-mini", temperature=0.2)
-            .with_structured_output(SurveyCreationSchema, include_raw=False)
-            .with_retry()
-        )
+        graph = FeatureFlagLookupGraph(team=self._team, user=self._user)
 
-        # Generate the survey configuration
-        chain = prompt | model
-        result = await chain.ainvoke(
-            {
-                "instructions": instructions,
-                "existing_surveys": await self._get_existing_surveys_summary(),
-                "team_survey_config": self._get_team_survey_config(self._team),
-            }
-        )
+        graph_context = {
+            "change": f"Create a survey based on these instructions: {instructions}",
+            "output": None,
+            "tool_progress_messages": [],
+            **self.context,
+        }
 
-        return cast(SurveyCreationSchema, result)
+        result = await graph.compile_full_graph().ainvoke(graph_context)
+
+        if isinstance(result["output"], SurveyCreationSchema):
+            return result["output"]
+        else:
+            return SurveyCreationSchema(questions=[], should_launch=False)
 
     async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
         """
@@ -116,32 +114,6 @@ class CreateSurveyTool(MaxTool):
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"❌ Failed to create survey: {str(e)}", {"error": str(e)}
 
-    def _get_team_survey_config(self, team: Team) -> dict[str, Any]:
-        """Get team survey configuration for context."""
-        survey_config = getattr(team, "survey_config", {}) or {}
-        return {
-            "appearance": survey_config.get("appearance", {}),
-            "default_settings": {"type": "popover", "enable_partial_responses": True},
-        }
-
-    async def _get_existing_surveys_summary(self) -> str:
-        """Get summary of existing surveys for context."""
-        try:
-            surveys = [survey async for survey in Survey.objects.filter(team_id=self._team.id, archived=False)[:5]]
-
-            if not surveys:
-                return "No existing surveys"
-
-            summaries = []
-            for survey in surveys:
-                status = "active" if survey.start_date and not survey.end_date else "draft"
-                summaries.append(f"- '{survey.name}' ({survey.type}, {status})")
-
-            return "\n".join(summaries)
-        except Exception as e:
-            capture_exception(e, {"team_id": self._team.id})
-            return "Unable to load existing surveys"
-
     def _prepare_survey_data(self, survey_schema: SurveyCreationSchema, team: Team) -> dict[str, Any]:
         """Prepare survey data with appearance defaults applied."""
         # Convert schema to dict, removing should_launch field
@@ -160,7 +132,7 @@ class CreateSurveyTool(MaxTool):
         appearance = DEFAULT_SURVEY_APPEARANCE.copy()
 
         # Override with team-specific defaults if they exist
-        team_appearance = self._get_team_survey_config(team).get("appearance", {})
+        team_appearance = get_team_survey_config(team).get("appearance", {})
         if team_appearance:
             appearance.update(team_appearance)
 
@@ -180,32 +152,6 @@ class CreateSurveyTool(MaxTool):
 
         return survey_data
 
-    async def lookup_feature_flag(self, flag_key: str) -> FeatureFlagLookupResult:
-        """
-        Look up a feature flag using the FeatureFlagToolkit via Taxonomy Agent.
-        """
-        try:
-            graph = FeatureFlagLookupGraph(team=self._team, user=self._user)
-
-            graph_context = {
-                "change": f"Look up feature flag with key '{flag_key}'",
-                "output": None,
-                "tool_progress_messages": [],
-                **self.context,
-            }
-
-            result = await graph.compile_full_graph().ainvoke(graph_context)
-
-            if isinstance(result["output"], FeatureFlagLookupResult):
-                return result["output"]
-            else:
-                # Return a not found result if the output is not the expected type
-                return FeatureFlagLookupResult(flag_id=None, flag_key=flag_key, variants=[], exists=False)
-
-        except Exception as e:
-            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return FeatureFlagLookupResult(flag_id=None, flag_key=flag_key, variants=[], exists=False)
-
 
 class FeatureFlagToolkit(TaxonomyAgentToolkit):
     """Toolkit for feature flag lookup operations."""
@@ -214,15 +160,22 @@ class FeatureFlagToolkit(TaxonomyAgentToolkit):
         super().__init__(team)
         self._last_lookup_result: FeatureFlagLookupResult | None = None
 
+    def get_tools(self) -> list:
+        """Get all tools (default + custom). Override in subclasses to add custom tools."""
+        return self._get_custom_tools()
+
     def _get_custom_tools(self) -> list:
         """Get custom tools for feature flag lookup."""
 
         class lookup_feature_flag(BaseModel):
-            """Look up a feature flag by its key to get detailed information including ID and variants."""
+            """
+            Use this tool to lookup a feature flag by its key/name to get detailed information including ID and variants.
+            Returns a message with the flag ID and the variants if the flag is found and the variants are available.
+            """
 
             flag_key: str = Field(description="The key/name of the feature flag to look up")
 
-        class final_answer(base_final_answer[FeatureFlagLookupResult]):
+        class final_answer(base_final_answer[SurveyCreationSchema]):
             __doc__ = base_final_answer.__doc__
 
         return [lookup_feature_flag, final_answer]
@@ -250,22 +203,22 @@ class FeatureFlagToolkit(TaxonomyAgentToolkit):
                 message += " (no variants)"
 
             # Store the result for the final answer
-            self._last_lookup_result = FeatureFlagLookupResult(
-                flag_id=feature_flag.id, flag_key=feature_flag.key, variants=variants, exists=True
-            )
+            # self._last_lookup_result = FeatureFlagLookupResult(
+            #     flag_id=feature_flag.id, flag_key=feature_flag.key, variants=variants, exists=True
+            # )
 
             return message
 
         except FeatureFlag.DoesNotExist:
-            self._last_lookup_result = FeatureFlagLookupResult(
-                flag_id=None, flag_key=flag_key, variants=[], exists=False
-            )
+            # self._last_lookup_result = FeatureFlagLookupResult(
+            #     flag_id=None, flag_key=flag_key, variants=[], exists=False
+            # )
             return f"Feature flag '{flag_key}' not found in the team's feature flags."
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id})
-            self._last_lookup_result = FeatureFlagLookupResult(
-                flag_id=None, flag_key=flag_key, variants=[], exists=False
-            )
+            # self._last_lookup_result = FeatureFlagLookupResult(
+            #     flag_id=None, flag_key=flag_key, variants=[], exists=False
+            # )
             return f"Error looking up feature flag: {str(e)}"
 
 
@@ -275,32 +228,59 @@ class FeatureFlagLookupNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentS
     def __init__(self, team: Team, user: User, toolkit_class: type[FeatureFlagToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
+    async def _get_existing_surveys_summary(self) -> str:
+        """Get summary of existing surveys for context."""
+        try:
+            surveys = [survey async for survey in Survey.objects.filter(team_id=self._team.id, archived=False)[:5]]
+
+            if not surveys:
+                return "No existing surveys"
+
+            summaries = []
+            for survey in surveys:
+                status = "active" if survey.start_date and not survey.end_date else "draft"
+                summaries.append(f"- '{survey.name}' ({survey.type}, {status})")
+
+            return "\n".join(summaries)
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id})
+            return "Unable to load existing surveys"
+
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get system prompts for feature flag lookup."""
-        system_messages = [
-            "You are a feature flag lookup assistant. Your job is to help users find information about feature flags in their PostHog project.",
-            "When a user asks to look up a feature flag, use the lookup_feature_flag tool with the flag key they provide.",
-            "After getting the lookup results, immediately use the final_answer tool to provide the complete information.",
-            "The final_answer should include:",
-            "- flag_id: the internal ID of the feature flag (or null if not found)",
-            "- flag_key: the key of the feature flag as searched",
-            "- variants: list of available variant keys for this feature flag",
-            "- exists: true if the flag was found, false otherwise",
-            *super()._get_default_system_prompts(),
-        ]
-        return ChatPromptTemplate([("system", m) for m in system_messages], template_format="mustache")
+        existing_surveys = async_to_sync(self._get_existing_surveys_summary)()
+
+        prompt = ChatPromptTemplate([("system", SURVEY_CREATION_SYSTEM_PROMPT)], template_format="mustache").format(
+            existing_surveys=existing_surveys,
+            team_survey_config=get_team_survey_config(self._team),
+        )
+
+        return ChatPromptTemplate([("system", prompt)], template_format="mustache")
+
+    def _construct_messages(self, state: TaxonomyAgentState) -> ChatPromptTemplate:
+        """
+        Construct the conversation thread for the agent. Handles both initial conversation setup
+        and continuation with intermediate steps.
+        """
+        system_prompt = self._get_system_prompt()
+        conversation = list(system_prompt.messages)
+        human_content = state.change or ""
+        all_messages = [*conversation, ("human", human_content)]
+
+        progress_messages = state.tool_progress_messages or []
+        all_messages.extend(progress_messages)
+
+        return ChatPromptTemplate(all_messages, template_format="mustache")
 
 
-class FeatureFlagLookupToolsNode(
-    TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[FeatureFlagLookupResult]]
-):
+class FeatureFlagLookupToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Tools node for feature flag lookup operations."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type[FeatureFlagToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
 
-class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[FeatureFlagLookupResult]]):
+class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Graph for feature flag lookup operations."""
 
     def __init__(self, team: Team, user: User):

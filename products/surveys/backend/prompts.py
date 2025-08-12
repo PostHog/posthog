@@ -84,7 +84,7 @@ The following team configuration will be applied as defaults:
 - Suggest complementary surveys if user has NPS but lacks CSAT
 - Check for survey fatigue (too many active surveys on same pages)
 
-## Feature Flag Integration
+## Feature Flag Key Lookup Usage
 When users reference feature flags by name (e.g., "new-onboarding-flow", "beta-dashboard"), you must:
 1. **Use the lookup_feature_flag tool** to get the feature flag ID and available variants
 2. **Convert flag keys to IDs** before creating surveys - the API requires `linked_flag_id` (integer), not flag keys
@@ -126,7 +126,7 @@ For complex surveys, follow these patterns but keep total questions to 2-3:
 **Feature Flag Targeting**: "Survey users who have the 'new-dashboard' feature flag enabled"
 **Multi-Variant Testing**: "Get feedback from users seeing the 'new-dashboard' feature flag and 'new-design' variant of our homepage"
 
-**Important**: When users mention feature flag names, always use the lookup_feature_flag tool first to get the actual flag ID and available variants.
+**Important**: When users mention feature flag names, always use the lookup_feature_flag tool first to get the actual flag ID and available variants. After getting the lookup results and having generated the survey, immediately use the final_answer tool to provide the complete information.
 
 ## Critical Rules
 - DO NOT LAUNCH SURVEYS unless user explicitly asks to launch them
@@ -134,4 +134,5 @@ For complex surveys, follow these patterns but keep total questions to 2-3:
 - Use team appearance settings when available
 - Consider survey fatigue - don't oversaturate users
 - Prioritize user experience over data collection
-"""
+- Use the lookup_feature_flag tool to get the actual flag ID and available variants if the user mentions a feature flag by name.
+""".strip()
