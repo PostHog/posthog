@@ -869,7 +869,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                 ],
                                 "field": "dashboards",
                                 "type": "Insight",
-                            }
+                            },
                         ],
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
@@ -894,7 +894,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                 "after": [{"id": dashboard_one_id, "name": "dash 1"}],
                                 "field": "dashboards",
                                 "type": "Insight",
-                            }
+                            },
                         ],
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
@@ -1592,8 +1592,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
 
-            # extra query because of the metadata update task: posthog.tasks.insight_query_metadata.extract_insight_query_metadata
-            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
 
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
@@ -3692,3 +3691,97 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Should have the single breakdown applied
         self.assertEqual(breakdown_filter.get("breakdown"), "browser")
         self.assertEqual(breakdown_filter.get("breakdown_type"), "person")
+
+    def test_updating_query_updates_query_metadata(self):
+        """
+        Test that updating the query of an insight also updates the query metadata.
+        """
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "filterTestAccounts": False,
+                    "kind": InsightNodeKind.TRENDS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        }
+                    ],
+                    "interval": "day",
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Initial query metadata should not be empty
+        self.assertIsNotNone(insight.query_metadata)
+        initial_metadata = insight.query_metadata.copy()
+
+        # update the query for the insight
+        new_query = {
+            "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+            "source": {
+                "filterTestAccounts": False,
+                "kind": InsightNodeKind.TRENDS_QUERY.value,
+                "series": [
+                    {
+                        "kind": NodeKind.EVENTS_NODE.value,
+                        "event": "$exception",
+                        "name": "$exception",
+                        "math": "total",
+                    }
+                ],
+                "interval": "day",
+            },
+        }
+        insight.query = new_query
+        insight.save()
+        insight.refresh_from_db()
+
+        # Query metadata should be updated
+        updated_metadata = insight.query_metadata
+        self.assertIsNotNone(updated_metadata)
+        self.assertNotEqual(initial_metadata, updated_metadata)
+
+    def test_updating_insight_with_no_query_changes_does_not_update_query_metadata(self):
+        """
+        Test that updating an insight without changing the query does not update the query metadata.
+        """
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "filterTestAccounts": False,
+                    "kind": InsightNodeKind.TRENDS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        }
+                    ],
+                    "interval": "day",
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Initial query metadata should not be empty
+        self.assertIsNotNone(insight.query_metadata)
+        initial_metadata = insight.query_metadata.copy()
+
+        # update the name for the insight without changing the query
+        insight.name = "Updated Insight Name"
+        insight.save()
+        insight.refresh_from_db()
+
+        # Query metadata should remain unchanged
+        updated_metadata = insight.query_metadata
+        self.assertIsNotNone(updated_metadata)
+        self.assertEqual(initial_metadata, updated_metadata)

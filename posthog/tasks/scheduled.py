@@ -13,7 +13,6 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
-from posthog.tasks.insight_query_metadata import fill_insights_missing_query_metadata
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.email import send_hog_functions_daily_digest
@@ -351,10 +350,4 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
-    )
-
-    sender.add_periodic_task(
-        crontab(minute="0", hour="*/12"),
-        fill_insights_missing_query_metadata.s(),
-        name="fill insights missing query metadata",
     )
