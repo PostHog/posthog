@@ -1,7 +1,8 @@
 from typing import Optional, Union
+
 from posthog.hogql import ast
+from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS, HOGQL_AGGREGATIONS
 
 
 def is_aggregation_function(function_name: str) -> bool:
@@ -10,7 +11,8 @@ def is_aggregation_function(function_name: str) -> bool:
     normalized_name = function_name.lower()
 
     # First check the dedicated HOGQL_AGGREGATIONS dictionary
-    if normalized_name in HOGQL_AGGREGATIONS:
+    normalized_hogql_aggregations = [func.lower() for func in HOGQL_AGGREGATIONS.keys()]
+    if normalized_name in normalized_hogql_aggregations:
         return True
 
     # Also check other function dictionaries for aggregate functions
