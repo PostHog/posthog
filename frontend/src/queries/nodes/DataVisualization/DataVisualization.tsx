@@ -7,7 +7,6 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useCallback, useState } from 'react'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +21,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
+import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps, ItemMode } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
@@ -74,7 +73,7 @@ export function DataTableVisualization({
 
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
-    const { insightMode } = useValues(insightSceneLogic)
+    const insightMode = context?.insightMode || ItemMode.View
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: vizKey,
         query,

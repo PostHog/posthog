@@ -1,9 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { actionToUrl, router } from 'kea-router'
+import {} from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { Scene } from 'scenes/sceneTypes'
+
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { examples } from '~/queries/examples'
@@ -20,9 +20,9 @@ import { teamLogic } from '../teamLogic'
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
-import { insightSceneLogic } from './insightSceneLogic'
+
 import { insightUsageLogic } from './insightUsageLogic'
-import { crushDraftQueryForLocalStorage, crushDraftQueryForURL, isQueryTooLarge } from './utils'
+import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 import { compareQuery } from './utils/queryUtils'
 
 export const insightDataLogic = kea<insightDataLogicType>([
@@ -34,8 +34,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['insight', 'savedInsight'],
-            insightSceneLogic,
-            ['insightId', 'insightMode', 'activeScene'],
+            // insightSceneLogic({ tabId: props.tabId }),
+            // ['insightId', 'insightMode', 'activeScene'],
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
@@ -219,14 +219,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (!query || !values.queryChanged) {
                 return
             }
-            // only run on insight scene
-            if (insightSceneLogic.values.activeScene !== Scene.Insight) {
-                return
-            }
-            // don't save for saved insights
-            if (insightSceneLogic.values.insightId !== 'new') {
-                return
-            }
+            // // only run on insight scene
+            // if (insightSceneLogic.values.activeScene !== Scene.Insight) {
+            //     return
+            // }
+            // // don't save for saved insights
+            // if (insightSceneLogic.values.insightId !== 'new') {
+            //     return
+            // }
 
             if (isQueryTooLarge(query)) {
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
@@ -243,25 +243,25 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setQuery(props.cachedInsight.query)
         }
     }),
-    actionToUrl(({ values }) => ({
-        setQuery: ({ query }) => {
-            if (
-                values.queryChanged &&
-                insightSceneLogic.values.activeScene === Scene.Insight &&
-                insightSceneLogic.values.insightId === 'new'
-            ) {
-                // query is changed and we are in edit mode
-                return [
-                    router.values.currentLocation.pathname,
-                    {
-                        ...router.values.currentLocation.searchParams,
-                    },
-                    {
-                        ...router.values.currentLocation.hashParams,
-                        q: crushDraftQueryForURL(query),
-                    },
-                ]
-            }
-        },
-    })),
+    // actionToUrl(({ values }) => ({
+    //     setQuery: ({ query }) => {
+    //         if (
+    //             values.queryChanged &&
+    //             insightSceneLogic.values.activeScene === Scene.Insight &&
+    //             insightSceneLogic.values.insightId === 'new'
+    //         ) {
+    //             // query is changed and we are in edit mode
+    //             return [
+    //                 router.values.currentLocation.pathname,
+    //                 {
+    //                     ...router.values.currentLocation.searchParams,
+    //                 },
+    //                 {
+    //                     ...router.values.currentLocation.hashParams,
+    //                     q: crushDraftQueryForURL(query),
+    //                 },
+    //             ]
+    //         }
+    //     },
+    // })),
 ])

@@ -19,15 +19,16 @@ import { insightLogic } from './insightLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
+    tabId: string
 }
 
-export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
+export function Insight({ insightId, tabId }: InsightSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, freshQuery } = useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
-        dashboardItemId: insightId || 'new',
+        dashboardItemId: insightId || `new-${tabId}`,
         // don't use cached insight if we have filtersOverride
         cachedInsight:
             (isObject(filtersOverride) || isObject(variablesOverride)) && insight?.short_id === insightId
@@ -102,6 +103,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
                         showQueryEditor: actuallyShowQueryEditor,
                         showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                         insightProps,
+                        insightMode,
                     }}
                     filtersOverride={filtersOverride}
                     variablesOverride={variablesOverride}

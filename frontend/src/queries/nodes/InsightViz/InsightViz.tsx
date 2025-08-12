@@ -1,11 +1,10 @@
 import './InsightViz.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -83,7 +82,7 @@ export function InsightViz({
         variablesOverride,
     }
 
-    const { insightMode } = useValues(insightSceneLogic)
+    const insightMode = context?.insightMode ?? ItemMode.View
 
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')

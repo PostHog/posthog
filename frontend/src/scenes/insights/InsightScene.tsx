@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useValues, BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { useEffect } from 'react'
@@ -11,8 +11,15 @@ import { urls } from 'scenes/urls'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
-export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLogicRef, insightMode } = useValues(insightSceneLogic)
+export interface InsightSceneProps {
+    tabId?: string
+}
+
+export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error("No tabId in InsightScene's props")
+    }
+    const { insightId, insight, insightLogicRef, insightMode } = useValues(insightSceneLogic({ tabId }))
 
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
@@ -23,19 +30,32 @@ export function InsightScene(): JSX.Element {
 
     if (
         insightId === 'new' ||
+        insightId?.startsWith('new-') ||
         (insightId &&
             insight?.id &&
             insight?.short_id &&
             (insight?.query?.kind !== NodeKind.DataVisualizationNode || insightMode !== ItemMode.Edit))
     ) {
-        return <Insight insightId={insightId} />
+        return (
+            <BindLogic logic={insightSceneLogic} props={{ tabId }}>
+                <Insight insightId={insightId} tabId={tabId} />
+            </BindLogic>
+        )
     }
 
     if (insightLogicRef?.logic?.values?.insightLoading) {
-        return <InsightSkeleton />
+        return (
+            <BindLogic logic={insightSceneLogic} props={{ tabId }}>
+                <InsightSkeleton />
+            </BindLogic>
+        )
     }
 
-    return <NotFound object="insight" />
+    return (
+        <BindLogic logic={insightSceneLogic} props={{ tabId }}>
+            <NotFound object="insight" />
+        </BindLogic>
+    )
 }
 
 export const scene: SceneExport = {

@@ -1,7 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
@@ -20,7 +19,7 @@ interface Props {
 }
 
 export function TrendInsight({ view, context, embedded, inSharedMode }: Props): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
+    const insightMode = context?.insightMode || ItemMode.View
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
 

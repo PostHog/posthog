@@ -1,4 +1,16 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
+import {
+    actions,
+    BuiltLogic,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+    sharedListeners,
+    props,
+    key,
+} from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
@@ -22,6 +34,7 @@ import {
     ActivityScope,
     Breadcrumb,
     DashboardType,
+    InsightLogicProps,
     InsightShortId,
     InsightType,
     ItemMode,
@@ -51,8 +64,19 @@ export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean 
     )
 }
 
+export interface InsightSceneLogicProps {
+    tabId?: string
+}
+
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
+    props({} as InsightSceneLogicProps),
+    key((props: InsightSceneLogicProps) => {
+        if (!props.tabId) {
+            throw new Error('insightSceneLogic has no tabId')
+        }
+        return props.tabId
+    }),
     connect(() => ({
         logic: [eventUsageLogic],
         values: [
@@ -117,8 +141,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             {
                 setSceneState: (_, { itemId }) =>
                     itemId !== undefined
-                        ? itemId === 'new'
-                            ? 'new'
+                        ? itemId && itemId.startsWith('new-')
+                            ? itemId
                             : Number.isInteger(+itemId)
                               ? parseInt(itemId, 10)
                               : itemId
@@ -180,8 +204,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
-            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName],
-            (insightLogicRef, insight, dashboardId, dashboardName): Breadcrumb[] => {
+            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName, (_, { tabId }) => tabId],
+            (insightLogicRef, insight, dashboardId, dashboardName, tabId): Breadcrumb[] => {
                 return [
                     ...(dashboardId !== null && dashboardName
                         ? [
@@ -204,7 +228,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                               },
                           ]),
                     {
-                        key: [Scene.Insight, insight?.short_id || 'new'],
+                        key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
                         name: insightLogicRef?.logic.values.insightName,
                         onRename: insightLogicRef?.logic.values.canEditInsight
                             ? async (name: string) => {
@@ -220,7 +244,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             (s) => [s.insightId],
             (insightId): ProjectTreeRef => ({
                 type: 'insight',
-                ref: insightId && insightId !== 'new' ? String(insightId) : null,
+                ref: insightId && !insightId.startsWith('new-') ? String(insightId) : null,
             }),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
@@ -260,7 +284,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
-                    const insightProps = {
+                    const insightProps: InsightLogicProps = {
                         dashboardItemId: insightId,
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
@@ -292,7 +316,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    listeners(({ sharedListeners, values }) => ({
+    listeners(({ sharedListeners, values, props }) => ({
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: sharedListeners.reloadInsightLogic,
         upgradeQuery: async ({ query }) => {
@@ -307,7 +331,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             values.insightLogicRef?.logic.actions.setInsight(
                 {
-                    ...createEmptyInsight('new'),
+                    ...createEmptyInsight(`new-${props.tabId}`),
                     ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
                     query: upgradedQuery,
                 },
@@ -318,7 +342,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             )
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, props }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params
@@ -333,10 +357,22 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                       ? ItemMode.Alerts
                       : mode === 'sharing'
                         ? ItemMode.Sharing
-                        : mode === 'edit' || shortId === 'new'
+                        : mode === 'edit' || (shortId && shortId.startsWith('new-'))
                           ? ItemMode.Edit
                           : ItemMode.View
-            const insightId = String(shortId) as InsightShortId
+            let insightId = String(shortId) as InsightShortId
+            if (insightId === 'new') {
+                insightId = `new-${props.tabId}` as InsightShortId
+            }
+
+            if (values.insightId && values.insightId !== insightId) {
+                // this is for another logic
+                return
+            }
+
+            // if (insightId !== values.insightId || !values.insightId) {
+            //     return
+            // }
 
             const currentScene = sceneLogic.findMounted()?.values
 
@@ -404,11 +440,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             // reset the insight's state if we have to
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
-                if (insightId === 'new') {
+                if (insightId.startsWith('new-')) {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new'),
+                            ...createEmptyInsight(`new-${props.tabId}`),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             query,
                         },
@@ -436,7 +472,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightMode?: ItemMode
             insightId?: InsightShortId | 'new' | null
         }): string | undefined => {
-            if (!insightId || insightId === 'new') {
+            if (!insightId || insightId.startsWith('new-')) {
                 return undefined
             }
 

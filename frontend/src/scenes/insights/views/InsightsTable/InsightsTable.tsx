@@ -6,7 +6,6 @@ import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { compare as compareFn } from 'natural-orderby'
 import { useMemo } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -57,6 +56,11 @@ export interface InsightsTableProps {
      * @default false
      */
     isMainInsightView?: boolean
+    /**
+     * Insight mode, which is overridden by the insightLogic, so it can be ignored here.
+     * @default ItemMode.View
+     */
+    insightMode?: ItemMode
 }
 
 export function InsightsTable({
@@ -67,8 +71,8 @@ export function InsightsTable({
     seriesNameTooltip,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
+    insightMode = ItemMode.View,
 }: InsightsTableProps): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,

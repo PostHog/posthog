@@ -11,7 +11,7 @@ import { Node } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { insightLogic } from './insightLogic'
-import { insightSceneLogic } from './insightSceneLogic'
+
 import type { insightUsageLogicType } from './insightUsageLogicType'
 import { keyForInsightLogicProps } from './sharedUtils'
 
@@ -50,13 +50,16 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
     listeners(({ actions, values }) => ({
         onQueryChange: async ({ query }, breakpoint) => {
             // We only want to report direct views on the insights page.
-            if (
-                !insightSceneLogic.isMounted() ||
-                insightSceneLogic.values.activeScene !== 'Insight' ||
-                insightSceneLogic.values.insight?.short_id !== values.insight?.short_id
-            ) {
-                return
-            }
+            // if (
+            //     !props.tabId ||
+            //     !insightSceneLogic({tabId: props.tabId}).isMounted() ||
+            //     insightSceneLogic({tabId: props.tabId}).values.activeScene !== 'Insight' ||
+            //     insightSceneLogic({tabId: props.tabId}).values.insight?.short_id !== values.insight?.short_id
+            // ) {
+            //     return
+            // }
+            // TODO
+            return
 
             // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights".
             if (values.insight.id) {

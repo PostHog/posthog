@@ -98,11 +98,11 @@ export function App(): JSX.Element | null {
     return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
 }
 
-function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
+function LoadedSceneLogic({ scene, tabId }: { scene: LoadedScene; tabId: string }): null {
     if (!scene.logic) {
         throw new Error('Loading scene without a logic')
     }
-    useMountedLogic(scene.logic(scene.paramsToProps?.(scene.sceneParams)))
+    useMountedLogic(scene.logic({ tabId, ...scene.paramsToProps?.(scene.sceneParams) }))
     return null
 }
 
@@ -113,7 +113,7 @@ function LoadedSceneLogics(): JSX.Element {
             {Object.entries(loadedScenes)
                 .filter(([, { logic }]) => !!logic)
                 .map(([key, loadedScene]) => (
-                    <LoadedSceneLogic key={key} scene={loadedScene} />
+                    <LoadedSceneLogic key={key} scene={loadedScene} tabId={loadedScene.tabId} />
                 ))}
         </>
     )
@@ -122,7 +122,8 @@ function LoadedSceneLogics(): JSX.Element {
 function AppScene(): JSX.Element | null {
     useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
-    const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { activeScene, activeLoadedScene, activeTabId, sceneParams, params, loadedScenes, sceneConfig } =
+        useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -141,7 +142,7 @@ function AppScene(): JSX.Element | null {
     let sceneElement: JSX.Element
     if (activeScene && activeScene in loadedScenes) {
         const { component: SceneComponent } = loadedScenes[activeScene]
-        sceneElement = <SceneComponent user={user} {...params} />
+        sceneElement = <SceneComponent user={user} {...params} tabId={activeTabId} />
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }
@@ -149,7 +150,13 @@ function AppScene(): JSX.Element | null {
     const wrappedSceneElement = (
         <ErrorBoundary key={activeScene} exceptionProps={{ feature: activeScene }}>
             {activeLoadedScene?.logic ? (
-                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
+                <BindLogic
+                    logic={activeLoadedScene.logic}
+                    props={{
+                        tabId: activeLoadedScene.tabId,
+                        ...activeLoadedScene.paramsToProps?.(sceneParams),
+                    }}
+                >
                     {sceneElement}
                 </BindLogic>
             ) : (

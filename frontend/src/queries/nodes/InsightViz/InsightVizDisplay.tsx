@@ -237,6 +237,7 @@ export function InsightVizDisplay({
                                 : undefined
                         }
                         canCheckUncheckSeries={canEditInsight}
+                        insightMode={insightMode}
                     />
                 </>
             )

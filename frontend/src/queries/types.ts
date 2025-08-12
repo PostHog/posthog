@@ -8,7 +8,7 @@ import {
     QuerySchema,
     RefreshType,
 } from '~/queries/schema/schema-general'
-import { InsightLogicProps, TrendResult } from '~/types'
+import { InsightLogicProps, ItemMode, TrendResult } from '~/types'
 import { ColumnFeature } from './nodes/DataTable/DataTable'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
@@ -21,6 +21,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
     insightProps?: InsightLogicProps<Q>
+    /** Are we editing or viewing the insight */
+    insightMode?: ItemMode
     emptyStateHeading?: string
     emptyStateDetail?: string | JSX.Element
     renderEmptyStateAsSkeleton?: boolean

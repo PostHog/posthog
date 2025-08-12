@@ -135,6 +135,7 @@ export interface SceneExport {
 
 export interface LoadedScene extends SceneExport {
     id: string
+    tabId?: string
     sceneParams: SceneParams
 }
 

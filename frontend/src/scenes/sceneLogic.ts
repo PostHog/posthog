@@ -316,15 +316,26 @@ export const sceneLogic = kea<sceneLogicType>([
         activeSceneLogic: [
             (s) => [s.activeLoadedScene, s.sceneParams, s.activeTabId],
             (activeLoadedScene, sceneParams, activeTabId): BuiltLogic | null => {
-                return activeLoadedScene?.logic
-                    ? activeLoadedScene.logic.build({
-                          ...activeLoadedScene.paramsToProps?.(sceneParams),
-                          tabId: activeTabId,
-                      })
-                    : null
+                if (activeLoadedScene?.logic) {
+                    const logicTabId = activeLoadedScene?.tabId
+                    if (!logicTabId || logicTabId === activeTabId) {
+                        return activeLoadedScene.logic.build({
+                            ...activeLoadedScene.paramsToProps?.(sceneParams),
+                            tabId: activeTabId,
+                        })
+                    }
+                }
+
+                return null
             },
         ],
-        params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
+        params: [
+            (s) => [s.sceneParams, s.activeLoadedScene],
+            (sceneParams, activeLoadedScene): Record<string, string> => ({
+                tabId: activeLoadedScene?.tabId,
+                ...sceneParams.params,
+            }),
+        ],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
         productFromUrl: [
@@ -516,7 +527,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 delete cache.mountedTabLogic[activeTabId]
             }
             if (loadedScene?.logic) {
-                cache.mountedTabLogic[activeTabId] = loadedScene?.logic(loadedScene?.paramsToProps?.(params)).mount()
+                const props = loadedScene?.paramsToProps?.(params)
+                cache.mountedTabLogic[activeTabId] = loadedScene?.logic({ tabId: activeTabId, ...props }).mount()
             }
         },
         openScene: ({ scene, sceneKey, params, method }) => {
@@ -682,11 +694,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
-                    loadedScene = { id: scene, ...(_scene as SceneExport), sceneParams: params }
+                    loadedScene = {
+                        id: scene,
+                        tabId: values.activeTabId,
+                        ...(_scene as SceneExport),
+                        sceneParams: params,
+                    }
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
                         id: scene,
+                        tabId: values.activeTabId,
                         component: defaultExport,
                         logic: logic,
                         sceneParams: params,
@@ -695,6 +713,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
                         id: scene,
+                        tabId: values.activeTabId,
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
@@ -710,7 +729,8 @@ export const sceneLogic = kea<sceneLogicType>([
 
                 if (loadedScene.logic) {
                     // initialize the logic and give it 50ms to load before opening the scene
-                    const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}).mount()
+                    const props = { ...loadedScene.paramsToProps?.(params), tabId: values.activeTabId }
+                    const unmount = loadedScene.logic.build(props).mount()
                     try {
                         await breakpoint(50)
                     } catch (e) {
@@ -821,10 +841,10 @@ export const sceneLogic = kea<sceneLogicType>([
             const { tabIds } = values
             for (const id of Object.keys(cache.mountedTabLogic)) {
                 if (!tabIds[id]) {
-                    const mountedTabLogic = cache.mountedTabLogic[id]
-                    if (mountedTabLogic) {
+                    const unmount = cache.mountedTabLogic[id]
+                    if (unmount) {
                         try {
-                            mountedTabLogic.unmount()
+                            unmount()
                         } catch (error) {
                             console.error('Error unmounting tab logic:', error)
                         }
