@@ -307,14 +307,16 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         Person.objects.create(team=self.team, properties={"email": "email@example.org"})
         Person.objects.create(team=self.team, distinct_ids=["123"])
         Person.objects.create(team=self.team, distinct_ids=["456"])
+        Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
 
         csv = SimpleUploadedFile(
             "example.csv",
             str.encode(
                 """
-User ID,
-email@example.org,
+User ID
+email@example.org
 123
+0
 """
             ),
             content_type="application/csv",
@@ -337,7 +339,7 @@ email@example.org,
             "example.csv",
             str.encode(
                 """
-User ID,
+User ID
 456
 """
             ),
@@ -379,6 +381,7 @@ User ID,
         """Test multi-column CSV upload with distinct_id column"""
         Person.objects.create(team=self.team, distinct_ids=["user123"])
         Person.objects.create(team=self.team, distinct_ids=["user456"])
+        Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
 
         csv = SimpleUploadedFile(
             "multicolumn.csv",
@@ -386,6 +389,7 @@ User ID,
                 """name,distinct_id,email
 John Doe,user123,john@example.com
 Jane Smith,user456,jane@example.com
+Zero User,0,zero@example.com
 """
             ),
             content_type="application/csv",
@@ -399,9 +403,9 @@ Jane Smith,user456,jane@example.com
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
-        # Verify the correct distinct IDs were extracted
+        # Verify the correct distinct IDs were extracted, including '0'
         patch_calculate_cohort_from_list.assert_called_with(
-            response.json()["id"], ["user123", "user456"], team_id=self.team.id
+            response.json()["id"], ["user123", "user456", "0"], team_id=self.team.id
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")

@@ -308,10 +308,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _extract_distinct_ids_single_column(self, first_row: list[str], reader: Iterator[list[str]]) -> list[str]:
         """Process single-column CSV format"""
-        distinct_ids = [first_row[0]] if first_row and first_row[0].strip() else []
+        distinct_ids = [first_row[0].strip()] if first_row and first_row[0].strip() != "" else []
         for row in reader:
-            if len(row) > 0 and row[0].strip():
-                distinct_ids.append(row[0].strip())
+            if len(row) > 0:
+                stripped_id = row[0].strip()
+                if stripped_id != "":
+                    distinct_ids.append(stripped_id)
         return distinct_ids
 
     def _extract_distinct_ids_multi_column(
@@ -329,7 +331,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
             # Extract distinct ID if present and non-empty
             distinct_id = row[distinct_id_col].strip()
-            if distinct_id:
+            if distinct_id != "":
                 distinct_ids.append(distinct_id)
 
         if skipped_rows > 0:
