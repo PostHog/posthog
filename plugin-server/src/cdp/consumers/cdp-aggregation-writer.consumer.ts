@@ -102,7 +102,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
     }
 
     // Process batch by aggregating and writing to postgres
-    private async processBatch(parsedBatch: ParsedBatch): Promise<void> {
+    private processBatch(parsedBatch: ParsedBatch): { backgroundTask: Promise<void> } {
         // Deduplicate person performed events
         const deduplicatedPersonEvents = this.deduplicatePersonPerformedEvents(parsedBatch.personPerformedEvents)
 
@@ -111,8 +111,21 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             parsedBatch.behaviouralFilterMatchedEvents
         )
 
-        // This will write both arrays in one transaction
-        await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
+        // Write to postgres in background without awaiting
+        const backgroundTask = this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents).catch(
+            (error) => {
+                // Log error but let Kafka consumer handle the retry
+                logger.error('Background write failed', {
+                    error: error.message,
+                    errorCode: error.code,
+                    personEventsCount: deduplicatedPersonEvents.length,
+                    behaviouralEventsCount: aggregatedBehaviouralEvents.length,
+                })
+                throw error
+            }
+        )
+
+        return { backgroundTask }
     }
 
     // Helper to build person events CTE using unnest
@@ -216,8 +229,9 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             return await this.runInstrumented('handleEachBatch', async () => {
                 const parsedBatch = await this._parseKafkaBatch(messages)
 
-                // Process the batch (aggregate and write to postgres)
-                await this.processBatch(parsedBatch)
+                // Process the batch (aggregate and write to postgres in background)
+                const { backgroundTask } = this.processBatch(parsedBatch)
+                return { backgroundTask }
             })
         })
     }
