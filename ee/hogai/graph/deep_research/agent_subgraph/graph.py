@@ -17,7 +17,6 @@ class AgentSubgraph(BaseAssistantGraph[AgentSubgraphState]):
 
     def __init__(self, team: Team, user: User):
         super().__init__(team, user, AgentSubgraphState)
-        # Create compiled insights subgraph for task execution
         self._compiled_insights_subgraph = InsightsAssistantGraph(team, user).compile_full_graph()
 
     def add_task_executor(self, next_node: AssistantNodeName = AssistantNodeName.END):
@@ -32,8 +31,6 @@ class AgentSubgraph(BaseAssistantGraph[AgentSubgraphState]):
     def compile_full_graph(self, checkpointer: Optional[DjangoCheckpointer] = None):
         """
         Compile the complete agent subgraph.
-
-        Creates: START -> task_executor -> END
         """
         return (
             self.add_edge(AssistantNodeName.START, AssistantNodeName.TASK_EXECUTOR)

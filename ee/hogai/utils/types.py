@@ -242,10 +242,6 @@ class PartialAssistantState(_SharedAssistantState):
 class AgentSubgraphState(BaseState):
     """Simplified state for agent subgraph execution."""
 
-    @staticmethod
-    def _get_ignored_reset_fields() -> set[str]:
-        return {"messages", "visualization_messages", "subgraph_messages"}
-
     messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
     """Messages exposed to the user."""
 

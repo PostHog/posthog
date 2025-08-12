@@ -369,17 +369,11 @@ class Assistant:
             )
 
             initial_state = AgentSubgraphState(
-                messages=[],  # Don't include the original command in conversation
+                messages=[],
                 current_step=research_step,
             )
         else:
-            # TODO: Just for testing - remove deep research fallback state
-            if self._mode == AssistantMode.DEEP_RESEARCH:
-                from ee.hogai.utils.types import AgentSubgraphState
-
-                initial_state = AgentSubgraphState(messages=[])
-            else:
-                initial_state = AssistantState(messages=[])
+            initial_state = AssistantState(messages=[])
 
         if self._tool_call_partial_state:
             for key, value in self._tool_call_partial_state.model_dump().items():

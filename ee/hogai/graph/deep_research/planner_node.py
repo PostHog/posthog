@@ -89,40 +89,20 @@ class DeepResearchPlannerNode(BaseAssistantNode[AgentSubgraphState, PartialAgent
 
             return PartialAgentSubgraphState()
 
-        # Find the latest human message
-        human_message = None
-        for message in reversed(state.messages or []):
-            if isinstance(message, HumanMessage):
-                human_message = message
-                break
-
-        if not human_message:
-            logger.error("No human message found")
-            return PartialAgentSubgraphState(plan="No message provided", current_step=None)
-
-        # Extract DEEP_RESEARCH JSON from the message
-        content = human_message.content
-        if not content or not isinstance(content, str):
-            logger.error("Invalid message content")
-            return PartialAgentSubgraphState(plan="Invalid message format", current_step=None)
-
-        # Parse the DEEP_RESEARCH command
+        content = state.messages[-1].content
         if "DEEP_RESEARCH" in content:
-            # Extract JSON after DEEP_RESEARCH keyword
+            # Extract JSON after `DEEP_RESEARCH` keyword
             try:
                 json_start = content.index("DEEP_RESEARCH") + len("DEEP_RESEARCH")
                 json_str = content[json_start:].strip()
 
-                # Parse the JSON
                 research_data = json.loads(json_str)
 
-                # Convert to TaskDefinition format and create task statuses
                 tasks = []
                 task_statuses = []
                 for i, task_data in enumerate(research_data.get("tasks", [])):
-                    # Handle both "prompt" and "instructions" fields for compatibility
-                    instructions = task_data.get("prompt") or task_data.get("instructions", "")
-                    task_description = task_data.get("description", "Unknown task")
+                    instructions = task_data.get("prompt")
+                    task_description = task_data.get("description")
 
                     task = TaskDefinition(
                         description=task_description,
@@ -131,11 +111,9 @@ class DeepResearchPlannerNode(BaseAssistantNode[AgentSubgraphState, PartialAgent
                     )
                     tasks.append(task)
 
-                    # Create task status for tracking
                     task_status = TaskStatus(task_id=f"task_{i}", description=task_description, status="pending")
                     task_statuses.append(task_status)
 
-                # Create a research step with all tasks
                 step_description = json.dumps(
                     {
                         "tasks": [
@@ -154,7 +132,7 @@ class DeepResearchPlannerNode(BaseAssistantNode[AgentSubgraphState, PartialAgent
                     title="Execute Research Tasks",
                     description=step_description,
                     type="parallel_tasks",
-                    status="in_progress",  # Start as in_progress
+                    status="in_progress",
                     task_statuses=task_statuses,
                 )
 
@@ -167,20 +145,6 @@ class DeepResearchPlannerNode(BaseAssistantNode[AgentSubgraphState, PartialAgent
             except (json.JSONDecodeError, ValueError) as e:
                 logger.exception("Failed to parse DEEP_RESEARCH JSON", error=str(e))
                 return PartialAgentSubgraphState(plan=f"Failed to parse research request: {str(e)}", current_step=None)
-        else:
-            # Fallback: treat the entire message as a single task
-            task_status = TaskStatus(task_id="task_0", description="User research request", status="pending")
-
-            research_step = DeepResearchPlanStep(
-                id=str(uuid.uuid4()),
-                title="Research Task",
-                description=json.dumps({"tasks": [{"description": "User research request", "instructions": content}]}),
-                type="parallel_tasks",
-                status="in_progress",
-                task_statuses=[task_status],
-            )
-
-            return PartialAgentSubgraphState(plan="Executing research request", current_step=research_step)
 
     def router(self, state: AgentSubgraphState) -> str:
         """

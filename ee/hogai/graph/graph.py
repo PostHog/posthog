@@ -418,11 +418,6 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[AssistantState]):
         """Add the deep research planner node (to be implemented)."""
 
         # TODO: Replace with actual DeepResearchPlannerNode when implemented by Em
-        # builder = self._graph
-        # self._has_start_node = True
-        # builder.add_edge(AssistantNodeName.START, AssistantNodeName.DEEP_RESEARCH)
-        # builder.add_edge(AssistantNodeName.DEEP_RESEARCH, next_node)
-
         return self
 
     def add_agent_subgraph_executor(self, next_node: AssistantNodeName = AssistantNodeName.END):
