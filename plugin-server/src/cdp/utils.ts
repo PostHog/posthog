@@ -231,6 +231,14 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): str
     return message
 }
 
+export const logEntry = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
+    return {
+        level,
+        timestamp: DateTime.now(),
+        message: sanitizeLogMessage(args),
+    }
+}
+
 export const createAddLogFunction = (logs: MinimalLogEntry[]) => {
     return (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
         logs.push({

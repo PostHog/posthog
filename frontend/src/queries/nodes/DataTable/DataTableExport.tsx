@@ -23,6 +23,7 @@ import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
     isPersonsNode,
@@ -67,7 +68,9 @@ export async function startDownload(
 
     if (onlySelectedColumns) {
         let columns = (
-            (isEventsQuery(query.source) || isActorsQuery(query.source) ? query.source.select : null) ??
+            (isEventsQuery(query.source) || isActorsQuery(query.source) || isGroupsQuery(query.source)
+                ? query.source.select
+                : null) ??
             query.columns ??
             defaultDataTableColumns(query.source.kind)
         )?.filter((c) => c !== 'person.$delete')

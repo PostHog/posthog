@@ -38,7 +38,17 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
-const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
+const INPUT_TYPE_LIST = [
+    'string',
+    'number',
+    'boolean',
+    'dictionary',
+    'choice',
+    'json',
+    'integration',
+    'email',
+    'native_email',
+] as const
 
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
@@ -171,6 +181,7 @@ function JsonConfigField(props: {
 }
 
 function EmailTemplateField({
+    schema,
     value,
     onChange,
     sampleGlobalsWithInputs,
@@ -180,7 +191,14 @@ function EmailTemplateField({
     onChange: (value: any) => void
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
-    return <EmailTemplater variables={sampleGlobalsWithInputs ?? {}} value={value} onChange={onChange} />
+    return (
+        <EmailTemplater
+            type={schema.type as 'email' | 'native_email'}
+            variables={sampleGlobalsWithInputs ?? {}}
+            value={value}
+            onChange={onChange}
+        />
+    )
 }
 
 function CyclotronJobTemplateInput(props: {
@@ -405,6 +423,7 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'email':
+        case 'native_email':
             return (
                 <EmailTemplateField
                     schema={schema}
