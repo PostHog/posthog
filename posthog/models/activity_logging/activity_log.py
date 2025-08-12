@@ -138,6 +138,13 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "deleted": obj.deleted,
                 "active": obj.active,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
+            return {
+                "id": obj.id,
+                "short_id": obj.short_id,
+                "name": obj.name,
+                "team_id": obj.team_id,
+            }
 
         return json.JSONEncoder.default(self, obj)
 
