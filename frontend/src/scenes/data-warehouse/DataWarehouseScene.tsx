@@ -13,7 +13,6 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { availableSourcesDataLogic } from './new/availableSourcesDataLogic'
@@ -56,15 +55,10 @@ export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-    const { billing } = useValues(billingLogic)
     const { recentJobs } = useValues(externalDataSourcesLogic)
     const { availableSources } = useValues(availableSourcesDataLogic)
 
-    const billingRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
-
-    const calculatedRowsSynced = recentJobs.reduce((total, job) => total + (job.rows_synced || 0), 0)
-
-    const lifetimeRowsSynced = billingRowsSynced || calculatedRowsSynced
+    const lifetimeRowsSynced = recentJobs.reduce((total, job) => total + (job.rows_synced || 0), 0)
 
     const recentActivity = useMemo((): DashboardActivity[] => {
         const items: DashboardActivity[] = []
@@ -175,7 +169,7 @@ export function DataWarehouseScene(): JSX.Element {
     }
 
     const materializedCount = materializedViews.length
-    const runningCount = materializedViews.filter((v) => v.status === 'Running').length
+    const runningCount = materializedViews.filter((v) => v.status?.toLowerCase() === 'running').length
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
         return <NotFound object="Data Warehouse" />
