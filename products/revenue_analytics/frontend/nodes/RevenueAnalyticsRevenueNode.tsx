@@ -16,9 +16,10 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { LemonButton, LemonSegmentedButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import {
+    AlphaTag,
     DISPLAY_MODE_OPTIONS,
     extractLabelAndDatasets,
     RevenueAnalyticsLineGraph,
@@ -213,15 +214,5 @@ const MRRTile = ({
                 />
             )}
         </TileWrapper>
-    )
-}
-
-const AlphaTag = (): JSX.Element => {
-    return (
-        <Tooltip title="This is a new chart type that is still in alpha. Data might not be accurate.">
-            <LemonTag type="completion" size="small">
-                ALPHA
-            </LemonTag>
-        </Tooltip>
     )
 }
