@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS posthog_person (
     properties_last_operation JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_user_id INTEGER NULL,
     is_identified BOOLEAN NOT NULL DEFAULT false,
-    version INTEGER NOT NULL DEFAULT 0
+    version BIGINT NULL
 );
 
 -- Helpful index for updatePersonAssertVersion
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS posthog_persondistinctid (
     distinct_id TEXT NOT NULL,
     person_id BIGINT NOT NULL REFERENCES posthog_person(id) ON DELETE CASCADE,
     team_id INTEGER NOT NULL,
-    version INTEGER NULL
+    version BIGINT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_persondistinctid_team_distinct_idx
@@ -53,3 +53,15 @@ CREATE TABLE IF NOT EXISTS posthog_cohortpeople (
 
 CREATE INDEX IF NOT EXISTS posthog_cohortpeople_person_idx
     ON posthog_cohortpeople (person_id);
+
+-- Feature flag hash key overrides (referenced during person merges)
+CREATE TABLE IF NOT EXISTS posthog_featureflaghashkeyoverride (
+    id BIGSERIAL PRIMARY KEY,
+    team_id INTEGER NOT NULL,
+    person_id BIGINT NOT NULL,
+    feature_flag_key TEXT NOT NULL,
+    hash_key TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS posthog_featureflaghashkeyoverride_person_idx
+    ON posthog_featureflaghashkeyoverride (person_id);
