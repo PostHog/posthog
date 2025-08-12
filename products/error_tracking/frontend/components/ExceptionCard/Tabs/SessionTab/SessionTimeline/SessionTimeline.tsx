@@ -14,6 +14,8 @@ import { useAsyncCallback } from 'products/error_tracking/frontend/hooks/use-asy
 import { ItemCollector, ItemRenderer, RendererProps, TimelineItem } from './timeline'
 import { cn } from 'lib/utils/css-classes'
 
+const LOADING_DEBOUNCE_OPTIONS = { leading: true, delay: 500 }
+
 export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.Element {
     const { items, timestamp, sessionId, currentCategories } = useValues(sessionTabLogic)
     const { setItems, toggleCategory } = useActions(sessionTabLogic)
@@ -50,10 +52,7 @@ export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.El
                 })
             }),
         [collector, currentCategories],
-        {
-            delay: 500,
-            leading: true,
-        }
+        LOADING_DEBOUNCE_OPTIONS
     )
 
     const [loadAfter, afterLoading] = useAsyncCallback(
@@ -62,10 +61,7 @@ export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.El
                 setItems(collector.collectItems())
             }),
         [collector, currentCategories],
-        {
-            delay: 500,
-            leading: true,
-        }
+        LOADING_DEBOUNCE_OPTIONS
     )
 
     useEffect(() => {
