@@ -147,7 +147,7 @@ where
             Ok(client) => Arc::new(client),
             Err(e) => {
                 tracing::error!(
-                    "Failed to create Redis cookieless reader client for URL {}: {}",
+                    "Failed to create Redis cookieless client for URL {}: {}",
                     config.get_redis_cookieless_url(),
                     e
                 );

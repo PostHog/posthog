@@ -50,7 +50,7 @@ export function getRedisConnectionOptions(
         case 'session-recording':
             return serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
                 ? {
-                      url: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST ?? 'localhost',
+                      url: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST,
                       options: {
                           port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
                       },
