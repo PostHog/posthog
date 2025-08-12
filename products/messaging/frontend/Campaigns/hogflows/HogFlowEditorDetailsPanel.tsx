@@ -1,4 +1,4 @@
-import { IconTrash, IconX } from '@posthog/icons'
+import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { getOutgoers, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
@@ -7,9 +7,13 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { HogFlowFilters } from './filters/HogFlowFilters'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { getHogFlowStep } from './steps/HogFlowSteps'
+import { urls } from 'scenes/urls'
+import { CategorySelect } from '../../OptOuts/CategorySelect'
+import { HogFlowAction } from './types'
+import { isOptOutEligibleAction } from './steps/types'
 
 export function HogFlowEditorDetailsPanel(): JSX.Element | null {
-    const { selectedNode, nodes, edges } = useValues(hogFlowEditorLogic)
+    const { selectedNode, nodes, edges, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, setCampaignAction } = useActions(hogFlowEditorLogic)
 
     const { deleteElements } = useReactFlow()
@@ -62,6 +66,40 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
             <ScrollableShadows direction="vertical" innerClassName="flex flex-col gap-2 p-3" styledScrollbars>
                 {Step?.renderConfiguration(selectedNode)}
             </ScrollableShadows>
+
+            <LemonDivider className="my-0" />
+
+            {isOptOutEligibleAction(action) && (
+                <div className="flex flex-col p-2">
+                    <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
+                        <span>Message category</span>
+                        <div className="flex gap-2">
+                            {!categoriesLoading && !categories.length && (
+                                <LemonButton
+                                    to={urls.messaging('opt-outs')}
+                                    targetBlank
+                                    type="secondary"
+                                    icon={<IconExternal />}
+                                >
+                                    Configure
+                                </LemonButton>
+                            )}
+                            <CategorySelect
+                                onChange={(categoryId) => {
+                                    setCampaignAction(action.id, {
+                                        ...action,
+                                        config: {
+                                            ...action.config,
+                                            message_category_id: categoryId,
+                                        },
+                                    } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
+                                }}
+                                value={action.config.message_category_id}
+                            />
+                        </div>
+                    </LemonLabel>
+                </div>
+            )}
 
             <LemonDivider className="my-0" />
             {!['trigger', 'exit'].includes(action.type) && (
