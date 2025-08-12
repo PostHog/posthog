@@ -5,6 +5,7 @@ import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { sanitizeString } from '../../utils/db/utils'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -129,7 +130,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         const params = [
             personEvents.map((e) => e.teamId),
             personEvents.map((e) => e.personId),
-            personEvents.map((e) => e.eventName),
+            personEvents.map((e) => sanitizeString(e.eventName)),
         ]
 
         return { cte, params }
@@ -151,8 +152,8 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         const params = [
             behaviouralEvents.map((e) => e.teamId),
             behaviouralEvents.map((e) => e.personId),
-            behaviouralEvents.map((e) => e.filterHash),
-            behaviouralEvents.map((e) => e.date),
+            behaviouralEvents.map((e) => sanitizeString(e.filterHash)),
+            behaviouralEvents.map((e) => sanitizeString(e.date)),
             behaviouralEvents.map((e) => e.counter),
         ]
 
