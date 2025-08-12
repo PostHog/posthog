@@ -131,4 +131,4 @@ export const MAX_GENERALLY_CANNOT: string[] = [
     'See data outside this PostHog project',
     'Guarantee correctness',
     'Order tungsten cubes',
-] as const
+]
