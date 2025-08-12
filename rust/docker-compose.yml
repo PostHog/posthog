@@ -33,7 +33,6 @@ services:
             interval: 3s
             timeout: 10s
             retries: 10
-            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
         ports:
             - '9092:9092'
