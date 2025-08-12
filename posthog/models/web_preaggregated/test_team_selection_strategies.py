@@ -2,7 +2,7 @@ import requests
 from unittest.mock import Mock, patch
 from freezegun import freeze_time
 
-from posthog.test.base import BaseTest, APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from posthog.models import PersonalAPIKey, Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.models.personal_api_key import hash_key_value
@@ -157,74 +157,6 @@ class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
         assert result == set()
 
 
-class TestFeatureEnrollmentStrategyLocalAPI(BaseTest):
-    def setUp(self):
-        super().setUp()
-
-        self.mock_context = Mock()
-        self.mock_context.log = Mock()
-
-        # Create personal API token for testing
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test API Key", user=self.user, secure_value=hash_key_value(personal_api_key)
-        )
-        self.personal_api_key = personal_api_key
-
-        # Create test event for feature enrollment
-        self.create_test_enrollment_event()
-
-    def create_test_enrollment_event(self):
-        _create_event(
-            team=self.team,
-            event="$feature_enrollment_update",
-            distinct_id="test-user",
-            properties={
-                "$feature_flag": "web-analytics-api",
-                "$host": "localhost:8000",
-                "$current_url": f"https://localhost:8000/project/{self.team.pk}/insights",
-            },
-        )
-        flush_persons_and_events()
-
-    def test_local_api_integration_setup_works(self):
-        """
-        Test that local API integration setup works correctly.
-        This test verifies that:
-        1. Personal API token is created successfully
-        2. HTTP request is made to local endpoint
-        3. API endpoint responds (even if with auth error)
-
-        The 403 error is expected because the test personal API key
-        isn't valid for the local API endpoint, but this proves
-        the integration setup is working correctly.
-        """
-        strategy = FeatureEnrollmentStrategy(
-            api_host="http://localhost:8000", api_token=self.personal_api_key, flag_key="web-analytics-api"
-        )
-
-        with patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True):
-            with patch(
-                "posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL", "https://localhost:8000"
-            ):
-                result = strategy.get_teams(self.mock_context)
-
-        # Verify the test setup works correctly
-        assert isinstance(result, set)
-        assert result == set()  # Expected to be empty due to auth failure
-
-        # Verify API call was attempted
-        info_calls = [str(call) for call in self.mock_context.log.info.call_args_list]
-        error_calls = [str(call) for call in self.mock_context.log.error.call_args_list]
-
-        assert any("Querying PostHog internal API" in call for call in info_calls)
-        assert any("Failed to query PostHog internal API" in call for call in error_calls)
-
-        # Verify our test data setup
-        assert self.personal_api_key.startswith("phx_")
-        assert len(PersonalAPIKey.objects.filter(user=self.user)) == 1
-
-
 class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -263,41 +195,17 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
 
         flush_persons_and_events()
 
-    def test_direct_api_query_finds_enrolled_teams(self):
-        self.create_feature_enrollment_events()
+    def test_strategy_with_full_integration(self):
+        """
+        Comprehensive integration test that verifies the FeatureEnrollmentStrategy
+        can correctly identify teams with enrolled users through the actual API.
 
-        with freeze_time("2024-01-10 12:30:00"):
-            query = {
-                "kind": "HogQLQuery",
-                "query": """
-                    SELECT DISTINCT
-                        extract(properties.$current_url, '/project/([0-9]+)/') as project_id,
-                        properties.$host
-                    FROM events
-                    WHERE event = '$feature_enrollment_update'
-                        AND properties.$host = 'localhost:8000'
-                        AND timestamp >= '2024-01-01'
-                        AND properties.$feature_flag = 'web-analytics-api'
-                """,
-            }
-
-            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
-            assert response.status_code == 200
-
-            data = response.json()
-            assert "results" in data
-            results = data["results"]
-
-            # Should find both teams that enrolled in web-analytics-api on localhost:8000
-            team_ids = {int(row[0]) for row in results if row[0]}
-            assert self.team.pk in team_ids
-            assert self.team2.pk in team_ids
-
-            # Verify host filtering worked
-            hosts = {row[1] for row in results}
-            assert hosts == {"localhost:8000"}
-
-    def test_strategy_with_local_api_integration(self):
+        This test:
+        1. Creates enrollment events for multiple teams (self.team and self.team2)
+        2. Uses a real PersonalAPIKey with the local API endpoint
+        3. Calls FeatureEnrollmentStrategy.get_teams() method
+        4. Verifies the strategy returns the correct set of team IDs
+        """
         self.create_feature_enrollment_events()
 
         # Create personal API token for the strategy
@@ -318,8 +226,14 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
                 ):
                     result = strategy.get_teams(self.mock_context)
 
+            # Verify the strategy returns the correct teams
             assert isinstance(result, set)
 
-            # Verify API call was attempted
-            info_calls = [str(call) for call in self.mock_context.log.info.call_args_list]
-            assert any("Querying PostHog internal API" in call for call in info_calls)
+            # The strategy should find both teams that have enrollment events
+            # for the web-analytics-api flag on localhost:8000
+            expected_teams = {self.team.pk, self.team2.pk}
+            assert result == expected_teams, f"Expected teams {expected_teams}, but got {result}"
+
+            # Verify our test data setup
+            assert personal_api_key.startswith("phx_")
+            assert len(PersonalAPIKey.objects.filter(user=self.user)) == 1
