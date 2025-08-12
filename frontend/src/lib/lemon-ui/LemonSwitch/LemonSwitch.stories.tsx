@@ -66,10 +66,10 @@ Bordered.args = { bordered: true }
 export const Disabled: Story = Template.bind({})
 Disabled.args = { disabled: true }
 
-const SwitchCell = ({ size, bordered }: { size: LemonSwitchProps['size']; bordered: boolean }): JSX.Element => {
+const SwitchCell = (props: Partial<LemonSwitchProps>): JSX.Element => {
     return (
         <td className="border border-bg-3000 border-4 p-2">
-            <LemonSwitch label={size} size={size} bordered={bordered} />
+            <LemonSwitch label={props.size} {...props} />
         </td>
     )
 }
@@ -89,6 +89,27 @@ export const Sizes = (): JSX.Element => {
                     <SwitchCell size="xsmall" bordered={true} />
                     <SwitchCell size="small" bordered={true} />
                     <SwitchCell size="medium" bordered={true} />
+                </tr>
+            </tbody>
+        </table>
+    )
+}
+
+export const SizesLoading = (): JSX.Element => {
+    return (
+        <table className="table-auto border-collapse border border-bg-3000 border-4">
+            <tbody>
+                <tr>
+                    <SwitchCell size="xxsmall" checked={false} loading={true} />
+                    <SwitchCell size="xsmall" checked={false} loading={true} />
+                    <SwitchCell size="small" checked={false} loading={true} />
+                    <SwitchCell size="medium" checked={false} loading={true} />
+                </tr>
+                <tr>
+                    <SwitchCell size="xxsmall" checked={true} loading={true} />
+                    <SwitchCell size="xsmall" checked={true} loading={true} />
+                    <SwitchCell size="small" checked={true} loading={true} />
+                    <SwitchCell size="medium" checked={true} loading={true} />
                 </tr>
             </tbody>
         </table>
