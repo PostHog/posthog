@@ -32,15 +32,15 @@ from posthog.hogql.database.schema.exchange_rate import (
     currency_expression_for_events,
 )
 
-SOURCE_VIEW_SUFFIX = "invoice_item_revenue_view"
-EVENTS_VIEW_SUFFIX = "invoice_item_events_revenue_view"
+SOURCE_VIEW_SUFFIX = "revenue_item_revenue_view"
+EVENTS_VIEW_SUFFIX = "revenue_item_events_revenue_view"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
     "invoice_item_id": StringDatabaseField(name="invoice_item_id"),
     "source_label": StringDatabaseField(name="source_label"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),  # When we should consider the revenue to be recognized
-    "created_at": DateTimeDatabaseField(name="created_at"),  # When the invoice item was created
+    "created_at": DateTimeDatabaseField(name="created_at"),  # When the item was created
     "is_recurring": BooleanDatabaseField(name="is_recurring"),
     "product_id": StringDatabaseField(name="product_id"),
     "customer_id": StringDatabaseField(name="customer_id"),
@@ -130,13 +130,14 @@ def calculate_months_for_period(start_timestamp: ast.Expr, end_timestamp: ast.Ex
     )
 
 
-class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
+class RevenueAnalyticsRevenueItemView(RevenueAnalyticsBaseView):
     """
-    Revenue Analytics Invoice Item View with Revenue Recognition Support
+    Revenue Analytics Revenue Item View with Revenue Recognition Support
 
     This view processes Stripe invoice items and applies revenue recognition rules
     for subscription-based billing. Annual and quarterly subscriptions are split
-    into monthly periods for proper accounting.
+    into monthly periods for proper accounting. It will also include invoiceless
+    charges that don't have an invoice.
 
     Example:
         Input: Annual subscription invoice for $1200
@@ -146,7 +147,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
         - Period: Jan 1, 2024 - Dec 31, 2024
         - Subscription: Annual (interval=year, interval_count=1)
 
-        Output: 12 monthly invoice items
+        Output: 12 monthly revenue items
         - ii_456_0: $100, Period: Jan 1, 2024 - Jan 31, 2024
         - ii_456_1: $100, Period: Feb 1, 2024 - Feb 29, 2024
         - ...
@@ -155,7 +156,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
 
     @classmethod
     def get_database_schema_table_kind(cls) -> DatabaseSchemaManagedViewTableKind:
-        return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_INVOICE_ITEM
+        return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM
 
     # NOTE: Very similar to charge views, but for individual invoice items
     @classmethod
@@ -257,7 +258,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
             queries.append((event.eventName, prefix, query))
 
         return [
-            RevenueAnalyticsInvoiceItemView(
+            RevenueAnalyticsRevenueItemView(
                 id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
                 name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
                 prefix=prefix,
@@ -503,7 +504,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                                     ],
                                 ),
                             ),
-                            # We try and use `period_start` as the timestamp for the invoice item
+                            # We try and use `period_start` as the timestamp for the revenue item
                             # but if it's not available, we fallback to `created_at`
                             ast.Alias(
                                 alias="timestamp",
@@ -635,7 +636,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
             id = None
 
         return [
-            RevenueAnalyticsInvoiceItemView(
+            RevenueAnalyticsRevenueItemView(
                 id=str(id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
                 prefix=prefix,

@@ -12,7 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 from products.revenue_analytics.backend.utils import (
     REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
     REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
-    REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY,
+    REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY,
     RevenueSelectOutput,
     revenue_selects_from_database,
 )
@@ -55,14 +55,14 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             query = ast.SelectQuery(
                 select=[ast.Field(chain=["coupon"])],
                 distinct=True,
-                select_from=ast.JoinExpr(table=self._invoice_item_selects(revenue_selects)),
+                select_from=ast.JoinExpr(table=self._rEVENUE_item_selects(revenue_selects)),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["coupon"]), order="ASC")],
             )
         elif key == "coupon_id":  # All coupon IDs available from revenue analytics
             query = ast.SelectQuery(
                 select=[ast.Field(chain=["coupon_id"])],
                 distinct=True,
-                select_from=ast.JoinExpr(table=self._invoice_item_selects(revenue_selects)),
+                select_from=ast.JoinExpr(table=self._rEVENUE_item_selects(revenue_selects)),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["coupon_id"]), order="ASC")],
             )
         elif key == "source":  # All sources available from revenue analytics
@@ -96,11 +96,11 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         return ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
 
-    def _invoice_item_selects(self, revenue_selects: RevenueSelectOutput) -> ast.SelectSetQuery:
-        invoice_item_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY])
+    def _rEVENUE_item_selects(self, revenue_selects: RevenueSelectOutput) -> ast.SelectSetQuery:
+        rEVENUE_item_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY])
             for select in revenue_selects.values()
-            if select[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY] is not None
+            if select[REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY] is not None
         ]
 
-        return ast.SelectSetQuery.create_from_queries(invoice_item_selects, set_operator="UNION ALL")
+        return ast.SelectSetQuery.create_from_queries(rEVENUE_item_selects, set_operator="UNION ALL")
