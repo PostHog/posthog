@@ -45,6 +45,10 @@ class MessageSerializer(serializers.Serializer):
     billing_context = serializers.JSONField(required=False)
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
+    # TODO: Just for testing - remove deep research mode support
+    mode = serializers.ChoiceField(
+        choices=[mode.value for mode in AssistantMode], required=False, default=AssistantMode.ASSISTANT.value
+    )
 
     def validate(self, data):
         if data["content"] is not None:
@@ -152,6 +156,18 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
 
+        # TODO: Just for testing
+        message_content = serializer.validated_data.get("message")
+        has_deep_research_keyword = False
+        if message_content and hasattr(message_content, "content"):
+            has_deep_research_keyword = "DEEP_RESEARCH" in message_content.content
+        is_deep_research_mode = (
+            serializer.validated_data.get("mode") == AssistantMode.DEEP_RESEARCH.value or has_deep_research_keyword
+        )
+
+        if is_deep_research_mode:
+            logger.warning("*** DeepResearchMode ENABLED ***")
+
         workflow_inputs = AssistantConversationRunnerWorkflowInputs(
             team_id=self.team_id,
             user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
@@ -161,7 +177,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             is_new_conversation=is_new_conversation,
             trace_id=serializer.validated_data["trace_id"],
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
-            mode=AssistantMode.ASSISTANT,
+            mode=AssistantMode.DEEP_RESEARCH if is_deep_research_mode else AssistantMode.ASSISTANT,
             billing_context=serializer.validated_data.get("billing_context"),
         )
 
