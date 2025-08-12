@@ -10,7 +10,7 @@ export function LLMInputOutput({
     outputButtons,
 }: {
     inputDisplay: JSX.Element | JSX.Element[]
-    outputDisplay: JSX.Element | JSX.Element[]
+    outputDisplay: JSX.Element | JSX.Element[] | null
     inputHeading?: string
     outputHeading?: string
     bordered?: boolean
@@ -28,14 +28,18 @@ export function LLMInputOutput({
                     {inputButtons}
                 </h4>
                 {inputDisplay}
-                <h4 className="flex items-center justify-between text-xs font-semibold my-2">
-                    <div className="flex items-center gap-x-1.5">
-                        <IconArrowDown className="text-base" />
-                        {outputHeading}
-                    </div>
-                    {outputButtons}
-                </h4>
-                {outputDisplay}
+                {outputDisplay && (
+                    <>
+                        <h4 className="flex items-center justify-between text-xs font-semibold my-2">
+                            <div className="flex items-center gap-x-1.5">
+                                <IconArrowDown className="text-base" />
+                                {outputHeading}
+                            </div>
+                            {outputButtons}
+                        </h4>
+                        {outputDisplay}
+                    </>
+                )}
             </div>
         </>
     )
