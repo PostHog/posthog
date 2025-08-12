@@ -197,7 +197,7 @@ class CSVConfig:
             "CSV file contains no valid distinct IDs. Please ensure your file has data rows with distinct IDs."
         )
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
-        FORMAT_ERROR = "CSV file format is invalid: {error}. Please check your file format and try again."
+        FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
 
 
@@ -352,7 +352,7 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
         elif isinstance(e, csv.Error):
             capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
-            raise ValidationError({"csv": [CSVConfig.ErrorMessages.FORMAT_ERROR.format(error=str(e))]})
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.FORMAT_ERROR]})
         elif isinstance(e, ValidationError):
             # If it's already a ValidationError, just re-raise it to preserve format
             raise
