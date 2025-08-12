@@ -119,7 +119,10 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
 export class BatchWritingGroupStore implements GroupStore {
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private groupHub: GroupHub, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private groupHub: GroupHub,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
