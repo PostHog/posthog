@@ -174,9 +174,7 @@ async fn main() {
                         "Failed to send event to kafka: {:?}, related to offset {:?}",
                         e, offset
                     );
-                    panic!(
-                        "Failed to send event to kafka: {e:?}, related to offset {offset:?}"
-                    );
+                    panic!("Failed to send event to kafka: {e:?}, related to offset {offset:?}");
                 }
             }
         }
@@ -194,9 +192,7 @@ async fn main() {
                     "Failed to associate offsets with kafka transaction, {:?}",
                     e
                 );
-                panic!(
-                    "Failed to associate offsets with kafka transaction, {e:?}"
-                );
+                panic!("Failed to associate offsets with kafka transaction, {e:?}");
             }
         }
 

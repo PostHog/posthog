@@ -124,7 +124,9 @@ impl DataSource for UrlList {
             .await?
             .headers()
             .get("content-length")
-            .ok_or(Error::msg(format!("Could not get content length for {key}")))
+            .ok_or(Error::msg(format!(
+                "Could not get content length for {key}"
+            )))
             .and_then(|header| {
                 header
                     .to_str()

@@ -644,9 +644,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     );
 
     // introspect on $snapshot_data elements from replay event.properties
-    let err_msg = format!(
-        "failed to extract event.properties.$snapshot_data in case: {title}"
-    );
+    let err_msg = format!("failed to extract event.properties.$snapshot_data in case: {title}");
     let snap_items = props["$snapshot_items"].as_array().expect(&err_msg);
     assert_eq!(
         22_usize,
@@ -655,9 +653,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     );
 
     // introspect on first data element of $snapshot_items array
-    let err_msg = format!(
-        "failed to extract event.properties.$snapshot_items[0] in case: {title}"
-    );
+    let err_msg = format!("failed to extract event.properties.$snapshot_items[0] in case: {title}");
     let elem1 = snap_items[0].as_object().expect(&err_msg);
     assert_eq!(
         3_usize,
@@ -733,9 +729,8 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!(
-        "failed to hydrate test $pageview event.data in case: {title}"
-    );
+    let event_data_err_msg =
+        format!("failed to hydrate test $pageview event.data in case: {title}");
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     assert_eq!(
@@ -754,9 +749,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!(
-        "failed to extract event.properties on $pageview in case: {title}"
-    );
+    let err_msg = format!("failed to extract event.properties on $pageview in case: {title}");
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
@@ -798,9 +791,8 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     );
 
     // introspect on extracted event.properties.$set_once map
-    let err_msg = format!(
-        "failed to extract event.properties.$set_once on $pageview in case: {title}"
-    );
+    let err_msg =
+        format!("failed to extract event.properties.$set_once on $pageview in case: {title}");
     let set_once_props = event["properties"]["$set_once"]
         .as_object()
         .expect(&err_msg);
@@ -857,9 +849,8 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!(
-        "failed to hydrate test $pageleave event.data in case: {title}"
-    );
+    let event_data_err_msg =
+        format!("failed to hydrate test $pageleave event.data in case: {title}");
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     assert_eq!(
@@ -878,9 +869,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!(
-        "failed to extract event.properties on $pageleave in case: {title}"
-    );
+    let err_msg = format!("failed to extract event.properties on $pageleave in case: {title}");
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
@@ -1043,9 +1032,7 @@ fn lz64_compress(title: &str, data: Vec<u8>) -> String {
 
 // format the sent_at value when included in GET URL query params
 fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
-    let err_msg = format!(
-        "failed to parse ISO8601 time into UNIX millis in case: {title}"
-    );
+    let err_msg = format!("failed to parse ISO8601 time into UNIX millis in case: {title}");
     OffsetDateTime::parse(ts_str, &Iso8601::DEFAULT)
         .expect(&err_msg)
         .unix_timestamp()

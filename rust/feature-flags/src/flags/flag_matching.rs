@@ -1079,11 +1079,7 @@ impl FeatureFlagMatcher {
                 let condition = &holdout_groups[0];
                 // TODO: Check properties and match based on them
 
-                if condition
-                    .properties
-                    .as_ref()
-                    .is_some_and(|p| !p.is_empty())
-                {
+                if condition.properties.as_ref().is_some_and(|p| !p.is_empty()) {
                     return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
                 }
 

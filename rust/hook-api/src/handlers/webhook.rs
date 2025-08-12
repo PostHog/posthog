@@ -209,8 +209,7 @@ where
 }
 
 fn get_hostname(url_str: &str) -> Result<String, (StatusCode, Json<WebhookPostResponse>)> {
-    let url =
-        Url::parse(url_str).map_err(|e| bad_request(format!("could not parse url: {e}")))?;
+    let url = Url::parse(url_str).map_err(|e| bad_request(format!("could not parse url: {e}")))?;
 
     match url.host_str() {
         Some(hostname) => Ok(hostname.to_owned()),

@@ -155,9 +155,7 @@ pub async fn update_producer_loop(
             Err(e) => {
                 metrics::counter!(UPDATE_PRODUCER_OFFSET, &[("op", "store_fail")]).increment(1);
                 // TODO: consumer json_recv() should expose the source partition ID too
-                error!(
-                    "update_producer_loop: failed to store offset {curr_offset}, got: {e}"
-                );
+                error!("update_producer_loop: failed to store offset {curr_offset}, got: {e}");
             }
         }
 

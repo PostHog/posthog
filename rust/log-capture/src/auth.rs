@@ -63,7 +63,8 @@ pub fn extract_team_id_from_jwt(
         token,
         &DecodingKey::from_secret(jwt_secret.as_bytes()),
         &Validation::new(Algorithm::HS256),
-    ).map_err(|e| AuthError::JwtError(Box::new(e)))?;
+    )
+    .map_err(|e| AuthError::JwtError(Box::new(e)))?;
 
     // Return the team_id from the claims
     Ok(token_data.claims.team_id)
@@ -80,9 +81,7 @@ pub fn authenticate_request(
             AuthError::MissingHeader | AuthError::InvalidHeaderFormat => {
                 Status::unauthenticated("Invalid or missing Authorization header")
             }
-            AuthError::JwtError(_) => {
-                Status::unauthenticated(format!("Invalid JWT token: {err}"))
-            }
+            AuthError::JwtError(_) => Status::unauthenticated(format!("Invalid JWT token: {err}")),
         })
     })
 }

@@ -68,10 +68,8 @@ impl ServerHandle {
             let team_json = serde_json::to_string(&team).unwrap();
             println!("Team JSON for mock: {team_json}");
 
-            mock_client = mock_client.get_ret(
-                &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
-                Ok(team_json),
-            );
+            mock_client =
+                mock_client.get_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(team_json));
         }
 
         tokio::spawn(async move {

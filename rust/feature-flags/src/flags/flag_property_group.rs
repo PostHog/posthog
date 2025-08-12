@@ -28,9 +28,9 @@ impl FlagPropertyGroup {
 
     /// Returns true if the group has any cohort filters.
     pub fn has_cohort_filters(&self) -> bool {
-        self.properties.as_ref().is_some_and(|properties| {
-            properties.iter().any(|prop| prop.is_cohort())
-        })
+        self.properties
+            .as_ref()
+            .is_some_and(|properties| properties.iter().any(|prop| prop.is_cohort()))
     }
 
     /// Returns true if the group is rolled out to some percentage greater than 0.0 and has a cohort filter.

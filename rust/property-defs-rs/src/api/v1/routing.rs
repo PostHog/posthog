@@ -60,11 +60,7 @@ async fn project_property_definitions_handler(
 
     let total_count: i64 = match qmgr.pool.fetch_one(count_query).await {
         Ok(row) => row.get(0),
-        Err(e) => {
-            return Err(ApiError::QueryError(format!(
-                "executing count query: {e}"
-            )))
-        }
+        Err(e) => return Err(ApiError::QueryError(format!("executing count query: {e}"))),
     };
 
     let mut prop_defs: Vec<PropertyDefinition> = vec![];
