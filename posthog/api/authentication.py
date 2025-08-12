@@ -44,34 +44,16 @@ from posthog.tasks.email import send_password_reset, send_two_factor_auth_backup
 from posthog.utils import get_instance_available_sso_providers
 from posthog.tasks.email import login_from_new_device_notification
 from posthog.utils import get_short_user_agent, get_ip_address
-from posthog.cloud_utils import is_cloud
 
 
 @receiver(user_logged_in)
 def post_login(sender, user, request: HttpRequest, **kwargs):
     """
-    Runs after every user login (including tests):
-    - Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time.
-    - Sends a login notification email if the user is logging in from a new device.
+    Runs after every user login (including tests)
+    Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time
     """
-    current_time = time.time()
-    previous_session_time = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
 
-    # Check if this is reauthentication
-    is_reauthentication = (
-        previous_session_time and (current_time - previous_session_time) < settings.SESSION_SENSITIVE_ACTIONS_AGE
-    )
-
-    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = current_time
-
-    # Treat as signup if user was created in the last 30s
-    is_signup = (timezone.now() - user.date_joined) < datetime.timedelta(seconds=30)
-
-    short_user_agent = get_short_user_agent(request)
-    ip_address = get_ip_address(request)
-
-    if not is_reauthentication and not is_signup and is_cloud() and not settings.TEST:
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
+    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
 
 
 @csrf_protect
@@ -187,6 +169,11 @@ class LoginSerializer(serializers.Serializer):
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
+        # Trigger login notification (password, no-2FA)
+        short_user_agent = get_short_user_agent(request)
+        ip_address = get_ip_address(request)
+        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
+
         report_user_logged_in(user, social_provider="")
         return user
 
@@ -242,6 +229,11 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         otp_login(request, device)
         report_user_logged_in(user, social_provider="")
         device.throttle_reset()
+
+        # Trigger login notification (2FA completion)
+        short_user_agent = get_short_user_agent(request)
+        ip_address = get_ip_address(request)
+        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
         cookie_value = get_remember_device_cookie(user=user, otp_device_id=device.persistent_id)
