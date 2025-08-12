@@ -32,6 +32,7 @@ import { Query } from '~/queries/Query/Query'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { createCohortDataNodeLogicKey } from './cohortUtils'
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
@@ -42,6 +43,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -289,14 +291,20 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 {cohort.csv ? (
                                                     <>
                                                         <IconUploadFile
-                                                            style={{ fontSize: '3rem', color: 'var(--text-secondary)' }}
+                                                            style={{
+                                                                fontSize: '3rem',
+                                                                color: 'var(--color-text-secondary)',
+                                                            }}
                                                         />
                                                         <div>{cohort.csv?.name ?? 'File chosen'}</div>
                                                     </>
                                                 ) : (
                                                     <>
                                                         <IconUploadFile
-                                                            style={{ fontSize: '3rem', color: 'var(--text-secondary)' }}
+                                                            style={{
+                                                                fontSize: '3rem',
+                                                                color: 'var(--color-text-secondary)',
+                                                            }}
                                                         />
                                                         <div>Drag a file here or click to browse for a file</div>
                                                     </>
@@ -370,7 +378,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 <Query
                                     query={query}
                                     setQuery={setQuery}
-                                    context={{ refresh: 'force_blocking', fileNameForExport: cohort.name }}
+                                    context={{
+                                        refresh: 'force_blocking',
+                                        fileNameForExport: cohort.name,
+                                        dataNodeLogicKey: dataNodeLogicKey,
+                                    }}
                                 />
                             )}
                         </div>

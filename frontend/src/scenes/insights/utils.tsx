@@ -364,8 +364,8 @@ export function formatBreakdownLabel(
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
             ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
-            ? BREAKDOWN_NULL_DISPLAY
-            : breakdown_value
+              ? BREAKDOWN_NULL_DISPLAY
+              : breakdown_value
     }
 
     return ''
@@ -488,8 +488,8 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
         series: Number.isInteger(dataset.action?.order)
             ? dataset.action?.order
             : dataset.seriesIndex > 0
-            ? `formula${dataset.seriesIndex + 1}`
-            : 'formula',
+              ? `formula${dataset.seriesIndex + 1}`
+              : 'formula',
         breakdown_value: dataset.breakdown_value,
         compare_label: dataset.compare_label,
     }
@@ -515,7 +515,7 @@ export function getFunnelDatasetPosition(
     if (isFunnelStepWithConversionMetrics(dataset)) {
         // increment the minimum order for funnels where there baseline is hidden
         // i.e. funnels for experiments where only the respective variants matter
-        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : dataset.order ?? 0
+        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : (dataset.order ?? 0)
     }
 
     return dataset?.breakdownIndex ?? 0

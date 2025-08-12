@@ -85,7 +85,6 @@ export const PayGateMiniLimitFeatureOther = (): JSX.Element => {
                             {
                                 key: 'advanced_permissions',
                                 name: 'Advanced Permissions',
-                                limit: 3,
                             },
                         ],
                     },

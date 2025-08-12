@@ -10,6 +10,8 @@ import {
 } from 'lib/components/RichContentEditor/types'
 import { UserBasicType, WithAccessControl } from '~/types'
 
+export type { TableOfContentData } from '@tiptap/extension-table-of-contents'
+
 export type NotebookListItemType = {
     id: string
     short_id: string
@@ -78,6 +80,10 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
         find: string | RegExp
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
+    inputOptions?: {
+        find: string | RegExp
+        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
+    }
     attributes: Record<keyof T, Partial<Attribute>>
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
@@ -134,4 +140,14 @@ export interface NotebookEditor extends RichContentEditorType {
     findCommentPosition: (markId: string) => number | null
     removeComment: (pos: number) => void
     getText: () => string
+}
+
+declare module '@tiptap/core' {
+    interface NodeConfig {
+        // TODO: Not a big fan of any here but it's ok for now
+        // the Node type should probably not be augmented with a new method as we are
+        // instead we should probably make a new extension type that does what we want
+        // or have some kind of wrapper around the existing Node
+        serializedText: (attrs: NotebookNodeAttributes<any>) => string
+    }
 }

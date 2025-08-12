@@ -2,36 +2,69 @@ import os
 
 import dagster
 from clickhouse_driver import Client
-
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
     DEFAULT_ENABLED_TEAM_IDS,
 )
 from dags.common import JobOwners, settings_with_log_comment
+from dags.web_preaggregated_team_selection_strategies import strategy_registry
 
 
-def get_team_ids_from_sources() -> list[int]:
-    team_ids = set()
-
-    env_teams = os.getenv("WEB_ANALYTICS_ENABLED_TEAM_IDS")
-    if env_teams:
-        try:
-            env_team_list = [int(tid.strip()) for tid in env_teams.split(",")]
-            team_ids.update(env_team_list)
-        except ValueError:
-            # Invalid team IDs in env var will be ignored
-            pass
-
-    # TODO: Source 2: Get teams from feature preview
-    # TODO: Source 3: Get teams from settings
-
-    # Fallback to default teams if no other sources provided data
+def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -> set[int]:
     if not team_ids:
-        team_ids.update(DEFAULT_ENABLED_TEAM_IDS)
+        return team_ids
 
-    return sorted(team_ids)
+    try:
+        existing_teams = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+        invalid_teams = team_ids - existing_teams
+
+        if invalid_teams:
+            context.log.warning(
+                f"Found {len(invalid_teams)} invalid team IDs that will be excluded: {sorted(invalid_teams)}"
+            )
+
+        context.log.info(f"Validated {len(existing_teams)} out of {len(team_ids)} team IDs")
+        return existing_teams
+
+    except Exception as e:
+        context.log.warning(f"Failed to validate team IDs: {e}. Proceeding with unvalidated teams.")
+        return team_ids
+
+
+def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
+    all_team_ids = set(DEFAULT_ENABLED_TEAM_IDS)  # Always include defaults
+
+    enabled_strategy_names = os.getenv(
+        "WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES", "environment_variable,high_pageviews"
+    ).split(",")
+    enabled_strategy_names = [s.strip().lower() for s in enabled_strategy_names]
+
+    available_strategies = strategy_registry.get_available_strategies()
+    invalid_strategies = set(enabled_strategy_names) - set(available_strategies)
+    if invalid_strategies:
+        context.log.warning(f"Unknown strategies will be ignored: {invalid_strategies}")
+
+    valid_strategy_names = [s for s in enabled_strategy_names if s in available_strategies]
+    context.log.info(f"Enabled strategies: {valid_strategy_names}")
+
+    for strategy_name in valid_strategy_names:
+        strategy = strategy_registry.get_strategy(strategy_name)
+        if strategy:
+            try:
+                strategy_teams = strategy.get_teams(context)
+                all_team_ids.update(strategy_teams)
+            except Exception as e:
+                context.log.warning(f"Strategy '{strategy_name}' failed: {e}")
+
+    # Validate team IDs exist
+    validated_team_ids = validate_team_ids(context, all_team_ids)
+
+    team_list = sorted(validated_team_ids)
+    context.log.info(f"Total validated team IDs: {len(team_list)}")
+    return team_list
 
 
 def store_team_selection_in_clickhouse(
@@ -93,13 +126,11 @@ def web_analytics_team_selection(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dagster.MaterializeResult:
     """
-    Materializes web analytics team selection into ClickHouse.
-
     This asset manages which teams have access to web analytics pre-aggregated tables.
     The selection is then stored in a ClickHouse dictionary for fast lookups.
     """
     context.log.info("Getting team IDs from sources")
-    team_ids = get_team_ids_from_sources()
+    team_ids = get_team_ids_from_sources(context)
 
     context.log.info(f"Materializing team selection for {len(team_ids)} teams")
     stored_team_ids = store_team_selection_in_clickhouse(context, team_ids, cluster)

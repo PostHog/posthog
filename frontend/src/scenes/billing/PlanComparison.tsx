@@ -151,14 +151,14 @@ export const PlanComparison = ({
                                 {plan.free_allocation && !plan.tiers
                                     ? 'Free forever'
                                     : plan.unit_amount_usd
-                                    ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
-                                    : plan.contact_support
-                                    ? 'Custom'
-                                    : plan.included_if == 'has_subscription'
-                                    ? billing?.subscription_level === 'custom'
-                                        ? 'Free, included with any product subscription'
-                                        : 'Usage-based - starting at $0'
-                                    : '$0 per month'}
+                                      ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
+                                      : plan.contact_support
+                                        ? 'Custom'
+                                        : plan.included_if == 'has_subscription'
+                                          ? billing?.subscription_level === 'custom'
+                                              ? 'Free, included with any product subscription'
+                                              : 'Usage-based - starting at $0'
+                                          : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-secondary font-normal italic mt-2">
                                         Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}

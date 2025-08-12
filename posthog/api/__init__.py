@@ -23,6 +23,7 @@ from posthog.warehouse.api import (
     modeling,
     query_tab_state,
     saved_query,
+    saved_query_draft,
     table,
     view_link,
 )
@@ -373,6 +374,12 @@ environments_router.register(
     r"fix_hogql",
     fix_hogql.FixHogQLViewSet,
     "project_fix_hogql",
+    ["team_id"],
+)
+environments_router.register(
+    r"warehouse_saved_query_drafts",
+    saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
+    "environment_warehouse_saved_query_drafts",
     ["team_id"],
 )
 

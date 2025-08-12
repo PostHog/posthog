@@ -42,8 +42,8 @@ function correctRelativeSrcImages(
     return img
 }
 
-export function autocaptureToImage(elements: ElementType[]): null | AutocapturedImage {
-    const find = elements.find((el) => el.tag_name === 'img')
+export function autocaptureToImage(elements: ElementType[] | undefined): null | AutocapturedImage {
+    const find = elements?.find((el) => el.tag_name === 'img')
     const image = {
         src: find?.attributes?.attr__src,
         width: find?.attributes?.attr__width,

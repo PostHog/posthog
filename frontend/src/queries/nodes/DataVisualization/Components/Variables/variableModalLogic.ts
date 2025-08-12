@@ -123,7 +123,7 @@ export const variableModalLogic = kea<variableModalLogicType>([
 
                     throw new Error(`Unsupported variable type ${variableType}`)
                 },
-                updateVariable: (state, { variable }) => ({ ...state, ...variable } as Variable),
+                updateVariable: (state, { variable }) => ({ ...state, ...variable }) as Variable,
                 closeModal: () => DEFAULT_VARIABLE,
             },
         ],

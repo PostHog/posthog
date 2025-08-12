@@ -116,12 +116,12 @@ function FilterSettingsButton({
                 upsellSideAction
                     ? upsellSideAction
                     : allItemsByItemType[type]?.length > 1
-                    ? sideActionForType({
-                          setMiniFilter,
-                          allItemsByMiniFilterKey,
-                          miniFilters: filteredMiniFiltersForType,
-                      })
-                    : undefined
+                      ? sideActionForType({
+                            setMiniFilter,
+                            allItemsByMiniFilterKey,
+                            miniFilters: filteredMiniFiltersForType,
+                        })
+                      : undefined
             }
             label={label || capitalizeFirstLetter(type)}
             icon={icon}

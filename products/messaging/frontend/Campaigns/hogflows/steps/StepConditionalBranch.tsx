@@ -15,7 +15,8 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
     type: 'conditional_branch',
     name: 'Conditional branch',
     description: 'Branch based on a condition such as the event trigger or a person property.',
-    icon: <IconDecisionTree />,
+    icon: <IconDecisionTree className="text-[#e5991e]" />,
+    color: '#e5991e',
     renderNode: (props) => <StepConditionalBranchNode {...props} />,
     renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
     create: () => {

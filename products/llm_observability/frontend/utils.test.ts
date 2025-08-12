@@ -1,5 +1,5 @@
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { normalizeMessage } from './utils'
+import { normalizeMessage, looksLikeXml } from './utils'
 
 describe('LLM Observability utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
@@ -97,43 +97,6 @@ describe('LLM Observability utils', () => {
             {
                 role: 'user',
                 content: 'foo',
-            },
-        ])
-    })
-
-    it('normalizeOutputMessage: parses an Anthropic input message', () => {
-        let message: AnthropicInputMessage = {
-            role: 'user',
-            content: 'foo',
-        }
-        expect(normalizeMessage(message)).toEqual([
-            {
-                role: 'user',
-                content: 'foo',
-            },
-        ])
-
-        message = {
-            role: 'user',
-            content: [
-                {
-                    type: 'text',
-                    text: 'foo',
-                },
-                {
-                    type: 'text',
-                    text: 'bar',
-                },
-            ],
-        }
-        expect(normalizeMessage(message)).toEqual([
-            {
-                role: 'user',
-                content: 'foo',
-            },
-            {
-                role: 'user',
-                content: 'bar',
             },
         ])
     })
@@ -255,5 +218,65 @@ describe('LLM Observability utils', () => {
                 tool_call_id: '1',
             },
         ])
+    })
+
+    it('normalizeMessage: handles new array-based content format', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'text',
+                    text: "I'll check the weather for you.",
+                },
+                {
+                    type: 'function',
+                    id: 'call_123',
+                    function: {
+                        name: 'get_weather',
+                        arguments: { location: 'New York City' },
+                    },
+                },
+            ],
+        }
+
+        expect(normalizeMessage(message)).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'text',
+                        text: "I'll check the weather for you.",
+                    },
+                    {
+                        type: 'function',
+                        id: 'call_123',
+                        function: {
+                            name: 'get_weather',
+                            arguments: { location: 'New York City' },
+                        },
+                    },
+                ],
+            },
+        ])
+    })
+
+    describe('looksLikeXml', () => {
+        it('detects basic XML structures', () => {
+            expect(looksLikeXml('<root><child/></root>')).toBe(true)
+            expect(looksLikeXml('<?xml version="1.0"?><root></root>')).toBe(true)
+            expect(looksLikeXml('<root attr="1">text</root>')).toBe(true)
+            expect(looksLikeXml('<self-closing/>')).toBe(true)
+        })
+
+        it('returns true for typical HTML snippets (by design)', () => {
+            expect(looksLikeXml('<!DOCTYPE html><html><body></body></html>')).toBe(true)
+            expect(looksLikeXml('<div class="x">hi</div>')).toBe(true)
+        })
+
+        it('returns false for non-XML-like strings', () => {
+            expect(looksLikeXml('a < b and c > d')).toBe(false)
+            expect(looksLikeXml('plain text')).toBe(false)
+            expect(looksLikeXml('{"foo":"bar"}')).toBe(false)
+        })
     })
 })

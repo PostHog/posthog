@@ -319,14 +319,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                           formattedValue === null || formattedValue === undefined
                                               ? ''
                                               : typeof formattedValue === 'object'
-                                              ? JSON.stringify(formattedValue)
-                                              : String(formattedValue)
+                                                ? JSON.stringify(formattedValue)
+                                                : String(formattedValue)
                                       return `${header.title}: ${displayValue}`
                                   })
                                   .join(', ')}`
                             : isEmptyFolder
-                            ? 'empty folder'
-                            : `tree item: ${item.name}`
+                              ? 'empty folder'
+                              : `tree item: ${item.name}`
 
                     if (item.type === 'separator') {
                         return (

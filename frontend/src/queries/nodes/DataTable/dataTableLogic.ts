@@ -93,10 +93,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (query, sourceFeatures): string[] | null =>
                 sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
                     ? 'orderBy' in query.source // might not be EventsQuery, but something else with orderBy
-                        ? (query.source as EventsQuery).orderBy ?? null
+                        ? ((query.source as EventsQuery).orderBy ?? null)
                         : isEventsQuery(query.source)
-                        ? ['timestamp DESC']
-                        : null
+                          ? ['timestamp DESC']
+                          : null
                     : null,
             { resultEqualityCheck: objectsEqual },
         ],
@@ -169,12 +169,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 const results = !response
                     ? null
                     : 'results' in response && Array.isArray(response.results)
-                    ? response.results
-                    : 'result' in response && Array.isArray(response.result)
-                    ? response.result
-                    : null
+                      ? response.results
+                      : 'result' in response && Array.isArray(response.result)
+                        ? response.result
+                        : null
 
-                return results ? results.map((result: any) => ({ result })) ?? null : null
+                return results ? (results.map((result: any) => ({ result })) ?? null) : null
             },
         ],
         queryWithDefaults: [
@@ -225,7 +225,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showOpenEditorButton:
                             context?.showOpenEditorButton !== undefined
                                 ? context.showOpenEditorButton
-                                : query.showOpenEditorButton ?? true,
+                                : (query.showOpenEditorButton ?? true),
                         showResultsTable: query.showResultsTable ?? true,
                     }),
                 }

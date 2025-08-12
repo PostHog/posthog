@@ -26,7 +26,11 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         actions: [supportLogic, ['submitZendeskTicket']],
     })),
     actions({
-        updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean) => ({ flagKey, enabled }),
+        updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean, stage?: string) => ({
+            flagKey,
+            enabled,
+            stage,
+        }),
         beginEarlyAccessFeatureFeedback: (flagKey: string) => ({ flagKey }),
         cancelEarlyAccessFeatureFeedback: true,
         submitEarlyAccessFeatureFeedback: (message: string) => ({ message }),
@@ -74,8 +78,8 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         },
     }),
     listeners(() => ({
-        updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled }) => {
-            posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled)
+        updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled, stage }) => {
+            posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled, stage)
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
             void copyToClipboard(urls.absolute(`/settings/user-feature-previews#${flagKey}`))

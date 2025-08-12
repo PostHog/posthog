@@ -77,7 +77,7 @@ export const AccessRevoked = (): JSX.Element => {
 
     useEffect(() => {
         loadCurrentTeamSuccess(null)
-    }, [])
+    }, [loadCurrentTeamSuccess])
 
     return <App />
 }
@@ -114,7 +114,7 @@ export const NoSelectableProjects = (): JSX.Element => {
 
     useEffect(() => {
         loadCurrentTeamSuccess(null)
-    }, [])
+    }, [loadCurrentTeamSuccess])
 
     return <App />
 }

@@ -20,7 +20,7 @@ class TestInsightSearchNode(BaseTest):
             team=self.team,
             name="Daily Pageviews",
             description="Track daily website traffic",
-            query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+            query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
             filters={"insight": "TRENDS"},
             created_by=self.user,
         )
@@ -29,7 +29,7 @@ class TestInsightSearchNode(BaseTest):
             team=self.team,
             name="User Signup Funnel",
             description="Track user conversion through signup",
-            query={"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}},
+            query={"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}},
             filters={"insight": "FUNNELS"},
             created_by=self.user,
         )

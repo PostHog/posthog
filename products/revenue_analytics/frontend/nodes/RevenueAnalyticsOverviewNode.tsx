@@ -42,7 +42,7 @@ export function RevenueAnalyticsOverviewNode(props: {
     const { response, responseLoading } = useValues(logic)
     const queryResponse = response as RevenueAnalyticsOverviewQueryResponse | undefined
 
-    const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : queryResponse?.results ?? []
+    const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : (queryResponse?.results ?? [])
 
     return (
         <div className="flex flex-row flex-wrap md:flex-nowrap w-full gap-2">

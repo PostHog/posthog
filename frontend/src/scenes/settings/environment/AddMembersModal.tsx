@@ -63,7 +63,7 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
                                         ({
                                             value: teamMembershipLevel,
                                             label: membershipLevelToName.get(teamMembershipLevel),
-                                        } as LemonSelectOption<TeamMembershipLevel>)
+                                        }) as LemonSelectOption<TeamMembershipLevel>
                                 )}
                             />
                         </LemonField>

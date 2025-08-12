@@ -12,6 +12,7 @@ class DataColorThemeAdmin(admin.ModelAdmin):
         "team_link",
     )
     readonly_fields = ("team",)
+    autocomplete_fields = ("created_by", "project")
 
     @admin.display(description="Team")
     def team_link(self, data_color_theme: DataColorTheme):

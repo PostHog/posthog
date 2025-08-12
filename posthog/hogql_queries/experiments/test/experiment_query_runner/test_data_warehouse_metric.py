@@ -1,13 +1,9 @@
 from datetime import datetime
-import json
-from typing import cast
 
 from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
-from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     ExperimentQueryRunner,
 )
@@ -22,8 +18,6 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
-    ExperimentVariantTrendsBaseStats,
-    LegacyExperimentQueryResponse,
 )
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.test.base import (
@@ -123,20 +117,20 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 2)
-        self.assertEqual(control_result.count, 6)
-        self.assertEqual(test_result.count, 7)
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
+
+        self.assertEqual(control_result.number_of_samples, 1)
+        self.assertEqual(test_result.number_of_samples, 2)
+        self.assertEqual(control_result.sum, 6)
+        self.assertEqual(test_result.sum, 7)
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_count_metric(self):
@@ -190,21 +184,20 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
-        self.assertEqual(control_result.count, 6)
-        self.assertEqual(test_result.count, 7)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
+        self.assertEqual(control_result.sum, 6)
+        self.assertEqual(test_result.sum, 7)
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 9)
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_continuous_metric(self):
@@ -258,21 +251,20 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-31"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
-        self.assertEqual(control_result.count, 650)
-        self.assertEqual(test_result.count, 1150)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
+        self.assertEqual(control_result.sum, 650)
+        self.assertEqual(test_result.sum, 1150)
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 9)
 
     @parameterized.expand(
         [
@@ -325,8 +317,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     "operator": "exact",
                 },
                 {
-                    "control_absolute_exposure": 1,
-                    "test_absolute_exposure": 1,
+                    "control_absolute_exposure": 3,
+                    "test_absolute_exposure": 3,
                 },
             ],
             [
@@ -339,8 +331,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     "operator": "exact",
                 },
                 {
-                    "control_absolute_exposure": 1,
-                    "test_absolute_exposure": 1,
+                    "control_absolute_exposure": 3,
+                    "test_absolute_exposure": 3,
                 },
             ],
             [
@@ -459,14 +451,31 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     timestamp=datetime(2023, 1, i + 1),
                 )
 
+        # Create more persons to provide statistical variance
         _create_person(
             team=self.team,
             distinct_ids=["distinct_control_0"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_control_1"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_control_2"],
         )
 
         _create_person(
             team=self.team,
             distinct_ids=["distinct_test_3"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_test_4"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_test_5"],
         )
 
         _create_person(
@@ -493,41 +502,42 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         if name == "cohort_static" and cohort:
-            cohort.insert_users_by_list(["distinct_control_0", "internal_test_1"])
-            self.assertEqual(cohort.people.count(), 2)
+            cohort.insert_users_by_list(
+                [
+                    "distinct_control_0",
+                    "distinct_control_1",
+                    "distinct_control_2",
+                    "distinct_test_3",
+                    "distinct_test_4",
+                    "distinct_test_5",
+                ]
+            )
+            self.assertEqual(cohort.people.count(), 6)
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        # "feature_flags" and "element" filter out all events
-        if name == "feature_flags" or name == "element":
-            with self.assertRaises(ValidationError) as context:
+
+        # Handle cases where filters result in no exposures
+        if filter_expected["control_absolute_exposure"] == 0 and filter_expected["test_absolute_exposure"] == 0:
+            with self.assertRaises(ValueError) as context:
                 query_runner.calculate()
 
-            expected_errors = json.dumps(
-                {
-                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                }
-            )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+            self.assertEqual(str(context.exception), "No control variant found")
         else:
             with freeze_time("2023-01-07"):
-                result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+                result = query_runner.calculate()
 
-            self.assertEqual(len(result.variants), 2)
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-            control_result = cast(
-                ExperimentVariantTrendsBaseStats,
-                next(variant for variant in result.variants if variant.key == "control"),
-            )
-            test_result = cast(
-                ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-            )
+            control_result = result.baseline
+            assert control_result is not None
+            test_result = result.variant_results[0]
+            assert test_result is not None
 
-            self.assertEqual(control_result.absolute_exposure, filter_expected["control_absolute_exposure"])
-            self.assertEqual(test_result.absolute_exposure, filter_expected["test_absolute_exposure"])
+            self.assertEqual(control_result.number_of_samples, filter_expected["control_absolute_exposure"])
+            self.assertEqual(test_result.number_of_samples, filter_expected["test_absolute_exposure"])
 
         # Run the query again without filtering
         metric = ExperimentMeanMetric(
@@ -551,19 +561,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 10)
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 10)
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
@@ -640,21 +649,20 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
         with freeze_time("2023-01-10"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
-        self.assertEqual(control_result.count, 1)
-        self.assertEqual(test_result.count, 3)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
+        self.assertEqual(control_result.sum, 1)
+        self.assertEqual(test_result.sum, 3)
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 9)
 
     @parameterized.expand(
         [
@@ -747,21 +755,20 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
-        self.assertEqual(control_result.count, expected_results["control_count"])
-        self.assertEqual(test_result.count, expected_results["test_count"])
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
+        self.assertEqual(control_result.sum, expected_results["control_count"])
+        self.assertEqual(test_result.sum, expected_results["test_count"])
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 9)
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_metric_with_fixed_properties(self):
@@ -822,22 +829,21 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
         # Should filter to only premium plan usage
-        self.assertEqual(control_result.count, 500)
-        self.assertEqual(test_result.count, 750)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
+        self.assertEqual(control_result.sum, 500)
+        self.assertEqual(test_result.sum, 750)
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 9)
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_metric_with_both_properties_and_fixed_properties(self):
@@ -903,22 +909,21 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
         # Should filter to only premium plan AND us-west region
-        self.assertEqual(control_result.count, 250)
-        self.assertEqual(test_result.count, 375)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
+        self.assertEqual(control_result.sum, 250)
+        self.assertEqual(test_result.sum, 375)
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 9)
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_metric_with_no_properties(self):
@@ -975,19 +980,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
         # Should include all data (no filters)
-        self.assertEqual(control_result.count, 650)
-        self.assertEqual(test_result.count, 1150)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
+        self.assertEqual(control_result.sum, 650)
+        self.assertEqual(test_result.sum, 1150)
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 9)

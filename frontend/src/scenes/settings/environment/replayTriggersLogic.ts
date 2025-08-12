@@ -68,8 +68,8 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     editUrlTriggerIndex && index < editUrlTriggerIndex
                         ? editUrlTriggerIndex - 1
                         : index === editUrlTriggerIndex
-                        ? null
-                        : editUrlTriggerIndex,
+                          ? null
+                          : editUrlTriggerIndex,
                 newUrlTrigger: () => -1,
                 updateUrlTrigger: () => null,
                 addUrlTrigger: () => null,
@@ -96,8 +96,8 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     editUrlBlocklistIndex && index < editUrlBlocklistIndex
                         ? editUrlBlocklistIndex - 1
                         : index === editUrlBlocklistIndex
-                        ? null
-                        : editUrlBlocklistIndex,
+                          ? null
+                          : editUrlBlocklistIndex,
                 newUrlBlocklist: () => -1,
                 updateUrlBlocklist: () => null,
                 addUrlBlocklist: () => null,

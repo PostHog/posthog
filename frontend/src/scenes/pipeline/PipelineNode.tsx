@@ -109,7 +109,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                             key: tab,
                             content: content,
                             link: params.stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
-                        } as LemonTab<PipelineNodeTab>)
+                        }) as LemonTab<PipelineNodeTab>
                 )}
             />
         </>

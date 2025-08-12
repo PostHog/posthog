@@ -465,7 +465,7 @@ describe('sessionRecordingDataLogic', () => {
                     attributes: [{ id: 4, attributes: { class: 'test' } }],
                 },
                 windowId: '1',
-            } as RecordingSnapshot)
+            }) as RecordingSnapshot
 
         it('does not chunk snapshots with adds below chunk size', () => {
             const snapshot = createMutationSnapshot(100)

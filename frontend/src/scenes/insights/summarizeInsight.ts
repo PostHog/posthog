@@ -92,8 +92,8 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                     (cohortId === 'all'
                         ? 'all users'
                         : cohortId in context.cohortsById
-                        ? context.cohortsById[cohortId]?.name
-                        : `ID ${cohortId}`)
+                          ? context.cohortsById[cohortId]?.name
+                          : `ID ${cohortId}`)
             )
             .join(', ')}`
     }
@@ -121,16 +121,16 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                         mathDefinition
                             ? mathDefinition.shortName
                             : s.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
+                              ? 'unique groups'
+                              : mathType
                     }`
                 } else {
                     series = `${getDisplayNameFromEntityNode(s)} ${
                         mathDefinition
                             ? mathDefinition.shortName
                             : s.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
+                              ? 'unique groups'
+                              : mathType
                     }`
                 }
                 if (query.trendsFilter?.formula) {
@@ -157,8 +157,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             query.funnelsFilter?.funnelOrderType === StepOrderValue.STRICT
                 ? '⇉'
                 : query.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
-                ? '&'
-                : '→'
+                  ? '&'
+                  : '→'
         summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
@@ -265,8 +265,8 @@ export function summarizeInsight(query: Node | undefined | null, context: Summar
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
         : !!query && !isInsightVizNode(query)
-        ? summarizeQuery(query)
-        : ''
+          ? summarizeQuery(query)
+          : ''
 }
 
 export function useSummarizeInsight(): (query: Node | undefined | null) => string {

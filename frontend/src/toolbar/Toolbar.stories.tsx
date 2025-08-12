@@ -17,9 +17,10 @@ import { listWebVitalsAPIResponse } from './__mocks__/list-web-vitals-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { TOOLBAR_ID } from './utils'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function useToolbarStyles(): void {
-    useEffect(() => {
+    useOnMountEffect(() => {
         const head = document.getElementsByTagName('head')[0]
         const shadowRoot = window.document.getElementById(TOOLBAR_ID)?.shadowRoot
         const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
@@ -29,7 +30,7 @@ function useToolbarStyles(): void {
             style.appendChild(document.createTextNode(text))
             shadowRoot?.appendChild(style)
         })
-    }, [])
+    })
 }
 
 const meta: Meta = {
@@ -99,7 +100,7 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
         setVisibleMenu(props.menu || 'none')
         toggleMinimized(props.minimized ?? false)
         toggleTheme(props.theme || 'light')
-    }, [Object.values(props)])
+    }, [Object.values(props)]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="min-h-[32rem]">

@@ -31,6 +31,25 @@ class TestTitleGenerator(BaseTest):
             self.conversation.refresh_from_db()
             self.assertEqual(self.conversation.title, "Test Title")
 
+    def test_saves_a_long_title_truncated(self):
+        """Test that if a title over our length is generated, it is truncated on save, without error."""
+        with patch(
+            "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content=("Long " * 100).strip())]),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            new_state = node.run(
+                AssistantState(messages=[HumanMessage(content="Test Message")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+            self.assertIsNone(new_state)
+            # Refresh from DB to ensure we get latest value
+            self.conversation.refresh_from_db()
+            self.assertEqual(
+                self.conversation.title,
+                "Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long",
+            )
+
     def test_title_already_set_should_stay_the_same(self):
         """Test that existing conversation titles are not overwritten."""
         self.conversation.title = "Existing Title"

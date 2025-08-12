@@ -44,22 +44,21 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
     actions({
         openFeedbackDialog: true,
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         hogFunctionTemplates: [
             {} as Record<string, HogFunctionTemplateType>,
             {
                 loadHogFunctionTemplates: async () => {
-                    const siteDesinationsEnabled = !!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS]
-                    const destinationTypes = siteDesinationsEnabled
-                        ? props.types
-                        : props.types.filter((type) => type !== 'site_destination')
                     const templates = await api.hogFunctions.listTemplates({
-                        types: destinationTypes,
+                        types: props.types,
                     })
-                    return templates.results.reduce((acc, template) => {
-                        acc[template.id] = template
-                        return acc
-                    }, {} as Record<string, HogFunctionTemplateType>)
+                    return templates.results.reduce(
+                        (acc, template) => {
+                            acc[template.id] = template
+                            return acc
+                        },
+                        {} as Record<string, HogFunctionTemplateType>
+                    )
                 },
             },
         ],

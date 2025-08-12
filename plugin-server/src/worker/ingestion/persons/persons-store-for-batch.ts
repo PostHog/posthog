@@ -126,7 +126,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Returns the size of the person properties
      */
-    personPropertiesSize(teamId: number, distinctId: string): Promise<number>
+    personPropertiesSize(personId: string): Promise<number>
 
     /**
      * Reports metrics about person operations in batch

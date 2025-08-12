@@ -75,6 +75,7 @@ export const SceneTags = ({
                 menuItem
                 inert={!canEdit}
                 data-attr={`${dataAttrKey}-tags-button`}
+                variant="panel"
             >
                 {tags && tags.length > 0 ? (
                     <ObjectTags tags={tags} data-attr={`${dataAttrKey}-tags`} staticOnly />

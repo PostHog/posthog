@@ -7,12 +7,13 @@ import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/compone
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { errorFiltersLogic } from './errorFiltersLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export const taxonomicFilterLogicKey = 'error-tracking'
 export const taxonomicGroupTypes = [
@@ -109,9 +110,7 @@ const UniversalFilterGroup = (): JSX.Element => {
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
 
-    useEffect(() => {
-        setAllowInitiallyOpen(true)
-    }, [])
+    useOnMountEffect(() => setAllowInitiallyOpen(true))
 
     return (
         <>

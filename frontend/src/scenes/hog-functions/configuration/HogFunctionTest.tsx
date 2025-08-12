@@ -356,17 +356,17 @@ export function HogFunctionTest(): JSX.Element {
                                         testResult.status === 'success'
                                             ? 'success'
                                             : testResult.status === 'skipped'
-                                            ? 'warning'
-                                            : 'error'
+                                              ? 'warning'
+                                              : 'error'
                                     }
                                 >
                                     {testResult.status === 'success'
                                         ? 'Success'
                                         : testResult.status === 'skipped'
-                                        ? `${
-                                              type.charAt(0).toUpperCase() + type.slice(1)
-                                          } was skipped because the event did not match the filter criteria`
-                                        : 'Error'}
+                                          ? `${
+                                                type.charAt(0).toUpperCase() + type.slice(1)
+                                            } was skipped because the event did not match the filter criteria`
+                                          : 'Error'}
                                 </LemonBanner>
 
                                 {type === 'transformation' && testResult.status !== 'error' ? (

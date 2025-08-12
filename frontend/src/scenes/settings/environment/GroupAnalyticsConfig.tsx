@@ -1,4 +1,4 @@
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -7,11 +7,12 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { GroupType } from '~/types'
 
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
+import { IconTrash } from '@posthog/icons'
 
 export function GroupAnalyticsConfig(): JSX.Element | null {
     const { groupTypes, groupTypesLoading, singularChanges, pluralChanges, hasChanges } =
         useValues(groupAnalyticsConfigLogic)
-    const { setSingular, setPlural, reset, save } = useActions(groupAnalyticsConfigLogic)
+    const { setSingular, setPlural, reset, save, deleteGroupType } = useActions(groupAnalyticsConfigLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -62,6 +63,58 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                 )
             },
         },
+        {
+            title: '',
+            key: 'delete',
+            width: 24,
+            render: function Render(_, groupType) {
+                return (
+                    <LemonButton
+                        status="danger"
+                        size="small"
+                        icon={<IconTrash />}
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: 'Delete group type',
+                                description: (
+                                    <div className="mt-2 w-150">
+                                        Deleting a group type makes it available for reuse, but group data will not be
+                                        deleted from existing events.
+                                        <br />
+                                        <br />
+                                        This means if a new event uses the deleted group type slot, any existing events
+                                        from the previous group will fall under the new definition.
+                                        <br />
+                                        <br />
+                                        Make sure to update the event triggers in your code before deleting the group
+                                        type.
+                                        <br />
+                                        <br />
+                                        For more information about groups, see{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/product-analytics/group-analytics"
+                                            target="_blank"
+                                        >
+                                            the docs
+                                        </Link>
+                                    </div>
+                                ),
+                                secondaryButton: {
+                                    type: 'secondary',
+                                    children: 'Cancel',
+                                },
+                                primaryButton: {
+                                    type: 'primary',
+                                    status: 'danger',
+                                    onClick: () => deleteGroupType(groupType.group_type_index),
+                                    children: 'Delete',
+                                },
+                            })
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     return (
@@ -77,7 +130,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                     at{' '}
                     <Link to="https://posthog.com/docs/product-analytics/group-analytics" target="_blank">
                         this guide
-                    </Link>
+                    </Link>{' '}
                     for more information on getting started.
                 </LemonBanner>
             )}

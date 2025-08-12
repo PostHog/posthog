@@ -50,7 +50,7 @@ export function MaxTool({
     useEffect(() => {
         if (active) {
             registerTool({ name, displayName, description, icon, context, introOverride, callback })
-            return () => {
+            return (): void => {
                 deregisterTool(name)
             }
         }
@@ -65,7 +65,7 @@ export function MaxTool({
         callback,
         registerTool,
         deregisterTool,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     let content: JSX.Element
     if (!isMaxAvailable) {

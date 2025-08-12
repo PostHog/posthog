@@ -63,8 +63,8 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
                                         retryRunning
                                             ? 'Please wait for the current retries to complete.'
                                             : Object.values(selectedForRetry).length === 0
-                                            ? 'No invocations selected'
-                                            : undefined
+                                              ? 'No invocations selected'
+                                              : undefined
                                     }
                                 >
                                     Retry selected

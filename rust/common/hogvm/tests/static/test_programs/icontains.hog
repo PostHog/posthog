@@ -1,0 +1,8 @@
+let stringified := '["test", "test2", "test3"]'
+let json := ['test', 'test2', 'test3']
+
+assert_eq(arrayExists(x -> x ilike '%test%', JSONExtract(stringified, 'Array(String)')), true)
+
+assert_eq(arrayExists(x -> x ilike '%test%', JSONExtract(json, 'Array(String)')), true)
+
+return true

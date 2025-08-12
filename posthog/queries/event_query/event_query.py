@@ -21,7 +21,7 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.schema import PersonsOnEventsMode
-from posthog.session_recordings.queries_to_replace.session_query import SessionQuery
+from posthog.session_recordings.queries.session_query import SessionQuery
 
 
 class EventQuery(metaclass=ABCMeta):

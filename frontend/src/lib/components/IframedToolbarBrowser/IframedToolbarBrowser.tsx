@@ -46,7 +46,7 @@ export function IframedToolbarBrowser({
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
     useEffect(() => {
         setIframeWidth(iframeWidth ?? null)
-    }, [iframeWidth])
+    }, [iframeWidth, setIframeWidth])
 
     return browserUrl ? (
         <div className="relative flex-1 w-full h-full">

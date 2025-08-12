@@ -1,4 +1,5 @@
 import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
@@ -271,8 +272,15 @@ describe('console log ingester', () => {
             expect(topicMessages[0].messages[0].value?.message).toEqual('before')
         })
 
-        test('drops logs at or after switchover date', async () => {
-            const ingester = new ConsoleLogsIngester(mockProducer, undefined, switchoverDate)
+        test.each([
+            ['drops logs at or after switchover date', switchoverDate],
+            ['drops logs with * switchover date', true],
+        ])('%s', async (_name, configuredValue: Date | boolean) => {
+            const ingester = new ConsoleLogsIngester(
+                mockProducer,
+                undefined,
+                configuredValue as SessionRecordingV2MetadataSwitchoverDate
+            )
 
             // Test at switchover
             await ingester.consume(

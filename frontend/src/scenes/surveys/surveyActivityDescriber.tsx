@@ -548,7 +548,7 @@ export function describeRatingChanges([before, after]: [RatingSurveyQuestion, Ra
 
 export function describeMultipleChoiceChanges([before, after]: [
     MultipleSurveyQuestion,
-    MultipleSurveyQuestion
+    MultipleSurveyQuestion,
 ]): JSX.Element[] {
     const changes: JSX.Element[] = []
     if (JSON.stringify(before.choices) !== JSON.stringify(after.choices)) {

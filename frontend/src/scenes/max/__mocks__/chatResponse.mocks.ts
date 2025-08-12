@@ -6,6 +6,7 @@ import {
     HumanMessage,
     ReasoningMessage,
 } from '~/queries/schema/schema-assistant-messages'
+import { MaxContextType } from '../maxTypes'
 
 import failureMessage from './failureMessage.json'
 import summaryMessage from './summaryMessage.json'
@@ -105,4 +106,36 @@ export const longResponseChunk = generateChunk([
     `data: ${JSON.stringify(humanMessage)}`,
     'event: message',
     `data: ${JSON.stringify(longMessage)}`,
+])
+
+const humanMessageWithContext: HumanMessage = {
+    type: AssistantMessageType.Human,
+    content: 'Tell me about the $pageview event',
+    id: 'human-context',
+    ui_context: {
+        events: [
+            {
+                id: 'test-event-1',
+                name: '$pageview',
+                type: MaxContextType.EVENT,
+                description: 'Page view event',
+            },
+        ],
+    },
+}
+
+const assistantResponseWithContext: AssistantMessage = {
+    type: AssistantMessageType.Assistant,
+    content:
+        'Based on the event context you provided, the $pageview event is a standard event that tracks when users view pages in your application. This event helps you understand user navigation patterns and page popularity. It typically captures properties like the page URL, referrer, and timestamp.',
+    id: 'assistant-context',
+}
+
+export const chatResponseWithEventContext = generateChunk([
+    'event: conversation',
+    `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+    'event: message',
+    `data: ${JSON.stringify(humanMessageWithContext)}`,
+    'event: message',
+    `data: ${JSON.stringify(assistantResponseWithContext)}`,
 ])

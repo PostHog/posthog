@@ -10,7 +10,7 @@ const getConfig = (): PluginsServerConfig =>
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 20,
         DEDUPLICATION_REDIS_PREFIX: 'test',
-    } as PluginsServerConfig)
+    }) as PluginsServerConfig
 
 // Helper function to pre-populate keys in Redis
 const insertKeys = async (deduplicationRedis: DeduplicationRedis, keys: string[], ttl: number): Promise<void> => {

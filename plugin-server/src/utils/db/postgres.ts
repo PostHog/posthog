@@ -16,6 +16,7 @@ export enum PostgresUse {
     PLUGIN_STORAGE_RW, // Plugin Storage table, no read replica for it
     PERSONS_READ, // Person database, read replica
     PERSONS_WRITE, // Person database, write
+    COUNTERS_RW, // Counters database for aggregations
 }
 
 export class TransactionClient {
@@ -47,6 +48,7 @@ export class PostgresRouter {
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
             [PostgresUse.PERSONS_WRITE, commonClient],
+            [PostgresUse.COUNTERS_RW, commonClient],
         ])
 
         if (serverConfig.DATABASE_READONLY_URL) {
@@ -99,6 +101,18 @@ export class PostgresRouter {
         } else {
             this.pools.set(PostgresUse.PERSONS_READ, this.pools.get(PostgresUse.PERSONS_WRITE)!)
             logger.info('👍', `Using persons write pool for read-only`)
+        }
+        if (serverConfig.COUNTERS_DATABASE_URL) {
+            logger.info('🤔', `Connecting to counters Postgresql...`)
+            this.pools.set(
+                PostgresUse.COUNTERS_RW,
+                createPostgresPool(
+                    serverConfig.COUNTERS_DATABASE_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
+            )
+            logger.info('👍', `Counters Postgresql ready`)
         }
     }
 

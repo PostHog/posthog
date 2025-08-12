@@ -138,8 +138,6 @@ jobs:
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
-            CASSANDRA_HOST: 'localhost'
-            CASSANDRA_KEYSPACE: 'test_posthog'
 
         steps:
             - name: Code check out
@@ -232,8 +230,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  CASSANDRA_HOST: 'localhost'
-                  CASSANDRA_KEYSPACE: 'test_posthog'
+                  COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/counters'
               run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
@@ -242,13 +239,12 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_counters'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
-                  CASSANDRA_HOST: 'localhost'
-                  CASSANDRA_KEYSPACE: 'test_posthog'
               run: bin/turbo run test --filter=@posthog/plugin-server
 
             - name: Output logs on failure

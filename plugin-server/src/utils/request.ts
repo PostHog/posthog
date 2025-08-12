@@ -163,6 +163,7 @@ class SecureAgent extends Agent {
             connections: 500,
             connect: {
                 lookup: httpStaticLookup,
+                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
         })
     }

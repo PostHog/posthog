@@ -1,7 +1,6 @@
 import { IconCode, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useState } from 'react'
 
 import {
@@ -61,17 +60,15 @@ export function CyclotronJobTemplateSuggestions({
                     />
 
                     {setTemplating ? (
-                        <FlaggedFeature flag="cdp-hog-input-liquid">
-                            <LemonSelect
-                                value={templating}
-                                onChange={setTemplating}
-                                options={[
-                                    { label: 'Hog', value: 'hog' },
-                                    { label: 'Liquid', value: 'liquid' },
-                                ]}
-                                tooltip="Change the templating language"
-                            />
-                        </FlaggedFeature>
+                        <LemonSelect
+                            value={templating}
+                            onChange={setTemplating}
+                            options={[
+                                { label: 'Hog', value: 'hog' },
+                                { label: 'Liquid', value: 'liquid' },
+                            ]}
+                            tooltip="Change the templating language"
+                        />
                     ) : null}
                 </div>
                 <div className="text-xs text-secondary">

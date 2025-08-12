@@ -12,7 +12,8 @@ import browserMock from './tiles/__mocks__/Browser.json'
 import pathMock from './tiles/__mocks__/Path.json'
 import referringDomainMock from './tiles/__mocks__/ReferringDomain.json'
 import retentionMock from './tiles/__mocks__/Retention.json'
-import { DeviceTab, SourceTab, webAnalyticsLogic } from './webAnalyticsLogic'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
+import { DeviceTab, SourceTab } from './common'
 
 const meta: Meta = {
     component: App,
@@ -43,7 +44,7 @@ const meta: Meta = {
                     const queryKind = query.kind
 
                     if (queryKind === 'DatabaseSchemaQuery') {
-                        return [200, { tables: {} }] // Empty schema, we don't care about this here
+                        return [200, { tables: {}, joins: [] }] // Empty schema, we don't care about this here
                     } else if (queryKind === 'WebOverviewQuery') {
                         return [200, webOverviewMock]
                     } else if (queryKind === 'TrendsQuery') {

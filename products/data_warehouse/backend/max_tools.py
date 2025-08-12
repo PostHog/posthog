@@ -33,6 +33,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     async def _arun_impl(self, instructions: str) -> tuple[str, str]:
+        current_query: str | None = self.context.get("current_query", "")
         system_prompt = await self._construct_system_prompt()
 
         prompt = system_prompt + ChatPromptTemplate.from_messages(
@@ -49,7 +50,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                 chain = prompt | merge_message_runs | self._model | self._parse_output
                 result: str = await chain.ainvoke(
                     {
-                        **self.context,
+                        "current_query": current_query,
                         "instructions": instructions,
                     }
                 )

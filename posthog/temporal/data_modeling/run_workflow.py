@@ -21,7 +21,7 @@ import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
 
-from posthog.clickhouse.query_tagging import tag_queries, Product
+from posthog.clickhouse.query_tagging import Feature, tag_queries, Product
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
@@ -47,6 +47,7 @@ from posthog.warehouse.models import (
     get_s3_client,
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from posthog.warehouse.s3 import ensure_bucket_exists
 from posthog.sync import database_sync_to_async
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
@@ -172,7 +173,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     failed = set()
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     await logger.adebug(f"DAG size = {len(inputs.dag)}")
 
@@ -779,6 +780,24 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
 
 
 def _get_credentials():
+    if settings.USE_LOCAL_SETUP:
+        ensure_bucket_exists(
+            settings.BUCKET_URL,
+            settings.AIRBYTE_BUCKET_KEY,
+            settings.AIRBYTE_BUCKET_SECRET,
+            settings.OBJECT_STORAGE_ENDPOINT,
+        )
+
+        return {
+            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     if TEST:
         return {
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
@@ -842,7 +861,7 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     logger = await bind_temporal_worker_logger(inputs.team_id)
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
     async with Heartbeater():
         selector_paths: SelectorPaths = {}
 
@@ -1092,7 +1111,7 @@ class CreateTableActivityInputs:
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Create/attach tables and persist their row-count."""
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
     logger = await bind_temporal_worker_logger(inputs.team_id)
 
     for model in inputs.models:

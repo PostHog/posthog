@@ -84,8 +84,8 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         context: query.context
             ? query.context
             : isGroupsQuery(query.source)
-            ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
-            : { type: 'team_columns' },
+              ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
+              : { type: 'team_columns' },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -220,8 +220,8 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                 context?.type === 'groups'
                                     ? 'Save as default columns for this group type'
                                     : context?.type === 'event_definition'
-                                    ? 'Save as default columns for this event type'
-                                    : 'Save as default for all project members'
+                                      ? 'Save as default columns for this event type'
+                                      : 'Save as default for all project members'
                             }
                             className="mt-2"
                             data-attr="events-table-save-columns-as-default-toggle"

@@ -20,10 +20,18 @@ import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import api from 'lib/api'
+import { draftsLogic } from '../draftsLogic'
 
 export const QueryDatabase = (): JSX.Element => {
-    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, joinsByFieldName } =
-        useValues(queryDatabaseLogic)
+    const {
+        treeData,
+        searchTreeData,
+        expandedFolders,
+        expandedSearchFolders,
+        searchTerm,
+        joinsByFieldName,
+        editingDraftId,
+    } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
         toggleFolderOpen,
@@ -33,8 +41,12 @@ export const QueryDatabase = (): JSX.Element => {
         toggleEditJoinModal,
         loadDatabase,
         loadJoins,
+        setEditingDraft,
+        renameDraft,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+
+    const { deleteDraft } = useActions(draftsLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -44,7 +56,8 @@ export const QueryDatabase = (): JSX.Element => {
     return (
         <LemonTree
             ref={treeRef}
-            data={treeData}
+            // TODO: Can move this to treedata selector but selectors are maxed out on dependencies
+            data={searchTerm ? searchTreeData : treeData}
             expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             onFolderClick={(folder, isExpanded) => {
@@ -52,7 +65,21 @@ export const QueryDatabase = (): JSX.Element => {
                     toggleFolderOpen(folder.id, isExpanded)
                 }
             }}
+            isItemEditing={(item) => {
+                return editingDraftId === item.record?.id
+            }}
+            onItemNameChange={(item, name) => {
+                if (item.name !== name) {
+                    renameDraft(item.record?.id, name)
+                }
+                setEditingDraft('')
+            }}
             onItemClick={(item) => {
+                // Handle draft clicks - focus existing tab or create new one
+                if (item && item.record?.type === 'draft') {
+                    router.actions.push(urls.sqlEditor(undefined, undefined, undefined, item.record.draft.id))
+                }
+
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     void copyToClipboard(item.record.columnName, item.record.columnName)
@@ -81,6 +108,35 @@ export const QueryDatabase = (): JSX.Element => {
                 )
             }}
             itemSideAction={(item) => {
+                // Show menu for drafts
+                if (item.record?.type === 'draft') {
+                    const draft = item.record.draft
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingDraft(draft.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteDraft(draft.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem className="text-danger">
+                                    Delete
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
                 // Show menu for tables
                 if (item.record?.type === 'table') {
                     return (

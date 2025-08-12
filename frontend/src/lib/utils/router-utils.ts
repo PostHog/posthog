@@ -15,13 +15,15 @@ const pathsWithoutProjectId = [
     'oauth',
 ]
 
+const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
+
 function isPathWithoutProjectId(path: string): boolean {
     const firstPart = path.split('/')[1]
     return pathsWithoutProjectId.includes(firstPart)
 }
 
 function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
-    if (path.match(/^\/project\/\d+/)) {
+    if (path.match(projectIdentifierInUrlRegex)) {
         return path
     }
 
@@ -41,7 +43,7 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
 }
 
 export function removeProjectIdIfPresent(path: string): string {
-    if (path.match(/^\/project\/\d+/)) {
+    if (path.match(projectIdentifierInUrlRegex)) {
         return '/' + path.split('/').splice(3).join('/')
     }
     return path

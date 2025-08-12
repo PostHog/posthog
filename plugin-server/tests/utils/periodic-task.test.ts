@@ -5,7 +5,7 @@ describe('PeriodicTask', () => {
         it('on success', async () => {
             const fn = jest.fn()
             const task = new PeriodicTask('test', fn, 1000)
-            expect(fn).toBeCalled()
+            expect(fn).toHaveBeenCalled()
             expect(task.isRunning()).toEqual(true)
             await task.stop()
             expect(task.isRunning()).toEqual(false)
@@ -16,7 +16,7 @@ describe('PeriodicTask', () => {
                 throw new Error()
             })
             const task = new PeriodicTask('test', fn, 1000)
-            expect(fn).toBeCalled()
+            expect(fn).toHaveBeenCalled()
             await task.stop()
             expect(task.isRunning()).toEqual(false)
         })

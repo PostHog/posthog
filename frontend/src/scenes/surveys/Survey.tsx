@@ -129,7 +129,7 @@ export function SurveyDisplaySummary({
         survey.conditions?.selector ||
         survey.conditions?.seenSurveyWaitPeriodInDays ||
         (survey.conditions?.events?.values.length ?? 0) > 0
-    const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
+    const hasFeatureFlags = survey.linked_flag_id || survey.linked_flag || targetingFlagFilters
 
     return (
         <div className="flex flex-col mt-2 gap-2">
@@ -174,15 +174,25 @@ export function SurveyDisplaySummary({
                     </div>
                 </div>
             )}
-            {survey.linked_flag_id && (
+            {(survey.linked_flag_id || survey.linked_flag) && (
                 <div className="flex flex-row font-medium gap-1">
                     <span>Feature flag enabled for:</span>{' '}
                     {id !== 'new' ? (
                         survey.linked_flag?.id ? (
-                            <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                            <>
+                                <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                                {survey.conditions?.linkedFlagVariant && (
+                                    <LemonTag>variant: {survey.conditions.linkedFlagVariant}</LemonTag>
+                                )}
+                            </>
                         ) : null
                     ) : (
-                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                        <>
+                            <FlagSelector value={survey.linked_flag_id || 0} readOnly={true} onChange={() => {}} />
+                            {survey.conditions?.linkedFlagVariant && (
+                                <LemonTag>variant: {survey.conditions.linkedFlagVariant}</LemonTag>
+                            )}
+                        </>
                     )}
                 </div>
             )}

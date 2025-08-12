@@ -21,6 +21,7 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.EventMetadata,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,

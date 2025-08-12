@@ -23,7 +23,7 @@ const NEW_CAMPAIGN: HogFlow = {
             id: 'trigger_node',
             type: 'trigger',
             name: 'Trigger',
-            description: '',
+            description: 'User performs an action to start the campaign',
             created_at: 0,
             updated_at: 0,
             config: {
@@ -35,10 +35,10 @@ const NEW_CAMPAIGN: HogFlow = {
             id: 'exit_node',
             type: 'exit',
             name: 'Exit',
+            description: 'User moved through the campaign without errors',
             config: {
                 reason: 'Default exit',
             },
-            description: '',
             created_at: 0,
             updated_at: 0,
         },
@@ -131,19 +131,22 @@ export const campaignLogic = kea<campaignLogicType>([
         edgesByActionId: [
             (s) => [s.campaign],
             (campaign): Record<string, HogFlowEdge[]> => {
-                return campaign.edges.reduce((acc, edge) => {
-                    if (!acc[edge.from]) {
-                        acc[edge.from] = []
-                    }
-                    acc[edge.from].push(edge)
+                return campaign.edges.reduce(
+                    (acc, edge) => {
+                        if (!acc[edge.from]) {
+                            acc[edge.from] = []
+                        }
+                        acc[edge.from].push(edge)
 
-                    if (!acc[edge.to]) {
-                        acc[edge.to] = []
-                    }
-                    acc[edge.to].push(edge)
+                        if (!acc[edge.to]) {
+                            acc[edge.to] = []
+                        }
+                        acc[edge.to].push(edge)
 
-                    return acc
-                }, {} as Record<string, HogFlowEdge[]>)
+                        return acc
+                    },
+                    {} as Record<string, HogFlowEdge[]>
+                )
             },
         ],
     }),

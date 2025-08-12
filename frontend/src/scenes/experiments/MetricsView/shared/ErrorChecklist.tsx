@@ -63,8 +63,8 @@ export function ErrorChecklist({ error, metric }: { error: any; metric: any }): 
                         value: hasMissingExposure
                             ? variants.map((variant) => variant.key)
                             : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
-                            ? ['control']
-                            : variants.slice(1).map((variant) => variant.key),
+                              ? ['control']
+                              : variants.slice(1).map((variant) => variant.key),
                         operator: 'exact',
                         type: 'event',
                     },

@@ -19,6 +19,7 @@ import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuratio
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { ALL_METRIC_TYPES, hogFunctionMetricsLogic, HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
@@ -38,10 +39,10 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
     const { type } = useValues(hogFunctionConfigurationLogic({ id }))
     const { setFilters, loadMetrics, loadMetricsTotals } = useActions(logic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         loadMetrics()
         loadMetricsTotals()
-    }, [])
+    })
 
     return (
         <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>

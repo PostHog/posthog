@@ -5,18 +5,25 @@ import type { InsightShortId } from '~/types'
 import type { ResultBreakdownRenderProps } from './types'
 
 /**
- * make the props non-nullable
+ * make the props non-nullable except for breakdownLastRefresh which can be null
  */
 type SafeResultBreakdownRenderProps = {
-    [K in keyof Omit<ResultBreakdownRenderProps, 'breakdownResultsLoading' | 'exposureDifference'>]: NonNullable<
-        ResultBreakdownRenderProps[K]
-    >
+    [K in keyof Omit<
+        ResultBreakdownRenderProps,
+        'breakdownResultsLoading' | 'exposureDifference' | 'breakdownLastRefresh'
+    >]: NonNullable<ResultBreakdownRenderProps[K]>
+} & {
+    breakdownLastRefresh: string | null
 }
 
 /**
  * shows a breakdown of the results for ExperimentFunnelsQueryResponse
  */
-export const ResultsQuery = ({ query, breakdownResults }: SafeResultBreakdownRenderProps): JSX.Element | null => {
+export const ResultsQuery = ({
+    query,
+    breakdownResults,
+    breakdownLastRefresh,
+}: SafeResultBreakdownRenderProps): JSX.Element | null => {
     /**
      * bail if the result is from a trends query.
      * trends queries are not supported yet.
@@ -37,6 +44,7 @@ export const ResultsQuery = ({ query, breakdownResults }: SafeResultBreakdownRen
                         short_id: fakeInsightId as InsightShortId,
                         query,
                         result: breakdownResults,
+                        last_refresh: breakdownLastRefresh,
                         disable_baseline: true,
                     },
                     doNotLoad: true,

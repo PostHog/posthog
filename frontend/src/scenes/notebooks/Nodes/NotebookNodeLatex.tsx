@@ -1,5 +1,3 @@
-import { mergeAttributes } from '@tiptap/core'
-import { InputRule } from '@tiptap/core'
 import { browserAdaptor } from 'mathjax-full/js/adaptors/browserAdaptor.js'
 import { RegisterHTMLHandler } from 'mathjax-full/js/handlers/html.js'
 import { TeX } from 'mathjax-full/js/input/tex.js'
@@ -129,48 +127,11 @@ export const NotebookNodeLatex = createPostHogWidgetNode<NotebookNodeLatexAttrib
     resizeable: true, // Allow resizing if content is large when not editing
     attributes: DEFAULT_ATTRIBUTES_WITH_DEFAULTS,
     serializedText: (attrs) => attrs.content,
-}).extend({
-    selectable: true,
-    parseHTML() {
-        return [
-            {
-                tag: 'div[data-latex-block]',
-                getAttrs: (dom: HTMLElement | string) => {
-                    const element = dom as HTMLElement
-                    return { content: element.textContent || '', editing: false }
-                },
-            },
-        ]
-    },
-    renderHTML({ HTMLAttributes }) {
-        return [
-            'div',
-            mergeAttributes(HTMLAttributes, {
-                class: 'NotebookLatex',
-                'data-latex-block': true,
-                style: 'text-align: center;',
-            }),
-            // Do not render content string here; LatexComponent handles all rendering!!!1
-        ]
-    },
-    addInputRules() {
-        return [
-            new InputRule({
-                find: /(?:^|\s)\$\$([^$\n]+?)\$\$(?=\s|$)/,
-                handler: ({ match, chain, range }) => {
-                    if (match.index === undefined) {
-                        return
-                    }
-                    const latex = match[1].trim()
-                    const start = range.from + (match[0].startsWith(' ') ? 1 : 0)
-                    const end = range.to - (match[0].endsWith(' ') ? 1 : 0)
-
-                    chain()
-                        .deleteRange({ from: start, to: end })
-                        .insertContent({ type: NotebookNodeLatex.name, attrs: { content: latex, editing: false } })
-                        .run()
-                },
-            }),
-        ]
+    inputOptions: {
+        find: /(?:^|\s)\$\$([^$\n]+?)\$\$(?=\s|$)/,
+        getAttributes: (match) => {
+            const latex = match[1].trim()
+            return { content: latex, editing: false }
+        },
     },
 })

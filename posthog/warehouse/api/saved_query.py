@@ -304,6 +304,14 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             # Store the activity log in the serializer context
             if activity_log:
                 self.context["activity_log"] = activity_log
+            else:
+                # get latest activity log for this model
+                latest_activity_log = (
+                    ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                    .order_by("-created_at")
+                    .first()
+                )
+                self.context["activity_log"] = latest_activity_log
 
             if sync_frequency and sync_frequency != "never":
                 recreate_model_paths(view)
@@ -322,9 +330,14 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         find_placeholders = FindPlaceholders()
         find_placeholders.visit(select_ast)
-        if len(find_placeholders.found) > 0:
-            placeholder = find_placeholders.found.pop()
-            raise exceptions.ValidationError(detail=f"Variables like {'{'}{placeholder}{'}'} are not allowed in views")
+        if len(find_placeholders.placeholder_fields) > 0:
+            placeholder = find_placeholders.placeholder_fields.pop()
+            placeholder_string = ".".join(str(field) for field in placeholder if field is not None)
+            raise exceptions.ValidationError(
+                detail=f"Variables like {'{'}{placeholder_string}{'}'} are not allowed in views"
+            )
+        elif find_placeholders.placeholder_expressions or find_placeholders.has_filters:
+            raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
             print_ast(

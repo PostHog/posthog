@@ -19,7 +19,7 @@ import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
+import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -66,9 +66,9 @@ import {
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
+import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
-import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -136,10 +136,10 @@ export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
         ? 'Please set a key'
         : key.length > 400
-        ? 'Key must be 400 characters or less.'
-        : !key.match?.(/^[a-zA-Z0-9_-]+$/)
-        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-        : undefined
+          ? 'Key must be 400 characters or less.'
+          : !key.match?.(/^[a-zA-Z0-9_-]+$/)
+            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+            : undefined
 }
 
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
@@ -857,6 +857,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         intent_context: ProductIntentContext.SURVEY_CREATED,
                         metadata: {
                             survey_id: response.id,
+                            source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
                         },
                     })
                     return response
@@ -1122,6 +1123,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 })
             }
         },
+        createSurveySuccess: ({ newSurvey }) => {
+            if (newSurvey) {
+                lemonToast.success('Survey created successfully', {
+                    button: {
+                        label: 'View survey',
+                        action: () => router.actions.push(urls.survey(newSurvey.id)),
+                    },
+                })
+            }
+        },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
@@ -1184,8 +1195,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'remote_config'
                     : featureFlag?.filters.multivariate
-                    ? 'multivariate'
-                    : 'boolean',
+                      ? 'multivariate'
+                      : 'boolean',
         ],
         flagTypeString: [
             (s) => [s.featureFlag],
@@ -1193,8 +1204,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'Remote configuration (single payload)'
                     : featureFlag?.filters.multivariate
-                    ? 'Multiple variants with rollout percentages (A/B/n test)'
-                    : 'Release toggle (boolean)',
+                      ? 'Multiple variants with rollout percentages (A/B/n test)'
+                      : 'Release toggle (boolean)',
         ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],

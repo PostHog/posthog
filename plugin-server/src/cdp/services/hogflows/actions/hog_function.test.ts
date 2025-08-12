@@ -134,7 +134,6 @@ describe('HogFunctionHandler', () => {
                     "Content-Type": "application/json",
                   },
                   "method": "POST",
-                  "timeoutMs": 3000,
                 },
               ],
             ]

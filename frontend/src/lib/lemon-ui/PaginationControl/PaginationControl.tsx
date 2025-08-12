@@ -41,10 +41,10 @@ export function PaginationControl<T>({
                 {currentPageSize === 0
                     ? `No ${nouns[1]}`
                     : entryCount === null
-                    ? `${currentPageSize} ${currentPageSize === 1 ? nouns[0] : nouns[1]} on this page`
-                    : currentPageSize === 1
-                    ? `${currentEndIndex} of ${entryCount} ${entryCount === 1 ? nouns[0] : nouns[1]}`
-                    : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
+                      ? `${currentPageSize} ${currentPageSize === 1 ? nouns[0] : nouns[1]} on this page`
+                      : currentPageSize === 1
+                        ? `${currentEndIndex} of ${entryCount} ${entryCount === 1 ? nouns[0] : nouns[1]}`
+                        : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
             </span>
             <LemonButton
                 icon={<IconChevronLeft />}

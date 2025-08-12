@@ -1,5 +1,6 @@
 import { LemonMarkdown } from '../LemonMarkdown'
 import { Link, LinkProps } from '../Link'
+import { ReactNode } from 'react'
 
 export function LemonTableLink({
     title,
@@ -7,7 +8,7 @@ export function LemonTableLink({
     ...props
 }: Pick<LinkProps, 'to' | 'onClick' | 'target' | 'className'> & {
     title: JSX.Element | string
-    description?: JSX.Element | string
+    description?: ReactNode
 }): JSX.Element {
     return (
         <Link subtle {...props}>

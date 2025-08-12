@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import root from 'react-shadow'
 import { Slide, ToastContainer } from 'react-toastify'
 
@@ -10,6 +10,7 @@ import { ToolbarProps } from '~/types'
 
 import { TOOLBAR_ID } from './utils'
 import { webVitalsToolbarLogic } from './web-vitals/webVitalsToolbarLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
@@ -22,9 +23,9 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
     // Preemptively mount the web vitals toolbar logic on mount
     // so that we collect the web vitals metrics since the beginning
     // TODO: Should probably mount the event debugger logic here too
-    useEffect(() => {
+    useOnMountEffect(() => {
         webVitalsToolbarLogic.mount()
-    }, [])
+    })
 
     // this runs after the shadow root has been added to the dom
     const didRender = useSecondRender(

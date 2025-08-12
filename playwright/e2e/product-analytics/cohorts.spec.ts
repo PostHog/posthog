@@ -7,7 +7,7 @@ test.describe('Cohorts', () => {
         await page.goToMenuItem('people')
         await page.goToMenuItem('cohorts')
 
-        await expect(page).toHaveTitle('Cohorts • People • PostHog')
+        await expect(page).toHaveTitle('Cohorts • PostHog')
         await expect(page.locator('[data-attr="create-cohort"]')).toBeVisible()
         await expect(page.locator('[data-attr="product-introduction-docs-link"]')).toHaveText(/Learn more/)
     })

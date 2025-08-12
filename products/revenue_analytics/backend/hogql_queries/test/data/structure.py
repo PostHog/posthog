@@ -3,6 +3,9 @@ from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyCon
 REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT = RevenueAnalyticsEventItem(
     eventName="purchase",
     revenueProperty="revenue",
+    productProperty="product",
+    couponProperty="coupon",
+    subscriptionProperty="subscription",
     revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
 )
 
@@ -137,8 +140,6 @@ STRIPE_SUBSCRIPTION_COLUMNS = {
     "plan": "String",
     "created": "DateTime",
     "ended_at": "DateTime",
-    "current_period_start": "DateTime",
-    "current_period_end": "DateTime",
     "status": "String",
     "metadata": "String",
 }

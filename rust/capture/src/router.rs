@@ -32,6 +32,7 @@ pub struct State {
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub billing_limiter: RedisLimiter,
+    pub survey_limiter: RedisLimiter,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
@@ -102,6 +103,7 @@ pub fn router<
     sink: S,
     redis: Arc<R>,
     billing_limiter: RedisLimiter,
+    survey_limiter: RedisLimiter,
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
@@ -118,6 +120,7 @@ pub fn router<
         timesource: Arc::new(timesource),
         redis,
         billing_limiter,
+        survey_limiter,
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(
@@ -158,13 +161,13 @@ pub fn router<
             .route(
                 "/batch",
                 post(v0_endpoint::event_legacy)
-                    .get(v0_endpoint::event)
+                    .get(v0_endpoint::event_legacy)
                     .options(v0_endpoint::options),
             )
             .route(
                 "/batch/",
                 post(v0_endpoint::event_legacy)
-                    .get(v0_endpoint::event)
+                    .get(v0_endpoint::event_legacy)
                     .options(v0_endpoint::options),
             )
     } else {
@@ -233,8 +236,7 @@ pub fn router<
             post(v0_endpoint::event_legacy)
                 .get(v0_endpoint::event_legacy)
                 .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
+        );
 
     // conditionally allow legacy event handler to process /i/v0/e/
     // (modern capture) events for observation in mirror deploy
@@ -267,6 +269,7 @@ pub fn router<
                     .options(v0_endpoint::options),
             )
     };
+    event_router = event_router.layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
     let status_router = Router::new()
         .route("/", get(index))

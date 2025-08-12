@@ -143,6 +143,10 @@ def setup_insights(team):
     i6 = Insight.objects.create(
         query={
             "kind": "DataTableNode",
+            "source": {
+                "kind": "EventsQuery",
+                "select": ["*"],
+            },
         },
         team=team,
     )

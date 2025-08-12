@@ -202,7 +202,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
     useEffect(() => {
         precheck({ email: invite.target_email })
-    }, [invite.target_email])
+    }, [invite.target_email]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <BridgePage

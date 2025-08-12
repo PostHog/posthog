@@ -174,7 +174,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
             setLineCount(text.split('\n').length)
             setDisplayedText(indexOfLimitNewline === -1 || expanded ? text : text.slice(0, indexOfLimitNewline))
         }
-    }, [text, maxLinesWithoutExpansion, expanded])
+    }, [text, maxLinesWithoutExpansion, expanded]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (lineCount == -1) {
         return null

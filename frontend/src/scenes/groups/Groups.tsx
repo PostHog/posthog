@@ -16,6 +16,10 @@ import { groupsSceneLogic } from './groupsSceneLogic'
 import { QueryContext } from '~/queries/types'
 import { getCRMColumns } from './crm/utils'
 import { groupViewLogic } from './groupViewLogic'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { groupsModel } from '~/models/groupsModel'
 
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
@@ -24,6 +28,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
     const { saveGroupViewModalOpen, groupViewName } = useValues(groupViewLogic)
     const { setSaveGroupViewModalOpen, setGroupViewName, saveGroupView } = useActions(groupViewLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { aggregationLabel } = useValues(groupsModel)
     const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
 
     if (groupTypeIndex === undefined) {
@@ -37,6 +42,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
     ) {
         return (
             <>
+                <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
                 <GroupsIntroduction />
             </>
         )
@@ -55,6 +61,18 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
 
     return (
         <>
+            <PersonsManagementSceneTabs
+                tabKey={`groups-${groupTypeIndex}`}
+                buttons={
+                    <LemonButton
+                        type="primary"
+                        data-attr={`new-group-${groupTypeIndex}`}
+                        onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                    >
+                        New {aggregationLabel(groupTypeIndex).singular}
+                    </LemonButton>
+                }
+            />
             <Query
                 query={{ ...query, hiddenColumns }}
                 setQuery={setQuery}
@@ -121,4 +139,5 @@ export function GroupsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: GroupsScene,
     logic: groupsSceneLogic,
+    settingSectionId: 'environment-crm',
 }

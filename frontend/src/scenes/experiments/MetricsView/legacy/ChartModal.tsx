@@ -75,7 +75,13 @@ export function ChartModal({
                     metricIndex={metricIndex}
                     isPrimary={!isSecondary}
                 >
-                    {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
+                    {({
+                        query,
+                        breakdownResults,
+                        breakdownResultsLoading,
+                        exposureDifference,
+                        breakdownLastRefresh,
+                    }) => (
                         <>
                             {query && (
                                 <div className="flex justify-end">
@@ -93,7 +99,11 @@ export function ChartModal({
                             {query && breakdownResults && (
                                 <>
                                     <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                    <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                    <ResultsQuery
+                                        query={query}
+                                        breakdownResults={breakdownResults}
+                                        breakdownLastRefresh={breakdownLastRefresh}
+                                    />
                                 </>
                             )}
                         </>

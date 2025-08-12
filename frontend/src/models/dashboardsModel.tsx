@@ -93,9 +93,12 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return { count: 0, next: null, previous: null, results: [] }
                     }
-                    const dashboards: PaginatedResponse<DashboardType> = await api.get(
-                        url || `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000`
-                    )
+
+                    let apiUrl =
+                        url ||
+                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
+
+                    const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
 
                     return {
                         ...dashboards,

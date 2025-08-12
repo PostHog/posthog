@@ -398,7 +398,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             <LemonInput
                                 value={
                                     question.buttonText === undefined
-                                        ? survey.appearance?.submitButtonText ?? 'Submit'
+                                        ? (survey.appearance?.submitButtonText ?? 'Submit')
                                         : question.buttonText
                                 }
                                 onChange={(val) => handleQuestionValueChange('buttonText', val)}

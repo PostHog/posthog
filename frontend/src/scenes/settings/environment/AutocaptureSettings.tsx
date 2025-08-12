@@ -23,8 +23,8 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
                 userLoading
                     ? 'Loading user'
                     : currentTeam?.autocapture_web_vitals_opt_in
-                    ? null
-                    : 'Enable web vitals autocapture to set allowed metrics'
+                      ? null
+                      : 'Enable web vitals autocapture to set allowed metrics'
             }
             onChange={(checked) => {
                 if (!currentTeam) {

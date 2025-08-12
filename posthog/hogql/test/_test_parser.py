@@ -1283,6 +1283,16 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     end=14,
                 ),
             )
+            # Note that the parser will skip anything after `--`, so the `DESC` behind will not be parsed
+            self.assertEqual(
+                parse_order_expr("timestamp -- a comment DESC"),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"], start=0, end=9),
+                    order="ASC",
+                    start=0,
+                    end=9,
+                ),
+            )
 
         def test_select_order_by(self):
             self.assertEqual(

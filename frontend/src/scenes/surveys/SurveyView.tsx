@@ -35,8 +35,10 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import {
     ScenePanel,
@@ -46,7 +48,6 @@ import {
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
 import { SurveysDisabledBanner } from './SurveySettings'
-import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
@@ -87,15 +88,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     <PageHeader
                         buttons={
                             <div className="flex gap-2 items-center">
-                                <LemonButton
-                                    size="small"
-                                    type={!newSceneLayout ? 'secondary' : undefined}
-                                    id="surveys-page-feedback-button"
-                                    tooltip={newSceneLayout ? 'Have any questions or feedback?' : undefined}
-                                >
-                                    {!newSceneLayout ? <>Have any questions or feedback?</> : <>Feedback</>}
-                                </LemonButton>
-
+                                <SurveyFeedbackButton />
                                 {!newSceneLayout && (
                                     <>
                                         <More

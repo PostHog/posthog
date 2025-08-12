@@ -39,7 +39,8 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         )
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
-        messages: list[BaseMessage] = [LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)]
+        system_prompt = LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)
+        messages: list[BaseMessage] = []
         for message in super()._construct_messages(state):
             if message.content:
                 messages.append(message)
@@ -51,7 +52,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         )
         if last_human_message_index is not None:
             messages = messages[: last_human_message_index + 1]
-        return messages
+        return [system_prompt] + messages[-29:]
 
     def _get_model(self):  # type: ignore
         return MaxChatOpenAI(

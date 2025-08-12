@@ -114,6 +114,8 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Selector
         } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
             propertyType = PropertyType.Cohort
+        } else if (type === PropertyFilterType.Flag) {
+            propertyType = PropertyType.Flag
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
             propertyType = PropertyType.Assignee
         } else if (
@@ -143,7 +145,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator])
+    }, [propertyDefinition, propertyKey, operator]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>

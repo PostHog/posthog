@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -67,9 +68,9 @@ export function FolderSelect({
         } else {
             expandProjectFolder(value || '')
         }
-    }, [value])
+    }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const timeout = setTimeout(() => {
             if (inputRef.current) {
                 inputRef.current?.focus()
@@ -78,7 +79,7 @@ export function FolderSelect({
         return () => {
             clearTimeout(timeout)
         }
-    }, [])
+    })
 
     function getItemContextMenu(type: 'context' | 'dropdown'): (item: TreeDataItem) => ReactNode | undefined {
         const MenuGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
@@ -183,7 +184,7 @@ export function FolderSelect({
                     checkedItemCount={0}
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
-                            const folderPath = includeProtocol ? folder.id : folder.record?.path ?? ''
+                            const folderPath = includeProtocol ? folder.id : (folder.record?.path ?? '')
 
                             if (includeProtocol) {
                                 toggleFolderOpen(folder.id, isExpanded)

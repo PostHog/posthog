@@ -83,7 +83,7 @@ export const errorFiltersLogic = kea<errorFiltersLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'filterTestAccounts', values.filterTestAccounts, DEFAULT_TEST_ACCOUNT)

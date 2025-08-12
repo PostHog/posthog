@@ -116,17 +116,25 @@ export const integrationsLogic = kea<integrationsLogicType>([
             const { state, installation_id } = searchParams
 
             try {
-                if (state !== getCookie('ph_github_state')) {
-                    throw new Error('Invalid state token')
+                if (installation_id) {
+                    if (state !== getCookie('ph_github_state')) {
+                        throw new Error('Invalid state token')
+                    }
+
+                    await api.integrations.create({
+                        kind: 'github',
+                        config: { installation_id },
+                    })
+
+                    actions.loadIntegrations()
+                    lemonToast.success(`Integration successful.`)
+                } else {
+                    // If the requesting user does not have permissions an installation_id will not be returned
+                    // we assume in this situation that a request has been made to the GitHub organization owners
+                    lemonToast.info(
+                        'Your request to connect to GitHub has been sent to the organization owners. They will need to complete the installation.'
+                    )
                 }
-
-                await api.integrations.create({
-                    kind: 'github',
-                    config: { installation_id },
-                })
-
-                actions.loadIntegrations()
-                lemonToast.success(`Integration successful.`)
             } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {

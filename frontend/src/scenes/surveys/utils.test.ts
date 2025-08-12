@@ -1,6 +1,6 @@
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
-import { EventPropertyFilter, PropertyFilterType, Survey, SurveyAppearance } from '~/types'
+import { EventPropertyFilter, PropertyFilterType, Survey, SurveyAppearance, SurveyQuestionType } from '~/types'
 
 import {
     calculateNpsBreakdown,
@@ -574,5 +574,75 @@ describe('createAnswerFilterHogQLExpression', () => {
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
         expect(result).toBe(`AND (match(${getSurveyResponse(mockSurvey.questions[0], 0)}, '.*\\'; DROP TABLE.*'))`)
+    })
+
+    describe('multiple choice questions', () => {
+        const surveyWithMultipleChoiceQuestion = {
+            ...mockSurvey,
+            questions: [
+                {
+                    ...mockSurvey.questions[0],
+                    type: SurveyQuestionType.MultipleChoice,
+                    choices: [
+                        { id: 'c1', label: 'test' },
+                        { id: 'c2', label: 'test2' },
+                    ],
+                },
+            ],
+        } as any as Survey
+
+        it('handles icontains operator', () => {
+            const filters = [
+                { key: '$survey_response_q1', value: 'test', operator: 'icontains', type: PropertyFilterType.Event },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
+            expect(result).toBe(
+                `AND (arrayExists(x -> x ilike '%test%', ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
+            )
+        })
+
+        it('handles not_icontains operator for multiple choice question', () => {
+            const filters = [
+                {
+                    key: '$survey_response_q1',
+                    value: 'test',
+                    operator: 'not_icontains',
+                    type: PropertyFilterType.Event,
+                },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
+            expect(result).toBe(
+                `AND (NOT arrayExists(x -> x ilike '%test%', ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
+            )
+        })
+
+        it('handles regex operator', () => {
+            const filters = [
+                { key: '$survey_response_q1', value: '.*test.*', operator: 'regex', type: PropertyFilterType.Event },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
+            expect(result).toBe(
+                `AND (arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
+            )
+        })
+
+        it('handles not_regex operator', () => {
+            const filters = [
+                {
+                    key: '$survey_response_q1',
+                    value: '.*test.*',
+                    operator: 'not_regex',
+                    type: PropertyFilterType.Event,
+                },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
+            expect(result).toBe(
+                `AND (NOT arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
+            )
+        })
     })
 })

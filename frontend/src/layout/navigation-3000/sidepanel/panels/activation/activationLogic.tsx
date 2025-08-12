@@ -176,7 +176,7 @@ export const activationLogic = kea<activationLogicType>([
         ],
         currentTeamOpenSections: [
             (s) => [s.openSections, s.currentTeam],
-            (openSections, currentTeam) => (currentTeam?.id ? openSections[currentTeam?.id] ?? [] : []),
+            (openSections, currentTeam) => (currentTeam?.id ? (openSections[currentTeam?.id] ?? []) : []),
         ],
         hasCompletedFirstOnboarding: [
             (s) => [s.currentTeam],

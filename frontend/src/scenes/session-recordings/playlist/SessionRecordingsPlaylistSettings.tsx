@@ -12,8 +12,6 @@ import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/s
 import { ReplayTabs } from '~/types'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -238,7 +236,6 @@ export function SessionRecordingsPlaylistTopSettings({
     type?: 'filters' | 'collection'
     shortId?: string
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
     const { playlists, playlistsLoading } = useValues(
@@ -309,15 +306,13 @@ export function SessionRecordingsPlaylistTopSettings({
             'data-attr': 'mark-as-not-viewed',
         })
 
-        if (featureFlags[FEATURE_FLAGS.REPLAY_BULK_DELETE_SELECTED_RECORDINGS]) {
-            menuItems.push({
-                label: 'Delete',
-                onClick: () => setIsDeleteSelectedRecordingsDialogOpen(true),
-                icon: <IconTrash />,
-                'data-attr': 'delete-recordings',
-                status: 'danger' as const,
-            })
-        }
+        menuItems.push({
+            label: 'Delete',
+            onClick: () => setIsDeleteSelectedRecordingsDialogOpen(true),
+            icon: <IconTrash />,
+            'data-attr': 'delete-recordings',
+            status: 'danger' as const,
+        })
 
         return menuItems
     }

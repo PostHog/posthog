@@ -170,15 +170,15 @@ export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: n
                     isExcludedFromHideRecordingsMenu
                         ? 'UnwatchedIndicator--primary'
                         : otherViewersCount
-                        ? 'UnwatchedIndicator--secondary'
-                        : 'UnwatchedIndicator--primary'
+                          ? 'UnwatchedIndicator--secondary'
+                          : 'UnwatchedIndicator--primary'
                 )}
                 aria-label={
                     isExcludedFromHideRecordingsMenu
                         ? 'unwatched-recording-by-you-label'
                         : otherViewersCount
-                        ? 'unwatched-recording-by-you-label'
-                        : 'unwatched-recording-by-everyone-label'
+                          ? 'unwatched-recording-by-you-label'
+                          : 'unwatched-recording-by-everyone-label'
                 }
             />
         </Tooltip>
@@ -189,8 +189,8 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
     return order === 'active_seconds'
         ? recording.active_seconds
         : order === 'inactive_seconds'
-        ? recording.inactive_seconds
-        : recording.recording_duration
+          ? recording.inactive_seconds
+          : recording.recording_duration
 }
 
 function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.Element {

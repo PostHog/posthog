@@ -158,8 +158,8 @@ export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
             props.shareType === 'private'
                 ? 'Share private link'
                 : props.shareType === 'public'
-                ? 'Share public link'
-                : 'Share to Linear',
+                  ? 'Share public link'
+                  : 'Share to Linear',
         content: <PlayerShareRecording {...props} />,
         width: 600,
         zIndex: '1162',

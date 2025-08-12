@@ -1,5 +1,6 @@
 import datetime
 from typing import TYPE_CHECKING, Any
+from posthog.settings import CLOUD_DEPLOYMENT
 
 from langchain_core.outputs import LLMResult
 from langchain_core.messages import BaseMessage, SystemMessage
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
 The user's name appears to be {{{user_full_name}}} ({{{user_email}}}). Feel free to use their first name when greeting. DO NOT use this name if it appears possibly fake.
+The user is accessing the PostHog App from the "{{{deployment_region}}}" region, therefore all PostHog App URLs should be prefixed with the region, e.g. https://{{{deployment_region}}}.posthog.com
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
 """.strip()
 
@@ -38,6 +40,12 @@ class MaxChatOpenAI(ChatOpenAI):
         project_timezone = self._team.timezone
         project_datetime = datetime.datetime.now(tz=pytz.timezone(project_timezone))
 
+        region = CLOUD_DEPLOYMENT or "us"
+        if region in ["US", "EU"]:
+            region = region.lower()
+        else:
+            region = "us"
+
         return {
             "project_name": self._team.name,
             "project_timezone": project_timezone,
@@ -45,7 +53,13 @@ class MaxChatOpenAI(ChatOpenAI):
             "organization_name": self._team.organization.name,
             "user_full_name": self._user.get_full_name(),
             "user_email": self._user.email,
+            "deployment_region": region,
         }
+
+    def _get_project_org_system_message(self, project_org_user_variables: dict[str, Any]) -> BaseMessage:
+        return SystemMessagePromptTemplate.from_template(
+            PROJECT_ORG_USER_CONTEXT_PROMPT, template_format="mustache"
+        ).format(**project_org_user_variables)
 
     def _enrich_messages(self, messages: list[list[BaseMessage]], project_org_user_variables: dict[str, Any]):
         for message_sublist in messages:
@@ -56,13 +70,24 @@ class MaxChatOpenAI(ChatOpenAI):
                     continue  # Keep going
                 else:
                     # Here's our end of the system messages block
-                    message_sublist.insert(
-                        msg_index,
-                        SystemMessagePromptTemplate.from_template(
-                            PROJECT_ORG_USER_CONTEXT_PROMPT, template_format="mustache"
-                        ).format(**project_org_user_variables),
-                    )
+                    message_sublist.insert(msg_index, self._get_project_org_system_message(project_org_user_variables))
                     break
+
+    def _enrich_responses_api_model_kwargs(self, project_org_user_variables: dict[str, Any]) -> None:
+        """Mutate the provided model_kwargs dict in-place, ensuring the project/org/user context is present.
+
+        If the caller has already supplied ``instructions`` we append our context; otherwise we set ``instructions``
+        from scratch. This function is intentionally side-effectful and returns ``None``.
+        """
+
+        system_msg_content = str(self._get_project_org_system_message(project_org_user_variables).content)
+
+        if self.model_kwargs.get("instructions"):
+            # Append to existing instructions
+            self.model_kwargs["instructions"] = f"{system_msg_content}\n\n{self.model_kwargs['instructions']}"
+        else:
+            # Initialise instructions if absent or falsy
+            self.model_kwargs["instructions"] = system_msg_content
 
     def generate(
         self,
@@ -71,7 +96,10 @@ class MaxChatOpenAI(ChatOpenAI):
         **kwargs,
     ) -> LLMResult:
         project_org_user_variables = self._get_project_org_user_variables()
-        self._enrich_messages(messages, project_org_user_variables)
+        if self.use_responses_api:
+            self._enrich_responses_api_model_kwargs(project_org_user_variables)
+        else:
+            self._enrich_messages(messages, project_org_user_variables)
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -81,5 +109,8 @@ class MaxChatOpenAI(ChatOpenAI):
         **kwargs,
     ) -> LLMResult:
         project_org_user_variables = await sync_to_async(self._get_project_org_user_variables)()
-        self._enrich_messages(messages, project_org_user_variables)
+        if self.use_responses_api:
+            self._enrich_responses_api_model_kwargs(project_org_user_variables)
+        else:
+            self._enrich_messages(messages, project_org_user_variables)
         return await super().agenerate(messages, *args, **kwargs)

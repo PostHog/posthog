@@ -158,8 +158,8 @@ export const hogReplLogic = kea<hogReplLogicType>([
                     result.result !== undefined
                         ? result.result
                         : (result.state?.stack?.length ?? 0) > 0
-                        ? result.state?.stack?.[result.state.stack.length - 1]
-                        : 'null'
+                          ? result.state?.stack?.[result.state.stack.length - 1]
+                          : 'null'
                 actions.setResult(index, response)
                 actions.setVMState(index, result.state)
             } catch (error: any) {

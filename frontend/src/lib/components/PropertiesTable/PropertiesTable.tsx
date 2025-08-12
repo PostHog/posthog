@@ -245,6 +245,7 @@ export function PropertiesTable({
                     [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
                     [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
                     [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.LogAttributes,
+                    [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
@@ -306,7 +307,7 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues])
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (Array.isArray(properties)) {
         return (

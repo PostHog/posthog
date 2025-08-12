@@ -81,7 +81,7 @@ jobs:
     container:
         name: (Optional) Container - Build and cache image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
-        runs-on: depot-ubuntu-latest-8
+        runs-on: ubuntu-latest
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -106,7 +106,7 @@ jobs:
 
     playwright-on-container:
         name: (Optional) Container - E2E Playwright tests
-        runs-on: depot-ubuntu-latest-arm-8
+        runs-on: depot-ubuntu-latest-arm-4
         timeout-minutes: 60
         needs: [changes, container]
         permissions:

@@ -35,7 +35,15 @@ export function BillingEarlyAccessBanner(): JSX.Element {
                     </p>
                     <ul className="list-disc list-inside pl-2">
                         <li>Usage data updates daily (UTC) - so today's numbers show up tomorrow</li>
-                        <li>Historical spend is calculated using the current subscription plan</li>
+                        <li>Historical spend and billing periods are based on the current subscription plan</li>
+                        <li>
+                            To further breakdown product usage, check out this{' '}
+                            <Link
+                                to={`/dashboard?templateFilter=${encodeURIComponent('billable usage')}#newDashboard=modal`}
+                            >
+                                dashboard template
+                            </Link>
+                        </li>
                     </ul>
                 </div>
             </div>

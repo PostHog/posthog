@@ -195,6 +195,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
     members_can_use_personal_api_keys: true,
+    allow_publicly_shared_resources: true,
     metadata: {},
     available_product_features: [],
     member_count: 2,
@@ -234,12 +235,13 @@ export const MOCK_DEFAULT_USER: UserType = {
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(
-        ({ id, name, slug, membership_level, members_can_use_personal_api_keys }) => ({
+        ({ id, name, slug, membership_level, members_can_use_personal_api_keys, allow_publicly_shared_resources }) => ({
             id,
             name,
             slug,
             membership_level,
             members_can_use_personal_api_keys,
+            allow_publicly_shared_resources,
             logo_media_id: null,
         })
     ),

@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
     "oauth2_provider",
+    "mcp_server",
 ]
 
 MIDDLEWARE = [

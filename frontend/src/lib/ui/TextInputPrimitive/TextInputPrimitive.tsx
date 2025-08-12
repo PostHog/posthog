@@ -14,6 +14,7 @@ export const textInputVariants = cva({
             sm: 'h-[var(--text-input-height-sm)]',
             default: 'h-[var(--text-input-height-base)]',
             lg: 'h-[var(--text-input-height-lg)]',
+            auto: '',
         },
         error: {
             true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',

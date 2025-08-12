@@ -60,6 +60,9 @@
                             <th scope="col">
                                 <div class="text"><span>{% trans "Last Used" %}</span></div>
                             </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Last Rolled" %}</span></div>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -79,6 +82,7 @@
                             </td>
                             <td>{{ personal_api_key_object.created_at }}</td>
                             <td>{{ personal_api_key_object.last_used_at }}</td>
+                            <td>{{ personal_api_key_object.last_rolled_at }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -97,7 +101,7 @@
                     <tbody>
                         <tr>
                             <td>
-                                Team Secret API Token
+                                Feature Flags Secure API Key
                                 {% if team_object_key_type == "backup" %}
                                 (Backup)
                                 {% endif %}

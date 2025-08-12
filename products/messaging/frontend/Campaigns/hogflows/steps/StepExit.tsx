@@ -10,6 +10,7 @@ export const StepExit: HogFlowStep<'exit'> = {
     name: 'Exit',
     description: 'Exit the campaign.',
     icon: <IconLeave />,
+    color: '#4b4b4b',
     renderNode: (props) => <StepExitNode {...props} />,
     renderConfiguration: (node) => <StepExitConfiguration node={node} />,
     create: () => {

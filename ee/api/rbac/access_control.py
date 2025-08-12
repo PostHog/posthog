@@ -192,7 +192,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-        user_access_level = user_access_control.access_level_for_object(obj, resource)
+        user_access_level = user_access_control.get_user_access_level(obj)
 
         return Response(
             {
@@ -236,7 +236,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             if not project_access:
                 continue
 
-            access_level = user_uac.access_level_for_object(obj, resource)
+            access_level = user_uac.get_user_access_level(obj)
             if access_level is None or access_level == "none":
                 continue
 

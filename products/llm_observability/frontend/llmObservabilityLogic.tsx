@@ -55,6 +55,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
+        setGenerationsColumns: (columns: string[]) => ({ columns }),
         setTracesQuery: (query: DataTableNode) => ({ query }),
         refreshAllDashboardItems: true,
         setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
@@ -99,6 +100,14 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             null as DataTableNode | null,
             {
                 setGenerationsQuery: (_, { query }) => query,
+            },
+        ],
+
+        generationsColumns: [
+            null as string[] | null,
+            { persist: true },
+            {
+                setGenerationsColumns: (_, { columns }) => columns,
             },
         ],
 
@@ -559,13 +568,20 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                s.generationsColumns,
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+            (
+                dateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                generationsColumns,
+                groupsTaxonomicTypes
+            ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.EventsQuery,
-                    select: [
+                    select: generationsColumns || [
                         'uuid',
                         'properties.$ai_trace_id',
                         'person',

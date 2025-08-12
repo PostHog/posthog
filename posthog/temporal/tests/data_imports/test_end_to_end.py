@@ -2481,3 +2481,128 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands):
     # Returning two items should cause the pipeline to process each item individually
 
     assert mock_process_pa_table.call_count == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_deleting_schemas(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_1 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_1 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_2 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    _, inputs = await _run(
+        team=team,
+        schema_name="table_1",
+        table_name="postgres_table_1",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    @sync_to_async
+    def get_schemas():
+        schemas = ExternalDataSchema.objects.filter(source_id=inputs.external_data_source_id, deleted=False)
+
+        return list(schemas)
+
+    schemas = await get_schemas()
+    assert len(schemas) == 2
+
+    # Drop the table we've not synced yet
+    await postgres_connection.execute("DROP TABLE {schema}.table_2".format(schema=postgres_config["schema"]))
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    schemas = await get_schemas()
+
+    # It should have soft deleted the unsynced table
+    assert len(schemas) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_1 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_1 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_2 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_2 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    # Sync both tables
+    _, inputs = await _run(
+        team=team,
+        schema_name="table_1",
+        table_name="postgres_table_1",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    @sync_to_async
+    def get_schemas():
+        schemas = ExternalDataSchema.objects.filter(source_id=inputs.external_data_source_id, deleted=False)
+
+        return list(schemas)
+
+    schemas = await get_schemas()
+    assert len(schemas) == 2
+
+    # Drop the table that we've already synced
+    await postgres_connection.execute("DROP TABLE {schema}.table_1".format(schema=postgres_config["schema"]))
+    await postgres_connection.commit()
+
+    # Sync the second table - this will trigger `sync_new_schemas_activity`
+    unsynced_schema_ids = [s.id for s in schemas if s.id != inputs.external_data_schema_id]
+    assert len(unsynced_schema_ids) == 1
+    unsynced_schema_id = unsynced_schema_ids[0]
+    await _execute_run(
+        str(uuid.uuid4()),
+        ExternalDataWorkflowInputs(
+            team_id=inputs.team_id,
+            external_data_source_id=inputs.external_data_source_id,
+            external_data_schema_id=unsynced_schema_id,  # the schema id of the second table
+            billable=inputs.billable,
+        ),
+        [],
+    )
+
+    schemas = await get_schemas()
+    # Because table_1 has already been synced and we hold data for it, we dont delete the schema
+    assert len(schemas) == 2
+
+    # The schema with the deleted upstream table should now have "should_sync" updated to False and status set to completed
+    synced_schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert synced_schema.should_sync is False
+    assert synced_schema.status == ExternalDataSchema.Status.COMPLETED

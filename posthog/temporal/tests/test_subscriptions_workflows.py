@@ -135,12 +135,12 @@ async def test_subscription_delivery_scheduling(
 
     # Each subscription has 2 recipients -> 4 emails expected (only first two subs)
     assert mock_send_email.call_count == 4
-    delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list[::2]}
+    delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
-@patch("ee.tasks.subscriptions.send_slack_subscription_report")
+@patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets")
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -255,12 +255,13 @@ async def test_handle_subscription_value_change_email(
             [asset],
             invite_message="My invite message",
             total_asset_count=1,
+            send_async=False,
         )
     ]
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
-@patch("ee.tasks.subscriptions.send_slack_subscription_report")
+@patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
 @patch("ee.tasks.subscriptions.generate_assets")
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_slack(
@@ -304,6 +305,3 @@ async def test_deliver_subscription_report_slack(
             )
 
     assert mock_send_slack.call_count == 1
-    assert mock_send_slack.call_args_list == [
-        call(subscription, [asset], total_asset_count=1, is_new_subscription=False)
-    ]

@@ -155,9 +155,11 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
     person_properties = {"$initial_referring_domain": "https://google.com"}
-    person_result = "Organic Search"
     poe_properties = {"$initial_referring_domain": "https://facebook.com", "$initial_utm_medium": "cpc"}
-    poe_result = "Paid Social"
+
+    channel_type_virt_person_result = "Organic Search"
+    channel_type_virt_poe_result = "Paid Social"
+
     custom_channel_type_rules = [
         CustomChannelRule(
             channel_type="Custom Search",
@@ -186,8 +188,6 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         ),
     ]
-    custom_person_result = "Custom Search"
-    custom_poe_result = "Custom Social"
 
     def setUp(self):
         super().setUp()
@@ -213,7 +213,7 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
             placeholders={"person_id": ast.Constant(value=self.person.uuid)},
         )
         assert len(response.results) == 1
-        assert response.results[0][0] == self.person_result
+        assert response.results[0][0] == self.channel_type_virt_person_result
 
     def test_virtual_event_person_properties(self):
         response = execute_hogql_query(
@@ -222,7 +222,7 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
             placeholders={"person_id": ast.Constant(value=self.person.uuid)},
         )
         assert len(response.results) == 1
-        assert response.results[0][0] == self.person_result
+        assert response.results[0][0] == self.channel_type_virt_person_result
 
     def test_virtual_event_poe_properties(self):
         response = execute_hogql_query(
@@ -231,7 +231,7 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
             placeholders={"person_id": ast.Constant(value=self.person.uuid)},
         )
         assert len(response.results) == 1
-        assert response.results[0][0] == self.poe_result
+        assert response.results[0][0] == self.channel_type_virt_poe_result
 
     def test_virtual_event_pdi_properties(self):
         response = execute_hogql_query(
@@ -242,14 +242,14 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
             placeholders={"person_id": ast.Constant(value=self.person.uuid)},
         )
         assert len(response.results) == 1
-        assert response.results[0][0] == self.person_result
+        assert response.results[0][0] == self.channel_type_virt_person_result
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
-    def test_virtual_property_in_trend(self, mode):
+    def test_channel_type_virt_property_in_trend(self, mode):
         expected = (
-            self.person_result
+            self.channel_type_virt_person_result
             if mode in [PersonsOnEventsMode.DISABLED, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED]
-            else self.poe_result
+            else self.channel_type_virt_poe_result
         )
         query = TrendsQuery(
             **{
@@ -266,11 +266,11 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         assert results[0]["breakdown_value"] == [expected]
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
-    def test_virtual_property_in_trend_with_custom_rules(self, mode):
+    def test_channel_type_virt_property_in_trend_with_custom_rules(self, mode):
         expected = (
-            self.custom_person_result
+            "Custom Search"
             if mode in [PersonsOnEventsMode.DISABLED, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED]
-            else self.custom_poe_result
+            else "Custom Social"
         )
         query = TrendsQuery(
             **{

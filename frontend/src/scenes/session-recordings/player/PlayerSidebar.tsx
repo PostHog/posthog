@@ -60,8 +60,8 @@ export function PlayerSidebar(): JSX.Element {
                 !sidebarOpen
                     ? {}
                     : isVerticallyStacked
-                    ? { height: desiredSize ?? undefined, minHeight: 210 }
-                    : { width: desiredSize ?? undefined }
+                      ? { height: desiredSize ?? undefined, minHeight: 210 }
+                      : { width: desiredSize ?? undefined }
             }
         >
             <Resizer

@@ -63,7 +63,7 @@ export function AsyncMigrations(): JSX.Element {
             const interval = setInterval(() => loadAsyncMigrations(), STATUS_RELOAD_INTERVAL_MS)
             return () => clearInterval(interval)
         }
-    }, [isAnyMigrationRunning])
+    }, [isAnyMigrationRunning]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const nameColumn: AsyncMigrationColumnType = {
         title: 'Migration',
@@ -94,12 +94,12 @@ export function AsyncMigrations(): JSX.Element {
                 status === AsyncMigrationStatus.Running
                     ? 'success'
                     : status === AsyncMigrationStatus.Errored || status === AsyncMigrationStatus.FailedAtStartup
-                    ? 'danger'
-                    : status === AsyncMigrationStatus.Starting
-                    ? 'warning'
-                    : status === AsyncMigrationStatus.RolledBack
-                    ? 'warning'
-                    : 'default'
+                      ? 'danger'
+                      : status === AsyncMigrationStatus.Starting
+                        ? 'warning'
+                        : status === AsyncMigrationStatus.RolledBack
+                          ? 'warning'
+                          : 'default'
             return (
                 <LemonTag type={type} className="uppercase">
                     {migrationStatusNumberToMessage[status]}

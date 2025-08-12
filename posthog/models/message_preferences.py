@@ -4,6 +4,8 @@ from typing import Optional
 from posthog.models.utils import UUIDModel
 import uuid
 
+ALL_MESSAGE_PREFERENCE_CATEGORY_ID = "$all"
+
 
 class PreferenceStatus(models.TextChoices):
     OPTED_IN = "OPTED_IN"

@@ -116,11 +116,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         tableRowsSplitByBreakdownValue: [
             (s) => [s.tableRows],
             (tableRows): Record<string, RetentionTableRow[]> =>
-                tableRows.reduce((acc, row) => {
-                    const breakdownValue = row.breakdown_value ?? NO_BREAKDOWN_VALUE
-                    acc[breakdownValue] = [...(acc[breakdownValue] || []), row]
-                    return acc
-                }, {} as Record<string, RetentionTableRow[]>),
+                tableRows.reduce(
+                    (acc, row) => {
+                        const breakdownValue = row.breakdown_value ?? NO_BREAKDOWN_VALUE
+                        acc[breakdownValue] = [...(acc[breakdownValue] || []), row]
+                        return acc
+                    },
+                    {} as Record<string, RetentionTableRow[]>
+                ),
         ],
     }),
 ])

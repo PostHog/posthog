@@ -1,6 +1,5 @@
 import pytest
 
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from django.test import override_settings
 from django.urls import include, path

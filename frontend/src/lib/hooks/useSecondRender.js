@@ -8,7 +8,7 @@ export function useSecondRender(callback) {
             setSecondRender(true)
             callback()
         })
-    }, [])
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return secondRender
 }

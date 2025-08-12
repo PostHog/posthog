@@ -103,8 +103,8 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                     !configurationChanged
                         ? 'No changes to save'
                         : isConfigurationSubmitting
-                        ? 'Saving in progress…'
-                        : undefined
+                          ? 'Saving in progress…'
+                          : undefined
                 }
             >
                 {isNew ? 'Create' : 'Save'}

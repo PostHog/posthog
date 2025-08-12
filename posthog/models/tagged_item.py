@@ -1,11 +1,7 @@
-from typing import Union
-from collections.abc import Iterable
-
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q, UniqueConstraint
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, build_unique_relationship_check, build_partial_uniqueness_constraint
 
 RELATED_OBJECTS = (
     "dashboard",
@@ -16,29 +12,6 @@ RELATED_OBJECTS = (
     "feature_flag",
     "experiment_saved_metric",
 )
-
-
-# Checks that exactly one object field is populated
-def build_check(related_objects: Iterable[str]):
-    built_check_list: list[Union[Q, Q]] = []
-    for field in related_objects:
-        built_check_list.append(
-            Q(
-                *[(f"{other_field}__isnull", other_field != field) for other_field in related_objects],
-                _connector="AND",
-            )
-        )
-    return Q(*built_check_list, _connector="OR")
-
-
-# Enforces uniqueness on tag_{object_field}. All permutations of null columns must be explicit as Postgres ignores
-# uniqueness across null columns.
-def build_partial_uniqueness_constraint(field: str):
-    return UniqueConstraint(
-        fields=["tag", field],
-        name=f"unique_{field}_tagged_item",
-        condition=Q((f"{field}__isnull", False)),
-    )
 
 
 class TaggedItem(UUIDModel):
@@ -114,8 +87,15 @@ class TaggedItem(UUIDModel):
         unique_together = ("tag", *RELATED_OBJECTS)
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         constraints = [
-            *[build_partial_uniqueness_constraint(field=field) for field in RELATED_OBJECTS],
-            models.CheckConstraint(check=build_check(RELATED_OBJECTS), name="exactly_one_related_object"),
+            *[
+                build_partial_uniqueness_constraint(
+                    field="tag", related_field=related_field, constraint_name=f"unique_{related_field}_tagged_item"
+                )
+                for related_field in RELATED_OBJECTS
+            ],
+            models.CheckConstraint(
+                check=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
+            ),
         ]
 
     def clean(self):

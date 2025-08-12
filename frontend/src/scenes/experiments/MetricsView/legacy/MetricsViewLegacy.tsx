@@ -156,10 +156,10 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                         metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric
-                                            ? 'rounded-t'
-                                            : metricIndex === metrics.length - 1
-                                            ? 'rounded-b'
-                                            : ''
+                                              ? 'rounded-t'
+                                              : metricIndex === metrics.length - 1
+                                                ? 'rounded-b'
+                                                : ''
                                     }`}
                                 >
                                     <DeltaChart

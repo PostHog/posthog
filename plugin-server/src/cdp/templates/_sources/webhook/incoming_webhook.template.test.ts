@@ -32,6 +32,7 @@ describe('incoming webhook template', () => {
                             nestedLevel: 'nestedLevelValue',
                         },
                     },
+                    stringBody: '',
                     headers: {},
                     ip: '127.0.0.1',
                 },
@@ -71,6 +72,7 @@ describe('incoming webhook template', () => {
                     body: {
                         eventName: 'the event',
                     },
+                    stringBody: '',
                     headers: {
                         authorization: 'Bearer wrong-token',
                     },
@@ -102,6 +104,7 @@ describe('incoming webhook template', () => {
                     body: {
                         eventName: 'the event',
                     },
+                    stringBody: '',
                     headers: {
                         authorization: 'Bearer my-secret-token',
                     },
@@ -129,6 +132,7 @@ describe('incoming webhook template', () => {
                     body: {
                         eventName: 'the event',
                     },
+                    stringBody: '',
                     headers: {},
                 },
             }

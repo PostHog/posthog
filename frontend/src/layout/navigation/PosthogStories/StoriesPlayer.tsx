@@ -320,8 +320,8 @@ export const StoriesPlayer = ({
                             currentStory.seeMoreOptions?.backgroundColor === 'black'
                                 ? 'bg-black/35 hover:bg-black/45'
                                 : currentStory.seeMoreOptions?.backgroundColor === 'white'
-                                ? 'bg-white/35 hover:bg-white/45'
-                                : 'bg-white/25 hover:bg-white/30'
+                                  ? 'bg-white/35 hover:bg-white/45'
+                                  : 'bg-white/25 hover:bg-white/30'
                         }`}
                         role="button"
                         aria-label="See more about this story - swipe up for more"

@@ -7,22 +7,23 @@ and difference types.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Any, Union
+from typing import Any, Optional
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import (
-    SampleMeanStatistic,
     ProportionStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
     StatisticError,
 )
-from .priors import GaussianPrior
 from .enums import PriorType
+from .priors import GaussianPrior
 from .tests import (
+    BayesianGaussianTest,
+    BayesianMeanTest,
+    BayesianProportionTest,
     BayesianResult,
     BayesianTest,
-    BayesianGaussianTest,
-    BayesianProportionTest,
-    BayesianMeanTest,
 )
 
 
@@ -121,9 +122,9 @@ class BayesianMethod:
 
     def run_test(
         self,
-        treatment_stat: Union[SampleMeanStatistic, ProportionStatistic],
-        control_stat: Union[SampleMeanStatistic, ProportionStatistic],
-        prior: Optional[GaussianPrior] = None,
+        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        prior: GaussianPrior | None = None,
         **kwargs,
     ) -> BayesianResult:
         """

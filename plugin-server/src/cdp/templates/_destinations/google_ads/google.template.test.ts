@@ -67,7 +67,7 @@ describe('google template', () => {
               },
               "method": "POST",
               "type": "fetch",
-              "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
+              "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
             }
         `)
 
@@ -105,7 +105,7 @@ describe('google template', () => {
               },
               "method": "POST",
               "type": "fetch",
-              "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
+              "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
             }
         `)
 
@@ -144,7 +144,7 @@ describe('google template', () => {
               },
               "method": "POST",
               "type": "fetch",
-              "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
+              "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
             }
         `)
 

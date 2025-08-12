@@ -17,7 +17,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         allExperiments: [
             [] as WebExperiment[],
             {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
                     const response = await toolbarFetch('/api/projects/@current/web_experiments/')
                     const results = await response.json()

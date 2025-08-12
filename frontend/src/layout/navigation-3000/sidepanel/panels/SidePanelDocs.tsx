@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react'
 import { themeLogic } from '../../themeLogic'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelDocsLogic } from './sidePanelDocsLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function SidePanelDocsSkeleton(): JSX.Element {
     return (
@@ -41,14 +42,14 @@ export const SidePanelDocs = (): JSX.Element => {
         )
     }, [isDarkModeOn, ref.current])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         window.addEventListener('beforeunload', unmountIframe)
 
         return () => {
             window.removeEventListener('beforeunload', unmountIframe)
             unmountIframe()
         }
-    }, [])
+    })
 
     return (
         <>

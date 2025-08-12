@@ -157,8 +157,8 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                 !isDateLocked
                     ? lockDate
                     : active
-                    ? unlockDate
-                    : () => activateDate(date, buttonRef.current as HTMLButtonElement)
+                      ? unlockDate
+                      : () => activateDate(date, buttonRef.current as HTMLButtonElement)
             }
         >
             {annotations.length ? (

@@ -38,7 +38,17 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
-const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
+const INPUT_TYPE_LIST = [
+    'string',
+    'number',
+    'boolean',
+    'dictionary',
+    'choice',
+    'json',
+    'integration',
+    'email',
+    'native_email',
+] as const
 
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
@@ -146,7 +156,7 @@ function JsonConfigField(props: {
                                     verticalScrollbarSize: 0,
                                 },
                             }}
-                            globals={props.templating ? props.sampleGlobalsWithInputs ?? undefined : undefined}
+                            globals={props.templating ? (props.sampleGlobalsWithInputs ?? undefined) : undefined}
                         />
                         {props.templating ? (
                             <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
@@ -171,6 +181,7 @@ function JsonConfigField(props: {
 }
 
 function EmailTemplateField({
+    schema,
     value,
     onChange,
     sampleGlobalsWithInputs,
@@ -180,7 +191,14 @@ function EmailTemplateField({
     onChange: (value: any) => void
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
-    return <EmailTemplater variables={sampleGlobalsWithInputs ?? {}} value={value} onChange={onChange} />
+    return (
+        <EmailTemplater
+            type={schema.type as 'email' | 'native_email'}
+            variables={sampleGlobalsWithInputs ?? {}}
+            value={value}
+            onChange={onChange}
+        />
+    )
 }
 
 function CyclotronJobTemplateInput(props: {
@@ -253,7 +271,7 @@ function DictionaryField({
         prevFilteredEntriesRef.current = filteredEntries
 
         const val = Object.fromEntries(filteredEntries)
-        onChange?.({ ...input, value: val })
+        onChange?.({ ...input, value: val }) // oxlint-disable-line react-hooks/exhaustive-deps
     }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
@@ -405,6 +423,7 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'email':
+        case 'native_email':
             return (
                 <EmailTemplateField
                     schema={schema}

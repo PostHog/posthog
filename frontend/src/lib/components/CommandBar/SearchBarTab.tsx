@@ -27,7 +27,9 @@ export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element 
                 inputRef.current?.focus()
             }}
         >
-            {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
+            <span className="truncate">
+                {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
+            </span>
             <Count tab={tab} />
         </div>
     )

@@ -73,7 +73,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
         filteredRoles: [
             (s) => [s.roles, s.rolesFuse, s.search],
             (roles, rolesFuse, search): RoleType[] =>
-                search ? rolesFuse.search(search).map((result) => result.item) : roles ?? [],
+                search ? rolesFuse.search(search).map((result) => result.item) : (roles ?? []),
         ],
 
         resolveAssignee: [

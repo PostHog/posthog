@@ -15,7 +15,8 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         getCurrentPosition: () => editor.state.selection.$anchor.pos,
         getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
         setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
-        setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
+        setContent: (content: JSONContent) =>
+            queueMicrotask(() => editor.commands.setContent(content, { emitUpdate: false })),
         setSelection: (position: number) => editor.commands.setNodeSelection(position),
         setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
         focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),

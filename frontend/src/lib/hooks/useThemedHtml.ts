@@ -41,7 +41,7 @@ export function useThemedHtml(overflowHidden = true): void {
             const style = getComputedStyle(root)
             const backgroundColor = sceneConfig?.projectBased
                 ? style.getPropertyValue('--surface-secondary')
-                : style.getPropertyValue('--bg-bridge')
+                : style.getPropertyValue('--color-bg-bridge')
 
             document.head.querySelector('meta[name="theme-color"]')?.remove()
             document.head.insertAdjacentHTML('beforeend', `<meta name="theme-color" content="${backgroundColor}">`)

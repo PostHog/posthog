@@ -2,11 +2,11 @@ from typing import Any, Literal, TypedDict, TypeGuard, Union
 
 from langchain_core.messages import AIMessageChunk
 
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
-GraphValueUpdate = dict[AssistantNodeName | FilterOptionsNodeName, dict[Any, Any] | Any]
+GraphValueUpdate = dict[AssistantNodeName | TaxonomyNodeName, dict[Any, Any] | Any]
 
 GraphValueUpdateTuple = tuple[Literal["values"], GraphValueUpdate]
 
@@ -23,18 +23,21 @@ def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdateTuple]:
 
 def validate_value_update(
     update: GraphValueUpdate,
-) -> dict[AssistantNodeName | FilterOptionsNodeName, PartialAssistantState | Any]:
-    validated_update = {}
+) -> dict[AssistantNodeName | TaxonomyNodeName, PartialAssistantState | TaxonomyAgentState | Any]:
+    validated_update: dict[AssistantNodeName | TaxonomyNodeName, PartialAssistantState | TaxonomyAgentState | Any] = {}
     for node_name, value in update.items():
         if isinstance(value, dict):
-            validated_update[node_name] = PartialAssistantState.model_validate(value)
+            if isinstance(node_name, TaxonomyNodeName):
+                validated_update[node_name] = TaxonomyAgentState.model_validate(value)
+            else:
+                validated_update[node_name] = PartialAssistantState.model_validate(value)
         else:
             validated_update[node_name] = value
     return validated_update
 
 
 class LangGraphState(TypedDict):
-    langgraph_node: AssistantNodeName | FilterOptionsNodeName
+    langgraph_node: AssistantNodeName | TaxonomyNodeName
 
 
 GraphMessageUpdateTuple = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]

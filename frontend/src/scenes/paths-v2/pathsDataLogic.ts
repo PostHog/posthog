@@ -57,7 +57,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         results: [
             (s) => [s.insightQuery, s.insightData],
             (insightQuery, insightData): PathsLink[] => {
-                return isPathsQuery(insightQuery) ? insightData?.result ?? [] : []
+                return isPathsQuery(insightQuery) ? (insightData?.result ?? []) : []
             },
         ],
         paths: [

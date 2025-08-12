@@ -240,8 +240,8 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         query.kind === NodeKind.SavedInsightNode
             ? urls.insightView(query.shortId)
             : isInsightVizNode(query)
-            ? urls.insightNew({ query })
-            : undefined,
+              ? urls.insightNew({ query })
+              : undefined,
     Settings,
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),

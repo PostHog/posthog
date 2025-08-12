@@ -55,8 +55,8 @@ export function SingleChoiceQuestionViz({
                     Math.min(Math.ceil(data.length / 10), 3) === 1
                         ? 'grid-cols-1'
                         : Math.min(Math.ceil(data.length / 10), 3) === 2
-                        ? 'grid-cols-2'
-                        : 'grid-cols-3'
+                          ? 'grid-cols-2'
+                          : 'grid-cols-3'
                 )}
             >
                 {data.map((d: { value: number; label: string }, i: number) => {

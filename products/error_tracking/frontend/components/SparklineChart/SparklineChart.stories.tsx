@@ -89,9 +89,9 @@ function buildSparklineOptions(): SparklineOptions {
     return {
         ...datumInteractions,
         ...eventsInteractions,
-        backgroundColor: 'var(--primitive-neutral-200)',
-        hoverBackgroundColor: 'var(--primitive-neutral-700)',
-        axisColor: 'var(--primitive-neutral-300)',
+        backgroundColor: 'var(--color-neutral-200)',
+        hoverBackgroundColor: 'var(--color-neutral-700)',
+        axisColor: 'var(--color-neutral-300)',
         eventLabelHeight: 20,
         eventMinSpace: 2,
         eventLabelPaddingX: 5,

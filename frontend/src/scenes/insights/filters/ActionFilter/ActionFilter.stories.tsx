@@ -77,8 +77,8 @@ const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilt
                     filters.insight === InsightType.LIFECYCLE
                         ? MathAvailability.None
                         : filters.insight === InsightType.STICKINESS
-                        ? MathAvailability.ActorsOnly
-                        : MathAvailability.All
+                          ? MathAvailability.ActorsOnly
+                          : MathAvailability.All
                 }
                 propertiesTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.EventProperties,

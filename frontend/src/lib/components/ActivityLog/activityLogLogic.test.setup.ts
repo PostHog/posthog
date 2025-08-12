@@ -36,7 +36,7 @@ const makeAPIItem = ({
     created_at: '2022-02-05T16:28:39.594Z',
 })
 
-// eslint-disable-next-line react-hooks/rules-of-hooks
+// oxlint-disable-next-line react-hooks/rules-of-hooks
 async function testSetup(
     activityLogItem: ActivityLogItem,
     scope: ActivityScope,

@@ -11,7 +11,7 @@ const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
             ...event.properties,
         },
         ...event,
-    } as unknown as PluginEvent)
+    }) as unknown as PluginEvent
 
 describe('timestamp parser plugin', () => {
     it('should parse unix timestamp', () => {

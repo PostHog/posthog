@@ -12,7 +12,10 @@ import { PersonRepositoryTransaction } from './repositories/person-repository-tr
  * This can be used by any store that implements PersonsStoreForBatch.
  */
 export class PersonsStoreTransaction {
-    constructor(private store: PersonsStoreForBatch, private tx: PersonRepositoryTransaction) {}
+    constructor(
+        private store: PersonsStoreForBatch,
+        private tx: PersonRepositoryTransaction
+    ) {}
 
     async createPerson(
         createdAt: DateTime,

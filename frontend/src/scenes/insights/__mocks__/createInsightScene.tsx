@@ -1,6 +1,6 @@
 import { StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -79,9 +79,9 @@ export function createInsightStory(
             },
         })
 
-        useEffect(() => {
+        useOnMountEffect(() => {
             router.actions.push(`/insights/${insight.short_id}${count}${mode === 'edit' ? '/edit' : ''}`)
-        }, [])
+        })
 
         return <App />
     }

@@ -61,7 +61,12 @@ class FunnelEventQuery:
             sample=self._sample_expr(),
         )
 
-        where_exprs = [self._date_range_expr(), self._entity_expr(skip_entity_filter), *self._properties_expr()]
+        where_exprs = [
+            self._date_range_expr(),
+            self._entity_expr(skip_entity_filter),
+            *self._properties_expr(),
+            self._aggregation_target_filter(),
+        ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         stmt = ast.SelectQuery(
@@ -85,15 +90,16 @@ class FunnelEventQuery:
         elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
             aggregation_target = parse_expr(funnelsFilter.funnelAggregateByHogQL)
 
-        # TODO: is this still relevant?
-        # # Aggregating by Distinct ID
-        # elif self._aggregate_users_by_distinct_id:
-        #     aggregation_target = f"{self.EVENT_TABLE_ALIAS}.distinct_id"
-
         if isinstance(aggregation_target, str):
             return ast.Field(chain=[aggregation_target])
         else:
             return aggregation_target
+
+    def _aggregation_target_filter(self) -> ast.Expr | None:
+        if self._aggregation_target_expr() == ast.Field(chain=["person_id"]):
+            return None
+
+        return parse_expr("aggregation_target != '' and aggregation_target != null")
 
     def _sample_expr(self) -> ast.SampleExpr | None:
         query = self.context.query

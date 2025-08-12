@@ -12,8 +12,9 @@
     width: var(--annotations-overlay-tick-interval);
     height: 3rem;
     margin-left: calc(
-        var(--annotations-overlay-tick-interval) * var(--annotations-badge-index) -
-            var(--annotations-overlay-chart-area-left) + var(--annotations-overlay-first-tick-left)
+        var(--annotations-overlay-tick-interval) *
+            var(--annotations-badge-index) - var(--annotations-overlay-chart-area-left) +
+            var(--annotations-overlay-first-tick-left)
     );
     appearance: none !important;
     cursor: pointer;
@@ -22,7 +23,7 @@
     transform: translate(-50%, -50%);
 
     > .LemonBadge {
-        border-color: var(--bg-surface-primary); // Matching the chart background
+        border-color: var(--color-bg-surface-primary); // Matching the chart background
         transition: transform 200ms ease; // Same as LemonBadge's transition
         // Override .LemonBadge--position-self-centered
         transform: scale(var(--annotations-badge-scale));
@@ -34,7 +35,10 @@
     --annotations-popover-width: 30rem;
 
     z-index: var(--z-annotation-popover) !important;
-    transition: left 200ms ease, opacity 100ms ease, transform 100ms ease;
+    transition:
+        left 200ms ease,
+        opacity 100ms ease,
+        transform 100ms ease;
 
     .LemonModal {
         min-width: var(--annotations-popover-width);

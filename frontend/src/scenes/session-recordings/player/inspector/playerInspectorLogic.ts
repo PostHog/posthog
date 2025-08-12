@@ -1,4 +1,10 @@
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@posthog/rrweb-types'
+import {
+    customEvent,
+    EventType as RRWebEventType,
+    eventWithTime,
+    fullSnapshotEvent,
+    pluginEvent,
+} from '@posthog/rrweb-types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -174,7 +180,7 @@ function isFullSnapshotEvent(x: unknown): x is fullSnapshotEvent {
 }
 
 function snapshotDescription(snapshot: eventWithTime): string {
-    const snapshotTypeName = EventType[snapshot.type]
+    const snapshotTypeName = RRWebEventType[snapshot.type]
     let suffix = ''
     if (_isCustomSnapshot(snapshot)) {
         suffix = ': ' + (snapshot as customEvent).data.tag
@@ -279,13 +285,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'windowIdForTimestamp',
                 'sessionPlayerMetaData',
                 'segments',
+                'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
-            sessionRecordingDataLogic(props),
-            ['trackedWindow'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -330,7 +335,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (!matchingEventsMatchType?.eventUUIDs) {
                             console.error('UUID matching events type must include its event ids')
                         }
-                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x }) as MatchedRecordingEvent)
                     }
 
                     const filters = matchingEventsMatchType?.filters
@@ -344,7 +349,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
-                    return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                    return response.results.map((x) => ({ uuid: x }) as MatchedRecordingEvent)
                 },
             },
         ],
@@ -715,6 +720,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allContextItems,
                 s.commentItems,
                 s.notebookCommentItems,
+                s.sessionPlayerData,
             ],
             (
                 start,
@@ -725,7 +731,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 windowNumberForID,
                 allContextItems,
                 commentItems,
-                notebookCommentItems
+                notebookCommentItems,
+                sessionPlayerData
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -798,12 +805,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         timestamp,
                         timeInRecording,
                         search: search,
-                        data: event,
+                        data: {
+                            ...event,
+                            distinct_id: sessionPlayerData.person?.distinct_ids?.[0] || event.distinct_id,
+                        },
                         highlightColor: isMatchingEvent
                             ? 'primary'
                             : event.event === '$exception'
-                            ? 'danger'
-                            : undefined,
+                              ? 'danger'
+                              : undefined,
                         windowId: event.properties?.$window_id,
                         windowNumber: windowNumberForID(event.properties?.$window_id),
                     })
@@ -903,12 +913,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
-                    miniFiltersByKey: Object.entries(miniFiltersByKey).reduce((acc, [key, value]) => {
-                        if (key.startsWith('events') || key.startsWith('comment')) {
-                            acc[key] = value
-                        }
-                        return acc
-                    }, {} as { [key: string]: SharedListMiniFilter }),
+                    miniFiltersByKey: Object.entries(miniFiltersByKey).reduce(
+                        (acc, [key, value]) => {
+                            if (key.startsWith('events') || key.startsWith('comment')) {
+                                acc[key] = value
+                            }
+                            return acc
+                        },
+                        {} as { [key: string]: SharedListMiniFilter }
+                    ),
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
@@ -974,27 +987,27 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     sessionPlayerMetaDataLoading || snapshotsLoading || !logs
                         ? 'loading'
                         : logs.length
-                        ? 'ready'
-                        : 'empty'
+                          ? 'ready'
+                          : 'empty'
                 const dataForNetworkState =
                     sessionPlayerMetaDataLoading || snapshotsLoading || !performanceEvents
                         ? 'loading'
                         : performanceEvents.length
-                        ? 'ready'
-                        : 'empty'
+                          ? 'ready'
+                          : 'empty'
                 const dataForDoctorState =
                     sessionPlayerMetaDataLoading || snapshotsLoading || !performanceEvents
                         ? 'loading'
                         : doctorEvents.length
-                        ? 'ready'
-                        : 'empty'
+                          ? 'ready'
+                          : 'empty'
 
                 // TODO include notebook comments here?
                 const dataForCommentState = sessionCommentsLoading
                     ? 'loading'
                     : sessionComments?.length
-                    ? 'ready'
-                    : 'empty'
+                      ? 'ready'
+                      : 'empty'
 
                 return {
                     ['events']: dataForEventsState,

@@ -1,5 +1,4 @@
-// eslint-disable-next-line eslint-comments/disable-enable-pair
-/* eslint-disable no-useless-escape */
+/* oxlint-disable no-useless-escape */
 import { Monaco } from '@monaco-editor/react'
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
@@ -169,3 +168,4 @@ export function initHogJsonLanguage(monaco: Monaco): void {
         monaco.languages.registerCodeActionProvider('hogJson', hogQLMetadataProvider())
     }
 }
+/* oxlint-enable no-useless-escape */

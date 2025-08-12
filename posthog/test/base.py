@@ -120,6 +120,8 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_DAILY_SQL,
     WEB_BOUNCES_DAILY_SQL,
     WEB_STATS_COMBINED_VIEW_SQL,
+    WEB_STATS_SQL,
+    WEB_BOUNCES_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -1168,6 +1170,10 @@ def reset_clickhouse_database() -> None:
             WEB_BOUNCES_HOURLY_SQL(),
             WEB_STATS_DAILY_SQL(),
             WEB_STATS_HOURLY_SQL(),
+            WEB_STATS_SQL(),
+            WEB_BOUNCES_SQL(),
+            WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
+            WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
         ]
     )

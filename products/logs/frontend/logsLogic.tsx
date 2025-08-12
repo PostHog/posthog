@@ -50,7 +50,7 @@ export const logsLogic = kea<logsLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'searchTerm', values.searchTerm, '')

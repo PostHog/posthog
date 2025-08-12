@@ -132,7 +132,10 @@ export function matchString(actual: string, expected: string, matching: StringMa
 }
 
 export class ActionMatcher {
-    constructor(private postgres: PostgresRouter, private actionManager: ActionManager) {}
+    constructor(
+        private postgres: PostgresRouter,
+        private actionManager: ActionManager
+    ) {}
 
     public hasWebhooks(teamId: number): boolean {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0

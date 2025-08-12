@@ -475,8 +475,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                             mode === 'moveText' && selectedTextIndex !== null
                                 ? 'cursor-move'
                                 : mode === 'draw'
-                                ? 'cursor-crosshair'
-                                : 'cursor-text'
+                                  ? 'cursor-crosshair'
+                                  : 'cursor-text'
                         }`}
                     >
                         <canvas

@@ -22,8 +22,8 @@ export const convertForTimelineView = (
     const rangeEnd = performanceEvent.load_event_end
         ? performanceEvent.load_event_end
         : performanceEvent.response_end
-        ? performanceEvent.response_end
-        : performanceEvent.end_time
+          ? performanceEvent.response_end
+          : performanceEvent.end_time
     const performanceMeasures =
         typeof rangeStart === 'number' && typeof rangeEnd === 'number'
             ? calculatePerformanceParts(performanceEvent)

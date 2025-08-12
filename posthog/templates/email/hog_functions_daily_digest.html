@@ -34,6 +34,8 @@
             {% endif %}
             </p>
             <p class="muted" style="margin: 4px 0;">Type: {{ function.type|capfirst }}</p>
+            <p class="muted" style="margin: 4px 0;">Created by: {% if function.created_by_email %}{{ function.created_by_email }}{% else %}unknown{% endif %}</p>
+            <p class="muted" style="margin: 4px 0;">Last edited by: {% if function.last_edited_by_email %}{{ function.last_edited_by_email }}{% else %}unknown{% endif %}{% if function.last_edit_date %} on {{ function.last_edit_date }}{% endif %}</p>
             <p style="margin: 8px 0 0 0;">✅ Successful runs: {{ function.succeeded|intcomma }} | ❌ Failed runs: {{ function.failed|intcomma }}</p>
         </div>
     {% endfor %}

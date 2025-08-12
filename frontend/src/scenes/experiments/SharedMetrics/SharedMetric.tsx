@@ -60,7 +60,7 @@ export function SharedMetric(): JSX.Element {
                         <div className="font-semibold flex justify-between items-center">
                             <span>Trend</span>
                             {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--accent)" />
+                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                             )}
                         </div>
                         <div className="text-secondary text-sm leading-relaxed">
@@ -82,7 +82,7 @@ export function SharedMetric(): JSX.Element {
                         <div className="font-semibold flex justify-between items-center">
                             <span>Funnel</span>
                             {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--accent)" />
+                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                             )}
                         </div>
                         <div className="text-secondary text-sm leading-relaxed">

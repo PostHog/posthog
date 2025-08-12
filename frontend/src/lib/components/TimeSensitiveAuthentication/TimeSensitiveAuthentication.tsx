@@ -2,10 +2,10 @@ import { LemonButton, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/le
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useEffect } from 'react'
 
 import { SocialLoginButtons, SSOEnforcedLoginButton } from '../SocialLoginButton/SocialLoginButton'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const {
@@ -117,11 +117,9 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
 export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.Element }): JSX.Element {
     const { timeSensitiveAuthenticationRequired } = useValues(timeSensitiveAuthenticationLogic)
-    const { setDismissedReauthentication, checkReauthentication } = useActions(timeSensitiveAuthenticationLogic)
 
-    useEffect(() => {
-        checkReauthentication()
-    }, [])
+    const { setDismissedReauthentication, checkReauthentication } = useActions(timeSensitiveAuthenticationLogic)
+    useOnMountEffect(checkReauthentication)
 
     return timeSensitiveAuthenticationRequired ? (
         <div className="flex-1 bg-primary border border-primary rounded flex flex-col items-center p-6 text-center w-full">

@@ -266,7 +266,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 RevenueAnalyticsPropertyFilter(
                     key="source",
                     operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.purchase"],
+                    value=["revenue_analytics.events.purchase"],
                 )
             ],
         ).results
@@ -301,7 +301,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 RevenueAnalyticsPropertyFilter(
                     key="source",
                     operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.purchase"],
+                    value=["revenue_analytics.events.purchase"],
                 )
             ],
         ).results

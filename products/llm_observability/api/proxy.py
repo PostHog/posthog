@@ -47,6 +47,10 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     max_tokens = serializers.IntegerField(required=False)
+    tools = serializers.ListField(child=serializers.DictField(), required=False)
+    reasoning_level = serializers.ChoiceField(
+        choices=["minimal", "low", "medium", "high"], required=False, allow_null=True
+    )
 
 
 class LLMProxyFIMSerializer(serializers.Serializer):
@@ -160,6 +164,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             "thinking": serializer.validated_data.get("thinking", False),
                             "temperature": serializer.validated_data.get("temperature"),
                             "max_tokens": serializer.validated_data.get("max_tokens"),
+                            "tools": serializer.validated_data.get("tools"),
+                            "reasoning_level": serializer.validated_data.get("reasoning_level"),
                             "distinct_id": distinct_id,
                             "trace_id": trace_id,
                             "properties": properties,

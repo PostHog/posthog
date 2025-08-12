@@ -39,6 +39,7 @@ class TeamAdmin(admin.ModelAdmin):
         "test_account_filters",
         "created_at",
         "updated_at",
+        "internal_properties",
     ]
 
     inlines = [GroupTypeMappingInline, TeamMarketingAnalyticsConfigInline]
@@ -46,7 +47,7 @@ class TeamAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ["name", "id", "uuid", "organization", "project"],
+                "fields": ["name", "id", "uuid", "organization", "project", "internal_properties"],
             },
         ),
         (
@@ -131,3 +132,17 @@ class TeamAdmin(admin.ModelAdmin):
                 team.project.name,
             )
         return "-"
+
+    @admin.display(description="PostHog system internal properties")
+    def internal_properties(self, team: Team):
+        from posthog import settings
+        from posthog.rate_limit import team_is_allowed_to_bypass_throttle
+
+        props: list[str] = []
+        if settings.API_QUERIES_LEGACY_TEAM_LIST and team.id in settings.API_QUERIES_LEGACY_TEAM_LIST:
+            props.append("API_QUERIES_LEGACY_RATE_LIMIT")
+        if settings.API_QUERIES_PER_TEAM and team.id in settings.API_QUERIES_PER_TEAM:
+            props.append("API_QUERIES_PER_TEAM:{}".format(settings.API_QUERIES_PER_TEAM[team.id]))
+        if team_is_allowed_to_bypass_throttle(team.id):
+            props.append("API_QUERIES_RATE_LIMIT_BYPASS")
+        return format_html("<span>{}</span>", ", ".join(props) or "-")

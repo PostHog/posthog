@@ -175,7 +175,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         <span className="font-semibold text-[1.2em] line-clamp-1">{record.name || 'Unknown Type'}</span>
                     </div>
                 </Link>
-                <div className="line-clamp-1 text-secondary">{record.description}</div>
+                <div title={record.description || undefined} className="line-clamp-1 text-secondary">
+                    {record.description}
+                </div>
                 <div className="flex items-center text-secondary">
                     <IssueStatusSelect
                         status={record.status}

@@ -17,7 +17,7 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodePasteRule, useSyncedAttributes } from './utils'
+import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
@@ -34,6 +34,7 @@ import {
     NotebookNodeProps,
     NotebookNodeResource,
 } from '../types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -91,11 +92,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         [inViewRef]
     )
 
-    useEffect(() => {
-        // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
+    // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
+    useOnMountEffect(() => {
         return () => unregisterNodeLogic(nodeId)
-        // oxlint-disable-next-line exhaustive-deps
-    }, [])
+    })
 
     useWhyDidIRender('NodeWrapper.logicProps', {
         resizeable,
@@ -242,7 +242,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                             <IconFilter />
                                                                         )
                                                                     ) : (
-                                                                        settingsIcon ?? <IconFilter />
+                                                                        (settingsIcon ?? <IconFilter />)
                                                                     )
                                                                 }
                                                                 active={editingNodeId === nodeId}
@@ -302,7 +302,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                 <>
                                     <SlashCommandsPopover
                                         mode="add"
-                                        getPos={() => getPos() + 1}
+                                        getPos={() => (getPos() ?? 0) + 1}
                                         visible={slashCommandsPopoverVisible}
                                         onClose={() => setSlashCommandsPopoverVisible(false)}
                                     >
@@ -345,7 +345,7 @@ export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     options: CreatePostHogWidgetNodeOptions<T>
 ): Node {
-    const { Component, pasteOptions, attributes, serializedText, ...wrapperProps } = options
+    const { Component, pasteOptions, inputOptions, attributes, serializedText, ...wrapperProps } = options
 
     KNOWN_NODES[wrapperProps.nodeType] = options
 
@@ -447,6 +447,18 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                           editor: this.editor,
                           type: this.type,
                           ...pasteOptions,
+                      }),
+                  ]
+                : []
+        },
+
+        addInputRules() {
+            return inputOptions
+                ? [
+                      posthogNodeInputRule({
+                          editor: this.editor,
+                          type: this.type,
+                          ...inputOptions,
                       }),
                   ]
                 : []

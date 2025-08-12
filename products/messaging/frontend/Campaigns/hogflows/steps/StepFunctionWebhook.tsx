@@ -10,7 +10,8 @@ export const StepFunctionWebhook: HogFlowStep<'function_webhook'> = {
     type: 'function_webhook',
     name: 'Webhook',
     description: 'Send a webhook to an external service.',
-    icon: <IconWebhooks />,
+    icon: <IconWebhooks className="text-[#6500ae]" />,
+    color: '#6500ae',
     renderNode: (props) => <StepFunctionWebhookNode {...props} />,
     renderConfiguration: (node) => <StepFunctionWebhookConfiguration node={node} />,
     create: () => {

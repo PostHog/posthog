@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { isCurrentNodeEmpty } from '../utils'
 import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
 import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function FloatingSuggestions(): JSX.Element | null {
     const logic = insertionSuggestionsLogic()
@@ -41,10 +42,9 @@ export function FloatingSuggestions(): JSX.Element | null {
 
     useEffect(() => {
         handleUpdate()
-        // oxlint-disable-next-line exhaustive-deps
-    }, [height])
+    }, [height]) // oxlint-disable-line exhaustive-deps
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         ttEditor.on('update', handleUpdate)
         ttEditor.on('selectionUpdate', handleUpdate)
         setRef(ttEditor.view.dom)
@@ -52,8 +52,7 @@ export function FloatingSuggestions(): JSX.Element | null {
             ttEditor.off('update', handleUpdate)
             ttEditor.off('selectionUpdate', handleUpdate)
         }
-        // oxlint-disable-next-line exhaustive-deps
-    }, [])
+    })
 
     return (
         // eslint-disable-next-line react/forbid-dom-props

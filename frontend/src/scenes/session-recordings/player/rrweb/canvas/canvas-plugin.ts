@@ -191,8 +191,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         const currentIndex = nextPreloadIndex
             ? nextPreloadIndex
             : currentEvent
-            ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
-            : 0
+              ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
+              : 0
 
         const eventsToPreload = canvasMutationEvents
             .slice(currentIndex, currentIndex + PRELOAD_BUFFER_SIZE)

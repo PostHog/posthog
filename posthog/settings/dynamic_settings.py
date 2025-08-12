@@ -128,6 +128,11 @@ CONSTANCE_CONFIG = {
         "Used to disable emails from async migrations service",
         bool,
     ),
+    "GITHUB_APP_SLUG": (
+        get_from_env("GITHUB_APP_SLUG", default=""),
+        "Used to redirect to the correct GitHub App installation page",
+        str,
+    ),
     "SLACK_APP_CLIENT_ID": (
         get_from_env("SLACK_APP_CLIENT_ID", default=""),
         "Used to enable the 'Add to Slack' button across all projects",
@@ -193,6 +198,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
     "STRICT_CACHING_TEAMS",
+    "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",

@@ -325,7 +325,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             if (removeProjectIdIfPresent(router.values.location.pathname) === urls.replay(ReplayTabs.Playlists)) {

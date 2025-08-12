@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { logger } from '../../../../utils/logger'
 import { ParsedMessageData } from '../kafka/types'
 import { hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
@@ -89,7 +92,7 @@ export class SnappySessionRecorder {
         public readonly sessionId: string,
         public readonly teamId: number,
         public readonly batchId: string,
-        private readonly metadataSwitchoverDate: Date | null
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {}
 
     /**
@@ -138,8 +141,10 @@ export class SnappySessionRecorder {
                 this.uncompressedChunks.push(chunk)
 
                 const eventTimestamp = event.timestamp
-                const switchoverMs = this.metadataSwitchoverDate ? this.metadataSwitchoverDate.getTime() : null
-                const shouldComputeMetadata = switchoverMs && eventTimestamp >= switchoverMs
+                const shouldComputeMetadata = eventPassesMetadataSwitchoverTest(
+                    eventTimestamp,
+                    this.metadataSwitchoverDate
+                )
 
                 if (shouldComputeMetadata) {
                     // Store segmentation event for later use in active time calculation

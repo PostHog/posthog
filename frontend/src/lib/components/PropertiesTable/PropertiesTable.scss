@@ -29,8 +29,8 @@
         border-radius: calc(var(--radius) * 0.75);
 
         &:hover {
-            background: var(--bg-surface-primary);
-            border: 1px solid var(--border-primary);
+            background: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
         }
     }
 }

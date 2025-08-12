@@ -40,7 +40,7 @@ const NOTICES: {
         flagSuffix: 'annotations-2023-10-30',
     },
     {
-        identifier: Scene.PersonsManagement,
+        identifier: Scene.Cohorts,
         description: (
             <>
                 <b>Cohorts</b> have moved here!

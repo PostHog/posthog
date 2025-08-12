@@ -42,7 +42,7 @@ Default.args = {
         {
             key: 'default',
             title: 'Default section',
-            items: range(0, 100).map((idx) => ({ id: idx } as unknown as SessionRecordingType)),
+            items: range(0, 100).map((idx) => ({ id: idx }) as unknown as SessionRecordingType),
             render: ListItem,
         },
     ],
@@ -54,14 +54,14 @@ MultipleSections.args = {
         {
             key: 'one',
             title: 'First section',
-            items: range(0, 5).map((idx) => ({ id: idx } as unknown as SessionRecordingType)),
+            items: range(0, 5).map((idx) => ({ id: idx }) as unknown as SessionRecordingType),
             render: ListItem,
             initiallyOpen: true,
         },
         {
             key: 'two',
             title: 'Second section',
-            items: range(0, 5).map((idx) => ({ id: idx } as unknown as SessionRecordingType)),
+            items: range(0, 5).map((idx) => ({ id: idx }) as unknown as SessionRecordingType),
             render: ListItem,
         },
     ],
@@ -73,7 +73,7 @@ WithFooter.args = {
         {
             key: 'default',
             title: 'Section with footer',
-            items: range(0, 100).map((idx) => ({ id: idx } as unknown as SessionRecordingType)),
+            items: range(0, 100).map((idx) => ({ id: idx }) as unknown as SessionRecordingType),
             render: ListItem,
             footer: <div className="px-1 py-3">Section footer</div>,
         },
