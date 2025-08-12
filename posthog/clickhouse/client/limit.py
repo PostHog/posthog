@@ -3,7 +3,7 @@ import time
 from contextlib import contextmanager
 from functools import wraps
 from time import sleep
-from typing import Optional, Union
+from typing import Optional
 from collections.abc import Callable
 
 from celery import current_task
@@ -57,35 +57,6 @@ return 1
 """
 
 
-def get_org_concurrency_limit(org_id: int) -> Optional[int]:
-    """
-    Get organization concurrency limit with Redis caching.
-    Returns None if no org-specific limit is found.
-    This is used as a helper to pass to the RateLimit class
-    as a callable max_concurrency.
-    """
-    cache_key = f"org_concurrency_limit:{org_id}"
-    cached_limit = redis.get_client().get(cache_key)
-    if cached_limit:
-        return int(cached_limit)
-
-    try:
-        from posthog.models.organization import Organization
-
-        org = Organization.objects.get(id=org_id)
-        feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
-        if feature and isinstance(feature.get("limit"), int):
-            limit = feature["limit"]
-            # Cache for 1 hour
-            redis.get_client().setex(cache_key, 3600, limit)
-            return limit
-    except Exception:
-        # Fall back to default if anything goes wrong
-        pass
-
-    return None
-
-
 @dataclasses.dataclass
 class RateLimit:
     """
@@ -93,7 +64,7 @@ class RateLimit:
     Tasks have ttl as a safeguard against not being removed.
     """
 
-    max_concurrency: Union[int, Callable[..., int]]
+    max_concurrency: int
     limit_name: str
     get_task_name: Callable
     get_task_id: Callable
@@ -139,9 +110,6 @@ class RateLimit:
         elif "limit" in kwargs:
             # Explicit limit override
             max_concurrency = kwargs.get("limit")
-        elif callable(self.max_concurrency):
-            # Dynamic logic from callable
-            max_concurrency = self.max_concurrency(*args, **kwargs)
         else:
             # Static default
             max_concurrency = self.max_concurrency
@@ -382,3 +350,32 @@ def limit_concurrency(
         return wrapper
 
     return decorator
+
+
+def get_org_concurrency_limit(org_id: int) -> Optional[int]:
+    """
+    Get organization concurrency limit with Redis caching.
+    Returns None if no org-specific limit is found.
+    This is used as a helper to pass to the RateLimit class
+    as a callable max_concurrency.
+    """
+    cache_key = f"org_concurrency_limit:{org_id}"
+    cached_limit = redis.get_client().get(cache_key)
+    if cached_limit:
+        return int(cached_limit)
+
+    try:
+        from posthog.models.organization import Organization
+
+        org = Organization.objects.get(id=org_id)
+        feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
+        if feature and isinstance(feature.get("limit"), int):
+            limit = feature["limit"]
+            # Cache for 1 hour
+            redis.get_client().setex(cache_key, 3600, limit)
+            return limit
+    except Exception:
+        # Fall back to default if anything goes wrong
+        pass
+
+    return None

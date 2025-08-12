@@ -195,60 +195,6 @@ class TestRateLimit(BaseTest):
         # Verify total time is within timeout
         assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
 
-    def test_callable_max_concurrency(self):
-        """Test that RateLimit works with callable max_concurrency"""
-
-        def dynamic_limit(*args, **kwargs):
-            # Return different limits based on team_id
-            team_id = kwargs.get("team_id", 0)
-            if team_id == 1:
-                return 2  # Team 1 gets limit of 2
-            elif team_id == 2:
-                return 1  # Team 2 gets limit of 1
-            else:
-                return 3  # Default limit of 3
-
-        callable_limit = RateLimit(
-            max_concurrency=dynamic_limit,  # Use callable instead of static int
-            applicable=lambda *args, **kwargs: True,
-            limit_name="test_callable_concurrency",
-            get_task_name=lambda *args, **kwargs: f"callable_test_team_{kwargs.get('team_id', 0)}",
-            get_task_id=lambda *args, **kwargs: f"task-{kwargs.get('task_id', 1)}",
-            ttl=10,
-        )
-
-        # Test team 1 (limit=2) - should allow 2 tasks
-        task1_key, task1_id = callable_limit.use(team_id=1, task_id="t1_1")
-        task2_key, task2_id = callable_limit.use(team_id=1, task_id="t1_2")
-
-        # Third task for team 1 should fail
-        with self.assertRaises(ConcurrencyLimitExceeded):
-            callable_limit.use(team_id=1, task_id="t1_3")
-
-        # Test team 2 (limit=1) - should allow 1 task
-        task3_key, task3_id = callable_limit.use(team_id=2, task_id="t2_1")
-
-        # Second task for team 2 should fail
-        with self.assertRaises(ConcurrencyLimitExceeded):
-            callable_limit.use(team_id=2, task_id="t2_2")
-
-        # Test default team (limit=3) - should allow 3 tasks
-        task4_key, task4_id = callable_limit.use(team_id=999, task_id="t999_1")
-        task5_key, task5_id = callable_limit.use(team_id=999, task_id="t999_2")
-        task6_key, task6_id = callable_limit.use(team_id=999, task_id="t999_3")
-
-        # Fourth task for default team should fail
-        with self.assertRaises(ConcurrencyLimitExceeded):
-            callable_limit.use(team_id=999, task_id="t999_4")
-
-        # Clean up
-        callable_limit.release(task1_key, task1_id)
-        callable_limit.release(task2_key, task2_id)
-        callable_limit.release(task3_key, task3_id)
-        callable_limit.release(task4_key, task4_id)
-        callable_limit.release(task5_key, task5_id)
-        callable_limit.release(task6_key, task6_id)
-
 
 class TimeHelper:
     def __init__(self, on_sleep: Callable[[float], None] = lambda _: None):
