@@ -11,7 +11,7 @@ export interface AvailableRepo {
 
 export const repositorySelectorLogic = kea<repositorySelectorLogicType>([
     path(['products', 'tasks', 'frontend', 'components', 'repositorySelectorLogic']),
-    
+
     connect({
         actions: [integrationsLogic, ['loadIntegrations', 'loadGitHubRepositories']],
         values: [integrationsLogic, ['integrations', 'getGitHubRepositories']],
@@ -72,14 +72,14 @@ export const repositorySelectorLogic = kea<repositorySelectorLogicType>([
 
                 for (const integration of values.githubIntegrations) {
                     const repos = values.getGitHubRepositories(integration.id)
- 
+
                     repoData.push({
                         integration_id: integration.id,
                         organization: integration.config?.account?.name || 'GitHub',
                         repositories: repos || [],
                     })
                 }
- 
+
                 actions.setAvailableRepos(repoData)
                 actions.tryAutoSelectFirstIntegration()
             }
@@ -88,11 +88,16 @@ export const repositorySelectorLogic = kea<repositorySelectorLogicType>([
         tryAutoSelectFirstIntegration: () => {
             const config = values.currentConfig
             const onChange = values.onChangeCallback
-            
-            if (onChange && !config.integrationId && values.githubIntegrations.length > 0 && values.availableRepos.length > 0) {
+
+            if (
+                onChange &&
+                !config.integrationId &&
+                values.githubIntegrations.length > 0 &&
+                values.availableRepos.length > 0
+            ) {
                 const firstIntegration = values.githubIntegrations[0]
                 const firstRepoData = values.availableRepos.find((r: any) => r.integration_id === firstIntegration.id)
-                
+
                 onChange({
                     ...config,
                     integrationId: firstIntegration.id,

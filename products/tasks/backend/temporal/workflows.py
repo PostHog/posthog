@@ -11,17 +11,16 @@ from .activities import (
     process_task_moved_to_todo_activity,
     update_issue_status_activity,
     ai_agent_work_activity,
-    commit_and_push_changes_activity,
     get_task_details_activity,
-    create_pull_request_activity,
     update_issue_github_info_activity,
 )
 from .github_activities import (
     clone_repo_and_create_branch_activity,
     cleanup_repo_activity,
-    create_branch_using_integration_activity,
-    create_pr_using_integration_activity,
-    commit_changes_using_integration_activity,
+    create_branch_activity,
+    create_pr_activity,
+    commit_changes_activity,
+    commit_local_changes_activity,
 )
 
 logger = get_logger(__name__)
@@ -29,7 +28,7 @@ logger = get_logger(__name__)
 
 @temporalio.workflow.defn(name="process-issue-with-integration")
 class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
-    """Workflow using the main GitHub integration system for issue processing."""
+    """Workflow for processing agentic tasks."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> TaskProcessingInputs:
@@ -40,25 +39,25 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: TaskProcessingInputs) -> str:
         """
-        Main workflow execution using the main GitHub integration system.
+        Main workflow execution.
 
         When an issue moves to 'todo', this workflow will:
-        1. Create a branch using the main GitHub integration
-        2. Process the issue with AI if needed
-        3. Commit changes using the integration API
-        4. Create a pull request using the integration API
+        1. Create a branch
+        2. Process the issue with AI Agent
+        3. Commit changes
+        4. Create a pull request
         """
-        logger.info(f"Processing task {inputs.task_id} using integrated GitHub system")
+        logger.info(f"Processing task {inputs.task_id}")
 
         # Only process if the issue was moved to 'todo' status
         if inputs.new_status == "todo":
-            logger.info(f"Task {inputs.task_id} moved to TODO, starting integrated GitHub workflow")
+            logger.info(f"Task {inputs.task_id} moved to TODO")
 
             try:
-                # Step 1: Create branch using main GitHub integration
-                logger.info(f"Step 1: Creating branch using main GitHub integration for issue {inputs.task_id}")
+                # Step 1: Create branch
+                logger.info(f"Step 1: Creating branch for issue {inputs.task_id}")
                 branch_result = await workflow.execute_activity(
-                    create_branch_using_integration_activity,
+                    create_branch_activity,
                     inputs,
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(
@@ -112,8 +111,8 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
                     start_to_close_timeout=timedelta(minutes=1),
                 )
 
-                # Step 5: Commit sample changes using integration (this would be replaced with actual AI-generated changes)
-                logger.info(f"Step 5: Committing changes using GitHub integration for issue {inputs.task_id}")
+                # Step 5: Commit sample changes
+                logger.info(f"Step 5: Committing changes for issue {inputs.task_id}")
 
                 # Example file changes - in real implementation, these would come from AI agent
                 sample_file_changes = [
@@ -135,9 +134,9 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
                 ]
 
                 commit_result = await workflow.execute_activity(
-                    commit_changes_using_integration_activity,
+                    commit_changes_activity,
                     CommitChangesInputs(
-                        issue_processing_inputs=inputs, branch_name=branch_name, file_changes=sample_file_changes
+                        task_processing_inputs=inputs, branch_name=branch_name, file_changes=sample_file_changes
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(
@@ -153,11 +152,11 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
                 else:
                     logger.info(f"Changes committed successfully: {commit_result['total_files']} files")
 
-                # Step 6: Create pull request using integration
-                logger.info(f"Step 6: Creating pull request using GitHub integration for issue {inputs.task_id}")
+                # Step 6: Create pull request
+                logger.info(f"Step 6: Creating pull request for issue {inputs.task_id}")
                 pr_result = await workflow.execute_activity(
-                    create_pr_using_integration_activity,
-                    CreatePRInputs(issue_processing_inputs=inputs, branch_name=branch_name),
+                    create_pr_activity,
+                    CreatePRInputs(task_processing_inputs=inputs, branch_name=branch_name),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(
                         initial_interval=timedelta(seconds=30),
@@ -214,13 +213,15 @@ class TaskProcessingWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: TaskProcessingInputs) -> str:
         """
-        Main workflow execution for processing issue status changes.
+        Main workflow execution for processing issue status changes using hybrid approach.
 
         When an issue moves to 'todo', this workflow will:
-        1. Clone the GitHub repository
-        2. Create a new branch for the issue
-        3. Run background processing/agent tasks
-        4. Clean up resources
+        1. Clone the GitHub repository locally for fast file operations  
+        2. Create a new branch using GitHub integration
+        3. Run AI agent with local file access + GitHub MCP integration
+        4. Scan local changes and commit via GitHub integration
+        5. Create pull request using GitHub integration
+        6. Clean up local repository
         """
         logger.info(f"Processing task status change for task {inputs.task_id}")
 
@@ -278,11 +279,16 @@ class TaskProcessingWorkflow(PostHogWorkflow):
 
                 logger.info(f"Background processing completed: {processing_result}")
 
-                # Step 4: Execute AI agent work
+                # Step 4: Execute AI agent work with hybrid local + GitHub MCP access
                 logger.info(f"Step 4: Starting AI agent work for issue {inputs.task_id}")
                 ai_result = await workflow.execute_activity(
                     ai_agent_work_activity,
-                    {"inputs": inputs, "repo_path": repo_info["repo_path"], "branch_name": repo_info["branch_name"]},
+                    {
+                        "inputs": inputs, 
+                        "repo_path": repo_info["repo_path"], 
+                        "repository": repo_info["repository"],
+                        "branch_name": repo_info["branch_name"]
+                    },
                     start_to_close_timeout=timedelta(minutes=30),  # Allow more time for AI work
                     retry_policy=RetryPolicy(
                         initial_interval=timedelta(minutes=1),
@@ -298,8 +304,8 @@ class TaskProcessingWorkflow(PostHogWorkflow):
 
                 logger.info(f"AI agent work completed successfully for issue {inputs.task_id}")
 
-                # Step 5: Commit and push changes
-                logger.info(f"Step 5: Committing and pushing changes for issue {inputs.task_id}")
+                # Step 5: Commit local changes using GitHub integration
+                logger.info(f"Step 5: Committing local changes via GitHub API for issue {inputs.task_id}")
 
                 # Get task details for commit message
                 task_details = await workflow.execute_activity(
@@ -309,13 +315,12 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                 )
 
                 commit_result = await workflow.execute_activity(
-                    commit_and_push_changes_activity,
+                    commit_local_changes_activity,
                     {
+                        "inputs": inputs,
                         "repo_path": repo_info["repo_path"],
                         "branch_name": repo_info["branch_name"],
                         "task_title": task_details["title"],
-                        "task_id": inputs.task_id,
-                        "access_token": repo_info.get("access_token"),  # Pass access token for git authentication
                     },
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(
@@ -326,11 +331,11 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                 )
 
                 if not commit_result.get("success"):
-                    error_msg = f"Failed to commit and push changes: {commit_result.get('error', 'Unknown error')}"
+                    error_msg = f"Failed to commit changes via GitHub integration: {commit_result.get('error', 'Unknown error')}"
                     logger.error(error_msg)
                     return error_msg
 
-                logger.info(f"Changes committed and pushed successfully for issue {inputs.task_id}")
+                logger.info(f"Changes committed successfully via GitHub API for issue {inputs.task_id}: {commit_result.get('message')}")
 
                 # Step 6: Update issue with GitHub branch info
                 logger.info(f"Step 6: Updating issue {inputs.task_id} with GitHub branch info")
@@ -340,17 +345,11 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                     start_to_close_timeout=timedelta(minutes=2),
                 )
 
-                # Step 7: Create pull request (optional, depends on GitHub integration settings)
-                logger.info(f"Step 7: Creating pull request for issue {inputs.task_id}")
+                # Step 7: Create pull request using GitHub integration
+                logger.info(f"Step 7: Creating pull request via GitHub API for issue {inputs.task_id}")
                 pr_result = await workflow.execute_activity(
-                    create_pull_request_activity,
-                    {
-                        "repo_path": repo_info["repo_path"],
-                        "branch_name": repo_info["branch_name"],
-                        "task_id": inputs.task_id,
-                        "task_title": task_details["title"],
-                        "task_description": task_details["description"],
-                    },
+                    create_pr_activity,
+                    CreatePRInputs(task_processing_inputs=inputs, branch_name=repo_info["branch_name"]),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(
                         initial_interval=timedelta(seconds=30),
@@ -390,7 +389,9 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                     ),
                 )
 
-                success_msg = f"Task {inputs.task_id} processed successfully. Branch: {repo_info['branch_name']}"
+                success_msg = f"Task {inputs.task_id} processed successfully using hybrid approach. Branch: {repo_info['branch_name']}"
+                if pr_result.get("success"):
+                    success_msg += f", PR: {pr_result['pr_url']}"
                 logger.info(success_msg)
                 return success_msg
 

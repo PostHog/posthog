@@ -1,6 +1,6 @@
 import temporalio
+from temporalio import activity
 import os
-import subprocess
 from typing import Any
 
 from posthog.temporal.common.logger import bind_contextvars, get_logger
@@ -10,7 +10,46 @@ from .inputs import TaskProcessingInputs
 logger = get_logger(__name__)
 
 
-@temporalio.activity.defn
+async def get_github_integration_token(team_id: int, task_id: str) -> str:
+    """Get GitHub access token from PostHog's GitHub integration."""
+    try:
+        from django.apps import apps
+        from posthog.models.integration import Integration, GitHubIntegration
+
+        Task = apps.get_model("tasks", "Task")
+
+        # Get the task to access the specific GitHub integration
+        task = await database_sync_to_async(Task.objects.select_related("github_integration").get)(
+            id=task_id, team_id=team_id
+        )
+
+        # Get the specific GitHub integration configured for this task
+        if task.github_integration:
+            integration = task.github_integration
+        else:
+            # Fallback to team's first GitHub integration
+            integration = await database_sync_to_async(
+                lambda: Integration.objects.filter(team_id=team_id, kind="github").first()
+            )()
+
+        if not integration:
+            logger.warning(f"No GitHub integration found for team {team_id}")
+            return ""
+
+        github_integration = GitHubIntegration(integration)
+
+        # Check if token needs refresh
+        if github_integration.access_token_expired():
+            await database_sync_to_async(github_integration.refresh_access_token)()
+
+        return github_integration.integration.access_token or ""
+
+    except Exception as e:
+        logger.exception(f"Error getting GitHub integration token for team {team_id}, task {task_id}: {str(e)}")
+        return ""
+
+
+@activity.defn
 async def process_task_moved_to_todo_activity(inputs: TaskProcessingInputs) -> str:
     """
     Background processing activity when a task is moved to TODO status.
@@ -72,7 +111,7 @@ async def process_task_moved_to_todo_activity(inputs: TaskProcessingInputs) -> s
         raise
 
 
-@temporalio.activity.defn
+@activity.defn
 async def update_issue_status_activity(args: dict) -> str:
     """Update the status of an issue."""
     task_id = args["task_id"]
@@ -112,7 +151,7 @@ async def update_issue_status_activity(args: dict) -> str:
         raise
 
 
-@temporalio.activity.defn
+@activity.defn
 async def get_task_details_activity(args: dict) -> dict[str, Any]:
     """Get task details from the database."""
     task_id = args["task_id"]
@@ -142,11 +181,12 @@ async def get_task_details_activity(args: dict) -> dict[str, Any]:
         raise
 
 
-@temporalio.activity.defn
+@activity.defn
 async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
-    """Execute AI agent work using Claude Code SDK."""
+    """Execute AI agent work using Claude Code SDK with local file access and GitHub MCP integration."""
     inputs = args["inputs"]
-    repo_path = args["repo_path"]
+    repo_path = args["repo_path"]  # Local cloned repository path
+    repository = args["repository"]  # GitHub repository name (e.g., "posthog/posthog")
     branch_name = args["branch_name"]
 
     # Handle serialized inputs - Temporal converts objects to dicts
@@ -161,10 +201,11 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
         task_id=task_id,
         team_id=team_id,
         repo_path=repo_path,
+        repository=repository,
         branch_name=branch_name,
     )
 
-    logger.info(f"Starting AI agent work for task {task_id} in repo {repo_path} on branch {branch_name}")
+    logger.info(f"Starting AI agent work for task {task_id} in local repo {repo_path} (GitHub: {repository}) on branch {branch_name}")
 
     try:
         from django.apps import apps
@@ -197,7 +238,12 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
         # Prepare the prompt for Claude Code SDK
         prompt = f"""
   <context>
-    You run inside an isolated CI environment with read-write access to one repository at a time.
+    Repository: {repository}
+    Branch: {branch_name}
+    You have access to the local repository files for fast read/write operations.
+    You also have access to GitHub via the GitHub MCP server for additional repository operations.
+    Work with local files for your main implementation, and use GitHub MCP for any additional repository queries.
+    Commit changes to the repository regularly.
   </context>
 
   <role>
@@ -205,7 +251,9 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
   </role>
 
   <tools>
-    PostHog MCP server
+    Local file system (for main implementation work)
+    PostHog MCP server (for PostHog operations)
+    GitHub MCP server (for additional repository operations)
   </tools>
 
   <constraints>
@@ -238,6 +286,13 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
     Complete the ticket in a thoughtful step by step manner. Plan thoroughly and make sure to add logging and error handling as well as cover edge casee.
   </task>
 
+  <workflow>
+  - first make a plan and create a todo list
+  - execute the todo list one by one
+  - commit changes to the repository regularly
+  - test the changes
+  </workflow>
+
   <output_format>
     Once finished respond with a summary of changes made
   </output_format>
@@ -249,9 +304,14 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
 
         logger.info(f"Prepared prompt for Claude Code SDK (length: {len(prompt)} chars)")
 
+        # Get GitHub integration token for MCP authentication
+        github_token = await get_github_integration_token(team_id, task_id)
+        if not github_token:
+            logger.warning(f"No GitHub token available for task {task_id}, Claude SDK will have limited GitHub access")
+
         # Use Claude Code SDK to execute the work
         logger.info("Calling Claude Code SDK...")
-        result = await _execute_claude_code_sdk(prompt, repo_path, progress)
+        result = await _execute_claude_code_sdk(prompt, repo_path, repository, branch_name, github_token, progress)
 
         # Mark progress as completed
         def mark_completed():
@@ -286,9 +346,155 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
         return {"success": False, "error": str(e), "task_id": task_id, "branch_name": branch_name}
 
 
-async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -> str:
-    """Execute Claude Code SDK using Python SDK."""
-    logger.info(f"Executing Claude Code SDK in {repo_path}")
+async def _parse_claude_message_for_progress(message, turn_number: int) -> str:
+    """Parse Claude Code SDK messages to extract meaningful progress information."""
+    try:
+        # Get the message type - it's usually the class name
+        message_type = type(message).__name__
+
+        # Handle different message types based on their actual structure
+        if message_type == 'SystemMessage':
+            # Skip system init messages as they're not interesting
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                return f"🔧 Claude SDK initialized"
+            return None
+
+        elif message_type == 'AssistantMessage':
+            # Parse assistant messages for tool use and text content
+            if hasattr(message, 'content') and message.content:
+                for content_block in message.content:
+                    content_type = type(content_block).__name__
+
+                    if content_type == 'ToolUseBlock':
+                        # Extract tool information
+                        tool_name = getattr(content_block, 'name', 'unknown')
+                        tool_input = getattr(content_block, 'input', {})
+
+                        # Map tool names to emojis and descriptions
+                        tool_icons = {
+                            'Task': '📋',
+                            'Read': '📖',
+                            'Write': '✍️',
+                            'Edit': '✏️',
+                            'MultiEdit': '✏️',
+                            'Bash': '⚡',
+                            'Glob': '🔍',
+                            'Grep': '🔎',
+                            'LS': '📁',
+                            'WebFetch': '🌐',
+                            'WebSearch': '🔍',
+                            'TodoWrite': '📋',
+                            'NotebookRead': '📓',
+                            'NotebookEdit': '📓'
+                        }
+
+                        # Handle MCP tools
+                        if tool_name.startswith('mcp__posthog'):
+                            icon = '📊'
+                            tool_display = 'PostHog API'
+                        elif tool_name.startswith('mcp__github'):
+                            icon = '🐙'
+                            tool_display = 'GitHub API'
+                        else:
+                            icon = tool_icons.get(tool_name, '🔧')
+                            tool_display = tool_name
+
+                        # Extract parameters for more context
+                        params = ""
+                        if tool_input:
+                            if tool_name in ['Read', 'Write', 'Edit', 'MultiEdit']:
+                                file_path = tool_input.get('file_path', '')
+                                if file_path:
+                                    # Show just the filename
+                                    filename = file_path.split('/')[-1]
+                                    params = f" {filename}"
+                            elif tool_name == 'Bash':
+                                command = tool_input.get('command', '')
+                                if command:
+                                    params = f" `{command[:40]}{'...' if len(command) > 40 else ''}`"
+                            elif tool_name in ['Glob', 'Grep']:
+                                pattern = tool_input.get('pattern', '')
+                                if pattern:
+                                    params = f" '{pattern}'"
+                            elif tool_name == 'TodoWrite':
+                                todos = tool_input.get('todos', [])
+                                if todos:
+                                    params = f" ({len(todos)} items)"
+
+                        return f"{icon} {tool_display}{params}"
+
+                    elif content_type == 'TextBlock':
+                        # Extract meaningful text content
+                        text = getattr(content_block, 'text', '')
+                        if text:
+                            text_lower = text.lower()
+                            # Look for high-level progress indicators
+                            if any(phrase in text_lower for phrase in ['starting', 'let me start', 'beginning', 'first']):
+                                return f"🚀 {text[:80]}{'...' if len(text) > 80 else ''}"
+                            elif any(phrase in text_lower for phrase in ['completed', 'finished', 'done successfully']):
+                                return f"✅ {text[:80]}{'...' if len(text) > 80 else ''}"
+                            elif any(phrase in text_lower for phrase in ['creating', 'implementing', 'adding']):
+                                return f"🔨 {text[:80]}{'...' if len(text) > 80 else ''}"
+                            elif any(phrase in text_lower for phrase in ['testing', 'running tests', 'checking']):
+                                return f"🧪 {text[:80]}{'...' if len(text) > 80 else ''}"
+                            elif any(phrase in text_lower for phrase in ['error', 'failed', 'problem']):
+                                return f"⚠️ {text[:80]}{'...' if len(text) > 80 else ''}"
+                            elif any(phrase in text_lower for phrase in ['looking', 'searching', 'finding']):
+                                return f"🔍 {text[:80]}{'...' if len(text) > 80 else ''}"
+            return None
+
+        elif message_type == 'UserMessage':
+            # Parse tool results from user messages
+            if hasattr(message, 'content') and message.content:
+                for content_item in message.content:
+                    if isinstance(content_item, dict) and content_item.get('type') == 'tool_result':
+                        tool_content = content_item.get('content', '')
+
+                        # Try to extract meaningful information from tool results
+                        if isinstance(tool_content, str):
+                            content_lower = tool_content.lower()
+
+                            # Handle successful operations
+                            if 'successfully' in content_lower:
+                                if 'file' in content_lower and any(word in content_lower for word in ['updated', 'created', 'written']):
+                                    return f"✅ File operation completed"
+                                elif 'todo' in content_lower:
+                                    return f"✅ Todo list updated"
+                                else:
+                                    return f"✅ Operation successful"
+
+                            # Handle file edit results
+                            elif 'lines' in content_lower and ('added' in content_lower or 'updated' in content_lower):
+                                import re
+                                lines_match = re.search(r'(\d+)\s*lines?\s*(added|updated|changed)', tool_content)
+                                if lines_match:
+                                    count = lines_match.group(1)
+                                    action = lines_match.group(2)
+                                    return f"📝 {action.title()} {count} lines"
+
+                            # Handle command results
+                            elif 'exit status' in content_lower or 'exit code' in content_lower:
+                                if 'exit status 0' in content_lower or 'exit code 0' in content_lower:
+                                    return f"⚡ Command succeeded"
+                                else:
+                                    return f"❌ Command failed"
+
+                            # Handle search results
+                            elif tool_content.count('\n') > 5:  # Multiple results
+                                lines = tool_content.strip().split('\n')
+                                return f"🔍 Found {len(lines)} results"
+            return None
+
+        return None  # No meaningful progress info extracted
+
+    except Exception as e:
+        logger.debug(f"Error parsing message for progress: {e}")
+        return None
+
+
+async def _execute_claude_code_sdk(prompt: str, repo_path: str, repository: str, branch_name: str, github_token: str, progress=None) -> str:
+    """Execute Claude Code SDK using Python SDK with local file access and GitHub MCP integration."""
+    logger.info(f"Executing Claude Code SDK in local repo {repo_path} (GitHub: {repository}) on branch {branch_name}")
 
     # Check for API key
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -312,11 +518,28 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
 
                 await database_sync_to_async(update_step)()
 
-            logger.info(f"POSTHOG_PERSONAL_API_KEY: {os.environ.get('POSTHOG_PERSONAL_API_KEY', '')}")
+            # Debug: Check the repository state before Claude runs
+            logger.info(f"Repository path for Claude Code SDK: {repo_path}")
+            logger.info(f"Repository path exists: {os.path.exists(repo_path)}")
+            if os.path.exists(repo_path):
+                # List files in the repository
+                try:
+                    files = os.listdir(repo_path)
+                    logger.info(f"Files in repository before Claude runs: {files[:10]}...")  # Show first 10 files
+                    
+                    # Check git status before Claude runs
+                    original_cwd = os.getcwd()
+                    os.chdir(repo_path)
+                    import subprocess
+                    git_status = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
+                    logger.info(f"Git status before Claude runs: '{git_status.stdout.strip()}'")
+                    os.chdir(original_cwd)
+                except Exception as e:
+                    logger.warning(f"Failed to list repository contents: {e}")
 
             options = ClaudeCodeOptions(
-                max_turns=30,
-                cwd=Path(repo_path),
+                max_turns=100,
+                cwd=Path(repo_path),  # Local repository access
                 permission_mode="acceptEdits",  # Auto-accept file edits
                 allowed_tools=[
                     "Read",
@@ -328,8 +551,9 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                     "WebFetch",
                     "WebSearch",
                     "mcp__posthog",
+                    "mcp__github",
                 ],  # Allow all necessary tools
-                mcp_tools=["mcp__posthog"],
+                mcp_tools=["mcp__posthog", "mcp__github"],
                 mcp_servers={
                     "posthog": {
                         "command": "npx",
@@ -341,7 +565,14 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                             "Authorization:${POSTHOG_AUTH_HEADER}",
                         ],
                         "env": {"POSTHOG_AUTH_HEADER": f"Bearer {os.environ.get('POSTHOG_PERSONAL_API_KEY', '')}"},
-                    }
+                    },
+                    "github": {
+                        "command": "npx",
+                        "args": ["-y", "@github/github-mcp-server"],
+                        "env": {
+                            "GITHUB_PERSONAL_ACCESS_TOKEN": github_token,
+                        },
+                    },
                 },
             )
 
@@ -355,14 +586,15 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                 if hasattr(message, "__dict__"):
                     logger.debug(f"Message attributes: {list(message.__dict__.keys())}")
 
-                # Stream all message content to progress for visibility
+                # Parse and display meaningful progress information
                 if progress:
+                    progress_msg = await _parse_claude_message_for_progress(message, message_count)
+                    if progress_msg:
+                        def append_progress(msg=progress_msg, count=message_count):
+                            progress.append_output(msg)
+                            progress.update_progress(f"Turn {count}", 0)
 
-                    def append_message(count=message_count, msg=message):
-                        progress.append_output(f"📩 Message {count}: {str(msg)[:1000]}...")
-                        progress.update_progress(f"Processing message {count}", 0)
-
-                    await database_sync_to_async(append_message)()
+                        await database_sync_to_async(append_progress)()
 
                 # Try different ways to extract content
                 if hasattr(message, "type"):
@@ -405,18 +637,40 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
 
                 # Also try to extract content from unknown message types
                 else:
-                    # Log the raw message for debugging
-                    logger.info(f"Unknown message type, raw message: {str(message)[:500]}")
+                    # Log the raw message for debugging but don't spam progress
+                    logger.debug(f"Unknown message type, raw message: {str(message)[:200]}")
                     if progress:
+                        def append_unknown(count=message_count):
+                            progress.append_output(f"💭 Claude processing (turn {count})")
 
-                        def append_raw(msg=message):
-                            progress.append_output(f"🔍 Raw message: {str(msg)[:500]}...")
-
-                        await database_sync_to_async(append_raw)()
+                        await database_sync_to_async(append_unknown)()
 
             logger.info(
                 f"Claude Code Python SDK execution completed, result length: {len(result_text)}, messages: {message_count}"
             )
+            
+            # Debug: Check the repository state after Claude runs
+            if os.path.exists(repo_path):
+                try:
+                    original_cwd = os.getcwd()
+                    os.chdir(repo_path)
+                    
+                    # Check git status after Claude runs
+                    git_status_after = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
+                    logger.info(f"Git status after Claude runs: '{git_status_after.stdout.strip()}'")
+                    
+                    # Check for any new or modified files
+                    git_diff = subprocess.run(['git', 'diff', '--name-only'], capture_output=True, text=True)
+                    logger.info(f"Git diff --name-only after Claude: '{git_diff.stdout.strip()}'")
+                    
+                    # Check untracked files
+                    git_untracked = subprocess.run(['git', 'ls-files', '--others', '--exclude-standard'], capture_output=True, text=True)
+                    logger.info(f"Untracked files after Claude: '{git_untracked.stdout.strip()}'")
+                    
+                    os.chdir(original_cwd)
+                except Exception as e:
+                    logger.warning(f"Failed to check repository state after Claude: {e}")
+            
             return result_text or "Claude Code execution completed successfully"
 
         except ImportError as e:
@@ -428,153 +682,8 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
         raise
 
 
-@temporalio.activity.defn
-async def commit_and_push_changes_activity(args: dict) -> dict[str, Any]:
-    """Commit and push changes to the repository."""
-    repo_path = args["repo_path"]
-    branch_name = args["branch_name"]
-    task_title = args["task_title"]
-    task_id = args["task_id"]
-    access_token = args.get("access_token")  # GitHub access token for authentication
 
-    bind_contextvars(
-        repo_path=repo_path,
-        branch_name=branch_name,
-        task_id=task_id,
-    )
-
-    logger.info(f"Committing and pushing changes for task {task_id}")
-
-    try:
-        original_cwd = os.getcwd()
-        os.chdir(repo_path)
-
-        try:
-            # Check if there are any changes to commit
-            result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
-            if not result.stdout.strip():
-                logger.info("No changes to commit")
-                return {"success": True, "message": "No changes to commit"}
-
-            # Update git remote URL with access token for authentication if provided
-            if access_token:
-                # Get current remote URL
-                remote_result = subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True)
-                if remote_result.returncode == 0:
-                    current_url = remote_result.stdout.strip()
-                    # Replace with authenticated URL
-                    if "github.com" in current_url and "x-access-token" not in current_url:
-                        authenticated_url = current_url.replace(
-                            "https://github.com/", f"https://x-access-token:{access_token}@github.com/"
-                        )
-                        subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], check=True)
-                        logger.info("Updated git remote with authentication")
-
-            # Add all changes
-            subprocess.run(["git", "add", "."], check=True)
-
-            # Commit changes
-            commit_message = (
-                f"feat: {task_title}\n\nImplemented solution for task {task_id}\n\n🤖 Generated with Claude Code SDK"
-            )
-            subprocess.run(["git", "commit", "-m", commit_message], check=True)
-
-            # Push the branch (use force push to handle conflicts with existing branch)
-            env = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
-            subprocess.run(["git", "push", "--force", "origin", branch_name], check=True, env=env)
-
-            logger.info(f"Successfully committed and pushed changes for task {task_id}")
-            return {
-                "success": True,
-                "message": f"Changes committed and pushed to branch {branch_name}",
-                "branch_name": branch_name,
-            }
-
-        finally:
-            os.chdir(original_cwd)
-
-    except subprocess.CalledProcessError as e:
-        error_msg = f"Git operation failed: {e}"
-        logger.exception(error_msg)
-        return {"success": False, "error": error_msg}
-    except Exception as e:
-        error_msg = f"Error committing and pushing changes: {str(e)}"
-        logger.exception(error_msg)
-        return {"success": False, "error": error_msg}
-
-
-@temporalio.activity.defn
-async def create_pull_request_activity(args: dict) -> dict[str, Any]:
-    """Create a pull request for the completed work."""
-    repo_path = args["repo_path"]
-    branch_name = args["branch_name"]
-    task_id = args["task_id"]
-    task_title = args["task_title"]
-    task_description = args["task_description"]
-
-    bind_contextvars(
-        repo_path=repo_path,
-        branch_name=branch_name,
-        task_id=task_id,
-    )
-
-    logger.info(f"Creating pull request for task {task_id}")
-
-    try:
-        original_cwd = os.getcwd()
-        os.chdir(repo_path)
-
-        try:
-            # Check if gh CLI is available
-            gh_check = subprocess.run(["gh", "--version"], capture_output=True, text=True)
-            if gh_check.returncode != 0:
-                logger.warning("GitHub CLI (gh) not available, skipping PR creation")
-                return {"success": True, "message": "GitHub CLI not available, PR creation skipped"}
-
-            # Create pull request
-            pr_title = f"feat: {task_title}"
-            pr_body = f"""## Summary
-{task_description}
-
-## Changes Made
-This pull request implements the solution for task {task_id}.
-
-## Testing
-Please review and test the changes before merging.
-
-🤖 Generated with Claude Code SDK
-        Task ID: {task_id}
-"""
-
-            result = subprocess.run(
-                ["gh", "pr", "create", "--title", pr_title, "--body", pr_body, "--head", branch_name],
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode == 0:
-                pr_url = result.stdout.strip()
-                logger.info(f"Pull request created successfully: {pr_url}")
-                return {"success": True, "pr_url": pr_url, "message": f"Pull request created: {pr_url}"}
-            else:
-                error_msg = f"Failed to create pull request: {result.stderr}"
-                logger.error(error_msg)
-                return {"success": False, "error": error_msg}
-
-        finally:
-            os.chdir(original_cwd)
-
-    except subprocess.CalledProcessError as e:
-        error_msg = f"GitHub CLI operation failed: {e}"
-        logger.exception(error_msg)
-        return {"success": False, "error": error_msg}
-    except Exception as e:
-        error_msg = f"Error creating pull request: {str(e)}"
-        logger.exception(error_msg)
-        return {"success": False, "error": error_msg}
-
-
-@temporalio.activity.defn
+@activity.defn
 async def update_issue_github_info_activity(args: dict) -> str:
     """Update issue with GitHub branch and PR information."""
     task_id = args["task_id"]

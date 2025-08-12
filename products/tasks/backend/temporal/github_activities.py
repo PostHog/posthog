@@ -1,5 +1,5 @@
 """
-GitHub integration activities for issue tracker workflows using the main GitHub integration system.
+GitHub integration activities for issue tracker workflows.
 """
 
 import asyncio
@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import temporalio
+from temporalio import activity
 
 from posthog.temporal.common.logger import bind_contextvars, get_logger
 from posthog.sync import database_sync_to_async
@@ -18,69 +19,89 @@ from .inputs import TaskProcessingInputs, CreatePRInputs, CommitChangesInputs
 logger = get_logger(__name__)
 
 
-@temporalio.activity.defn
-async def create_branch_using_integration_activity(inputs: TaskProcessingInputs) -> dict[str, Any]:
+async def get_github_integration_for_task(task_id: str, team_id: int) -> tuple[Any, Any, str]:
     """
-    Create a branch using the main GitHub integration system.
+    Helper function to get GitHub integration, task, and repository for a task.
+
+    Returns:
+        Tuple of (task, github_integration, repository)
+
+    Raises:
+        Exception if no integration or repository is found
+    """
+    from django.apps import apps
+    from posthog.models.integration import Integration, GitHubIntegration
+
+    Task = apps.get_model("tasks", "Task")
+
+    # Get the task
+    task = await database_sync_to_async(Task.objects.select_related("team", "github_integration").get)(
+        id=task_id, team_id=team_id
+    )
+
+    # Get the specific GitHub integration configured for this task
+    if task.github_integration:
+        integration = task.github_integration
+    else:
+        # Fallback to team's first GitHub integration
+        integration = await database_sync_to_async(
+            lambda: Integration.objects.filter(team_id=team_id, kind="github").first()
+        )()
+
+    if not integration:
+        raise Exception("No GitHub integration found for this team")
+
+    github_integration = GitHubIntegration(integration)
+
+    # Check if token needs refresh
+    if github_integration.access_token_expired():
+        await database_sync_to_async(github_integration.refresh_access_token)()
+
+    # Get the specific repository configured for this task
+    repository_config = task.repository_config
+    if not repository_config or not repository_config.get("organization") or not repository_config.get("repository"):
+        raise Exception("No repository configured for this task. Please configure a repository in the task settings.")
+
+    organization = repository_config["organization"]
+    repository_name = repository_config["repository"]
+    repository = f"{organization}/{repository_name}"
+
+    return task, github_integration, repository
+
+
+def _repo_basename(repository: str) -> str:
+    """Return just the repository name (without organization) for GitHub API helpers.
+
+    GitHubIntegration methods expect the repository name only, as they derive the
+    organization from the installation/integration configuration. If a string of the
+    form "org/repo" is provided, we strip the org part here.
+    """
+    if "/" in repository:
+        return repository.split("/")[-1]
+    return repository
+
+
+@activity.defn
+async def create_branch_activity(inputs: TaskProcessingInputs) -> dict[str, Any]:
+    """
+    Create a branch.
 
     Returns:
         Dict with branch creation results
     """
-    bind_contextvars(task_id=inputs.task_id, team_id=inputs.team_id, activity="create_branch_using_integration")
+    bind_contextvars(task_id=inputs.task_id, team_id=inputs.team_id, activity="create_branch_activity")
 
-    logger.info(f"Creating branch using main GitHub integration for issue {inputs.task_id}")
+    logger.info(f"Creating branch for issue {inputs.task_id}")
 
     try:
-        # Import models inside activity
-        from django.apps import apps
-        from posthog.models.integration import Integration, GitHubIntegration
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Get the issue
-        task = await database_sync_to_async(Task.objects.select_related("team", "github_integration").get)(
-            id=inputs.task_id, team_id=inputs.team_id
-        )
-
-        # Get the specific GitHub integration configured for this issue
-        if task.github_integration:
-            integration = task.github_integration
-        else:
-            # Fallback to team's first GitHub integration
-            integration = await database_sync_to_async(
-                lambda: Integration.objects.filter(team_id=inputs.team_id, kind="github").first()
-            )()
-
-        if not integration:
-            return {"success": False, "error": "No GitHub integration found for this team"}
-
-        github_integration = GitHubIntegration(integration)
-
-        # Check if token needs refresh
-        if github_integration.access_token_expired():
-            await database_sync_to_async(github_integration.refresh_access_token)()
-
-        # Get the specific repository configured for this issue
-        repository_config = task.repository_config
-        if (
-            not repository_config
-            or not repository_config.get("organization")
-            or not repository_config.get("repository")
-        ):
-            return {
-                "success": False,
-                "error": "No repository configured for this task. Please configure a repository in the task settings.",
-            }
-
-        organization = repository_config["organization"]
-        repository_name = repository_config["repository"]
-        repository = f"{organization}/{repository_name}"
+        task, github_integration, repository = await get_github_integration_for_task(inputs.task_id, inputs.team_id)
+        repo_name = _repo_basename(repository)
 
         # Generate branch name based on issue
-        branch_name = f"task-{task.id}-{task.title.lower().replace(' ', '-').replace('_', '-')[:50]}"
+        branch_name = f"task-{task.id}-{task.title.lower().replace(' ', '-').replace('_', '-')[:20]}"
 
         # Check if branch already exists
-        branch_info = await database_sync_to_async(github_integration.get_branch_info)(repository, branch_name)
+        branch_info = await database_sync_to_async(github_integration.get_branch_info)(repo_name, branch_name)
 
         if branch_info.get("success") and branch_info.get("exists"):
             logger.info(f"Branch {branch_name} already exists")
@@ -93,18 +114,21 @@ async def create_branch_using_integration_activity(inputs: TaskProcessingInputs)
             }
 
         # Create new branch
-        result = await database_sync_to_async(github_integration.create_branch)(repository, branch_name)
+        result = await database_sync_to_async(github_integration.create_branch)(repo_name, branch_name)
 
         if result.get("success"):
             logger.info(f"Successfully created branch {branch_name}")
 
             # Update issue with branch information
+            from django.apps import apps
+
+            Task = apps.get_model("tasks", "Task")
             await database_sync_to_async(Task.objects.filter(id=inputs.task_id).update)(github_branch=branch_name)
 
             return {
                 "success": True,
                 "branch_name": branch_name,
-                "repository": repository,
+                "repository": repo_name,
                 "branch_exists": False,
                 "sha": result.get("sha"),
                 "ref": result.get("ref"),
@@ -113,14 +137,14 @@ async def create_branch_using_integration_activity(inputs: TaskProcessingInputs)
             return {"success": False, "error": result.get("error", "Failed to create branch")}
 
     except Exception as e:
-        logger.exception(f"Error creating branch using integration: {str(e)}")
+        logger.exception(f"Error creating branch: {str(e)}")
         return {"success": False, "error": f"Failed to create branch: {str(e)}"}
 
 
-@temporalio.activity.defn
-async def create_pr_using_integration_activity(inputs: CreatePRInputs) -> dict[str, Any]:
+@activity.defn
+async def create_pr_activity(inputs: CreatePRInputs) -> dict[str, Any]:
     """
-    Create a pull request using the main GitHub integration system.
+    Create a pull request.
 
     Args:
         inputs: CreatePRInputs containing issue processing inputs and branch name
@@ -128,58 +152,18 @@ async def create_pr_using_integration_activity(inputs: CreatePRInputs) -> dict[s
     Returns:
         Dict with PR creation results
     """
-    issue_inputs = inputs.issue_processing_inputs
+    issue_inputs = inputs.task_processing_inputs
     branch_name = inputs.branch_name
 
-    bind_contextvars(task_id=issue_inputs.task_id, team_id=issue_inputs.team_id, activity="create_pr_using_integration")
+    bind_contextvars(task_id=issue_inputs.task_id, team_id=issue_inputs.team_id, activity="create_pr_activity")
 
-    logger.info(f"Creating PR using main GitHub integration for issue {issue_inputs.task_id}")
+    logger.info(f"Creating PR for issue {issue_inputs.task_id}")
 
     try:
-        # Import models inside activity
-        from django.apps import apps
-        from posthog.models.integration import Integration, GitHubIntegration
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Get the issue
-        task = await database_sync_to_async(Task.objects.select_related("team", "github_integration").get)(
-            id=issue_inputs.task_id, team_id=issue_inputs.team_id
+        task, github_integration, repository = await get_github_integration_for_task(
+            issue_inputs.task_id, issue_inputs.team_id
         )
-
-        # Get the specific GitHub integration configured for this issue
-        if task.github_integration:
-            integration = task.github_integration
-        else:
-            # Fallback to team's first GitHub integration
-            integration = await database_sync_to_async(
-                lambda: Integration.objects.filter(team_id=issue_inputs.team_id, kind="github").first()
-            )()
-
-        if not integration:
-            return {"success": False, "error": "No GitHub integration found for this team"}
-
-        github_integration = GitHubIntegration(integration)
-
-        # Check if token needs refresh
-        if github_integration.access_token_expired():
-            await database_sync_to_async(github_integration.refresh_access_token)()
-
-        # Get the specific repository configured for this issue
-        repository_config = task.repository_config
-        if (
-            not repository_config
-            or not repository_config.get("organization")
-            or not repository_config.get("repository")
-        ):
-            return {
-                "success": False,
-                "error": "No repository configured for this task. Please configure a repository in the task settings.",
-            }
-
-        organization = repository_config["organization"]
-        repository_name = repository_config["repository"]
-        repository = f"{organization}/{repository_name}"
+        repo_name = _repo_basename(repository)
 
         # Create PR title and body
         pr_title = f"Fix task: {task.title}"
@@ -194,18 +178,26 @@ async def create_pr_using_integration_activity(inputs: CreatePRInputs) -> dict[s
 {task.description or 'No description provided'}
 
 ---
-*This PR was automatically created by PostHog Issue Tracker*
+*This PR was automatically created by PostHog Task Agent*
         """.strip()
 
         # Create the pull request
+        logger.info(f"Creating PR with title: {pr_title}")
+        logger.info(f"Head branch: {branch_name}, Repository: {repository}")
+
         result = await database_sync_to_async(github_integration.create_pull_request)(
-            repository=repository, title=pr_title, body=pr_body, head_branch=branch_name
+            repository=repo_name, title=pr_title, body=pr_body, head_branch=branch_name
         )
+
+        logger.info(f"GitHub PR creation result: {result}")
 
         if result.get("success"):
             logger.info(f"Successfully created PR #{result['pr_number']}")
 
             # Update issue with PR information
+            from django.apps import apps
+
+            Task = apps.get_model("tasks", "Task")
             await database_sync_to_async(Task.objects.filter(id=issue_inputs.task_id).update)(
                 github_pr_url=result.get("pr_url")
             )
@@ -218,17 +210,19 @@ async def create_pr_using_integration_activity(inputs: CreatePRInputs) -> dict[s
                 "state": result.get("state"),
             }
         else:
-            return {"success": False, "error": result.get("error", "Failed to create pull request")}
+            error_msg = result.get("error", "Failed to create pull request")
+            logger.error(f"Failed to create PR: {error_msg}")
+            return {"success": False, "error": error_msg, "message": error_msg}
 
     except Exception as e:
-        logger.exception(f"Error creating PR using integration: {str(e)}")
+        logger.exception(f"Error creating PR: {str(e)}")
         return {"success": False, "error": f"Failed to create PR: {str(e)}"}
 
 
-@temporalio.activity.defn
-async def commit_changes_using_integration_activity(inputs: CommitChangesInputs) -> dict[str, Any]:
+@activity.defn
+async def commit_changes_activity(inputs: CommitChangesInputs) -> dict[str, Any]:
     """
-    Commit file changes using the main GitHub integration system.
+    Commit file changes.
 
     Args:
         inputs: CommitChangesInputs containing issue processing inputs, branch name, and file changes
@@ -236,61 +230,19 @@ async def commit_changes_using_integration_activity(inputs: CommitChangesInputs)
     Returns:
         Dict with commit results
     """
-    issue_inputs = inputs.issue_processing_inputs
+    issue_inputs = inputs.task_processing_inputs
     branch_name = inputs.branch_name
     file_changes = inputs.file_changes
 
-    bind_contextvars(
-        task_id=issue_inputs.task_id, team_id=issue_inputs.team_id, activity="commit_changes_using_integration"
-    )
+    bind_contextvars(task_id=issue_inputs.task_id, team_id=issue_inputs.team_id, activity="commit_changes_activity")
 
-    logger.info(f"Committing changes using main GitHub integration for issue {issue_inputs.task_id}")
+    logger.info(f"Committing changes for issue {issue_inputs.task_id}")
 
     try:
-        # Import models inside activity
-        from django.apps import apps
-        from posthog.models.integration import Integration, GitHubIntegration
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Get the task to access the specific GitHub integration
-        task = await database_sync_to_async(Task.objects.select_related("github_integration").get)(
-            id=issue_inputs.task_id, team_id=issue_inputs.team_id
+        task, github_integration, repository = await get_github_integration_for_task(
+            issue_inputs.task_id, issue_inputs.team_id
         )
-
-        # Get the specific GitHub integration configured for this issue
-        if task.github_integration:
-            integration = task.github_integration
-        else:
-            # Fallback to team's first GitHub integration
-            integration = await database_sync_to_async(
-                lambda: Integration.objects.filter(team_id=issue_inputs.team_id, kind="github").first()
-            )()
-
-        if not integration:
-            return {"success": False, "error": "No GitHub integration found for this team"}
-
-        github_integration = GitHubIntegration(integration)
-
-        # Check if token needs refresh
-        if github_integration.access_token_expired():
-            await database_sync_to_async(github_integration.refresh_access_token)()
-
-        # Get the specific repository configured for this issue
-        repository_config = task.repository_config
-        if (
-            not repository_config
-            or not repository_config.get("organization")
-            or not repository_config.get("repository")
-        ):
-            return {
-                "success": False,
-                "error": "No repository configured for this task. Please configure a repository in the task settings.",
-            }
-
-        organization = repository_config["organization"]
-        repository_name = repository_config["repository"]
-        repository = f"{organization}/{repository_name}"
+        repo_name = _repo_basename(repository)
 
         committed_files = []
 
@@ -306,7 +258,7 @@ async def commit_changes_using_integration_activity(inputs: CommitChangesInputs)
 
             # Update/create the file
             result = await database_sync_to_async(github_integration.update_file)(
-                repository=repository, file_path=file_path, content=content, commit_message=message, branch=branch_name
+                repository=repo_name, file_path=file_path, content=content, commit_message=message, branch=branch_name
             )
 
             if result.get("success"):
@@ -330,14 +282,14 @@ async def commit_changes_using_integration_activity(inputs: CommitChangesInputs)
         return {"success": True, "committed_files": committed_files, "total_files": len(committed_files)}
 
     except Exception as e:
-        logger.exception(f"Error committing changes using integration: {str(e)}")
+        logger.exception(f"Error committing changes: {str(e)}")
         return {"success": False, "error": f"Failed to commit changes: {str(e)}"}
 
 
-@temporalio.activity.defn
+@activity.defn
 async def validate_github_integration_activity(inputs: TaskProcessingInputs) -> dict[str, Any]:
     """
-    Validate GitHub integration and repository access using the main integration system.
+    Validate GitHub integration and repository access.
 
     Returns:
         Dict with validation results and repository information
@@ -347,34 +299,7 @@ async def validate_github_integration_activity(inputs: TaskProcessingInputs) -> 
     logger.info(f"Validating GitHub integration for team {inputs.team_id}")
 
     try:
-        # Import models inside activity
-        from django.apps import apps
-        from posthog.models.integration import Integration, GitHubIntegration
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Get the task to access the specific GitHub integration
-        task = await database_sync_to_async(Task.objects.select_related("github_integration").get)(
-            id=inputs.task_id, team_id=inputs.team_id
-        )
-
-        # Get the specific GitHub integration configured for this issue
-        if task.github_integration:
-            integration = task.github_integration
-        else:
-            # Fallback to team's first GitHub integration
-            integration = await database_sync_to_async(
-                lambda: Integration.objects.filter(team_id=inputs.team_id, kind="github").first()
-            )()
-
-        if not integration:
-            return {"success": False, "error": "No GitHub integration configured for this team"}
-
-        github_integration = GitHubIntegration(integration)
-
-        # Check if token needs refresh
-        if github_integration.access_token_expired():
-            await database_sync_to_async(github_integration.refresh_access_token)()
+        task, github_integration, repository = await get_github_integration_for_task(inputs.task_id, inputs.team_id)
 
         # Get repositories available to this integration
         repositories = await database_sync_to_async(github_integration.list_repositories)()
@@ -387,9 +312,9 @@ async def validate_github_integration_activity(inputs: TaskProcessingInputs) -> 
             "success": True,
             "repositories": repositories,
             "integration": {
-                "display_name": integration.display_name,
+                "display_name": github_integration.integration.display_name,
                 "organization": github_integration.organization(),
-                "installation_id": integration.integration_id,
+                "installation_id": github_integration.integration.integration_id,
             },
         }
 
@@ -398,10 +323,10 @@ async def validate_github_integration_activity(inputs: TaskProcessingInputs) -> 
         return {"success": False, "error": f"Validation failed: {str(e)}"}
 
 
-@temporalio.activity.defn
+@activity.defn
 async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) -> dict[str, Any]:
     """
-    Clone the GitHub repository and create a new branch for the issue using the main GitHub integration.
+    Clone the GitHub repository and create a new branch for the issue.
 
     Args:
         inputs: Issue processing inputs
@@ -414,57 +339,15 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
     logger.info(f"Starting GitHub repo clone and branch creation for issue {inputs.task_id}")
 
     try:
-        # Import models inside activity
-        from django.apps import apps
-        from posthog.models.integration import Integration, GitHubIntegration
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Get the issue
-        task = await database_sync_to_async(Task.objects.select_related("team", "github_integration").get)(
-            id=inputs.task_id, team_id=inputs.team_id
+        task, github_integration, repository_full = await get_github_integration_for_task(
+            inputs.task_id, inputs.team_id
         )
 
-        # Get the specific GitHub integration configured for this issue
-        if task.github_integration:
-            integration = task.github_integration
-        else:
-            # Fallback to team's first GitHub integration
-            integration = await database_sync_to_async(
-                lambda: Integration.objects.filter(team_id=inputs.team_id, kind="github").first()
-            )()
+        # Extract org and repository from full repository name
+        org, repository = repository_full.split("/")
 
-        if not integration:
-            logger.error(f"No GitHub integration found for team {inputs.team_id}")
-            return {
-                "success": False,
-                "error": "No GitHub integration configured for this team",
-                "repo_path": None,
-                "branch_name": None,
-            }
-
-        github_integration = GitHubIntegration(integration)
-
-        # Check if token needs refresh
-        if github_integration.access_token_expired():
-            await database_sync_to_async(github_integration.refresh_access_token)()
-
-        # Get the specific repository configured for this issue
-        repository_config = task.repository_config
-        if (
-            not repository_config
-            or not repository_config.get("organization")
-            or not repository_config.get("repository")
-        ):
-            return {
-                "success": False,
-                "error": "No repository configured for this task. Please configure a repository in the task settings.",
-                "repo_path": None,
-                "branch_name": None,
-            }
-
-        org = repository_config["organization"]
-        repository = repository_config["repository"]
+        # Get access token from integration
+        integration = github_integration.integration
 
         # Construct repository URL
         repo_url = f"https://github.com/{org}/{repository}"
@@ -473,7 +356,7 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
         access_token = integration.access_token
 
         # Generate branch name based on issue
-        branch_name = f"task-{task.id}-{task.title.lower().replace(' ', '-').replace('_', '-')[:50]}"
+        branch_name = f"task-{task.id}-{task.title.lower().replace(' ', '-').replace('_', '-')[:20]}"
 
         logger.info(f"Generated branch name: {branch_name}")
 
@@ -519,7 +402,7 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
 
         logger.info("Repository cloned successfully")
 
-        # Check if branch already exists remotely using the integration
+        # Check if branch already exists remotely
         branch_info = await database_sync_to_async(github_integration.get_branch_info)(repository, branch_name)
         branch_exists_remotely = branch_info.get("success") and branch_info.get("exists")
 
@@ -594,6 +477,9 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
             logger.info(f"Successfully pushed new branch {branch_name} to GitHub")
 
         # Update issue with branch name
+        from django.apps import apps
+
+        Task = apps.get_model("tasks", "Task")
         await database_sync_to_async(Task.objects.filter(id=inputs.task_id).update)(github_branch=branch_name)
 
         logger.info(f"Successfully cloned repo and prepared branch {branch_name} for issue {inputs.task_id}")
@@ -606,7 +492,7 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
             "repo_url": repo_url,
             "default_branch": default_branch,
             "branch_exists_remotely": branch_exists_remotely,
-            "access_token": access_token,  # Include access token for subsequent operations
+            "access_token": integration.access_token,  # Include access token for subsequent operations
         }
 
     except Exception as e:
@@ -614,7 +500,7 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
         raise
 
 
-@temporalio.activity.defn
+@activity.defn
 async def cleanup_repo_activity(repo_path: str) -> bool:
     """Clean up the cloned repository directory."""
 
@@ -736,3 +622,222 @@ async def _run_git_command(
         error_msg = f"Failed to execute command {' '.join(command)}: {str(e)}"
         logger.exception(error_msg)
         return {"success": False, "stdout": "", "stderr": "", "error": error_msg, "return_code": -1}
+
+
+@activity.defn
+async def commit_local_changes_activity(args: dict) -> dict[str, Any]:
+    """
+    Scan local repository changes and commit them.
+
+    This activity bridges local file changes (from Claude SDK) with the centralized GitHub integration.
+    It scans the local repo for changes and commits them via GitHub API.
+    """
+    inputs = args["inputs"]
+    repo_path = args["repo_path"]
+    branch_name = args["branch_name"]
+    task_title = args["task_title"]
+    task_id = inputs["task_id"] if isinstance(inputs, dict) else inputs.task_id
+    team_id = inputs["team_id"] if isinstance(inputs, dict) else inputs.team_id
+
+    bind_contextvars(
+        task_id=task_id,
+        team_id=team_id,
+        repo_path=repo_path,
+        branch_name=branch_name,
+        activity="commit_local_changes_activity",
+    )
+
+    logger.info(f"Scanning local changes and committing via GitHub integration for task {task_id}")
+
+    try:
+        # Import additional modules needed for file operations
+        import os
+        from pathlib import Path
+
+        task, github_integration, repository = await get_github_integration_for_task(task_id, team_id)
+
+        # Scan for changed files in the local repository
+        original_cwd = os.getcwd()
+        logger.info(f"Original working directory: {original_cwd}")
+        logger.info(f"Changing to repo path: {repo_path}")
+
+        try:
+            os.chdir(repo_path)
+            logger.info(f"Current working directory: {os.getcwd()}")
+            # Make sure we're on the expected branch
+            await _run_git_command(["git", "checkout", branch_name])
+
+            # First, add all changed files to git index to ensure they're tracked
+            add_result = await _run_git_command(["git", "add", "."])
+            if not add_result["success"]:
+                logger.warning(f"Failed to git add: {add_result['error']}")
+            else:
+                logger.info("Successfully added all changes to git index")
+
+            # Get list of changed files using minimal git CLI
+            result = await _run_git_command(["git", "status", "--porcelain"])
+            if not result["success"]:
+                return {"success": False, "error": f"Failed to check git status: {result['error']}"}
+
+            git_output = result["stdout"].strip()
+            logger.info(f"Git status output: '{git_output}'")
+
+            # Also check for untracked files separately
+            untracked_result = await _run_git_command(["git", "ls-files", "--others", "--exclude-standard"])
+            if untracked_result["success"] and untracked_result["stdout"].strip():
+                logger.info(f"Untracked files found: {untracked_result['stdout'].strip()}")
+
+            if not git_output:
+                logger.info("No working tree changes detected. Checking for unpushed local commits…")
+
+                # Ensure we have up-to-date refs from origin
+                await _run_git_command(["git", "fetch", "origin"])
+
+                # Compare local HEAD to origin/branch without relying on rev-list tri-dot
+                head_ok = await _run_git_command(["git", "rev-parse", "--verify", "HEAD"])
+                remote_ok = await _run_git_command(["git", "rev-parse", "--verify", f"origin/{branch_name}"])
+
+                if head_ok["success"] and remote_ok["success"]:
+                    ahead_log = await _run_git_command(["git", "log", "--oneline", f"origin/{branch_name}..HEAD"])
+                    if ahead_log["success"] and ahead_log["stdout"].strip():
+                        logger.info("Local branch has commits ahead of origin. Pushing commits…")
+                        push_res = await _run_git_command(
+                            ["git", "push", "origin", f"HEAD:{branch_name}"],
+                            env={"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"},
+                        )
+                        if push_res["success"]:
+                            logger.info("Successfully pushed local commits to origin")
+                            return {
+                                "success": True,
+                                "message": "Pushed existing local commits to origin",
+                                "committed_files": [],
+                            }
+                        else:
+                            logger.warning(f"Push failed: {push_res['error']}")
+                    else:
+                        logger.info("No local commits ahead of origin to push")
+                else:
+                    # If remote branch doesn't exist, create it
+                    if not remote_ok["success"]:
+                        logger.info("Remote branch doesn't exist yet. Creating upstream and pushing…")
+                        push_new = await _run_git_command(
+                            ["git", "push", "-u", "origin", branch_name],
+                            env={"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"},
+                        )
+                        if push_new["success"]:
+                            logger.info(f"Successfully pushed new branch {branch_name} to origin")
+                            return {
+                                "success": True,
+                                "message": "Pushed new branch to origin",
+                                "committed_files": [],
+                            }
+                        else:
+                            logger.warning(f"Failed to push new branch: {push_new['error']}")
+
+                # Nothing to do
+                return {"success": True, "message": "No changes to commit", "committed_files": []}
+
+            # Parse git status output to get changed files
+            changed_files = []
+            for line in git_output.split("\n"):
+                if line.strip():
+                    # Git status format: XY filename (where X and Y are status codes)
+                    # Handle different git status formats properly
+                    if len(line) >= 3:
+                        status_codes = line[:2]
+                        filename = line[3:].strip()
+
+                        # Handle quoted filenames (git quotes filenames with spaces or special chars)
+                        if filename.startswith('"') and filename.endswith('"'):
+                            filename = filename[1:-1]  # Remove quotes
+
+                        logger.info(f"Git status line: '{line}' -> status: '{status_codes}', filename: '{filename}'")
+
+                        # Skip deleted files for now (GitHub API handles updates/creates)
+                        if "D" not in status_codes:
+                            changed_files.append(filename)
+                            logger.info(f"Added file to commit list: {filename}")
+                    else:
+                        logger.warning(f"Unexpected git status line format: '{line}'")
+
+            logger.info(f"Found {len(changed_files)} changed files: {changed_files}")
+
+            committed_files = []
+
+            # Read and commit each changed file via GitHub API
+            for file_path in changed_files:
+                try:
+                    full_path = Path(repo_path) / file_path
+                    logger.info(f"Processing file: {file_path}, full path: {full_path}")
+
+                    if full_path.exists() and full_path.is_file():
+                        # Read file content
+                        with open(full_path, encoding="utf-8") as f:
+                            content = f.read()
+
+                        logger.info(f"Read file {file_path}, size: {len(content)} chars")
+
+                        # Commit the file
+                        commit_message = f"Update {file_path} for task #{task_id}: {task_title}"
+
+                        logger.info(f"Attempting to commit file: {file_path} to repository: {repository} on branch: {branch_name}")
+                        logger.info(f"File size: {len(content)} characters")
+                        logger.info(f"Commit message: {commit_message}")
+
+                        result = await database_sync_to_async(github_integration.update_file)(
+                            repository=repository,
+                            file_path=file_path,
+                            content=content,
+                            commit_message=commit_message,
+                            branch=branch_name,
+                        )
+
+                        logger.info(f"GitHub API result for {file_path}: {result}")
+
+                        if result.get("success"):
+                            committed_files.append(
+                                {
+                                    "path": file_path,
+                                    "commit_sha": result.get("commit_sha"),
+                                    "file_sha": result.get("file_sha"),
+                                    "html_url": result.get("html_url"),
+                                }
+                            )
+                            logger.info(f"Successfully committed file {file_path} with commit SHA: {result.get('commit_sha')}")
+                        else:
+                            error_msg = result.get("error", "Unknown error")
+                            logger.error(f"Failed to commit file {file_path} to {repository}: {error_msg}")
+                            logger.error(f"Full GitHub API result: {result}")
+
+                            # Check if this is a 404 error (file/repo not found)
+                            if "404" in str(error_msg) or "Not Found" in str(error_msg):
+                                logger.warning(f"File or repository not found, skipping {file_path}")
+                                continue  # Skip this file and continue with others
+                            else:
+                                # For other errors, fail the entire operation
+                                return {
+                                    "success": False,
+                                    "error": f"Failed to commit file {file_path}: {error_msg}",
+                                    "committed_files": committed_files,
+                                }
+                    else:
+                        logger.warning(f"File {full_path} does not exist or is not a file, skipping")
+                        continue
+
+                except Exception as e:
+                    logger.exception(f"Error processing file {file_path}: {str(e)}")
+                    continue
+
+            return {
+                "success": True,
+                "committed_files": committed_files,
+                "total_files": len(committed_files),
+                "message": f"Successfully committed {len(committed_files)} files via GitHub API",
+            }
+
+        finally:
+            os.chdir(original_cwd)
+
+    except Exception as e:
+        logger.exception(f"Error committing local changes: {str(e)}")
+        return {"success": False, "error": f"Failed to commit local changes: {str(e)}"}
