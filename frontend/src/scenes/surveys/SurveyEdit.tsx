@@ -373,13 +373,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                 </code>{' '}
                                                                 query parameter to the URL. Here's an example:{'\n'}
                                                                 <Link
-                                                                    to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${
-                                                                        user?.email ?? 'john@acme.co'
-                                                                    }`}
+                                                                    to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}
                                                                     target="_blank"
-                                                                >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${
-                                                                    user?.email ?? 'john@acme.co'
-                                                                }`}</Link>
+                                                                >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}</Link>
                                                             </li>
                                                             <li>
                                                                 • Check more details about identifying respondents in
