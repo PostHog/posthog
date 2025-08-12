@@ -9,6 +9,8 @@ import os
 import re
 import typing
 import uuid
+import pyarrow as pa
+import pyarrow.compute as pc
 
 import asyncstdlib
 import deltalake
@@ -451,6 +453,8 @@ async def materialize_model(
         delta_table: deltalake.DeltaTable | None = None
 
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+            batch = _transform_unsupported_decimals(batch)
+
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
                     table_uri=table_uri,
@@ -698,7 +702,6 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.output_format = "TabSeparatedWithNamesAndTypes"
     context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
@@ -715,7 +718,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         stack=[],
     )
 
-    table_describe_query = f"DESCRIBE TABLE ({printed})"
+    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedWithNamesAndTypes"
     unsupported_arrow_types = ["FIXED_SIZE_BINARY", "JSON", "UUID", "ENUM"]
 
     # Query for types first, check for any types ArrowStream doesn't support
@@ -725,7 +728,9 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         query_typings: list[tuple[str, str, bool]] = []
         has_type_to_convert = False
         for line in table_describe_response.decode("utf-8").splitlines():
-            column_name, ch_type = line.strip().split("\t")
+            split_arr = line.strip().split("\t")
+            column_name = split_arr[0]
+            ch_type = split_arr[1]
 
             if any(uat.lower() in ch_type.lower() for uat in unsupported_arrow_types):
                 has_type_to_convert = True
@@ -770,6 +775,63 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     async with get_client() as client:
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
             yield batch
+
+
+def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """
+    Transform high-precision decimal columns to types supported by Delta Lake.
+    Delta Lake supports decimal up to precision 38; ClickHouse may return Decimal256 (precision 76).
+    """
+    schema = batch.schema
+    columns_to_cast: dict[str, pa.DataType] = {}
+
+    precision = 38
+    scale = 38 - 1
+
+    for field in schema:
+        if isinstance(field.type, pa.Decimal128Type | pa.Decimal256Type):
+            if field.type.precision > 38:
+                original_scale = field.type.scale
+                new_scale = min(original_scale, scale)
+                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
+
+    if not columns_to_cast:
+        return batch
+
+    def _ensure_array(arr_like: pa.Array | pa.ChunkedArray) -> pa.Array:
+        if isinstance(arr_like, pa.ChunkedArray):
+            return pa.concat_arrays(arr_like.chunks)
+        return arr_like
+
+    new_columns: list[pa.Array] = []
+    new_fields: list[pa.Field] = []
+
+    for field in batch.schema:
+        col = batch[field.name]
+        if field.name in columns_to_cast:
+            decimal128_type = columns_to_cast[field.name]
+            try:
+                cast_col = pc.cast(col, decimal128_type)
+                cast_col = _ensure_array(cast_col)
+                new_fields.append(field.with_type(decimal128_type))
+                new_columns.append(cast_col)
+            except Exception:
+                # Fallback: cast via string, truncate, then cast to reduced decimal
+                reduced_decimal_type = pa.decimal128(precision, scale)
+                string_col = pc.cast(col, pa.string())
+                truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
+                cast_reduced = _ensure_array(pc.cast(truncated, reduced_decimal_type))
+                new_fields.append(field.with_type(reduced_decimal_type))
+                new_columns.append(cast_reduced)
+        else:
+            new_fields.append(field)
+            new_columns.append(_ensure_array(col))
+
+    new_metadata: dict[str | bytes, str | bytes] | None = (
+        typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None
+    )
+
+    return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
 def _get_credentials():
