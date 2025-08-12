@@ -11,7 +11,7 @@ from dags.web_preaggregated_team_selection import (
     store_team_selection_in_clickhouse,
     web_analytics_team_selection,
 )
-from dags.web_preaggregated_team_selection_strategies import (
+from posthog.models.web_preaggregated.team_selection_strategies import (
     EnvironmentVariableStrategy,
     HighPageviewsStrategy,
     FeatureEnrollmentStrategy,
@@ -46,7 +46,7 @@ class TestGetTeamIdsFromSources:
         for default_team in DEFAULT_ENABLED_TEAM_IDS:
             assert default_team in result
 
-    @patch("dags.web_preaggregated_team_selection_strategies.HighPageviewsStrategy.get_teams")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.HighPageviewsStrategy.get_teams")
     def test_includes_pageview_teams_when_pageviews_strategy_enabled(self, mock_pageviews):
         mock_pageviews.return_value = {999, 888}
 
@@ -83,7 +83,7 @@ class TestGetTeamIdsFromSources:
         assert isinstance(result, list)
         assert result == sorted(result)
 
-    @patch("dags.web_preaggregated_team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
     def test_includes_feature_enrollment_teams_when_strategy_enabled(self, mock_enrollment):
         mock_enrollment.return_value = {777, 666}
 
@@ -100,7 +100,7 @@ class TestGetTeamIdsFromSources:
         assert 666 in result
         mock_enrollment.assert_called_once_with(self.mock_context)
 
-    @patch("dags.web_preaggregated_team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
     def test_uses_default_flag_key_when_not_specified(self, mock_enrollment):
         mock_enrollment.return_value = {555}
 
@@ -110,8 +110,8 @@ class TestGetTeamIdsFromSources:
         assert 555 in result
         mock_enrollment.assert_called_once_with(self.mock_context)
 
-    @patch("dags.web_preaggregated_team_selection_strategies.HighPageviewsStrategy.get_teams")
-    @patch("dags.web_preaggregated_team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.HighPageviewsStrategy.get_teams")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.FeatureEnrollmentStrategy.get_teams")
     def test_combines_multiple_strategies(self, mock_enrollment, mock_pageviews):
         mock_enrollment.return_value = {111, 222}
         mock_pageviews.return_value = {333, 444}
@@ -205,7 +205,7 @@ class TestStrategyClasses:
         assert result == {123, 456}  # Should include valid ones only
         self.mock_context.log.warning.assert_called_once()
 
-    @patch("dags.web_preaggregated_team_selection_strategies.sync_execute")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.sync_execute")
     def test_high_pageviews_strategy_returns_teams(self, mock_execute):
         strategy = HighPageviewsStrategy()
         mock_execute.return_value = [(123,), (456,)]
@@ -215,7 +215,7 @@ class TestStrategyClasses:
         assert result == {123, 456}
         mock_execute.assert_called_once()
 
-    @patch("dags.web_preaggregated_team_selection_strategies.sync_execute")
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.sync_execute")
     def test_high_pageviews_strategy_handles_errors(self, mock_execute):
         strategy = HighPageviewsStrategy()
         mock_execute.side_effect = Exception("DB error")
@@ -225,7 +225,7 @@ class TestStrategyClasses:
         assert result == set()
         self.mock_context.log.warning.assert_called_once()
 
-    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True)
     @patch("requests.post")
     def test_feature_enrollment_strategy_returns_teams(self, mock_post, mock_is_cloud):
         strategy = FeatureEnrollmentStrategy(api_token="test-token")
@@ -236,7 +236,9 @@ class TestStrategyClasses:
         mock_response.json.return_value = {"results": [["123", "us.posthog.com"], ["456", "us.posthog.com"]]}
         mock_post.return_value = mock_response
 
-        with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"):
+        with patch(
+            "posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"
+        ):
             result = strategy.get_teams(self.mock_context)
 
         assert result == {123, 456}
@@ -254,7 +256,7 @@ class TestStrategyClasses:
             "WEB_ANALYTICS_FEATURE_ENROLLMENT_API_TOKEN not configured, cannot fetch feature enrollment data"
         )
 
-    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True)
     @patch("requests.post")
     def test_feature_enrollment_strategy_uses_custom_flag_key(self, mock_post, mock_is_cloud):
         strategy = FeatureEnrollmentStrategy(api_token="test-token", flag_key="custom-flag")
@@ -264,7 +266,9 @@ class TestStrategyClasses:
         mock_response.json.return_value = {"results": [["123", "us.posthog.com"]]}
         mock_post.return_value = mock_response
 
-        with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"):
+        with patch(
+            "posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"
+        ):
             result = strategy.get_teams(self.mock_context)
 
         assert result == {123}

@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest, APIBaseTest, ClickhouseTestMixin, _creat
 from posthog.models import PersonalAPIKey, Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.models.personal_api_key import hash_key_value
-from posthog.models.web_preaggregated.strategies import FeatureEnrollmentStrategy
+from posthog.models.web_preaggregated.team_selection_strategies import FeatureEnrollmentStrategy
 
 
 class BaseFeatureEnrollmentTest:
@@ -64,7 +64,7 @@ class TestFeatureEnrollmentStrategyUnit(BaseFeatureEnrollmentTest):
             "WEB_ANALYTICS_FEATURE_ENROLLMENT_API_TOKEN not configured, cannot fetch feature enrollment data"
         )
 
-    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=False)
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=False)
     def test_returns_empty_set_for_self_hosted(self, mock_is_cloud):
         strategy = self.create_strategy()
         result = strategy.get_teams(self.mock_context)
@@ -74,7 +74,7 @@ class TestFeatureEnrollmentStrategyUnit(BaseFeatureEnrollmentTest):
             "Skipping feature enrollment strategy for self-hosted instances. This strategy is only available on posthog cloud."
         )
 
-    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True)
     def test_region_host_detection(self, mock_is_cloud):
         strategy = self.create_strategy()
 
@@ -86,12 +86,12 @@ class TestFeatureEnrollmentStrategyUnit(BaseFeatureEnrollmentTest):
         ]
 
         for site_url, expected_host in test_cases:
-            with patch("posthog.models.web_preaggregated.strategies.settings.SITE_URL", site_url):
+            with patch("posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL", site_url):
                 assert strategy._get_region_host() == expected_host
 
 
 class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
-    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True)
     @patch("requests.post")
     def test_successful_api_call_with_results(self, mock_post, mock_is_cloud):
         # Setup
@@ -99,7 +99,9 @@ class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
         mock_response = self.create_mock_response(results=[["123", "us.posthog.com"], ["456", "us.posthog.com"]])
         mock_post.return_value = mock_response
 
-        with patch("posthog.models.web_preaggregated.strategies.settings.SITE_URL", "https://us.posthog.com"):
+        with patch(
+            "posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"
+        ):
             # Execute
             result = strategy.get_teams(self.mock_context)
 
@@ -112,7 +114,7 @@ class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
         assert "properties.$host = 'us.posthog.com'" in query
         assert "event = '$feature_enrollment_update'" in query
 
-    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True)
     @patch("requests.post")
     def test_api_response_data_validation(self, mock_post, mock_is_cloud):
         strategy = self.create_strategy()
@@ -131,7 +133,7 @@ class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
         result = strategy.get_teams(self.mock_context)
         assert result == {123, 456, 789}
 
-    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True)
     @patch("requests.post")
     def test_api_error_handling(self, mock_post, mock_is_cloud):
         strategy = self.create_strategy()
@@ -201,8 +203,10 @@ class TestFeatureEnrollmentStrategyLocalAPI(BaseTest):
             api_host="http://localhost:8000", api_token=self.personal_api_key, flag_key="web-analytics-api"
         )
 
-        with patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True):
-            with patch("posthog.models.web_preaggregated.strategies.settings.SITE_URL", "https://localhost:8000"):
+        with patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True):
+            with patch(
+                "posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL", "https://localhost:8000"
+            ):
                 result = strategy.get_teams(self.mock_context)
 
         # Verify the test setup works correctly
@@ -307,8 +311,11 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
                 api_host=f"http://localhost:8000", api_token=personal_api_key, flag_key="web-analytics-api"
             )
 
-            with patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True):
-                with patch("posthog.models.web_preaggregated.strategies.settings.SITE_URL", "https://localhost:8000"):
+            with patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True):
+                with patch(
+                    "posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL",
+                    "https://localhost:8000",
+                ):
                     result = strategy.get_teams(self.mock_context)
 
             self.assertIsInstance(result, set)

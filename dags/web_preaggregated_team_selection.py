@@ -10,7 +10,7 @@ from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_ENABLED_TEAM_IDS,
 )
 from dags.common import JobOwners, settings_with_log_comment
-from posthog.models.web_preaggregated.strategies import strategy_registry
+from posthog.models.web_preaggregated.team_selection_strategies import strategy_registry
 
 
 def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -> set[int]:
