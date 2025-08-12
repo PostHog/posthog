@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.graph.root.prompts import (
+    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
@@ -569,16 +570,16 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (membership_level, has_billing_context, expected_access, expected_prompt)
+            # (membership_level, has_billing_context, should_add_billing_tool, expected_prompt)
             [OrganizationMembership.Level.ADMIN, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.ADMIN, False, False, ""],
+            [OrganizationMembership.Level.ADMIN, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
             [OrganizationMembership.Level.OWNER, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.OWNER, False, False, ""],
+            [OrganizationMembership.Level.OWNER, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
             [OrganizationMembership.Level.MEMBER, True, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
-            [OrganizationMembership.Level.MEMBER, False, False, ""],
+            [OrganizationMembership.Level.MEMBER, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
         ]
     )
-    def test_has_billing_access(self, membership_level, has_billing_context, expected_access, expected_prompt):
+    def test_has_billing_access(self, membership_level, has_billing_context, should_add_billing_tool, expected_prompt):
         # Set membership level
         membership = self.user.organization_memberships.get(organization=self.team.organization)
         membership.level = membership_level
@@ -593,7 +594,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         else:
             config = {"configurable": {}}
 
-        self.assertEqual(node._get_billing_info(config), (expected_access, expected_prompt))
+        self.assertEqual(node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
 
     # Note: More complex mocking tests for billing tool availability were removed
     # as they were difficult to maintain. The core billing access logic is tested above

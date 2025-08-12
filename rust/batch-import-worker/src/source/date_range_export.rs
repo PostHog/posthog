@@ -1,9 +1,10 @@
 use super::DataSource;
-use crate::error::ToUserError;
+use crate::error::{RateLimitedError, ToUserError};
 use crate::extractor::{ExtractedPartData, PartExtractor};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use reqwest::header::HeaderMap;
 use reqwest::{Client, Error as ReqwestError};
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
@@ -39,6 +40,25 @@ fn extract_client_request_error(error: &ReqwestError) -> String {
     } else {
         "Unknown error -- try the job again or use a different source".to_string()
     }
+}
+
+// Parse Retry-After header per RFC7231: either delta-seconds or HTTP-date
+pub(crate) fn parse_retry_after_header(headers: &HeaderMap) -> Option<Duration> {
+    let value = headers.get(reqwest::header::RETRY_AFTER)?;
+    let s = value.to_str().ok()?;
+
+    if let Ok(seconds) = s.trim().parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+
+    if let Ok(date) = httpdate::parse_http_date(s) {
+        let now = std::time::SystemTime::now();
+        if let Ok(diff) = date.duration_since(now) {
+            // clamp to zero if in past
+            return Some(diff);
+        }
+    }
+    None
 }
 
 #[derive(Clone)]
@@ -281,35 +301,9 @@ impl DateRangeExportSource {
 
         info!("Downloading and preparing key: {}", key);
 
-        let mut retries = self.retries;
-        loop {
-            match self
-                .download_and_prepare_part_data_inner(key, start, end)
-                .await
-            {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    // Check if this is a rate limit error by looking for a 429 status in the error chain
-                    let is_rate_limit_error = e.chain().any(|err| {
-                        if let Some(reqwest_err) = err.downcast_ref::<ReqwestError>() {
-                            reqwest_err
-                                .status()
-                                .map_or(false, |status| status.as_u16() == 429)
-                        } else {
-                            false
-                        }
-                    });
-
-                    if is_rate_limit_error && retries > 0 {
-                        info!("Rate limit hit (429), sleeping for {:?} before retry. Retries remaining: {}", self.retry_delay, retries);
-                        tokio::time::sleep(self.retry_delay).await;
-                        retries -= 1;
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        }
+        // Let errors (including 429 wrapped as RateLimitedError) bubble up to job-level backoff
+        self.download_and_prepare_part_data_inner(key, start, end)
+            .await
     }
 
     async fn download_and_prepare_part_data_inner(
@@ -368,6 +362,20 @@ impl DateRangeExportSource {
                 data_file_path: empty_data_file_path,
                 data_file_size: 0,
             });
+        }
+
+        if response.status().as_u16() == 429 {
+            let headers_clone = response.headers().clone();
+            let http_err = response.error_for_status().unwrap_err();
+            let retry_after = parse_retry_after_header(&headers_clone);
+            let rl = RateLimitedError {
+                retry_after,
+                source: http_err,
+            };
+            let err = anyhow::Error::from(rl).context(crate::error::UserError::new(
+                "Rate limit exceeded -- pause the job and try again later",
+            ));
+            return Err(err);
         }
 
         let response = response.error_for_status().or_else(|status_error| {
@@ -676,6 +684,33 @@ mod tests {
 
         assert!(keys[0].starts_with("2023-01-01T00:00:00"));
         assert!(keys[0].contains("2023-01-01T01:00:00"));
+    }
+
+    #[tokio::test]
+    async fn test_parse_retry_after_seconds() {
+        // delta-seconds parse
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("120"),
+        );
+        let d = super::parse_retry_after_header(&headers).unwrap();
+        assert_eq!(d.as_secs(), 120);
+    }
+
+    #[tokio::test]
+    async fn test_parse_retry_after_http_date() {
+        // HTTP-date parse
+        let future = httpdate::fmt_http_date(
+            std::time::SystemTime::now() + std::time::Duration::from_secs(90),
+        );
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_str(&future).unwrap(),
+        );
+        let d = super::parse_retry_after_header(&headers).unwrap();
+        assert!(d.as_secs() <= 90 && d.as_secs() > 0);
     }
 
     #[tokio::test]
@@ -1092,7 +1127,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_429_exhausts_retries() {
+    async fn test_429_surfaces_immediately() {
         let server = MockServer::start();
 
         let mock = server.mock(|when, then| {
@@ -1107,8 +1142,6 @@ mod tests {
             3600,
             Arc::new(MockExtractor),
         )
-        .with_retries(2)
-        .with_retry_delay(Duration::from_millis(1))
         .build()
         .unwrap();
 
@@ -1118,18 +1151,15 @@ mod tests {
 
         let result = source.prepare_key(key).await;
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        // Our code wraps 429 as RateLimitedError (with reqwest::Error as source). Use helper.
+        assert!(crate::error::is_rate_limited_error(&err));
 
-        // Check that we get a reqwest error with 429 status
-        if let Some(reqwest_error) = result.unwrap_err().downcast_ref::<ReqwestError>() {
-            assert_eq!(reqwest_error.status().unwrap().as_u16(), 429);
-        } else {
-            panic!("Expected reqwest error with 429 status");
-        }
-
+        // No internal retry loop anymore
         assert_eq!(
             mock.hits(),
-            3,
-            "Should have made 3 calls (initial + 2 retries)"
+            1,
+            "Single request, surfaced to job-level backoff"
         );
 
         source.cleanup_after_job().await.unwrap();

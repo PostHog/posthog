@@ -22,6 +22,8 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import type { appLogicType } from './AppType'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { teamLogic } from './teamLogic'
+import { KeaDevtools } from 'lib/KeaDevTools'
+import { urlToAction } from 'kea-router'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -31,10 +33,12 @@ export const appLogic = kea<appLogicType>([
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
+        showDevTools: true,
     }),
     reducers({
         showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
         featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
+        showingDevTools: [false, { showDevTools: () => true }],
     }),
     selectors({
         showApp: [
@@ -65,10 +69,17 @@ export const appLogic = kea<appLogicType>([
             window.clearTimeout(cache.featureFlagTimeout)
         },
     })),
+    urlToAction(({ actions }) => ({
+        '*': (_, __, hash) => {
+            if ('kea' in hash) {
+                actions.showDevTools()
+            }
+        },
+    })),
 ])
 
 export function App(): JSX.Element | null {
-    const { showApp, showingDelayedSpinner } = useValues(appLogic)
+    const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
@@ -79,6 +90,7 @@ export function App(): JSX.Element | null {
             <>
                 <LoadedSceneLogics />
                 <AppScene />
+                {showingDevTools ? <KeaDevtools /> : null}
             </>
         )
     }
