@@ -61,7 +61,7 @@ class TestUtils(BaseTest):
             select=[
                 ast.HogQLXTag(
                     kind="blink", attributes=[ast.HogQLXAttribute(name="children", value=[ast.Field(chain=["event"])])]
-                ),  # type: ignore
+                ),
                 ast.Call(name="count", args=[ast.Field(chain=["*"])]),
                 ast.Constant(value="ewrew222"),
             ],
