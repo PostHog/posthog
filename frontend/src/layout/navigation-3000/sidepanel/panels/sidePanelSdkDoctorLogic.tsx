@@ -371,7 +371,48 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 // For Node.js SDK we need special handling since it's in a subdirectory of posthog-js-lite
                                 const isNodeSdk = sdkType === 'node'
 
-                                // Add cache busting parameter to avoid GitHub's aggressive caching
+                                // Special handling for Web SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'web') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/browser/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // Extract version numbers using the same regex as test files
+                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) => match.replace(/^## /, ''))
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
+                                // For other SDKs, use GitHub releases API
                                 const cacheBuster = Date.now()
                                 const tagsPromise = fetch(
                                     `https://api.github.com/repos/PostHog/${repo}/releases?_=${cacheBuster}`,
@@ -409,20 +450,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         return null
                                                     }
 
-                                                    // For web SDK (posthog-js), handle both old and new tag formats
-                                                    if (sdkType === 'web') {
-                                                        // New format: posthog-js@1.258.3
-                                                        if (tagName.startsWith('posthog-js@')) {
-                                                            const version = tagName.replace(/^posthog-js@/, '')
-                                                            return tryParseVersion(version) ? version : null
-                                                        }
-                                                        // Old format: v1.257.2 (fallback for older releases)
-                                                        if (tagName.startsWith('v')) {
-                                                            const version = tagName.replace(/^v/, '')
-                                                            return tryParseVersion(version) ? version : null
-                                                        }
-                                                        return null
-                                                    }
+                                                    // Note: Web SDK now uses CHANGELOG.md approach (handled above)
+                                                    // This section only handles non-web SDKs
 
                                                     // For other SDKs, use the original logic
                                                     const name = tagName.replace(/^v/, '')
