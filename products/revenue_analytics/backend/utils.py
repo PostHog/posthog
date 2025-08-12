@@ -5,22 +5,22 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsInvoiceItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
 
-REVENUE_SELECT_OUTPUT_CUSTOMER_KEY = "customer"
-REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY = "invoice_item"
-REVENUE_SELECT_OUTPUT_PRODUCT_KEY = "product"
 REVENUE_SELECT_OUTPUT_CHARGE_KEY = "charge"
+REVENUE_SELECT_OUTPUT_CUSTOMER_KEY = "customer"
+REVENUE_SELECT_OUTPUT_PRODUCT_KEY = "product"
+REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY = "revenue_item"
 REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY = "subscription"
 
 MAP_FROM_VIEW_TO_KEY = {
     RevenueAnalyticsChargeView: REVENUE_SELECT_OUTPUT_CHARGE_KEY,
     RevenueAnalyticsCustomerView: REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
-    RevenueAnalyticsInvoiceItemView: REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY,
     RevenueAnalyticsProductView: REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
+    RevenueAnalyticsRevenueItemView: REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY,
     RevenueAnalyticsSubscriptionView: REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY,
 }
 
@@ -30,8 +30,8 @@ EMPTY_REVENUE_SELECT_OUTPUT_GENERATOR = lambda: RevenueSelectOutputInnerDict(
     {
         REVENUE_SELECT_OUTPUT_CHARGE_KEY: None,
         REVENUE_SELECT_OUTPUT_CUSTOMER_KEY: None,
-        REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY: None,
         REVENUE_SELECT_OUTPUT_PRODUCT_KEY: None,
+        REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY: None,
         REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY: None,
     }
 )

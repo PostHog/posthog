@@ -8,10 +8,10 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import calculate_months_for_period
+from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import calculate_months_for_period
 
 
-class TestRevenueAnalyticsInvoiceItemView(ClickhouseTestMixin, APIBaseTest):
+class TestRevenueAnalyticsRevenueItemView(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             # Same month
