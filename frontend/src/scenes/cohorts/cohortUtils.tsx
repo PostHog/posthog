@@ -1,7 +1,7 @@
 import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { CohortTypeEnum, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import {
@@ -19,7 +19,6 @@ import {
     AnyPropertyFilter,
     BehavioralCohortType,
     BehavioralEventType,
-    ExplicitCohortTypeEnum,
     BehavioralLifecycleType,
     CohortCriteriaGroupFilter,
     CohortCriteriaType,
@@ -514,37 +513,33 @@ export const COHORT_MATCHING_DAYS = {
     '30': 'month',
 }
 
-export function getAvailableFilters(cohortType: ExplicitCohortTypeEnum): {
+export function getAvailableFilters(cohortType: CohortTypeEnum): {
     person: boolean
     cohort: boolean
     behavioral: BehavioralFilterType[]
 } {
     switch (cohortType) {
-        case ExplicitCohortTypeEnum.Static:
+        case CohortTypeEnum.Static:
             return { person: false, cohort: false, behavioral: [] }
-        case ExplicitCohortTypeEnum.PersonProperty:
+        case CohortTypeEnum.PersonProperty:
             return { person: true, cohort: true, behavioral: [] }
-        case ExplicitCohortTypeEnum.Behavioral:
+        case CohortTypeEnum.Behavioral:
             return {
                 person: true,
                 cohort: true,
-                behavioral: [
-                    BehavioralEventType.PerformEvent,
-                    BehavioralEventType.PerformEventMultiple,
-                    // Add other simple behavioral types as needed
-                ],
+                behavioral: [BehavioralEventType.PerformEvent, BehavioralEventType.PerformEventMultiple], // NB: these are the only simple behavioral types exported so far
             }
-        case ExplicitCohortTypeEnum.Analytical:
+        case CohortTypeEnum.Analytical:
             return {
                 person: true,
                 cohort: true,
-                behavioral: Object.values(BehavioralEventType) as BehavioralFilterType[], // All types
+                behavioral: Object.values(BehavioralEventType), // NB: Analytical cohorts can use all behavioral types
             }
         default:
             return {
                 person: true,
                 cohort: true,
-                behavioral: Object.values(BehavioralEventType) as BehavioralFilterType[],
+                behavioral: Object.values(BehavioralEventType), // NB: All types
             }
     }
 }
@@ -552,7 +547,7 @@ export function getAvailableFilters(cohortType: ExplicitCohortTypeEnum): {
 export function isFilterAllowedForCohortType(
     filterType: 'person' | 'cohort' | 'behavioral',
     behavioralType: BehavioralFilterType | null,
-    cohortType: ExplicitCohortTypeEnum
+    cohortType: CohortTypeEnum
 ): boolean {
     const availableFilters = getAvailableFilters(cohortType)
 
@@ -568,15 +563,15 @@ export function isFilterAllowedForCohortType(
     }
 }
 
-export function getCohortDisplayName(cohortType: ExplicitCohortTypeEnum): string {
+export function getCohortDisplayName(cohortType: CohortTypeEnum): string {
     switch (cohortType) {
-        case ExplicitCohortTypeEnum.Static:
+        case CohortTypeEnum.Static:
             return 'Static'
-        case ExplicitCohortTypeEnum.PersonProperty:
+        case CohortTypeEnum.PersonProperty:
             return 'Person Property'
-        case ExplicitCohortTypeEnum.Behavioral:
+        case CohortTypeEnum.Behavioral:
             return 'Behavioral'
-        case ExplicitCohortTypeEnum.Analytical:
+        case CohortTypeEnum.Analytical:
             return 'Analytical'
         default:
             return 'Unknown'

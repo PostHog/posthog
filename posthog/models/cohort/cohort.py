@@ -276,7 +276,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
     @property
-    def has_complex_behavioral_filter(self) -> bool:
+    def has_analytical_filters(self) -> bool:
+        """Check if cohort contains analytical filters (lifecycle or sequence events)"""
         for prop in self.properties.flat:
             if prop.type == "behavioral" and prop.value in [
                 BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
@@ -297,7 +298,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         has_cohort_filters = False
         has_person_filters = False
         has_behavioral_filters = False
-        has_complex_behavioral = False
 
         for prop in self.properties.flat:
             if prop.type == "cohort":
@@ -306,18 +306,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 has_person_filters = True
             elif prop.type == "behavioral":
                 has_behavioral_filters = True
-                # Check if it's a complex behavioral filter
-                if prop.value in [
-                    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
-                    BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
-                    BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
-                    BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
-                    BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
-                ]:
-                    has_complex_behavioral = True
 
         # Return the most complex type
-        if has_complex_behavioral:
+        if self.has_analytical_filters:
             return COHORT_TYPE_ANALYTICAL
         elif has_behavioral_filters:
             return COHORT_TYPE_BEHAVIORAL

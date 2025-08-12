@@ -326,10 +326,11 @@ export const BIN_COUNT_AUTO = 'auto' as const
 
 export const RETENTION_MEAN_NONE = 'none' as const
 
-// Cohort types
 export enum CohortTypeEnum {
     Static = 'static',
-    Dynamic = 'dynamic',
+    PersonProperty = 'person_property',
+    Behavioral = 'behavioral',
+    Analytical = 'analytical',
 }
 
 /**
