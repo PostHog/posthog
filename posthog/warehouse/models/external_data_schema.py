@@ -327,16 +327,31 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
-def sync_old_schemas_with_new_schemas(new_schemas: list[str], source_id: str, team_id: int) -> list[str]:
+def sync_old_schemas_with_new_schemas(
+    new_schemas: list[str], source_id: str, team_id: int
+) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
     schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas_names]
 
+    schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schemas]
+    deleted_schemas: list[str] = []
+
     for schema in schemas_to_create:
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
-    return schemas_to_create
+    for schema in schemas_to_possibly_delete:
+        s = ExternalDataSchema.objects.get(team_id=team_id, name=schema, source_id=source_id)
+        if s.table_id is None:
+            s.soft_delete()
+            deleted_schemas.append(schema)
+        else:
+            s.should_sync = False
+            s.status = ExternalDataSchema.Status.COMPLETED
+            s.save()
+
+    return schemas_to_create, deleted_schemas
 
 
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:
