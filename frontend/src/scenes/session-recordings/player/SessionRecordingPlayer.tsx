@@ -39,6 +39,7 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
     noBorder?: boolean
     noInspector?: boolean
     matchingEventsMatchType?: MatchingEventsMatchType
+    accessToken?: string
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -62,6 +63,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         mode = SessionRecordingPlayerMode.Standard,
         pinned,
         setPinned,
+        accessToken,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -79,6 +81,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         playerRef,
         pinned,
         setPinned,
+        accessToken,
     }
     const {
         incrementClickCount,
@@ -96,6 +99,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const { setPlayNextAnimationInterrupted, setIsCommenting } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+
+    const isScreenshotMode = mode === SessionRecordingPlayerMode.Screenshot
 
     useEffect(
         () => {
@@ -251,18 +256,21 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {!noMeta || isFullScreen ? <PlayerMeta /> : null}
-
+                                            {isScreenshotMode || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
                                             <div
                                                 className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
                                                 {...elementProps}
                                             >
                                                 <PlayerFrame />
-                                                <PlayerFrameOverlay />
-                                                <PlayerFrameCommentOverlay />
+                                                {!isScreenshotMode ? (
+                                                    <>
+                                                        <PlayerFrameOverlay />
+                                                        <PlayerFrameCommentOverlay />
+                                                    </>
+                                                ) : null}
                                             </div>
-                                            <PlayerController />
+                                            {!isScreenshotMode ? <PlayerController /> : null}
                                         </div>
                                     </div>
                                 )}

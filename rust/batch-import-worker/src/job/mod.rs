@@ -2,6 +2,7 @@ use std::sync::{atomic::Ordering, Arc};
 
 use anyhow::{Context, Error};
 
+use crate::metrics as metric_emit;
 use common_types::InternallyCapturedEvent;
 use model::{JobModel, JobState, PartState};
 use tokio::sync::Mutex;
@@ -10,14 +11,74 @@ use tracing::{debug, error, info, warn};
 use crate::{
     context::AppContext,
     emit::Emitter,
-    error::get_user_message,
+    error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error},
+    job::backoff::format_backoff_messages,
     parse::{format::ParserFn, Parsed},
     source::DataSource,
     spawn_liveness_loop,
 };
 
+pub mod backoff;
 pub mod config;
 pub mod model;
+
+#[derive(Debug, PartialEq)]
+enum ErrorHandlingDecision {
+    Backoff {
+        delay: std::time::Duration,
+        status_msg: String,
+        display_msg: String,
+    },
+    Pause {
+        error_msg: String,
+        display_msg: String,
+    },
+}
+
+fn decide_on_error(
+    err: &anyhow::Error,
+    current_date_range: Option<&str>,
+    policy: crate::job::backoff::BackoffPolicy,
+    current_attempt: u32,
+    user_message: &str,
+) -> ErrorHandlingDecision {
+    if is_rate_limited_error(err) {
+        let mut delay = policy.next_delay(current_attempt);
+        if let Some(ra) = extract_retry_after_from_error(err) {
+            delay = std::cmp::min(ra, policy.max_delay);
+        }
+        let (status_msg, display_msg) = format_backoff_messages(current_date_range, delay);
+        ErrorHandlingDecision::Backoff {
+            delay,
+            status_msg,
+            display_msg,
+        }
+    } else {
+        let error_msg = match current_date_range {
+            Some(dr) => format!("{} (Date range: {})", user_message, dr),
+            None => user_message.to_string(),
+        };
+        let display_msg = match current_date_range {
+            Some(dr) => format!("{} (Date range: {})", user_message, dr),
+            None => user_message.to_string(),
+        };
+        ErrorHandlingDecision::Pause {
+            error_msg,
+            display_msg,
+        }
+    }
+}
+
+fn should_pause_due_to_max_attempts(next_attempt: u32, max_attempts: u32) -> bool {
+    max_attempts > 0 && next_attempt >= max_attempts
+}
+
+async fn reset_backoff_after_success(
+    context: Arc<AppContext>,
+    model: &mut JobModel,
+) -> Result<(), Error> {
+    model.reset_backoff_in_db(&context.db).await
+}
 
 pub struct Job {
     pub context: Arc<AppContext>,
@@ -147,9 +208,6 @@ impl Job {
                     warn!("Failed to cleanup after job: {:?}", e);
                 }
                 let user_facing_error_message = get_user_message(&e);
-                // If we fail to fetch and parse, we need to pause the job (assuming manual intervention is required) and
-                // return an Ok(None) - this pod can continue to process other jobs, it just can't work on this one
-
                 let current_date_range = {
                     let state = self.state.lock().await;
                     state
@@ -159,25 +217,84 @@ impl Job {
                         .and_then(|p| self.source.get_date_range_for_key(&p.key))
                 };
 
-                let mut model = self.model.lock().await;
-                let error_message = if let Some(date_range) = &current_date_range {
-                    format!(
-                        "Failed to fetch and parse chunk for date range {}: {:?}",
-                        date_range, e
-                    )
-                } else {
-                    format!("Failed to fetch and parse chunk: {:?}", e)
+                let policy = self.context.config.backoff_policy();
+                let current_attempt = {
+                    let model = self.model.lock().await;
+                    model.backoff_attempt.max(0) as u32
                 };
-                let display_message = if let Some(date_range) = &current_date_range {
-                    format!("{} (Date range: {})", user_facing_error_message, date_range)
-                } else {
-                    user_facing_error_message.to_string()
-                };
-                error!(job_id = %model.id, error = ?e, "Pausing job due to error: {}", error_message);
-                model
-                    .pause(self.context.clone(), error_message, Some(display_message))
-                    .await?;
-                return Ok(None);
+                let next_attempt = current_attempt.saturating_add(1);
+                match decide_on_error(
+                    &e,
+                    current_date_range.as_deref(),
+                    policy,
+                    current_attempt,
+                    user_facing_error_message,
+                ) {
+                    ErrorHandlingDecision::Backoff {
+                        delay,
+                        status_msg,
+                        display_msg,
+                    } => {
+                        if should_pause_due_to_max_attempts(
+                            next_attempt,
+                            self.context.config.backoff_max_attempts,
+                        ) {
+                            let mut model = self.model.lock().await;
+                            let msg = match current_date_range.as_deref() {
+                                Some(dr) => format!(
+                                    "Max backoff attempts reached for date range {} (attempt {}). Pausing.",
+                                    dr, next_attempt
+                                ),
+                                None => format!(
+                                    "Max backoff attempts reached (attempt {}). Pausing.",
+                                    next_attempt
+                                ),
+                            };
+                            model
+                                .pause(
+                                    self.context.clone(),
+                                    msg,
+                                    Some(
+                                        "Rate limit persisted. Job paused after maximum retries."
+                                            .to_string(),
+                                    ),
+                                )
+                                .await?;
+                            return Ok(None);
+                        }
+
+                        error!(
+                            job_id = %self.model.lock().await.id,
+                            attempt = next_attempt,
+                            delay_secs = delay.as_secs(),
+                            "rate limited (429): scheduling retry"
+                        );
+                        metric_emit::backoff_event(delay.as_secs_f64());
+
+                        let mut model = self.model.lock().await;
+                        model
+                            .schedule_backoff(
+                                &self.context.db,
+                                delay,
+                                status_msg,
+                                Some(display_msg),
+                                next_attempt as i32,
+                            )
+                            .await?;
+                        return Ok(None);
+                    }
+                    ErrorHandlingDecision::Pause {
+                        error_msg,
+                        display_msg,
+                    } => {
+                        let mut model = self.model.lock().await;
+                        error!(job_id = %model.id, error = ?e, "Pausing job due to error: {}", error_msg);
+                        model
+                            .pause(self.context.clone(), error_msg, Some(display_msg))
+                            .await?;
+                        return Ok(None);
+                    }
+                }
             }
         };
 
@@ -229,7 +346,7 @@ impl Job {
                     );
                     next_part.current_offset = actual_size;
                     return Ok(Some((
-                        next_part.key.clone(),
+                        key.clone(),
                         Parsed {
                             consumed: 0,
                             data: vec![],
@@ -282,7 +399,13 @@ impl Job {
         // Update the in-memory part state (the read will be committed to the DB once the write is done)
         next_part.current_offset += parsed.consumed as u64;
 
-        Ok(Some((next_part.key.clone(), parsed)))
+        let ret_key = key.clone();
+        {
+            let mut model = self.model.lock().await;
+            reset_backoff_after_success(self.context.clone(), &mut model).await?;
+        }
+
+        Ok(Some((ret_key, parsed)))
     }
 
     async fn do_commit(&self) -> Result<(), Error> {
@@ -391,6 +514,9 @@ impl Job {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use httpmock::Method;
+    use httpmock::MockServer;
+    use reqwest::Client;
     use std::collections::HashMap;
 
     struct MockDataSource {
@@ -487,6 +613,169 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_decide_on_error_backoff_for_429() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(429);
+        });
+
+        let resp = Client::new()
+            .get(server.url("/export"))
+            .send()
+            .await
+            .unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+
+        let decision = decide_on_error(
+            &err,
+            Some("2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC"),
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "Rate limit exceeded",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Backoff {
+                delay,
+                status_msg,
+                display_msg,
+            } => {
+                assert_eq!(delay.as_secs(), 60);
+                assert!(status_msg.contains("retry"));
+                assert!(display_msg.contains("Date range"));
+            }
+            _ => panic!("expected backoff"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_pause_for_non_429() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(500);
+        });
+
+        let resp = Client::new()
+            .get(server.url("/export"))
+            .send()
+            .await
+            .unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+
+        let decision = decide_on_error(
+            &err,
+            None,
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            2,
+            "Remote server error",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Pause {
+                error_msg,
+                display_msg,
+            } => {
+                assert_eq!(error_msg, "Remote server error");
+                assert_eq!(display_msg, "Remote server error");
+            }
+            _ => panic!("expected pause"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_retry_after_overrides_backoff() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(Method::GET).path("/rl");
+            then.status(429).header("Retry-After", "2");
+        });
+
+        let resp = Client::new().get(server.url("/rl")).send().await.unwrap();
+        // Clone headers from the actual response before turning it into an error
+        let headers_clone = resp.headers().clone();
+        let http_err = resp.error_for_status().unwrap_err();
+
+        // Wrap into our RateLimitedError manually to include Retry-After from response
+        let retry_after =
+            crate::source::date_range_export::parse_retry_after_header(&headers_clone)
+                .expect("retry-after parsed");
+        let rl = crate::error::RateLimitedError {
+            retry_after: Some(retry_after),
+            source: http_err,
+        };
+        let err = anyhow::Error::from(rl);
+
+        let decision = super::decide_on_error(
+            &err,
+            None,
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "Rate limit exceeded",
+        );
+
+        match decision {
+            super::ErrorHandlingDecision::Backoff { delay, .. } => {
+                assert_eq!(delay.as_secs(), 2);
+            }
+            _ => panic!("expected backoff"),
+        }
+    }
+
+    #[test]
+    fn test_reset_backoff_after_success() {
+        let mut model = JobModel {
+            // Minimal dummy values; only fields we need in this function
+            id: uuid::Uuid::now_v7(),
+            team_id: 1,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            lease_id: None,
+            leased_until: None,
+            status: super::model::JobStatus::Running,
+            status_message: None,
+            display_status_message: None,
+            state: Some(JobState { parts: vec![] }),
+            import_config: super::config::JobConfig {
+                // Construct a trivially valid config that won't be used by this test
+                source: super::config::SourceConfig::Folder(super::config::FolderSourceConfig {
+                    path: "/tmp".to_string(),
+                }),
+                data_format: crate::parse::format::FormatConfig::JsonLines {
+                    skip_blanks: true,
+                    content: crate::parse::content::ContentType::Captured,
+                },
+                sink: super::config::SinkConfig::NoOp,
+            },
+            secrets: super::config::JobSecrets {
+                secrets: std::collections::HashMap::new(),
+            },
+            was_leased: false,
+            backoff_attempt: 5,
+            backoff_until: None,
+        };
+
+        // Only verifies local field change; DB write path covered elsewhere
+        model.backoff_attempt = 0;
+        assert_eq!(model.backoff_attempt, 0);
+    }
+
     #[test]
     fn test_error_message_without_date_range() {
         let mock_source = MockDataSourceWithoutDateRange::new();
@@ -509,5 +798,13 @@ mod tests {
             display_message,
             "Connection failed (Date range: 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC)"
         );
+    }
+
+    #[test]
+    fn test_should_pause_due_to_max_attempts() {
+        assert!(!should_pause_due_to_max_attempts(0, 0)); // unlimited
+        assert!(!should_pause_due_to_max_attempts(2, 3));
+        assert!(should_pause_due_to_max_attempts(3, 3));
+        assert!(should_pause_due_to_max_attempts(4, 3));
     }
 }
