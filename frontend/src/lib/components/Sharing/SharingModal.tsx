@@ -167,6 +167,7 @@ export function SharingModalContent({
                                             bordered
                                             fullWidth
                                             tooltip={disabledReason}
+                                            loading={sharingConfigurationLoading}
                                         />
                                     </>
                                 )}
