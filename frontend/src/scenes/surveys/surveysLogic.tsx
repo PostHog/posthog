@@ -15,12 +15,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import type { surveysLogicType } from './surveysLogicType'
 
@@ -403,12 +402,6 @@ export const surveysLogic = kea<surveysLogicType>([
                     path: urls.surveys(),
                 },
             ],
-        ],
-        emptyStateFeatureFlag: [
-            (s) => [s.enabledFlags],
-            (enabledFlags: FeatureFlagsSet) => {
-                return !!enabledFlags[FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2]
-            },
         ],
         surveysStylingAvailable: [
             (s) => [s.hasAvailableFeature],

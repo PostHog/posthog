@@ -614,3 +614,8 @@ export enum SURVEY_CREATED_SOURCE {
     SURVEY_FORM = 'survey_form',
     SURVEY_EMPTY_STATE = 'survey_empty_state',
 }
+
+export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {
+    TEST = 'test', // new experience
+    CONTROL = 'control', // current state
+}

@@ -13,7 +13,12 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ProductKey, SidePanelTab } from '~/types'
-import { defaultSurveyTemplates, SURVEY_CREATED_SOURCE, SurveyTemplateType } from '../../constants'
+import {
+    defaultSurveyTemplates,
+    SURVEY_CREATED_SOURCE,
+    SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT,
+    SurveyTemplateType,
+} from '../../constants'
 import { surveysLogic } from '../../surveysLogic'
 import { TemplateCard } from '../../SurveyTemplates'
 
@@ -48,7 +53,10 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
 
     return (
         <>
-            <FlaggedFeature flag={FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2} match="test">
+            <FlaggedFeature
+                flag={FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2}
+                match={SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT.TEST}
+            >
                 <div className="border-2 border-dashed border-primary w-full p-4 rounded">
                     <div className="flex items-center justify-center">
                         <div className="space-y-6">
@@ -131,7 +139,10 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                     </div>
                 </div>
             </FlaggedFeature>
-            <FlaggedFeature flag={FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2} match="control">
+            <FlaggedFeature
+                flag={FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2}
+                match={SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT.CONTROL}
+            >
                 <ProductIntroduction
                     productName="Surveys"
                     thingName="survey"

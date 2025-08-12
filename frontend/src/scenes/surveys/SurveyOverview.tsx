@@ -1,10 +1,16 @@
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 import { FirstSurveyHelper } from 'scenes/surveys/components/empty-state/FirstSurveyHelper'
-import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import {
+    SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT,
+    SURVEY_TYPE_LABEL_MAP,
+    SurveyQuestionLabel,
+} from 'scenes/surveys/constants'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
@@ -60,7 +66,12 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
 
     return (
         <div className="flex flex-col gap-8">
-            <FirstSurveyHelper onTabChange={onTabChange} />
+            <FlaggedFeature
+                flag={FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2}
+                match={SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT.TEST}
+            >
+                <FirstSurveyHelper onTabChange={onTabChange} />
+            </FlaggedFeature>
             <div className="flex gap-4">
                 <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
                     <SurveyOption label="Display mode">
