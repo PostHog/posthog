@@ -263,6 +263,7 @@ export function ExperimentMetricForm({
                                                   event: metric.numerator.event,
                                                   math: metric.numerator.math,
                                                   math_property: metric.numerator.math_property,
+                                                  math_hogql: metric.numerator.math_hogql,
                                                   properties: metric.numerator.properties,
                                               },
                                           ]
@@ -280,6 +281,7 @@ export function ExperimentMetricForm({
                                                 name: filters.events[0].name,
                                                 math: filters.events[0].math,
                                                 math_property: filters.events[0].math_property,
+                                                math_hogql: filters.events[0].math_hogql,
                                                 properties: filters.events[0].properties,
                                             },
                                         })
@@ -314,6 +316,7 @@ export function ExperimentMetricForm({
                                                   event: metric.denominator.event,
                                                   math: metric.denominator.math,
                                                   math_property: metric.denominator.math_property,
+                                                  math_hogql: metric.denominator.math_hogql,
                                                   properties: metric.denominator.properties,
                                               },
                                           ]
@@ -331,6 +334,7 @@ export function ExperimentMetricForm({
                                                 name: filters.events[0].name,
                                                 math: filters.events[0].math,
                                                 math_property: filters.events[0].math_property,
+                                                math_hogql: filters.events[0].math_hogql,
                                                 properties: filters.events[0].properties,
                                             },
                                         })
