@@ -1,12 +1,13 @@
 import json
 from typing import Any, cast
+import dill
 from unittest.mock import patch
 import pytest
 from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.database import Database, create_hogql_database, serialize_database
 from posthog.hogql.database.models import (
     FieldTraverser,
     LazyJoin,
@@ -14,6 +15,7 @@ from posthog.hogql.database.models import (
     ExpressionField,
     Table,
 )
+from posthog.hogql.database.join_functions import LazyJoinClosureSerialConfig
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -1017,3 +1019,40 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_serialize_database_for_cache(self):
+        # serializes a database using dill
+
+        db = create_hogql_database(team=self.team)
+
+        # Kludge: hacky way to check if LazyJoinClosureSerialConfig is used during serialization
+        with patch(
+            "posthog.hogql.database.models.LazyJoinClosureSerialConfig",
+            wraps=LazyJoinClosureSerialConfig,
+        ) as Wrapped:
+            serialized = dill.dumps(db)
+            assert Wrapped.called, "Expected LazyJoinClosureSerialConfig to be instantiated during dill serialization"
+
+        deseralized = dill.loads(serialized)
+        assert isinstance(deseralized, Database)
+
+        original_schema = serialize_database(HogQLContext(team_id=self.team.pk, database=db))
+        deserialized_schema = serialize_database(HogQLContext(team_id=self.team.pk, database=deseralized))
+
+        assert {k: v.model_dump() for k, v in original_schema.items()} == {
+            k: v.model_dump() for k, v in deserialized_schema.items()
+        }
+
+        # resolve a lazy table to make sure join function works
+        expr = parse_select("select event, pdi.person_id from events")
+        query = print_ast(
+            expr,
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(),
+            ),
+            "clickhouse",
+        )
+        assert pretty_print_in_tests(query, self.team.pk) == self.snapshot
