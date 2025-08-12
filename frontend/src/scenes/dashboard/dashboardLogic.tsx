@@ -1229,8 +1229,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dataColorThemeId, s.getTheme],
             (dataColorThemeId, getTheme): DataColorTheme | null => getTheme(dataColorThemeId),
         ],
-        // NOTE: noCache is used to prevent the dashboard from using cached results from previous loads when url variables override
-        noCache: [(s) => [s.urlVariables], (urlVariables) => Object.keys(urlVariables).length > 0],
         maxContext: [
             (s) => [s.dashboard],
             (dashboard): MaxContextInput[] => {
