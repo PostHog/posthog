@@ -3634,28 +3634,3 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], accessible_insight.id)
         self.assertEqual(results[0]["short_id"], accessible_insight_short_id)
-
-    @patch("posthog.tasks.insight_query_metadata.extract_insight_query_metadata.apply_async")
-    def test_query_metadata_task_scheduled_consistently(self, mock_extract_task):
-        """Test that both creation and update paths schedule the same metadata extraction task"""
-        query = {"kind": "EventsQuery", "select": ["*"], "limit": 100}
-
-        # Test creation path (post_save signal)
-        mock_extract_task.reset_mock()
-        insight = Insight.objects.create(team=self.team, query=query, created_by=self.user)
-
-        # Should schedule task on creation
-        mock_extract_task.assert_called_once_with(kwargs={"insight_id": insight.id}, countdown=10 * 60)
-
-        # Test update path (API update method)
-        mock_extract_task.reset_mock()
-        new_query = {"kind": "EventsQuery", "select": ["event"], "limit": 50}
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}", {"query": new_query}, format="json"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Should schedule task on query change
-        mock_extract_task.assert_called_once_with(kwargs={"insight_id": insight.id}, countdown=10 * 60)

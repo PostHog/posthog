@@ -15,11 +15,9 @@ UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 
 @dataclass
 class SlackMessageData:
-    """Data structure for Slack message with thread messages."""
-
     channel: str
     blocks: list[dict[str, Any]]
-    title: str  # This becomes the 'text' parameter in chat_postMessage
+    title: str
     thread_messages: list[dict[str, Any]] = field(default_factory=list)
 
 
