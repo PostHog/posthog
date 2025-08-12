@@ -137,13 +137,13 @@ export function ExperimentMetricForm({
             value: ExperimentMetricType.FUNNEL,
             label: 'Funnel',
             description:
-                'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
+                'Calculates the percentage of users exposed to the experiment who completed the funnel. Useful for measuring conversion rates.',
         },
         {
             value: ExperimentMetricType.MEAN,
             label: 'Mean',
             description:
-                'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
+                'Calculates the value per user exposed to the experiment. Useful for measuring count of clicks, revenue or other numeric values.',
         },
         ...(isRatioMetricEnabled
             ? [
@@ -151,7 +151,8 @@ export function ExperimentMetricForm({
                       value: ExperimentMetricType.RATIO,
                       label: 'Ratio',
                       description:
-                          'Calculates the ratio between two metrics, useful for measuring average order value, etc.',
+                          'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.' +
+                          'For example to measure average order value where the denominator is number of orders rather than users exposed to the experiment.',
                   },
               ]
             : []),
