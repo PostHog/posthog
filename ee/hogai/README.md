@@ -58,11 +58,25 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
 3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
+4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
+
+   ```tsx
+   export const TOOL_DEFINITIONS: ... = {
+       // ... existing tools ...
+       your_tool_name: {
+           name: 'Do something',
+           description: 'Do something to blah blah',
+           product: Scene.YourProduct, // or null for the rare global tool
+           flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
+       },
+   }
+   ```
+
 For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
 
 ### Mounting
 
-1. Use the `MaxTool` component to wrap UI elements that can benefit from AI assistance:
+Use the `MaxTool` component to wrap UI elements that can benefit from AI assistance:
 
 ```tsx
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -91,6 +105,8 @@ function YourComponent() {
     )
 }
 ```
+
+When a tool is mounted, it automatically gets shown as available in the scene UI and Max itself, using `TOOL_DEFINITIONS` metadata to help the user understand the capability.
 
 For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed.tsx`, which mounts the `search_session_recordings` tool.
 
