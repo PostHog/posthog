@@ -65,7 +65,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
         revenue_item_view = views.get(RevenueAnalyticsRevenueItemView)
 
         # Only proceed for those where we have customer/revenue_item pairs
-        if customer_view is None or revenue_item_view is None:  # type: ignore
+        if customer_view is None or revenue_item_view is None:
             continue
 
         # If we're working with event views, we can use the person_id field directly
