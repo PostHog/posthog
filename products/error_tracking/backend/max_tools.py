@@ -123,14 +123,16 @@ class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def issue_impact_query_runner(self, events: list[str]) -> str:
-        return ErrorTrackingIssueCorrelationQueryRunner(
+    def issue_impact_query_runner(self, events: list[str]) -> ErrorTrackingIssueImpactToolOutput:
+        result = ErrorTrackingIssueCorrelationQueryRunner(
             query=ErrorTrackingIssueCorrelationQuery(kind="ErrorTrackingIssueCorrelationQuery", events=events),
             team=self._team,
             # timings=timings,
             # modifiers=modifiers,
             # limit_context=limit_context,
-        )
+        ).run()
+
+        return ErrorTrackingIssueImpactToolOutput(issues=result)
 
     def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
         if tool_name == "issue_impact_query_runner_tool":
@@ -192,14 +194,12 @@ class ErrorTrackingIssueImpactTool(MaxTool):
     description: str = "Find error tracking issues that are impacting the occurrence of your events."
     thinking_message: str = "Finding impactful issues..."
     root_system_prompt_template: str = "The user is wants to find issues impacting the event."
-    args_schema: type[BaseModel] = UpdateIssueQueryArgs
+    args_schema: type[BaseModel] = IssueImpactQueryArgs
 
-    async def _run_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
+    async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
         graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
 
-        change = f"""
-Goal: {instructions}
-"""
+        change = f"""Goal: {instructions}"""
 
         graph_context = {
             "change": change,

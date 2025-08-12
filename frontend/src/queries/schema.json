@@ -9833,9 +9833,9 @@
         "ErrorTrackingIssueCorrelationQuery": {
             "additionalProperties": false,
             "properties": {
-                "events": {
+                "issues": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/ErrorTrackingIssue"
                     },
                     "type": "array"
                 },
@@ -9858,7 +9858,7 @@
                     "type": "number"
                 }
             },
-            "required": ["events", "kind"],
+            "required": ["issues", "kind"],
             "type": "object"
         },
         "ErrorTrackingIssueCorrelationQueryResponse": {
@@ -9981,14 +9981,14 @@
         "ErrorTrackingIssueImpactToolOutput": {
             "additionalProperties": false,
             "properties": {
-                "events": {
+                "issues": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/ErrorTrackingIssue"
                     },
                     "type": "array"
                 }
             },
-            "required": ["events"],
+            "required": ["issues"],
             "type": "object"
         },
         "ErrorTrackingQuery": {

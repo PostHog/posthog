@@ -2070,7 +2070,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
     kind: NodeKind.ErrorTrackingIssueCorrelationQuery
-    events: string[]
+    issues: ErrorTrackingIssue[]
 }
 
 export interface ErrorTrackingIssueCorrelationQueryResponse
@@ -2091,7 +2091,7 @@ export interface ErrorTrackingIssueFilteringToolOutput
     filterTestAccounts?: boolean
 }
 
-export interface ErrorTrackingIssueImpactToolOutput extends Pick<ErrorTrackingIssueCorrelationQuery, 'events'> {}
+export interface ErrorTrackingIssueImpactToolOutput extends Pick<ErrorTrackingIssueCorrelationQuery, 'issues'> {}
 
 export interface ErrorTrackingIssueAssignee {
     type: 'user' | 'role'

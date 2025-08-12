@@ -1077,13 +1077,6 @@ class Status2(StrEnum):
     ALL = "all"
 
 
-class ErrorTrackingIssueImpactToolOutput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    events: list[str]
-
-
 class Status4(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -7825,6 +7818,13 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
     status: Optional[Status2] = None
 
 
+class ErrorTrackingIssueImpactToolOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issues: list[ErrorTrackingIssue]
+
+
 class ErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11886,7 +11886,7 @@ class ErrorTrackingIssueCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    events: list[str]
+    issues: list[ErrorTrackingIssue]
     kind: Literal["ErrorTrackingIssueCorrelationQuery"] = "ErrorTrackingIssueCorrelationQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
