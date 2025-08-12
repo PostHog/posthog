@@ -33,6 +33,8 @@ import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writ
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { PostgresDualWritePersonRepository } from '../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
+import { PostgresRouter } from '../utils/db/postgres'
+import { PostgresDualWritePersonRepository } from '../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -231,6 +233,9 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping deduplication redis`)
         await this.deduplicationRedis.destroy()
         logger.info('👍', `${this.name} - stopped!`)
+        /* NICKS TODO: understand if i need to stop the migration postgres router
+        await this.migrationPostgresRouter?.end()
+        */
     }
 
     public isHealthy(): boolean {
