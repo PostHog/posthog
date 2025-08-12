@@ -1,8 +1,10 @@
 import { PoolClient } from 'pg'
-import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
-import { instrumentQuery } from '../metrics'
-import { logger } from '../logger'
+
 import { twoPhaseCommitFailuresCounter } from '~/worker/ingestion/persons/metrics'
+
+import { logger } from '../logger'
+import { instrumentQuery } from '../metrics'
+import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 
 // NICKS TODO: this will need at least two changes:
 // 1. add a metric for the number of 2PCs that fail
@@ -17,28 +19,27 @@ export type TwoPhaseSides = {
 export class TwoPhaseCommitCoordinator {
     constructor(private sides: TwoPhaseSides) {}
 
-    // NICKS TODO: we should decide what and how to set this GID
     private makeGid(tag: string): string {
         const ts = Date.now()
         const rand = Math.random().toString(36).slice(2, 10)
 
         // GID must <= 200 chars; terse and unique
         return `dualwrite:${tag}:${ts}:${rand}`
-
     }
 
-    async run<T>(
-        tag: string,
-        fn: (leftTx: TransactionClient, rightTx: TransactionClient) => Promise<T>
-    ): Promise<T> {
+    async run<T>(tag: string, fn: (leftTx: TransactionClient, rightTx: TransactionClient) => Promise<T>): Promise<T> {
+        // GID is unique across DBs but has as shared root
+        // this is so that the global id supports running 2PCs across two databases
+        // on the same cluster/machine
+        // the transaction id would clash if we used the exact same id
         const gidRoot = this.makeGid(tag)
         const gidLeft = `${gidRoot}:left`
         const gidRight = `${gidRoot}:right`
         const gidLeftLiteral = `'${gidLeft.replace(/'/g, "''")}'`
         const gidRightLiteral = `'${gidRight.replace(/'/g, "''")}'`
-        const {left, right} = this.sides
+        const { left, right } = this.sides
 
-        return await instrumentQuery('query.dualwrite_spc', tag, async() => {
+        return await instrumentQuery('query.dualwrite_spc', tag, async () => {
             let lClient: PoolClient | undefined
             let rClient: PoolClient | undefined
             let preparedLeft = false
@@ -83,7 +84,12 @@ export class TwoPhaseCommitCoordinator {
                     throw e
                 }
                 try {
-                    await right.router.query(right.use, `COMMIT PREPARED ${gidRightLiteral}`, [], `2pc-commit-right:${tag}`)
+                    await right.router.query(
+                        right.use,
+                        `COMMIT PREPARED ${gidRightLiteral}`,
+                        [],
+                        `2pc-commit-right:${tag}`
+                    )
                 } catch (e) {
                     twoPhaseCommitFailuresCounter.labels(tag, 'commit_right_failed').inc()
                     throw e
@@ -91,10 +97,15 @@ export class TwoPhaseCommitCoordinator {
 
                 return result
             } catch (error) {
-                try{
+                try {
                     if (preparedLeft) {
                         try {
-                            await left.router.query(left.use, `ROLLBACK PREPARED ${gidLeftLiteral}`, [], `2pc-rollback-left:${tag}`)
+                            await left.router.query(
+                                left.use,
+                                `ROLLBACK PREPARED ${gidLeftLiteral}`,
+                                [],
+                                `2pc-rollback-left:${tag}`
+                            )
                         } catch (e) {
                             twoPhaseCommitFailuresCounter.labels(tag, 'rollback_left_failed').inc()
                             throw e
@@ -108,7 +119,12 @@ export class TwoPhaseCommitCoordinator {
                 try {
                     if (preparedRight) {
                         try {
-                            await right.router.query(right.use, `ROLLBACK PREPARED ${gidRightLiteral}`, [], `2pc-rollback-right:${tag}`)
+                            await right.router.query(
+                                right.use,
+                                `ROLLBACK PREPARED ${gidRightLiteral}`,
+                                [],
+                                `2pc-rollback-right:${tag}`
+                            )
                         } catch (e) {
                             twoPhaseCommitFailuresCounter.labels(tag, 'rollback_right_failed').inc()
                             throw e

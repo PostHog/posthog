@@ -32,8 +32,6 @@ import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-b
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
-import { PostgresRouter } from '../utils/db/postgres'
-import { PostgresDualWritePersonRepository } from '../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -157,8 +155,6 @@ export class IngestionConsumer {
         this.personStore = new BatchWritingPersonsStore(
             new PostgresPersonRepository(this.hub.db.postgres, {
                 calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-                personPropertiesDbConstraintLimitBytes: this.hub.PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES,
-                personPropertiesTrimTargetBytes: this.hub.PERSON_PROPERTIES_TRIM_TARGET_BYTES,
             }),
             this.hub.db.kafkaProducer,
             {
@@ -167,7 +163,7 @@ export class IngestionConsumer {
                 maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
                 optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             }
-       )
+        )
 
         this.groupStore = new BatchWritingGroupStore(this.hub, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -227,9 +223,6 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping deduplication redis`)
         await this.deduplicationRedis.destroy()
         logger.info('👍', `${this.name} - stopped!`)
-        /* NICKS TODO: understand if i need to stop the migration postgres router
-        await this.migrationPostgresRouter?.end()
-        */
     }
 
     public isHealthy(): boolean {

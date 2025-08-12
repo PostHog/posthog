@@ -1,4 +1,4 @@
--- Persons DB schema fro tests (secondary DB used by dual-write)
+-- Persons DB schema for test harness with secondary DB (secondary DB used by dual-write)
 -- Minimal compatible DDL for PostgresPersonRepository operations for testing
 
 CREATE TABLE IF NOT EXISTS posthog_person (
@@ -42,7 +42,6 @@ CREATE TABLE IF NOT EXISTS posthog_personlessdistinctid (
     PRIMARY KEY (team_id, distinct_id)
 );
 
--- NICKS TODO: remove a bunch of these to find out what is actually needed in this file
 -- Cohort membership by person (only person_id is touched by repo)
 CREATE TABLE IF NOT EXISTS posthog_cohortpeople (
     id BIGSERIAL PRIMARY KEY,
