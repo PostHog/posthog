@@ -141,7 +141,7 @@ def query_cache_use_s3(team: Team, user: Optional["User"] = None) -> bool:
                 "id": str(team.id),
             },
         },
-        only_evaluate_locally=True,
+        only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
 

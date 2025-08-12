@@ -57,11 +57,8 @@ class QueryCacheManagerBase(ABC):
         }
         if limit is not None:
             kwargs.update({"start": 0, "num": limit})
-            
-        insights = redis.get_client().zrevrangebyscore(
-            f"cache_timestamps:{team_id}",
-            **kwargs
-        )
+
+        insights = redis.get_client().zrevrangebyscore(f"cache_timestamps:{team_id}", **kwargs)
         return [insight.decode("utf-8") for insight in insights]
 
     @staticmethod
