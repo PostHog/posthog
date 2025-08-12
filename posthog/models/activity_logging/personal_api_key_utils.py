@@ -17,6 +17,8 @@ class PersonalAPIKeyContext(ActivityContextBase):
     user_id: Optional[int] = None
     user_email: Optional[str] = None
     user_name: Optional[str] = None
+    organization_name: Optional[str] = None
+    team_name: Optional[str] = None
 
 
 def calculate_access_set(api_key: PersonalAPIKey) -> set[LogScope]:
@@ -173,25 +175,40 @@ def log_personal_api_key_scope_change(
         org_id = log_entry["organization_id"]
         team_id = log_entry["team_id"]
 
-        if team_id is None:
-            if after_api_key.user.current_team and str(after_api_key.user.current_team.organization_id) == org_id:
-                team_id = after_api_key.user.current_team.id
-            else:
-                team = Team.objects.filter(organization_id=org_id).first()
-                if team:
-                    team_id = team.id
+        log_activity(
+            organization_id=uuid.UUID(org_id),
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=after_api_key.id,
+            scope="PersonalAPIKey",
+            activity=log_entry["activity"],
+            detail=detail_data,
+        )
 
-        if team_id is not None:
-            log_activity(
-                organization_id=uuid.UUID(org_id),
-                team_id=team_id,
-                user=user,
-                was_impersonated=was_impersonated,
-                item_id=after_api_key.id,
-                scope="PersonalAPIKey",
-                activity=log_entry["activity"],
-                detail=detail_data,
-            )
+
+def get_organization_name(org_id: str) -> str:
+    """Get organization name from ID, with fallback."""
+    try:
+        from posthog.models.organization import Organization
+
+        organization = Organization.objects.filter(id=org_id).first()
+        if organization:
+            return organization.name
+    except Exception:
+        pass
+    return "Unknown Organization"
+
+
+def get_team_name(team_id: int) -> str:
+    """Get team name from ID, with fallback."""
+    try:
+        team = Team.objects.filter(id=team_id).first()
+        if team:
+            return team.name
+    except Exception:
+        pass
+    return "Unknown Project"
 
 
 def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, was_impersonated: bool, changes=None):
@@ -226,6 +243,8 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
                         user_id=api_key.user_id,
                         user_email=api_key.user.email,
                         user_name=api_key.user.get_full_name(),
+                        organization_name=get_organization_name(org_id),
+                        team_name=get_team_name(team_id),
                     ),
                 ),
             )

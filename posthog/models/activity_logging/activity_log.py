@@ -415,6 +415,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "value",
         "secure_value",
         "last_used_at",
+        "last_rolled_at",
     ],
     "User": [
         "password",

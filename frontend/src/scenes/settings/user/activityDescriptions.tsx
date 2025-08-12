@@ -12,12 +12,23 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return { description: null }
     }
 
+    const getScopeDescription = (): string => {
+        const context = logItem.detail.context
+        if (context?.team_name) {
+            return context.team_name
+        }
+        if (context?.organization_name) {
+            return context.organization_name
+        }
+        return 'Unknown scope'
+    }
+
     if (logItem.activity === 'created') {
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created personal API key{' '}
-                    <strong>{logItem.detail.name}</strong>
+                    <strong>{userNameForLogItem(logItem)}</strong> created a <strong>personal API key</strong> for{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -27,36 +38,22 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> revoked access for personal API key{' '}
-                    <strong>{logItem.detail.name}</strong>
+                    <strong>{userNameForLogItem(logItem)}</strong> revoked access for <strong>personal API key</strong>{' '}
+                    to <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
     }
 
     if (logItem.activity === 'updated') {
-        const nameChangeDescription = logItem.detail.changes?.find((change) => change.field === 'label')
-
-        if (nameChangeDescription) {
-            return {
-                description: (
-                    <>
-                        <strong>{userNameForLogItem(logItem)}</strong> renamed personal API key from{' '}
-                        <strong>{nameChangeDescription.before}</strong> to{' '}
-                        <strong>{nameChangeDescription.after}</strong>
-                    </>
-                ),
-            }
-        }
-
-        const rolledChangeDescription = logItem.detail.changes?.find((change) => change.field === 'last_rolled_at')
+        const rolledChangeDescription = logItem.detail.changes?.find((change) => change.field === 'mask_value')
 
         if (rolledChangeDescription) {
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> rolled personal API key{' '}
-                        <strong>{logItem.detail.name}</strong>
+                        <strong>{userNameForLogItem(logItem)}</strong> rolled <strong>personal API key</strong> for{' '}
+                        <strong>{getScopeDescription()}</strong>
                     </>
                 ),
             }
@@ -65,8 +62,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated personal API key{' '}
-                    <strong>{logItem.detail.name}</strong>
+                    <strong>{userNameForLogItem(logItem)}</strong> updated <strong>personal API key</strong> for{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -76,8 +73,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted personal API key{' '}
-                    <strong>{logItem.detail.name}</strong>
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted <strong>personal API key</strong> for access
+                    to <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }

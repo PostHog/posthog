@@ -7,8 +7,6 @@ from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 
 class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
-    databases = {"default", "replica"}
-
     def test_personal_api_key_creation_activity_logging(self):
         api_key = self.create_personal_api_key(label="Test API Key")
         api_key_id = api_key["id"]
@@ -35,6 +33,8 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         context = detail["context"]
         self.assertEqual(context["user_id"], self.user.id)
         self.assertEqual(context["user_email"], self.user.email)
+        self.assertEqual(context["organization_name"], self.organization.name)
+        self.assertEqual(context["team_name"], self.team.name)
 
     def test_personal_api_key_update_activity_logging(self):
         api_key = self.create_personal_api_key(label="Original API Key")
@@ -214,13 +214,14 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
 
 
 class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
-    databases = {"default", "replica"}
-
     def _create_api_key(self, scoped_teams=None, scoped_organizations=None, label="Test Key"):
         api_key = MagicMock()
         api_key.scoped_teams = scoped_teams or []
         api_key.scoped_organizations = scoped_organizations or []
-        api_key.user = self.user
+        # Create a mock user instead of using the real test user
+        mock_user = MagicMock()
+        mock_user.id = 999
+        api_key.user = mock_user
         api_key.label = label
         return api_key
 
@@ -310,8 +311,9 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
         teams = self._create_mock_teams()
 
         with patch.object(Team.objects, "filter", side_effect=self._mock_team_filter(teams)):
+            # Patch UserPermissions where it's imported in personal_api_key_utils
             with patch(
-                "posthog.user_permissions.UserPermissions",
+                "posthog.models.activity_logging.personal_api_key_utils.UserPermissions",
                 side_effect=self._mock_user_permissions(["org-a", "org-b", "org-c"]),
             ):
                 before = self._create_api_key()
@@ -326,7 +328,7 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
 
         with patch.object(Team.objects, "filter", side_effect=self._mock_team_filter(teams)):
             with patch(
-                "posthog.user_permissions.UserPermissions",
+                "posthog.models.activity_logging.personal_api_key_utils.UserPermissions",
                 side_effect=self._mock_user_permissions(["org-a", "org-b", "org-c"]),
             ):
                 before = self._create_api_key()
@@ -342,7 +344,7 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
 
         with patch.object(Team.objects, "filter", side_effect=self._mock_team_filter(teams)):
             with patch(
-                "posthog.user_permissions.UserPermissions",
+                "posthog.models.activity_logging.personal_api_key_utils.UserPermissions",
                 side_effect=self._mock_user_permissions(["org-a", "org-b", "org-c"]),
             ):
                 before = self._create_api_key(scoped_organizations=["org-a", "org-b"])
@@ -380,7 +382,7 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
 
         with patch.object(Team.objects, "filter", side_effect=self._mock_team_filter(teams)):
             with patch(
-                "posthog.user_permissions.UserPermissions",
+                "posthog.models.activity_logging.personal_api_key_utils.UserPermissions",
                 side_effect=self._mock_user_permissions(["org-a", "org-b", "org-c"]),
             ):
                 before = self._create_api_key(scoped_teams=[1, 3])
@@ -420,7 +422,7 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
 
         with patch.object(Team.objects, "filter", side_effect=self._mock_team_filter(teams)):
             with patch(
-                "posthog.user_permissions.UserPermissions",
+                "posthog.models.activity_logging.personal_api_key_utils.UserPermissions",
                 side_effect=self._mock_user_permissions(["org-a", "org-b", "org-c"]),
             ):
                 before = self._create_api_key()
@@ -499,7 +501,7 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
 
         with patch.object(Team.objects, "filter", side_effect=self._mock_team_filter(teams)):
             with patch(
-                "posthog.user_permissions.UserPermissions",
+                "posthog.models.activity_logging.personal_api_key_utils.UserPermissions",
                 side_effect=self._mock_user_permissions(["org-a", "org-b", "org-c"]),
             ):
                 before = self._create_api_key(scoped_teams=[1, 3])
