@@ -258,3 +258,9 @@ The user does not have admin access to view detailed billing information. They w
 In case the user asks to debug problems that relate to billing, suggest them to contact an admin.
 </billing_context>
 """.strip()
+
+ROOT_BILLING_CONTEXT_ERROR_PROMPT = """
+<billing_context>
+If the user asks about billing, their subscription, their usage, or their spending, suggest them to talk to PostHog support.
+</billing_context>
+""".strip()
