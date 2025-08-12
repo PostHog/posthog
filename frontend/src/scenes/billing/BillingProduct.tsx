@@ -387,10 +387,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <BillingGauge
                                                         items={
                                                             [
-                                                                mobileReplay.free_allocation && {
+                                                                ((mobileReplay.tiers?.[0]?.unit_amount_usd === '0'
+                                                                    ? mobileReplay.tiers?.[0]?.up_to
+                                                                    : 0) || 0) > 0 && {
                                                                     type: BillingGaugeItemKind.FreeTier,
                                                                     text: 'Free tier limit',
-                                                                    value: mobileReplay.free_allocation,
+                                                                    value:
+                                                                        mobileReplay.tiers?.[0]?.unit_amount_usd === '0'
+                                                                            ? mobileReplay.tiers?.[0]?.up_to || 0
+                                                                            : 0,
                                                                 },
                                                                 mobileReplay.projected_usage &&
                                                                     mobileReplay.projected_usage >
