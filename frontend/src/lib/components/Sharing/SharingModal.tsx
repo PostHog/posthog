@@ -140,6 +140,7 @@ export function SharingModalContent({
                             disabled={!sharingAllowed}
                             bordered
                             fullWidth
+                            loading={sharingConfigurationLoading}
                         />
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (

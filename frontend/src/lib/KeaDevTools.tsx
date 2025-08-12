@@ -42,7 +42,7 @@ function displayName(logic: BuiltLogic): string {
     const hasKey = typeof logic.key !== 'undefined'
 
     if (hasKey && parts.length >= 2) {
-        const keyStr = String(logic.key)
+        const keyStr = String((logic as any).key)
         const keyIndex = parts.lastIndexOf(keyStr)
         if (keyIndex > 0) {
             const name = parts[keyIndex - 1]
@@ -55,10 +55,10 @@ function displayName(logic: BuiltLogic): string {
 
 /** size metric → used for a subtle tint & node size */
 function logicSize(logic: BuiltLogic): number {
-    const c = Math.max(0, Object.keys(logic.connections || {}).length - 1)
-    const a = Object.keys(logic.actions || {}).length
-    const s = Object.keys(logic.selectors || {}).length
-    const v = Object.keys(logic.values || {}).length
+    const c = Math.max(0, Object.keys((logic as any).connections || {}).length - 1)
+    const a = Object.keys((logic as any).actions || {}).length
+    const s = Object.keys((logic as any).selectors || {}).length
+    const v = Object.keys((logic as any).values || {}).length
     return c + a + s + v
 }
 
@@ -95,8 +95,8 @@ const linkChip: React.CSSProperties = {
 /* ---------- right side: sections ---------- */
 
 function Connections({ logic, onOpen }: { logic: BuiltLogic; onOpen: (path: string) => void }): JSX.Element | null {
-    const keys = Object.keys(logic.connections || {})
-        .filter((k) => k !== logic.pathString)
+    const keys = Object.keys((logic as any).connections || {})
+        .filter((k) => k !== (logic as any).pathString)
         .sort((a, b) => a.localeCompare(b))
     if (!keys.length) {
         return null
@@ -123,10 +123,10 @@ function ReverseConnections({
     mounted: MountedMap
     onOpen: (path: string) => void
 }): JSX.Element | null {
-    const me = logic.pathString
+    const me = (logic as any).pathString
     const incoming = useMemo(() => {
         return Object.keys(mounted)
-            .filter((k) => mounted[k]?.connections && mounted[k].connections[me] && k !== me)
+            .filter((k) => (mounted[k] as any)?.connections && (mounted[k] as any).connections[me] && k !== me)
             .sort((a, b) => a.localeCompare(b))
     }, [mounted, me])
 
@@ -134,7 +134,7 @@ function ReverseConnections({
         return null
     }
     return (
-        <Section title="Reverse connections" count={incoming.length}>
+        <Section title="Logics that depend on this logic" count={incoming.length}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {incoming.map((k) => (
                     <button key={k} type="button" onClick={() => onOpen(k)} style={linkChip}>
@@ -147,7 +147,7 @@ function ReverseConnections({
 }
 
 function ActionsList({ logic }: { logic: BuiltLogic }): JSX.Element | null {
-    const keys = Object.keys(logic.actions || {}).sort((a, b) => a.localeCompare(b))
+    const keys = Object.keys((logic as any).actions || {}).sort((a, b) => a.localeCompare(b))
     if (!keys.length) {
         return null
     }
@@ -159,7 +159,7 @@ function ActionsList({ logic }: { logic: BuiltLogic }): JSX.Element | null {
                 return
             }
             const args = raw.trim() === '' ? [] : (JSON.parse(raw) as any[])
-            const fn = (logic.actions as Record<string, (...a: any[]) => void>)[name]
+            const fn = ((logic as any).actions as Record<string, (...a: any[]) => void>)[name]
             fn(...args)
         } catch (e: any) {
             window.alert(`Failed to dispatch: ${e?.message ?? e}`)
@@ -187,7 +187,10 @@ function ActionsList({ logic }: { logic: BuiltLogic }): JSX.Element | null {
 
 function Values({ logic }: { logic: BuiltLogic }): JSX.Element | null {
     useStoreTick() // keep fresh
-    const keys = useMemo(() => Object.keys(logic.values || {}).sort((a, b) => a.localeCompare(b)), [logic.values])
+    const keys = useMemo(
+        () => Object.keys((logic as any).values || {}).sort((a, b) => a.localeCompare(b)),
+        [(logic as any).values]
+    )
     if (!keys.length) {
         return null
     }
@@ -209,7 +212,7 @@ function Values({ logic }: { logic: BuiltLogic }): JSX.Element | null {
                         <textarea
                             readOnly
                             rows={1}
-                            value={compactJSON((logic.values as Record<string, unknown>)[k])}
+                            value={compactJSON(((logic as any).values as Record<string, unknown>)[k])}
                             style={{
                                 width: '100%',
                                 height: 28, // single line; user can resize
@@ -224,6 +227,58 @@ function Values({ logic }: { logic: BuiltLogic }): JSX.Element | null {
                 ))}
             </div>
         </Section>
+    )
+}
+
+/* ---------- Key + Props summary ---------- */
+
+function KeyAndProps({ logic }: { logic: BuiltLogic }): JSX.Element {
+    const keyVal = (logic as any).key
+    const propsVal = (logic as any).props
+    return (
+        <div
+            style={{
+                display: 'grid',
+                gridTemplateColumns: 'max-content 1fr',
+                columnGap: 12,
+                rowGap: 6,
+                alignItems: 'center',
+                marginBottom: 8,
+            }}
+        >
+            <div style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Key</div>
+            <textarea
+                readOnly
+                rows={1}
+                value={compactJSON(keyVal)}
+                style={{
+                    width: '100%',
+                    height: 28,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    resize: 'vertical',
+                    border: '1px solid rgba(0,0,0,0.12)',
+                    borderRadius: 6,
+                    padding: '4px 6px',
+                    background: '#fafafa',
+                }}
+            />
+            <div style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Props</div>
+            <textarea
+                readOnly
+                rows={4}
+                value={compactJSON(propsVal)}
+                style={{
+                    width: '100%',
+                    height: 84,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    resize: 'vertical',
+                    border: '1px solid rgba(0,0,0,0.12)',
+                    borderRadius: 6,
+                    padding: '4px 6px',
+                    background: '#fafafa',
+                }}
+            />
+        </div>
     )
 }
 
@@ -242,7 +297,15 @@ type Node = {
 type Link = { source: string; target: string } // directed for highlights
 type Undirected = { a: string; b: string } // for layout
 
-function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: string) => void }): JSX.Element {
+function GraphTab({
+    mounted,
+    onOpen,
+    highlightId,
+}: {
+    mounted: MountedMap
+    onOpen: (path: string) => void
+    highlightId?: string | null
+}): JSX.Element {
     const width = 2400
     const height = 1500
 
@@ -258,7 +321,7 @@ function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: str
         const inAdj = new Map<string, Set<string>>(keys.map((k) => [k, new Set<string>()]))
 
         for (const a of keys) {
-            for (const b of Object.keys(mounted[a]?.connections || {})) {
+            for (const b of Object.keys((mounted[a] as any)?.connections || {})) {
                 if (!mounted[b] || a === b) {
                     continue
                 }
@@ -304,9 +367,12 @@ function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: str
     const CHARGE = (2600 + 300 * avgDeg) * SPREAD * SPREAD
     const DAMPING = 0.9
     const CENTER_PULL = 0.0015
-    const COLLISION_PAD = 6
+    const COLLISION_PAD = 12
 
     // simulation
+    const [searchOutNeighbors, setSearchOutNeighbors] = useState<Set<string>>(new Set())
+    const [searchInNeighbors, setSearchInNeighbors] = useState<Set<string>>(new Set())
+    const [searchHighlights, setSearchHighlights] = useState<Set<string>>(new Set())
     const [simRunning, setSimRunning] = useState(true)
     const nodesRef = useRef<Node[]>(nodes)
     const undirectedRef = useRef<Undirected[]>(undirected)
@@ -366,18 +432,23 @@ function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: str
                         b.vy -= ry
                     }
 
+                    // hard non-overlap
                     const minD = a.size + b.size + COLLISION_PAD
                     if (dist < minD) {
-                        const push = ((minD - dist) / minD) * 0.6
-                        const cx = (dx / (dist || 1)) * push,
-                            cy = (dy / (dist || 1)) * push
+                        const overlap = minD - dist
+                        const nx = dx / (dist || 1),
+                            ny = dy / (dist || 1)
                         if (!a.fixed) {
-                            a.x += cx
-                            a.y += cy
+                            a.x += (overlap / 2) * nx
+                            a.y += (overlap / 2) * ny
+                            a.vx = 0
+                            a.vy = 0
                         }
                         if (!b.fixed) {
-                            b.x -= cx
-                            b.y -= cy
+                            b.x -= (overlap / 2) * nx
+                            b.y -= (overlap / 2) * ny
+                            b.vx = 0
+                            b.vy = 0
                         }
                     }
                 }
@@ -520,15 +591,81 @@ function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: str
         setSimRunning(true)
     }
 
-    // hover state
+    // hover + highlighting state
     const [hoveredId, setHoveredId] = useState<string | null>(null)
     const outNeighbors = hoveredId ? (outAdj.get(hoveredId) ?? new Set<string>()) : new Set<string>()
     const inNeighbors = hoveredId ? (inAdj.get(hoveredId) ?? new Set<string>()) : new Set<string>()
     const bothNeighbors = new Set<string>([...outNeighbors].filter((x) => inNeighbors.has(x)))
 
+    // apply external highlight (from "Show on graph")
+    useEffect(() => {
+        if (highlightId) {
+            setHoveredId(highlightId)
+            // Optional: nudge rendering
+            bump()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [highlightId])
+
+    // graph search
+    const [search, setSearch] = useState('')
+    useEffect(() => {
+        const term = search.trim().toLowerCase()
+        if (!term) {
+            setSearchHighlights(new Set())
+            setSearchOutNeighbors(new Set())
+            setSearchInNeighbors(new Set())
+            return
+        }
+
+        // match only by the label shown on the graph (displayName)
+        const matches = new Set<string>()
+        for (const n of nodesRef.current) {
+            const nameL = n.name.toLowerCase()
+            if (nameL.includes(term)) {
+                matches.add(n.id)
+            }
+        }
+        setSearchHighlights(matches)
+
+        // if we're not hovering, also highlight dependencies (green/red) of all matches
+        if (!hoveredId && matches.size) {
+            const out = new Set<string>()
+            const inc = new Set<string>()
+            for (const id of matches) {
+                for (const t of outAdj.get(id) ?? new Set<string>()) {
+                    out.add(t)
+                } // match -> target (green)
+                for (const s of inAdj.get(id) ?? new Set<string>()) {
+                    inc.add(s)
+                } // source -> match (red)
+            }
+            setSearchOutNeighbors(out)
+            setSearchInNeighbors(inc)
+        } else {
+            setSearchOutNeighbors(new Set())
+            setSearchInNeighbors(new Set())
+        }
+    }, [search, hoveredId, outAdj, inAdj])
     const fillFor = (id: string): string => {
         if (id === hoveredId) {
             return '#FACC15'
+        }
+        if (!hoveredId) {
+            if (searchHighlights.has(id)) {
+                return '#FACC15'
+            }
+            const out = searchOutNeighbors.has(id)
+            const inc = searchInNeighbors.has(id)
+            if (out && inc) {
+                return '#14B8A6'
+            } // both directions
+            if (out) {
+                return 'rgba(34,197,94,0.9)'
+            } // depends-on (green)
+            if (inc) {
+                return 'rgba(249,115,22,0.95)'
+            } // depended-by (red/orange)
         }
         if (bothNeighbors.has(id)) {
             return '#14B8A6'
@@ -542,11 +679,21 @@ function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: str
         return `rgba(99, 102, 241, 0.28)`
     }
     const labelWeight = (id: string): number =>
-        id === hoveredId || outNeighbors.has(id) || inNeighbors.has(id) ? 700 : 400
-    const labelOpacity = (id: string): number =>
-        hoveredId && !(id === hoveredId || outNeighbors.has(id) || inNeighbors.has(id)) && !inNeighbors.has(id)
-            ? 0.25
-            : 1
+        id === hoveredId ||
+        searchHighlights.has(id) ||
+        (!hoveredId && (searchOutNeighbors.has(id) || searchInNeighbors.has(id))) ||
+        outNeighbors.has(id) ||
+        inNeighbors.has(id)
+            ? 700
+            : 400
+
+    const labelOpacity = (id: string): number => {
+        if (hoveredId) {
+            return id === hoveredId || outNeighbors.has(id) || inNeighbors.has(id) ? 1 : 0.25
+        }
+        const isEmphasized = searchHighlights.has(id) || searchOutNeighbors.has(id) || searchInNeighbors.has(id)
+        return isEmphasized ? 1 : 0.25
+    }
 
     return (
         <div style={{ flex: 1, minHeight: 0, background: '#fff', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
@@ -565,7 +712,14 @@ function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: str
                 >
                     Reset view
                 </button>
-                <div style={{ color: 'rgba(0,0,0,0.55)', fontSize: 12 }}>
+                <input
+                    type="search"
+                    placeholder="Search graph…"
+                    value={search || ''}
+                    onChange={(e) => setSearch(e.target.value)}
+                    style={{ ...inputStyle, maxWidth: 300 }}
+                />
+                <div style={{ marginLeft: 'auto', color: 'rgba(0,0,0,0.55)', fontSize: 12 }}>
                     Short names • Drag nodes • Scroll to zoom • Drag background to pan
                 </div>
             </div>
@@ -684,7 +838,7 @@ function GraphTab({ mounted, onOpen }: { mounted: MountedMap; onOpen: (path: str
 
 /* ---------- main component ---------- */
 
-export default function KeaDevtools({
+export function KeaDevtools({
     defaultOpen = false,
     buttonSize = 56,
     offset = 16,
@@ -702,8 +856,11 @@ export default function KeaDevtools({
     const [paused, setPaused] = useState(false)
     const dispatchPatched = useRef(false)
 
+    // highlight for graph ("Show on graph")
+    const [graphHighlight, setGraphHighlight] = useState<string | null>(null)
+
     const { mount, store } = getContext() as KeaContext
-    const mounted = (mount?.mounted ?? {}) as MountedMap
+    const mounted = ((mount as any)?.mounted ?? {}) as MountedMap
 
     // collect actions
     useEffect(() => {
@@ -875,7 +1032,7 @@ export default function KeaDevtools({
                                         <input
                                             type="search"
                                             placeholder="Search logics…"
-                                            value={query}
+                                            value={query || ''}
                                             onChange={(e) => setQuery(e.target.value)}
                                             style={inputStyle}
                                         />
@@ -945,12 +1102,31 @@ export default function KeaDevtools({
                                         >
                                             <div
                                                 style={{
-                                                    fontWeight: 800,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 8,
                                                     marginBottom: 6,
                                                 }}
                                             >
-                                                {selectedLogic.pathString}
+                                                <div style={{ fontWeight: 800 }}>
+                                                    {(selectedLogic as any).pathString}
+                                                </div>
+                                                <div style={{ marginLeft: 'auto' }} />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setGraphHighlight((selectedLogic as any).pathString)
+                                                        setActiveTab('graph')
+                                                    }}
+                                                    style={simpleBtnStyle}
+                                                >
+                                                    Show on graph
+                                                </button>
                                             </div>
+
+                                            {/* Key + Props */}
+                                            <KeyAndProps logic={selectedLogic} />
+
                                             <Connections
                                                 logic={selectedLogic}
                                                 onOpen={(path) => setSelectedKey(path)}
@@ -976,7 +1152,11 @@ export default function KeaDevtools({
                                 onClear={() => setActions([])}
                             />
                         ) : (
-                            <GraphTab mounted={mounted} onOpen={(path) => setSelectedKey(path)} />
+                            <GraphTab
+                                mounted={mounted}
+                                onOpen={(path) => setSelectedKey(path)}
+                                highlightId={graphHighlight ?? undefined}
+                            />
                         )}
                     </div>
                 </div>
@@ -1017,7 +1197,7 @@ function ActionsTab({
                 <input
                     type="search"
                     placeholder="Filter actions…"
-                    value={q}
+                    value={q || ''}
                     onChange={(e) => setQ(e.target.value)}
                     style={inputStyle}
                 />

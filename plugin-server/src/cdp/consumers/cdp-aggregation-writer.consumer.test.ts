@@ -358,6 +358,44 @@ describe('CdpAggregationWriterConsumer', () => {
             expect(personResult.rows).toHaveLength(0)
         })
 
+        it('should clean null bytes and control characters that cause PostgreSQL errors', async () => {
+            const personId = '550e8400-e29b-41d4-a716-446655440002'
+
+            // Real-world example that caused "invalid byte sequence for encoding UTF8: 0x00"
+            const personEvents: PersonEventPayload[] = [
+                {
+                    type: 'person-performed-event',
+                    personId,
+                    eventName: 'OpenApp\x00\x00\x00\x00\x04>-', // Contains null bytes like in the error
+                    teamId: team.id,
+                },
+                {
+                    type: 'person-performed-event',
+                    personId,
+                    eventName: 'event\x13with\x00control\x01chars', // Mix of control characters
+                    teamId: team.id,
+                },
+            ]
+
+            // Should NOT throw PostgreSQL protocol error
+            await expect(processor['writeToPostgres'](personEvents, [])).resolves.not.toThrow()
+
+            // Verify events were written with cleaned names
+            const result = await hub.postgres.query(
+                PostgresUse.COUNTERS_RW,
+                'SELECT event_name FROM person_performed_events WHERE team_id = $1 AND person_id = $2 ORDER BY event_name',
+                [team.id, personId],
+                'test-read-cleaned-events'
+            )
+
+            expect(result.rows).toHaveLength(2)
+            // sanitizeString replaces null bytes with � (replacement character)
+            // Control character \x04 remains, null bytes become �
+            expect(result.rows[0].event_name).toBe('OpenApp����\x04>-')
+            // Control characters \x13 and \x01 remain, null byte becomes �
+            expect(result.rows[1].event_name).toBe('event\x13with�control\x01chars')
+        })
+
         it('should handle special characters that could cause PostgreSQL protocol errors', async () => {
             // These special characters previously caused "invalid message format" errors
             const validPersonId1 = '550e8400-e29b-41d4-a716-446655440002'
