@@ -5,6 +5,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Comment
 from posthog.models.utils import uuid7
 from posthog.schema import PropertyOperator
@@ -21,6 +22,8 @@ from posthog.test.base import (
 class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
     def setUp(self):
         super().setUp()
+
+        sync_execute("TRUNCATE TABLE sharded_session_replay_events")
 
         session_no_comment = str(uuid7())
         session_with_needle = "session_with_needle"
@@ -124,18 +127,6 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
                 PropertyOperator.EXACT,
                 ["session_with_bug"],
             ),
-            (
-                "empty text succeeds exact match",
-                "",
-                PropertyOperator.EXACT,
-                [],
-            ),
-            (
-                "empty text succeeds contains match",
-                "",
-                PropertyOperator.ICONTAINS,
-                [],
-            ),
         ]
     )
     def test_comment_text_filtering(
@@ -145,6 +136,16 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
 
         actual_session_ids = [recording["id"] for recording in response_data["results"]]
         assert set(actual_session_ids) == set(expected_session_ids)
+
+    def test_empty_comment_text_does_no_filtering(self) -> None:
+        """
+        When comment text is empty, it should not filter out any recordings.
+        It's considered an incomplete filter and ignored
+        """
+        response_data = self._list_recordings_by_comment("", PropertyOperator.ICONTAINS)
+
+        actual_session_ids = [recording["id"] for recording in response_data["results"]]
+        assert len(actual_session_ids) > 0, "Expected some recordings to be returned when comment text is empty"
 
     def _list_recordings_by_comment(self, search_text: str, operator: str) -> dict:
         response = self.client.get(

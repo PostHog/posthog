@@ -137,7 +137,12 @@ def _get_session_ids_from_comment_search(
     an empty list means "no session can possibly match"
     whereas None means "comment text does not restrict this search"
     """
-    if not comment_filter or comment_filter.value is None or comment_filter.value == "":
+    if not comment_filter:
+        return None
+
+    if comment_filter.operator is not PropertyOperator.IS_SET and (
+        comment_filter.value is None or comment_filter.value == ""
+    ):
         return None
 
     base_query = Comment.objects.filter(
