@@ -67,7 +67,11 @@ export const BillingProductPricingTable = ({
         'addons' in product
             ? product.addons?.filter(
                   (addon: BillingProductV2AddonType) =>
-                      addon.tiers && addon.tiers?.length > 0 && (addon.subscribed || addon.inclusion_only)
+                      addon.tiers &&
+                      addon.tiers?.length > 0 &&
+                      (addon.subscribed || addon.inclusion_only) &&
+                      // Exclude mobile replay when showing as variants
+                      !(isSessionReplayWithAddons && addon.type === 'mobile_replay')
               )
             : []
 
