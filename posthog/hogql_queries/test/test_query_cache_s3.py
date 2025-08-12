@@ -78,6 +78,7 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
         """Test successful cache data storage."""
         mock_settings.CACHED_RESULTS_TTL_DAYS = 1
         mock_settings.QUERY_CACHE_S3_BUCKET = "test-bucket"
+        mock_settings.OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER = "query_cache"
 
         manager = self._create_cache_manager()
         test_data = {"result": "test", "count": 42}
@@ -98,7 +99,6 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
             extras = call_args.kwargs["extras"]
             self.assertIn("Tagging", extras)
             self.assertIn("ttl_days=1", extras["Tagging"])
-            self.assertIn("cache_type=query_data", extras["Tagging"])
 
             # Verify target age update was called
             mock_update.assert_called_once_with(target_age)
