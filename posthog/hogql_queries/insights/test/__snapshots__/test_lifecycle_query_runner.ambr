@@ -11,7 +11,6 @@
 # ---
 # name: TestLifecycleQueryRunner.test_cohort_filter.1
   '''
-  /* cohort_calculation: */
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status

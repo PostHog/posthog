@@ -98,6 +98,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
         trace_id=inputs.trace_id,
         session_id=inputs.session_id,
         mode=inputs.mode,
+        billing_context=inputs.billing_context,
     )
 
     stream_key = get_conversation_stream_key(inputs.conversation_id)
