@@ -817,12 +817,18 @@ class PremiumMultiProjectPermission(BasePermission):
             if organization.teams.filter(is_demo=True).count() > 0:
                 return False
 
+        MAX_ALLOWED_PROJECTS_PER_ORG = 1000
+
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
         projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+
         if projects_feature:
             allowed_project_count = projects_feature.get("limit")
             # If allowed_project_count is None then the user is allowed unlimited projects
             if allowed_project_count is None:
+                # We have a hard limit of 1000 projects per organization
+                if current_non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG:
+                    return False
                 return True
             # Check current limit against allowed limit
             if current_non_demo_project_count >= allowed_project_count:
