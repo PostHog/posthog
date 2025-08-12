@@ -104,7 +104,7 @@ def join_function(
 def join_function_for_experiments(
     source_table_key: str,
     joining_table_key: str,
-    joining_table_name_chain: list[str | int],
+    joining_table_name: str,
     configuration: dict[str, Any],
 ):
     def _join_function_for_experiments(
@@ -112,7 +112,7 @@ def join_function_for_experiments(
         context: HogQLContext,
         node: SelectQuery,
     ):
-        if joining_table_name_chain != "events":
+        if joining_table_name != "events":
             raise ResolutionError("experiments_optimized is only supported for events table")
 
         if not configuration.get("experiments_optimized"):

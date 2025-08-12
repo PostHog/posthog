@@ -775,7 +775,7 @@ def create_hogql_database(
                             join_function_for_experiments,
                             join.source_table_key,
                             join.joining_table_key,
-                            join.joining_table_name_chain,
+                            join.joining_table_name,
                             join.configuration,
                         )
                         if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
