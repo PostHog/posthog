@@ -124,6 +124,18 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
                 PropertyOperator.EXACT,
                 ["session_with_bug"],
             ),
+            (
+                "empty text succeeds exact match",
+                "",
+                PropertyOperator.EXACT,
+                [],
+            ),
+            (
+                "empty text succeeds contains match",
+                "",
+                PropertyOperator.ICONTAINS,
+                [],
+            ),
         ]
     )
     def test_comment_text_filtering(
