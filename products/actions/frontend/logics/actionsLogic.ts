@@ -2,7 +2,7 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
-
+import { subscriptions } from 'kea-subscriptions'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, Breadcrumb } from '~/types'
 import { Scene } from 'scenes/sceneTypes'
@@ -21,7 +21,7 @@ export const actionsFuse = new Fuse<ActionType>([], {
 })
 
 export const actionsLogic = kea<actionsLogicType>([
-    path(['products', 'actions', 'frontend', 'logics', 'actionsLogic']),
+    path(['products', 'actions', 'actionsLogic']),
     connect(() => ({
         values: [
             actionsModel({ params: 'include_count=1' }),
@@ -54,7 +54,7 @@ export const actionsLogic = kea<actionsLogicType>([
     selectors({
         actionsFiltered: [
             (s) => [s.actions, s.filterType, s.searchTerm, s.user],
-            (actions: ActionType[], filterType: ActionsFilterType, searchTerm: string, user: any) => {
+            (actions, filterType, searchTerm, user) => {
                 let data: ActionType[] = actions
                 if (searchTerm) {
                     data = actionsFuse.search(searchTerm).map((result) => result.item)
@@ -88,5 +88,10 @@ export const actionsLogic = kea<actionsLogicType>([
                 ]
             },
         ],
+    }),
+    subscriptions({
+        actions: (actions) => {
+            actionsFuse.setCollection(actions)
+        },
     }),
 ])
