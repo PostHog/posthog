@@ -101,6 +101,8 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+
+    // if the metric already is a ratio metric, we want to show the option regardless of the feature state
     const isRatioMetricEnabled =
         useFeatureFlag('EXPERIMENTS_RATIO_METRIC') || metric.metric_type == ExperimentMetricType.RATIO
 
