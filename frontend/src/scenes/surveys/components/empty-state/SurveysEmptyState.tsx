@@ -13,9 +13,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ProductKey, SidePanelTab } from '~/types'
-import { defaultSurveyTemplates, SURVEY_CREATED_SOURCE, SurveyTemplateType } from '../constants'
-import { surveysLogic } from '../surveysLogic'
-import { TemplateCard } from '../SurveyTemplates'
+import { defaultSurveyTemplates, SURVEY_CREATED_SOURCE, SurveyTemplateType } from '../../constants'
+import { surveysLogic } from '../../surveysLogic'
+import { TemplateCard } from '../../SurveyTemplates'
 
 interface Props {
     numOfSurveys: number
