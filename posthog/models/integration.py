@@ -1022,16 +1022,13 @@ class GitHubIntegration:
         if not github_app_private_key.strip().startswith("-----BEGIN"):
             raise ValidationError("GITHUB_APP_PRIVATE_KEY is not in proper PEM format. It should start with -----BEGIN")
 
-        logger.info(f"GITHUB_APP_CLIENT_ID: {github_app_client_id}")
-        logger.info(f"GITHUB_APP_PRIVATE_KEY length: {len(github_app_private_key)}")
-        logger.info(f"GITHUB_APP_PRIVATE_KEY starts with: {github_app_private_key[:50]}...")
 
         try:
             jwt_token = jwt.encode(
                 {
                     "iat": int(time.time()) - 300,  # 5 minutes in the past
                     "exp": int(time.time()) + 300,  # 5 minutes in the future
-                    "iss": settings.GITHUB_APP_CLIENT_ID,
+                    "iss": github_app_client_id,
                 },
                 github_app_private_key,
                 algorithm="RS256",

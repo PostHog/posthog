@@ -4,8 +4,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from .models import Task, TaskProgress
+from typing import cast
 from .serializers import TaskSerializer
 from .temporal.client import execute_task_processing_workflow
 import logging
@@ -13,10 +14,26 @@ import logging
 
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TaskSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    required_scopes = ["task:read"]
-    scope_object = "task"
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    # Scope and object used by APIScopePermission. Use either an existing object name or INTERNAL to bypass access-level mapping.
+    required_scopes = ["INTERNAL"]
+    scope_object = "INTERNAL"
     queryset = Task.objects.all()
+    # Require the 'tasks' PostHog feature flag for all actions
+    posthog_feature_flag = {
+        "tasks": [
+            "list",
+            "retrieve",
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+            "update_status",
+            "update_position",
+            "progress",
+            "progress_stream",
+        ]
+    }
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team).order_by("position")
@@ -37,7 +54,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger = logging.getLogger(__name__)
 
         # Get the current task state before update
-        task = serializer.instance
+        task = cast(Task, serializer.instance)
         previous_status = task.status
 
         logger.info(f"perform_update called for task {task.id} with validated_data: {serializer.validated_data}")
@@ -54,7 +71,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 logger.info(f"Attempting to trigger workflow for task {task.id}")
                 execute_task_processing_workflow(
                     task_id=str(task.id),
-                    team_id=task.team_id,
+                    team_id=task.team.id,
                     previous_status=previous_status,
                     new_status=new_status,
                     user_id=getattr(self.request.user, "id", None),
@@ -76,7 +93,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         logger.info(f"update_status called for task {pk} with data: {request.data}")
 
-        task = self.get_object()
+        task = cast(Task, self.get_object())
         new_status = request.data.get("status")
 
         logger.info(f"Task {task.id}: current_status={task.status}, new_status={new_status}")
@@ -93,7 +110,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 logger.info(f"Attempting to trigger workflow for task {task.id}")
                 execute_task_processing_workflow(
                     task_id=str(task.id),
-                    team_id=task.team_id,
+                    team_id=task.team.id,
                     previous_status=previous_status,
                     new_status=new_status,
                     user_id=getattr(request.user, "id", None),

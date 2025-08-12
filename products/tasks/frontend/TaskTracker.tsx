@@ -6,6 +6,10 @@ import { BacklogView } from './components/BacklogView'
 import { KanbanView } from './components/KanbanView'
 import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
 import { userLogic } from 'scenes/userLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { NotFound } from 'lib/components/NotFound'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: TaskTracker,
@@ -16,6 +20,13 @@ export function TaskTracker(): JSX.Element {
     const { activeTab } = useValues(taskTrackerLogic)
     const { setActiveTab } = useActions(taskTrackerLogic)
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isEnabled = featureFlags[FEATURE_FLAGS.TASKS]
+
+    if (!isEnabled) {
+        return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
+    }
 
     const tabs = [
         {
