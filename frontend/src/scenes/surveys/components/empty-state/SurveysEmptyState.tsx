@@ -131,7 +131,6 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                     </div>
                 </div>
             </FlaggedFeature>
-
             <FlaggedFeature flag={FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2} match="control">
                 <ProductIntroduction
                     productName="Surveys"
