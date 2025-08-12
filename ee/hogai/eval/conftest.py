@@ -54,7 +54,7 @@ async def MaxEval(
         is_public=True,
         metadata=metadata,
     )
-    if os.getenv("GITHUB_EVENT_NAME") == "pull_request" or os.getenv("RESTORE_EVALS_SNAPSHOTS"):
+    if os.getenv("EXPORT_EVAL_RESULTS"):
         with open("eval_results.jsonl", "a") as f:
             f.write(result.summary.as_json() + "\n")
     return result
@@ -62,6 +62,11 @@ async def MaxEval(
 
 _nodeid_to_results_url_map: dict[str, str] = {}
 """Map of test nodeid (file + test name) to Braintrust results URL."""
+
+
+@pytest.fixture(scope="package")
+def setup_evals(django_db_setup):  # noqa: F811
+    yield
 
 
 @pytest.fixture(autouse=True)

@@ -1,17 +1,21 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
+from itertools import islice
 from tempfile import TemporaryFile
-from collections.abc import Iterable, Iterator
 from typing import TypeVar
-from collections.abc import Callable
-from posthog.errors import InternalCHQueryError
+
 import botocore.exceptions
 import dagster
 from dagster_aws.s3 import S3Resource
 from django.conf import settings
 from fastavro import parse_schema, writer
 from pydantic_avro import AvroBase
-from tenacity import retry, retry_if_exception_type, wait_exponential, stop_after_attempt
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from dags.common import JobOwners
 from dags.max_ai.utils import compose_clickhouse_dump_path, compose_postgres_dump_path
@@ -26,13 +30,22 @@ from ee.hogai.eval.schema import (
     TeamSchema,
     TeamTaxonomyItemSchema,
 )
-from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.errors import InternalCHQueryError
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import (
+    ActorsPropertyTaxonomyQueryRunner,
+)
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import (
+    EventTaxonomyQueryRunner,
+)
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.models import GroupTypeMapping, Team
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import ActorsPropertyTaxonomyQuery, EventTaxonomyQuery, TeamTaxonomyItem, TeamTaxonomyQuery
-from itertools import islice
+from posthog.schema import (
+    ActorsPropertyTaxonomyQuery,
+    EventTaxonomyQuery,
+    TeamTaxonomyItem,
+    TeamTaxonomyQuery,
+)
 
 
 def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
@@ -287,3 +300,6 @@ def snapshot_clickhouse_project_data(
     )
 
     return materialized_result
+
+
+# TODO: timeout, retries and max parallelization, wait for ch and psql3

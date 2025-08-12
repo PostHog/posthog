@@ -1,7 +1,7 @@
 set -e
 export DEBUG=1
 export IN_EVAL_TESTING=1
-export RESTORE_EVALS_SNAPSHOTS=1
+export EXPORT_EVAL_RESULTS=1
 
 cleanup() {
     echo "🧹 Cleaning up..."
@@ -12,7 +12,10 @@ trap cleanup EXIT INT TERM
 echo "127.0.0.1 kafka clickhouse objectstorage db" >> /etc/hosts
 
 echo "🚀 Starting services..."
-docker compose -f docker-compose.dev.yml -p evals up -d db clickhouse
+docker compose -f docker-compose.dev.yml -p evals up -d db clickhouse objectstorage
+
+echo "🔄 Waiting for services to start..."
+bin/check_postgres_up & bin/check_kafka_clickhouse_up
 
 echo "🏃 Running evaluation..."
 $EVAL_SCRIPT

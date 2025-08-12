@@ -76,6 +76,10 @@ OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
+PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
+AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "")
+AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "")
+BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
 MAILJET_PUBLIC_KEY = get_from_env("MAILJET_PUBLIC_KEY", "", type_cast=str)
 MAILJET_SECRET_KEY = get_from_env("MAILJET_SECRET_KEY", "", type_cast=str)
@@ -104,6 +108,3 @@ SALESFORCE_SECURITY_TOKEN = get_from_env("SF_SECURITY_TOKEN", "", type_cast=str)
 # Harmonic API credentials
 HARMONIC_API_KEY = get_from_env("HARMONIC_API_KEY", "", type_cast=str)
 HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai", type_cast=str)
-
-# Evaluations
-RESTORE_EVALS_SNAPSHOTS = get_from_env("RESTORE_EVALS_SNAPSHOTS", False, type_cast=str_to_bool)

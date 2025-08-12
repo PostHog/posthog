@@ -1,24 +1,23 @@
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Sequence
-from typing import Generic, Self, TypeVar
+from typing import Any, Generic, Self, TypeVar
 
 from django.db.models import Model
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_avro import AvroBase
 
-from posthog.models import DataWarehouseTable, GroupTypeMapping, PropertyDefinition, Team
-from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
-
-
-class EvalsDockerImageConfig(BaseModel):
-    class Config:
-        extra = "allow"
-
-    bucket_name: str
-    endpoint_url: str
-    project_snapshots: list["ProjectSnapshot"]
-
+from posthog.models import (
+    DataWarehouseTable,
+    GroupTypeMapping,
+    PropertyDefinition,
+    Team,
+)
+from posthog.schema import (
+    ActorsPropertyTaxonomyResponse,
+    EventTaxonomyItem,
+    TeamTaxonomyItem,
+)
 
 T = TypeVar("T", bound=Model)
 
@@ -174,3 +173,36 @@ class ProjectSnapshot(BaseModel):
     project: int
     postgres: PostgresProjectDataSnapshot
     clickhouse: ClickhouseProjectDataSnapshot
+
+
+class DatasetInput(BaseModel):
+    project_id: int
+    input: dict[str, Any]
+    expected: dict[str, Any]
+    metadata: dict[str, Any] | None = Field(default_factory=dict)
+
+
+class EvalsDockerImageConfig(BaseModel):
+    class Config:
+        extra = "allow"
+
+    aws_bucket_name: str
+    """
+    AWS S3 bucket name for the raw snapshots for all projects.
+    """
+    aws_endpoint_url: str
+    """
+    AWS S3 endpoint URL for the raw snapshots for all projects.
+    """
+    project_snapshots: list[ProjectSnapshot]
+    """
+    Raw snapshots for all projects.
+    """
+    experiment_name: str
+    """
+    Name of the experiment.
+    """
+    dataset: list[DatasetInput]
+    """
+    Parsed dataset.
+    """

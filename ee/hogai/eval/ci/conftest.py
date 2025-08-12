@@ -5,13 +5,13 @@ import pytest
 from django.test import override_settings
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+
+# We want the PostHog setup_evals fixture here
+from ee.hogai.eval.conftest import setup_evals  # noqa: F401
 from ee.hogai.eval.scorers import PlanAndQueryOutput
 from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation, CoreMemory
-
-# We want the PostHog django_db_setup fixture here
-from posthog.conftest import django_db_setup  # noqa: F401
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Organization, Team, User
 from posthog.schema import FailureMessage, HumanMessage, VisualizationMessage
@@ -88,7 +88,7 @@ def call_root_for_insight_generation(demo_org_team_user):
 
 
 @pytest.fixture(scope="package")
-def demo_org_team_user(django_db_setup, django_db_blocker) -> Generator[tuple[Organization, Team, User], None, None]:  # noqa: F811
+def demo_org_team_user(setup_evals, django_db_blocker) -> Generator[tuple[Organization, Team, User], None, None]:  # noqa: F811
     with django_db_blocker.unblock():
         team = Team.objects.order_by("-created_at").first()
         today = datetime.date.today()
