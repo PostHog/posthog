@@ -125,7 +125,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     def save(self, *args, **kwargs) -> None:
         # generate query metadata if needed
-        if not self.id or self.query != self._original_query or self.query_metadata is None:
+        if self._state.adding or self.query != self._original_query or self.query_metadata is None:
             try:
                 self.generate_query_metadata()
                 if "update_fields" in kwargs:
