@@ -812,8 +812,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.setTabs(newTabs)
             }
             // When the title changes, trigger a history REPLACE event to persist the new title in the browser
-            const { currentLocation } = router.values
-            router.actions.replace(currentLocation.pathname, currentLocation.search, currentLocation.hash)
+            router.actions.refreshRouterState()
         },
         tabs: () => {
             const { tabIds } = values
