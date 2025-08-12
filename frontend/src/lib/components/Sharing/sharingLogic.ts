@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { AvailableFeature, InsightShortId, SharingConfigurationType } from '~/types'
+import { AvailableFeature, InsightShortId, OrganizationType, SharingConfigurationType } from '~/types'
 
 import type { sharingLogicType } from './sharingLogicType'
 
@@ -142,7 +142,7 @@ export const sharingLogic = kea<sharingLogicType>([
 
         sharingAllowed: [
             () => [organizationLogic.selectors.currentOrganization],
-            (currentOrganization) => currentOrganization?.allow_publicly_shared_resources ?? true,
+            (currentOrganization: OrganizationType) => currentOrganization?.allow_publicly_shared_resources ?? true,
         ],
 
         params: [
