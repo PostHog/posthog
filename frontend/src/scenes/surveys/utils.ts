@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
+import { NewSurvey } from 'scenes/surveys/constants'
 import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -350,6 +351,61 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
 export function isSurveyRunning(survey: Survey): boolean {
     return !!(survey.start_date && !survey.end_date)
+}
+
+export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
+    if (!survey.conditions) {
+        return false
+    }
+
+    const conditions = survey.conditions
+
+    // check string fields
+    if (conditions.url?.trim()) {
+        return true
+    }
+
+    if (conditions.selector?.trim()) {
+        return true
+    }
+
+    if (conditions.linkedFlagVariant?.trim()) {
+        return true
+    }
+
+    // check numeric fields
+    if (conditions.seenSurveyWaitPeriodInDays !== undefined && conditions.seenSurveyWaitPeriodInDays !== null) {
+        return true
+    }
+
+    // check array fields
+    if (conditions.deviceTypes && conditions.deviceTypes.length > 0) {
+        return true
+    }
+
+    // check enum fields
+    if (conditions.urlMatchType !== undefined && conditions.urlMatchType !== null) {
+        return true
+    }
+
+    if (conditions.deviceTypesMatchType !== undefined && conditions.deviceTypesMatchType !== null) {
+        return true
+    }
+
+    // check complex object fields
+    if (conditions.actions && conditions.actions.values && conditions.actions.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events && conditions.events.values && conditions.events.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events?.repeatedActivation !== undefined && conditions.events.repeatedActivation !== null) {
+        return true
+    }
+
+    return false
 }
 
 export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { doesSurveyHaveDisplayConditions } from 'scenes/surveys/utils'
 import { SurveyType } from '~/types'
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
@@ -24,7 +25,11 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                     title: 'Launch this survey?',
                     content: (
                         <div className="text-sm text-secondary">
-                            The survey will immediately start displaying to users matching the display conditions.
+                            The survey will immediately start displaying to{' '}
+                            {doesSurveyHaveDisplayConditions(survey)
+                                ? 'users matching the display conditions'
+                                : 'all your users'}
+                            .
                         </div>
                     ),
                     primaryButton: {
