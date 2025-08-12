@@ -7,6 +7,7 @@ import { Meta, StoryFn } from '@storybook/react'
 
 import { HedgehogModeStatic } from './HedgehogModeStatic'
 import { MinimalHedgehogConfig } from '~/types'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 const meta: Meta<typeof HedgehogModeStatic> = {
     title: 'Components/HedgehogMode',
@@ -43,7 +44,7 @@ let allCombinations = Object.values(HedgehogActorAccessoryOptions).flatMap((acce
                 accessories: [accessory],
                 color,
                 skin,
-                use_as_profile: false,
+                use_as_profile: true,
             })
         )
     )
@@ -52,11 +53,21 @@ let allCombinations = Object.values(HedgehogActorAccessoryOptions).flatMap((acce
 // Deterministically shuffle the array
 allCombinations = deterministicShuffle(allCombinations, 42)
 
-export const Customization: StoryFn = () => {
+export const StaticHedgehog: StoryFn = () => {
     return (
         <div className="flex flex-wrap gap-2 w-[100rem]">
             {allCombinations.map((x, i) => (
                 <HedgehogModeStatic key={i} config={x} />
+            ))}
+        </div>
+    )
+}
+
+export const ProfilePictureHog: StoryFn = () => {
+    return (
+        <div className="flex flex-wrap gap-2 w-[100rem]">
+            {allCombinations.map((x, i) => (
+                <ProfilePicture key={i} user={{ hedgehog_config: x }} />
             ))}
         </div>
     )

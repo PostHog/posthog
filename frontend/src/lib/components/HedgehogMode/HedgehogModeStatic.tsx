@@ -1,20 +1,59 @@
 import { StaticHedgehogRenderer } from '@posthog/hedgehog-mode'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
+import { Semaphore } from './utils/sempahore'
 
 export type HedgehogModeStaticProps = {
     size?: number | string
     config: HedgehogConfig | MinimalHedgehogConfig
+    direction?: 'left' | 'right'
 }
 
 const staticHedgehogRenderer = new StaticHedgehogRenderer({
     assetsUrl: '/static/hedgehog-mode/',
 })
 
+const renderSemaphore = new Semaphore(10)
+const CACHE = new Map<string, Promise<string | null>>()
+
+const renderHedgehog = (
+    skin: HedgehogConfig['actor_options']['skin'],
+    accessories: HedgehogConfig['actor_options']['accessories'],
+    color: HedgehogConfig['actor_options']['color']
+): Promise<string | null> => {
+    const key = JSON.stringify({ skin, accessories, color })
+    if (!CACHE.has(key)) {
+        const promise = renderSemaphore.run(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            return staticHedgehogRenderer
+                .render({
+                    id: JSON.stringify({
+                        skin,
+                        accessories: accessories,
+                        color: color,
+                    }),
+                    skin,
+                    accessories,
+                    color,
+                })
+                .then((src) => src)
+                .catch((e) => {
+                    console.error('Error rendering hedgehog', e)
+                    return null
+                })
+        })
+
+        CACHE.set(key, promise)
+    }
+
+    return CACHE.get(key)!
+}
+
 // Takes a range of options and renders a static hedgehog
-export function HedgehogModeStatic({ config, size }: HedgehogModeStaticProps): JSX.Element | null {
+export function HedgehogModeStatic({ config, size, direction = 'left' }: HedgehogModeStaticProps): JSX.Element | null {
     const imgSize = size ?? 60
     const [dataUrl, setDataUrl] = useState<string | null>(null)
 
@@ -27,24 +66,15 @@ export function HedgehogModeStatic({ config, size }: HedgehogModeStaticProps): J
     }, [config])
 
     useEffect(() => {
-        void staticHedgehogRenderer
-            .render({
-                id: JSON.stringify({
-                    skin,
-                    accessories: accessories,
-                    color: color,
-                }),
-                skin,
-                accessories,
-                color,
-            })
-            .then((src) => setDataUrl(src))
-            .catch((e) => console.error('Error rendering hedgehog', e))
+        void renderHedgehog(skin, accessories, color).then((src) => setDataUrl(src))
     }, [skin, accessories, color])
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className="relative" style={{ width: imgSize, height: imgSize }}>
+        <div
+            className={clsx('relative', direction === 'left' && '-scale-x-100')}
+            style={{ width: imgSize, height: imgSize }}
+        >
             {dataUrl ? (
                 <img src={dataUrl} width={imgSize} height={imgSize} />
             ) : (

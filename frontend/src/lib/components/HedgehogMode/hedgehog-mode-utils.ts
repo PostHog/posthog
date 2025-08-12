@@ -49,8 +49,9 @@ export const sanitizeHedgehogConfig = (config: Record<string, any>): HedgehogCon
         actor_options: {
             id: 'player',
             player: true,
-            color: v1Config.color,
-            accessories: v1Config.accessories || [],
+            color: v1Config.color as HedgehogConfig['actor_options']['color'] | null,
+            skin: v1Config.skin as HedgehogConfig['actor_options']['skin'] | null,
+            accessories: v1Config.accessories as HedgehogConfig['actor_options']['accessories'] | [],
             ai_enabled: v1Config.walking_enabled ?? true,
             interactions_enabled: v1Config.interactions_enabled ?? true,
             controls_enabled: v1Config.controls_enabled ?? true,

@@ -11,7 +11,7 @@ export function Intro(): JSX.Element {
     return (
         <>
             <div className="flex">
-                <HedgehogModeStatic config={hedgehogConfig} size={100} />
+                <HedgehogModeStatic config={hedgehogConfig} size={80} />
             </div>
             <div className="mb-1 text-center">
                 <h2 className="text-xl @md/max-welcome:text-2xl font-bold mb-2 text-balance">{headline}</h2>
