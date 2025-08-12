@@ -10,8 +10,8 @@ from products.revenue_analytics.backend.views.currency_helpers import ZERO_DECIM
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
 from posthog.hogql.timings import HogQLTimings

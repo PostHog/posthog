@@ -60,8 +60,8 @@ from django.db import models
 from posthog.warehouse.models.util import get_view_or_table_by_name
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
 )
 
 

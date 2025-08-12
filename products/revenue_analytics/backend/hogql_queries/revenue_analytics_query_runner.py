@@ -20,8 +20,8 @@ from posthog.schema import (
 from products.revenue_analytics.backend.utils import (
     REVENUE_SELECT_OUTPUT_CHARGE_KEY,
     REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
-    REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY,
     REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
+    REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY,
     REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY,
     revenue_selects_from_database,
 )
@@ -29,8 +29,8 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
 
@@ -41,7 +41,7 @@ EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 # This is used to replace the breakdown value when there's no breakdown
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
 
-AVAILABLE_JOINS = Literal["customers", "revenue_items", "products"]
+AVAILABLE_JOINS = Literal["customers", "products", "revenue_items"]
 PROPERTY_TO_JOIN_MAP: dict[str, AVAILABLE_JOINS] = {
     "source": "customers",
     "amount": "revenue_items",
@@ -59,8 +59,8 @@ PROPERTY_TO_JOIN_MAP: dict[str, AVAILABLE_JOINS] = {
 class RevenueSubqueries:
     charge: ast.SelectSetQuery | None
     customer: ast.SelectSetQuery | None
-    revenue_item: ast.SelectSetQuery | None
     product: ast.SelectSetQuery | None
+    revenue_item: ast.SelectSetQuery | None
     subscription: ast.SelectSetQuery | None
 
 
