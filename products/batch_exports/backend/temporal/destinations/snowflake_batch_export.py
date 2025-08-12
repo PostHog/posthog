@@ -231,6 +231,8 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
+    # How often to poll for query status. This is a trade-off between responsiveness and number of
+    # queries we make to Snowflake. 0.2 seemed a good compromise, based on local testing.
     DEFAULT_POLL_INTERVAL = 0.2
 
     def __init__(
