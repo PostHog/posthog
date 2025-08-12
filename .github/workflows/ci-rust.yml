@@ -104,8 +104,7 @@ jobs:
             - name: Setup dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
               run: |
-                  export COMPOSE_LOG_LEVEL=DEBUG
-                  docker compose up kafka redis db echo_server objectstorage -d --wait
+                  docker compose up kafka redis db echo_server objectstorage -d --wait --verbose
                   docker compose up setup_test_db
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
