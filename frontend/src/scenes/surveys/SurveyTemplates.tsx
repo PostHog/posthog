@@ -41,13 +41,15 @@ export function TemplateCard({ template, idx, handleTemplateClick, surveyAppeara
             onClick={() => handleTemplateClick(template)}
         >
             <div>
-                <div className="flex items-start justify-between">
-                    <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1">{template.templateType}</h3>
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">
+                        {template.templateType}
+                    </h3>
                     <LemonTag type={template.tagType || 'default'} size="small" className="ml-2 flex-shrink-0">
                         {template.category || 'General'}
                     </LemonTag>
                 </div>
-                <p className="text-xs text-secondary leading-relaxed line-clamp-3">{template.description}</p>
+                <p className="text-sm text-secondary leading-relaxed line-clamp-3">{template.description}</p>
             </div>
 
             <div className="flex-1 flex items-center justify-center">

@@ -1,5 +1,7 @@
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { IconBell, IconGraph, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ProfessorHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
@@ -9,6 +11,7 @@ import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
 import { SurveyFormAppearance } from 'scenes/surveys/SurveyFormAppearance'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { SurveyQuestionType, SurveySchedule as SurveyScheduleEnum, SurveyType } from '~/types'
 
@@ -49,16 +52,63 @@ const QuestionIconMap = {
     [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
 }
 
-export function SurveyOverview(): JSX.Element {
+export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) => void }): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
-    const { setSelectedPageIndex } = useActions(surveyLogic)
+    const { setSelectedPageIndex, editingSurvey } = useActions(surveyLogic)
+    const { data } = useValues(surveysLogic)
+
+    const hasOnlyOneSurvey = data.surveys.length === 1
 
     const isExternalSurvey = survey.type === SurveyType.ExternalSurvey
 
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
+
     return (
         <div className="flex gap-4">
             <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
+                {hasOnlyOneSurvey && !survey.start_date && (
+                    <>
+                        <div className="bg-accent-3000/5 border border-accent-3000/20 rounded p-4">
+                            <div className="flex items-start gap-4">
+                                <div className="flex-shrink-0">
+                                    <ProfessorHog width={60} height={60} />
+                                </div>
+                                <div className="flex-1">
+                                    <h4 className="text-lg font-semibold mb-3 text-accent-3000">
+                                        Get the most out of your survey
+                                    </h4>
+                                    <div className="flex flex-wrap gap-2">
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconTarget />}
+                                            onClick={() => editingSurvey(true)}
+                                        >
+                                            Add targeting conditions
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconGraph />}
+                                            onClick={() => onTabChange?.('results')}
+                                        >
+                                            Preview your results
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconBell />}
+                                            onClick={() => onTabChange?.('notifications')}
+                                        >
+                                            Set up notifications
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <LemonDivider />
+                    </>
+                )}
                 <SurveyOption label="Display mode">
                     <div className="flex flex-col">
                         <div className="flex flex-row items-center gap-2">

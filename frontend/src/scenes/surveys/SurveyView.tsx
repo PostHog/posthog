@@ -18,6 +18,7 @@ import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 
 import { Query } from '~/queries/Query/Query'
 import {
@@ -71,6 +72,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
@@ -382,9 +384,13 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                       key: 'results',
                                       label: 'Results',
                                   }
-                                : null,
+                                : {
+                                      content: <SurveyResultDemo />,
+                                      key: 'results',
+                                      label: 'Results (Demo)',
+                                  },
                             {
-                                content: <SurveyOverview />,
+                                content: <SurveyOverview onTabChange={setTabKey} />,
                                 key: 'overview',
                                 label: 'Overview',
                             },
