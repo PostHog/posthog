@@ -332,7 +332,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.filters,
-                                variables: values.insightVariables,
+                                variables: values.temporaryVariables,
                                 breakdown_colors: values.temporaryBreakdownColors,
                                 data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
@@ -495,26 +495,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return tileIdToLayouts
                 },
-            },
-        ],
-        insightVariables: [
-            {} as Record<string, HogQLVariable>,
-            {
-                setFiltersAndLayoutsAndVariables: (state, { variables }) => ({
-                    ...state,
-                    ...variables,
-                }),
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
-                    dashboard
-                        ? {
-                              ...state,
-                              // don't update filters if we're previewing or initial load with variables
-                              ...(payload?.action === DashboardLoadAction.Preview ||
-                              payload?.action === DashboardLoadAction.InitialLoadWithVariables
-                                  ? {}
-                                  : (dashboard.variables ?? {})),
-                          }
-                        : state,
             },
         ],
         temporaryFilters: [
