@@ -115,6 +115,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             (Decimal("245"), "USD", Decimal("195.265"), "GBP"),
             (Decimal("250"), "EUR", Decimal("207.0990541523"), "GBP"),
             (Decimal("300"), "USD", Decimal("239.1"), "GBP"),
+            (Decimal("350"), "EUR", Decimal("289.9386758133"), "GBP"),
             # Important here how we treated the 500 in the CSV as 500 Yen rather than 5 Yen
             # like we do with other currencies (20000 -> 200 EUR)
             (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP"),

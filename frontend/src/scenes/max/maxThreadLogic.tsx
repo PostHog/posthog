@@ -221,7 +221,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.streamConversation(
                 {
                     content: prompt,
-                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
                     ui_context: values.compiledContext || undefined,
                     conversation: values.conversation?.id || values.conversationId,
                 },
@@ -303,7 +303,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     // Empty message in askMax effectively means "just resume generation with current context"
-                                    await values.toolMap[toolName]?.callback(toolResult)
+                                    await values.toolMap[toolName]?.callback?.(toolResult)
                                     // The `navigate` tool is the only one doing client-side formatting currently
                                     if (toolName === 'navigate') {
                                         actions.askMax(null) // Continue generation
