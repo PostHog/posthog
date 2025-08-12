@@ -39,9 +39,7 @@ export function BillingEarlyAccessBanner(): JSX.Element {
                         <li>
                             To further breakdown product usage, check out this{' '}
                             <Link
-                                to={`/dashboard?templateFilter=${encodeURIComponent(
-                                    'billable usage'
-                                )}#newDashboard=modal`}
+                                to={`/dashboard?templateFilter=${encodeURIComponent('billable usage')}#newDashboard=modal`}
                             >
                                 dashboard template
                             </Link>
