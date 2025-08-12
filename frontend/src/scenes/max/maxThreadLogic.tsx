@@ -42,6 +42,7 @@ import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
+import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -136,11 +137,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
+        selectCommand: (command: SlashCommand) => ({ command }),
+        activateCommand: (command: SlashCommand) => ({ command }),
     }),
 
     reducers(({ props }) => ({
         conversation: [
-            props.conversation ? (removeConversationMessages(props.conversation) ?? null) : null,
+            props.conversation ? removeConversationMessages(props.conversation) ?? null : null,
             {
                 setConversation: (_, { conversation }) => conversation,
             },
@@ -218,7 +221,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.streamConversation(
                 {
                     content: prompt,
-                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
                     ui_context: values.compiledContext || undefined,
                     conversation: values.conversation?.id || values.conversationId,
                 },
@@ -300,7 +303,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     // Empty message in askMax effectively means "just resume generation with current context"
-                                    await values.toolMap[toolName]?.callback(toolResult)
+                                    await values.toolMap[toolName]?.callback?.(toolResult)
                                     // The `navigate` tool is the only one doing client-side formatting currently
                                     if (toolName === 'navigate') {
                                         actions.askMax(null) // Continue generation
@@ -467,6 +470,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }, 0)
             }
         },
+        selectCommand: ({ command }) => {
+            if (command.arg) {
+                actions.setQuestion(command.name + ' ')
+            } else {
+                actions.setQuestion(command.name)
+            }
+        },
+        activateCommand: ({ command }) => {
+            if (command.arg) {
+                actions.setQuestion(command.name + ' ') // Rest must be filled in by the user
+            } else {
+                actions.askMax(command.name)
+            }
+        },
     })),
 
     selectors({
@@ -592,6 +609,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 return undefined
             },
+        ],
+
+        filteredCommands: [
+            (s) => [s.question],
+            (question): SlashCommand[] =>
+                MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
         ],
     }),
 

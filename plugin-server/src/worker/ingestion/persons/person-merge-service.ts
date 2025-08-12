@@ -214,10 +214,8 @@ export class PersonMergeService {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.context.updateIsIdentified = true
 
-        await this.capturePersonPropertiesSizeEstimate()
         const otherPerson = await this.context.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
 
-        await this.capturePersonPropertiesSizeEstimate()
         const mergeIntoPerson = await this.context.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
@@ -575,19 +573,6 @@ export class PersonMergeService {
     ): Promise<void> {
         const kafkaMessages = await (tx || this.context.personStore).addDistinctId(person, distinctId, version)
         await this.context.kafkaProducer.queueMessages(kafkaMessages)
-    }
-
-    private async capturePersonPropertiesSizeEstimate(): Promise<void> {
-        if (Math.random() >= this.context.measurePersonJsonbSize) {
-            // no-op if env flag is set to 0 (default) otherwise rate-limit
-            // ramp up of expensive size checking while we test it
-            return
-        }
-
-        await this.context.personStore.personPropertiesSize(this.context.team.id, this.context.distinctId)
-        // Note: Using the same histogram instance from person-state.ts for consistency
-        // This could be moved to a shared location if needed
-        return
     }
 
     private async refreshPersonData(

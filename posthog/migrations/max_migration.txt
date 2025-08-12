@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 0819_add_cohort_type_field
+=======
+0821_batchimport_backoff_columns
+>>>>>>> master

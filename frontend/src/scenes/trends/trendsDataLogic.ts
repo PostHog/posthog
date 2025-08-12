@@ -174,14 +174,14 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                             a.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
                                 ? -BREAKDOWN_OTHER_NUMERIC_LABEL
                                 : a.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
-                                  ? -BREAKDOWN_NULL_NUMERIC_LABEL
-                                  : a.aggregated_value
+                                ? -BREAKDOWN_NULL_NUMERIC_LABEL
+                                : a.aggregated_value
                         const bValue =
                             b.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
                                 ? -BREAKDOWN_OTHER_NUMERIC_LABEL
                                 : b.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
-                                  ? -BREAKDOWN_NULL_NUMERIC_LABEL
-                                  : b.aggregated_value
+                                ? -BREAKDOWN_NULL_NUMERIC_LABEL
+                                : b.aggregated_value
                         return bValue - aValue
                     })
                 } else if (lifecycleFilter) {
@@ -277,12 +277,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         showTrendLines: [
-            (s) => [s.trendsFilter, s.isTrends, s.hasDataWarehouseSeries, s.yAxisScaleType],
+            (s) => [s.querySource, s.isTrends, s.hasDataWarehouseSeries, s.yAxisScaleType, s.trendsFilter],
             (
-                trendsFilter: TrendsFilter | undefined | null,
+                querySource: InsightQueryNode | null,
                 isTrends: boolean,
                 hasDataWarehouseSeries: boolean,
-                yAxisScaleType: string | undefined
+                yAxisScaleType: string | undefined,
+                trendsFilter: TrendsFilter | undefined | null
             ): boolean => {
                 const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
                 const display = trendsFilter?.display || ChartDisplayType.ActionsLineGraph
@@ -291,7 +292,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     !hasDataWarehouseSeries &&
                     [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
 
-                return (trendsFilter?.showTrendLines && isLineGraph && isLinearScale) || false
+                return (
+                    ((querySource as TrendsQuery)?.trendsFilter?.showTrendLines && isLineGraph && isLinearScale) ||
+                    false
+                )
             },
         ],
 

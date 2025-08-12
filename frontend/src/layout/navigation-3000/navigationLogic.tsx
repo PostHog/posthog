@@ -337,8 +337,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
                     ? 'minimal'
                     : sceneConfig?.layout !== 'plain'
-                      ? 'full'
-                      : 'none'
+                    ? 'full'
+                    : 'none'
             },
         ],
         isNavShown: [
@@ -415,7 +415,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data',
                         },
                         {
-                            identifier: Scene.PersonsManagement,
+                            identifier: Scene.Persons,
                             label: 'People and groups',
                             icon: <IconPeople />,
                             to: urls.persons(),

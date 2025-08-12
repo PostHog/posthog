@@ -4,6 +4,7 @@ import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import {
@@ -276,6 +277,7 @@ export interface LineGraphProps {
     showMultipleYAxes?: boolean | null
     goalLines?: GoalLine[]
     isStacked?: boolean
+    showTrendLines?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -319,6 +321,7 @@ export function LineGraph_({
     legend = { display: false },
     goalLines: _goalLines,
     isStacked = true,
+    showTrendLines = false,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -422,8 +425,8 @@ export function LineGraph_({
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
-              ? dataset.backgroundColor
-              : getTrendsColor(dataset) || '#000000' // Default to black if no color found
+            ? dataset.backgroundColor
+            : getTrendsColor(dataset) || '#000000' // Default to black if no color found
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
@@ -494,8 +497,18 @@ export function LineGraph_({
                 type === GraphType.Line && showMultipleYAxes && index > 0 && !dataset.yAxisID
                     ? `y${index}`
                     : dataset.yAxisID
-                      ? dataset.yAxisID
-                      : 'y',
+                    ? dataset.yAxisID
+                    : 'y',
+            ...(showTrendLines
+                ? {
+                      trendlineLinear: {
+                          colorMin: mainColor,
+                          colorMax: mainColor,
+                          lineStyle: 'dotted',
+                          width: 2,
+                      },
+                  }
+                : {}),
         }
     }
 
@@ -829,8 +842,8 @@ export function LineGraph_({
                                         labelGroupType === 'people'
                                             ? 'people'
                                             : labelGroupType === 'none'
-                                              ? ''
-                                              : aggregationLabel(labelGroupType).plural
+                                            ? ''
+                                            : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
                                 />
@@ -1044,12 +1057,13 @@ export function LineGraph_({
         }
         Chart.register(ChartjsPluginStacked100)
         Chart.register(annotationPlugin)
+        Chart.register(chartTrendline)
 
         const chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
-            plugins: [ChartDataLabels],
+            plugins: [ChartDataLabels, ...(showTrendLines ? [chartTrendline as any] : [])],
         })
 
         setLineChart(chart)
@@ -1066,6 +1080,7 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
+        showTrendLines,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (

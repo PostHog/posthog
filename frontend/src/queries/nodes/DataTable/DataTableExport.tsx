@@ -23,6 +23,7 @@ import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
     isPersonsNode,
@@ -67,7 +68,9 @@ export async function startDownload(
 
     if (onlySelectedColumns) {
         let columns = (
-            (isEventsQuery(query.source) || isActorsQuery(query.source) ? query.source.select : null) ??
+            (isEventsQuery(query.source) || isActorsQuery(query.source) || isGroupsQuery(query.source)
+                ? query.source.select
+                : null) ??
             query.columns ??
             defaultDataTableColumns(query.source.kind)
         )?.filter((c) => c !== 'person.$delete')
@@ -153,50 +156,41 @@ const getJsonTableData = (
             const record = n.result as Record<string, any> | undefined
             const recordWithPerson = { ...record, person: record?.name }
 
-            return filteredColumns.reduce(
-                (acc, cur) => {
-                    acc[cur] = recordWithPerson[cur]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
+            return filteredColumns.reduce((acc, cur) => {
+                acc[cur] = recordWithPerson[cur]
+                return acc
+            }, {} as Record<string, any>)
         })
     }
 
     if (isEventsQuery(query.source)) {
         return dataTableRows.map((n) => {
-            return columns.reduce(
-                (acc, col, colIndex) => {
-                    if (columnDisallowList.includes(col)) {
-                        return acc
-                    }
-
-                    if (col === 'person') {
-                        acc[col] = asDisplay(n.result?.[colIndex])
-                        return acc
-                    }
-
-                    const colName = extractExpressionComment(col)
-
-                    acc[colName] = n.result?.[colIndex]
-
+            return columns.reduce((acc, col, colIndex) => {
+                if (columnDisallowList.includes(col)) {
                     return acc
-                },
-                {} as Record<string, any>
-            )
+                }
+
+                if (col === 'person') {
+                    acc[col] = asDisplay(n.result?.[colIndex])
+                    return acc
+                }
+
+                const colName = extractExpressionComment(col)
+
+                acc[colName] = n.result?.[colIndex]
+
+                return acc
+            }, {} as Record<string, any>)
         })
     }
 
     if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
         return dataTableRows.map((n) => {
             const data = n.result ?? {}
-            return columns.reduce(
-                (acc, cur, index) => {
-                    acc[cur] = data[index]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
+            return columns.reduce((acc, cur, index) => {
+                acc[cur] = data[index]
+                return acc
+            }, {} as Record<string, any>)
         })
     }
 

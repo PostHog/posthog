@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 
+import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 
@@ -74,11 +75,16 @@ const getPipelineResults = (res: PipelineResults, index: number, numOperations: 
 
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
+    private lazyLoader: LazyLoader<HogWatcherFunctionState>
 
-    constructor(
-        private hub: Hub,
-        private redis: CdpRedis
-    ) {
+    private queuedResults: {
+        results: CyclotronJobInvocationResult[]
+        promise: Promise<void>
+        timeout: NodeJS.Timeout
+        complete: () => void
+    } | null = null
+
+    constructor(private hub: Hub, private redis: CdpRedis) {
         this.costsMapping = {
             hog: {
                 lowerBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
@@ -99,6 +105,13 @@ export class HogWatcherService {
                 )
             }
         }
+
+        this.lazyLoader = new LazyLoader({
+            name: 'hog_watcher_lazy_loader',
+            refreshAge: 30_000, // Cache for 30 seconds
+            refreshJitterMs: 10_000,
+            loader: async (ids) => await this.getPersistedStates(ids),
+        })
     }
 
     private async onStateChange({
@@ -172,21 +185,18 @@ export class HogWatcherService {
             }
         })
 
-        return Array.from(idsSet).reduce(
-            (acc, id, index) => {
-                const resIndex = index * 2
-                const tokens = res ? res[resIndex][1] : undefined
-                const state = res ? res[resIndex + 1][1] : undefined
+        return Array.from(idsSet).reduce((acc, id, index) => {
+            const resIndex = index * 2
+            const tokens = res ? res[resIndex][1] : undefined
+            const state = res ? res[resIndex + 1][1] : undefined
 
-                acc[id] = {
-                    state: state ? Number(state) : HogWatcherState.healthy,
-                    tokens: tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE,
-                }
+            acc[id] = {
+                state: state ? Number(state) : HogWatcherState.healthy,
+                tokens: tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE,
+            }
 
-                return acc
-            },
-            {} as Record<HogFunctionType['id'], HogWatcherFunctionState>
-        )
+            return acc
+        }, {} as Record<HogFunctionType['id'], HogWatcherFunctionState>)
     }
 
     /**
@@ -195,6 +205,10 @@ export class HogWatcherService {
     public async getPersistedState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
         const res = await this.getPersistedStates([id])
         return res[id]
+    }
+
+    public async getCachedPersistedState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState | null> {
+        return await this.lazyLoader.get(id)
     }
 
     /**
@@ -218,6 +232,15 @@ export class HogWatcherService {
     public async getEffectiveState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
         const res = await this.getEffectiveStates([id])
         return res[id]
+    }
+
+    public async getCachedEffectiveState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState | null> {
+        const res = await this.lazyLoader.get(id)
+        if (!res) {
+            return null
+        }
+
+        return { state: effectiveState(res.state), tokens: res.tokens }
     }
 
     public async getAllFunctionStates(): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
@@ -270,8 +293,8 @@ export class HogWatcherService {
                     state === HogWatcherState.healthy
                         ? this.hub.CDP_WATCHER_BUCKET_SIZE
                         : state === HogWatcherState.degraded
-                          ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
-                          : 0
+                        ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
+                        : 0
 
                 const nowSeconds = Math.round(Date.now() / 1000)
 
@@ -386,6 +409,49 @@ export class HogWatcherService {
             }
         })
 
-        await this.doStageChanges(changes)
+        if (changes.length > 0) {
+            await this.doStageChanges(changes)
+        }
+    }
+
+    public async observeResultsBuffered(result: CyclotronJobInvocationResult): Promise<void> {
+        // This can be called a bunch of times and will queue up results to be processed
+        // We need to make sure that we only process the results once
+        if (!this.queuedResults) {
+            let resolvePromise: () => void
+            const promise = new Promise<void>((resolve) => {
+                resolvePromise = resolve
+            })
+
+            this.queuedResults = {
+                results: [],
+                promise,
+                complete: resolvePromise!,
+                timeout: setTimeout(
+                    () => this.flushBufferedResults(),
+                    this.hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS
+                ),
+            }
+        }
+
+        this.queuedResults.results.push(result)
+
+        if (this.queuedResults.results.length >= this.hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS) {
+            await this.flushBufferedResults()
+        } else {
+            await this.queuedResults.promise
+        }
+    }
+
+    private async flushBufferedResults() {
+        if (!this.queuedResults) {
+            return
+        }
+
+        const { results, timeout, complete } = this.queuedResults
+        clearTimeout(timeout)
+        this.queuedResults = null
+        await this.observeResults(results)
+        complete()
     }
 }

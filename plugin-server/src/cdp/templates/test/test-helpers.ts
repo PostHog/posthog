@@ -45,7 +45,7 @@ const compileObject = async (obj: any): Promise<any> => {
     } else if (typeof obj === 'string') {
         return await compileHog(`return f'${obj}'`)
     } else {
-        return undefined
+        return obj
     }
 }
 
@@ -53,15 +53,12 @@ export const compileInputs = async (
     template: HogFunctionTemplate | NativeTemplate,
     _inputs: Record<string, any>
 ): Promise<Record<string, CyclotronInputType>> => {
-    const defaultInputs = template.inputs_schema.reduce(
-        (acc, input) => {
-            if (typeof input.default !== 'undefined') {
-                acc[input.key] = input.default
-            }
-            return acc
-        },
-        {} as Record<string, CyclotronInputType>
-    )
+    const defaultInputs = template.inputs_schema.reduce((acc, input) => {
+        if (typeof input.default !== 'undefined') {
+            acc[input.key] = input.default
+        }
+        return acc
+    }, {} as Record<string, CyclotronInputType>)
 
     const allInputs = { ...defaultInputs, ..._inputs }
 
@@ -76,16 +73,13 @@ export const compileInputs = async (
         })
     )
 
-    return compiledEntries.reduce(
-        (acc, [key, value]) => {
-            acc[key] = {
-                value: allInputs[key],
-                bytecode: value,
-            }
-            return acc
-        },
-        {} as Record<string, CyclotronInputType>
-    )
+    return compiledEntries.reduce((acc, [key, value]) => {
+        acc[key] = {
+            value: allInputs[key],
+            bytecode: value,
+        }
+        return acc
+    }, {} as Record<string, CyclotronInputType>)
 }
 
 const createGlobals = (
@@ -246,16 +240,13 @@ export class TemplateTester {
                 })
         )
 
-        const inputsObj = processedInputs.reduce(
-            (acc, item) => {
-                acc[item.key] = {
-                    value: item.value,
-                    bytecode: item.bytecode,
-                }
-                return acc
-            },
-            {} as Record<string, CyclotronInputType>
-        )
+        const inputsObj = processedInputs.reduce((acc, item) => {
+            acc[item.key] = {
+                value: item.value,
+                bytecode: item.bytecode,
+            }
+            return acc
+        }, {} as Record<string, CyclotronInputType>)
 
         compiledMappingInputs.inputs = inputsObj
 
@@ -515,15 +506,12 @@ export const generateTestData = (
         return val
     }
 
-    const inputs = input_schema.reduce(
-        (acc, input) => {
-            if (input.required || requiredFieldsOnly === false) {
-                acc[input.key] = input.default ?? generateValue(input)
-            }
-            return acc
-        },
-        {} as Record<string, any>
-    )
+    const inputs = input_schema.reduce((acc, input) => {
+        if (input.required || requiredFieldsOnly === false) {
+            acc[input.key] = input.default ?? generateValue(input)
+        }
+        return acc
+    }, {} as Record<string, any>)
 
     return inputs
 }

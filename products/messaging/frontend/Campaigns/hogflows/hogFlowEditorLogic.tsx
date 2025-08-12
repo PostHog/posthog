@@ -116,13 +116,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         nodesById: [
             (s) => [s.nodes],
             (nodes): Record<string, HogFlowActionNode> => {
-                return nodes.reduce(
-                    (acc, node) => {
-                        acc[node.id] = node
-                        return acc
-                    },
-                    {} as Record<string, HogFlowActionNode>
-                )
+                return nodes.reduce((acc, node) => {
+                    acc[node.id] = node
+                    return acc
+                }, {} as Record<string, HogFlowActionNode>)
             },
         ],
         selectedNode: [
@@ -165,8 +162,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             label: isOnlyEdgeForNode
                                 ? undefined
                                 : edge.type === 'continue'
-                                  ? `No match`
-                                  : `If condition #${(edge.index || 0) + 1} matches`,
+                                ? `No match`
+                                : `If condition #${(edge.index || 0) + 1} matches`,
                         },
                         labelShowBg: false,
                         targetHandle: `target_${edge.to}`,
@@ -214,7 +211,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         position: { x: 0, y: 0 },
                         handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
                         deletable: !['trigger', 'exit'].includes(action.type),
-                        selectable: true,
+                        selectable: !['exit'].includes(action.type),
                         draggable: false,
                         connectable: false,
                     }
