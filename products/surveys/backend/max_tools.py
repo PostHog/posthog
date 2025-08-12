@@ -180,6 +180,32 @@ class CreateSurveyTool(MaxTool):
 
         return survey_data
 
+    async def lookup_feature_flag(self, flag_key: str) -> FeatureFlagLookupResult:
+        """
+        Look up a feature flag using the FeatureFlagToolkit via Taxonomy Agent.
+        """
+        try:
+            graph = FeatureFlagLookupGraph(team=self._team, user=self._user)
+
+            graph_context = {
+                "change": f"Look up feature flag with key '{flag_key}'",
+                "output": None,
+                "tool_progress_messages": [],
+                **self.context,
+            }
+
+            result = await graph.compile_full_graph().ainvoke(graph_context)
+
+            if isinstance(result["output"], FeatureFlagLookupResult):
+                return result["output"]
+            else:
+                # Return a not found result if the output is not the expected type
+                return FeatureFlagLookupResult(flag_id=None, flag_key=flag_key, variants=[], exists=False)
+
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return FeatureFlagLookupResult(flag_id=None, flag_key=flag_key, variants=[], exists=False)
+
 
 class FeatureFlagToolkit(TaxonomyAgentToolkit):
     """Toolkit for feature flag lookup operations."""
@@ -285,65 +311,3 @@ class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentStat
             tools_node_class=FeatureFlagLookupToolsNode,
             toolkit_class=FeatureFlagToolkit,
         )
-
-
-class FeatureFlagLookupArgs(BaseModel):
-    flag_key: str = Field(description="The key of the feature flag to look up")
-
-
-class FeatureFlagLookupTool(MaxTool):
-    name: str = "lookup_feature_flag"
-    description: str = "Look up a feature flag by its key to get the ID and available variants"
-    thinking_message: str = "Looking up feature flag information"
-
-    args_schema: type[BaseModel] = FeatureFlagLookupArgs
-
-    async def _arun_impl(self, flag_key: str) -> tuple[str, dict[str, Any]]:
-        """
-        Look up feature flag information using Taxonomy Agent.
-        """
-        try:
-            graph = FeatureFlagLookupGraph(team=self._team, user=self._user)
-
-            graph_context = {
-                "change": f"Look up feature flag with key '{flag_key}'",
-                "output": None,
-                "tool_progress_messages": [],
-                **self.context,
-            }
-
-            result = await graph.compile_full_graph().ainvoke(graph_context)
-
-            if isinstance(result["output"], FeatureFlagLookupResult):
-                flag_result = result["output"]
-                if flag_result.exists:
-                    message = f"✅ Found feature flag '{flag_result.flag_key}' (ID: {flag_result.flag_id})"
-                    if flag_result.variants:
-                        message += f" with variants: {', '.join(flag_result.variants)}"
-                    else:
-                        message += " (no variants)"
-
-                    return message, {
-                        "flag_id": flag_result.flag_id,
-                        "flag_key": flag_result.flag_key,
-                        "variants": flag_result.variants,
-                        "exists": True,
-                    }
-                else:
-                    return f"❌ Feature flag '{flag_key}' not found", {
-                        "flag_id": None,
-                        "flag_key": flag_key,
-                        "variants": [],
-                        "exists": False,
-                    }
-            else:
-                return f"❌ Feature flag '{flag_key}' not found", {
-                    "flag_id": None,
-                    "flag_key": flag_key,
-                    "variants": [],
-                    "exists": False,
-                }
-
-        except Exception as e:
-            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"❌ Error looking up feature flag: {str(e)}", {"error": str(e), "exists": False}

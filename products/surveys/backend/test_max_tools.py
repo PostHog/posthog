@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 from posthog.test.base import BaseTest
 
-from .max_tools import CreateSurveyTool, FeatureFlagLookupTool
+from .max_tools import CreateSurveyTool
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -363,92 +363,24 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.linked_flag.key == "multivariate-feature"
         assert survey.conditions["linkedFlagVariant"] == "any"
 
-
-class TestFeatureFlagLookupTool(BaseTest):
-    def setUp(self):
-        super().setUp()
-        # Set mock OpenAI API key for tests
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
-        self._config: RunnableConfig = {
-            "configurable": {
-                "team": self.team,
-                "user": self.user,
-            },
-        }
-
-    def tearDown(self):
-        super().tearDown()
-        # Clean up the mock API key
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
-
-    def _setup_tool(self):
-        """Helper to create a FeatureFlagLookupTool instance"""
-        tool = FeatureFlagLookupTool(team=self.team, user=self.user)
-        tool._init_run(self._config)
-        return tool
-
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_lookup_feature_flag_success(self):
-        """Test successful feature flag lookup using Taxonomy Agent"""
+    async def test_feature_flag_lookup_method(self):
+        """Test the CreateSurveyTool's lookup_feature_flag method"""
         tool = self._setup_tool()
 
         # Create a test feature flag
         flag = await sync_to_async(FeatureFlag.objects.create)(
             team=self.team,
-            key="test-flag",
-            name="Test Flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        # Mock the Taxonomy Agent graph execution
-        from unittest.mock import patch, AsyncMock
-        from products.surveys.backend.max_tools import FeatureFlagLookupResult
-
-        mock_result = FeatureFlagLookupResult(flag_id=flag.id, flag_key="test-flag", variants=[], exists=True)
-
-        with patch("products.surveys.backend.max_tools.FeatureFlagLookupGraph") as mock_graph_class:
-            mock_graph_instance = AsyncMock()
-            mock_graph_class.return_value = mock_graph_instance
-
-            compiled_graph = AsyncMock()
-            compiled_graph.ainvoke.return_value = {"output": mock_result}
-            mock_graph_instance.compile_full_graph.return_value = compiled_graph
-
-            # Test the lookup
-            content, artifact = await tool._arun_impl("test-flag")
-
-            # Verify success response
-            assert "✅ Found feature flag 'test-flag'" in content
-            assert f"(ID: {flag.id})" in content
-            assert "(no variants)" in content
-
-            # Verify artifact data
-            assert artifact["flag_id"] == flag.id
-            assert artifact["flag_key"] == "test-flag"
-            assert artifact["variants"] == []
-            assert artifact["exists"] is True
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_lookup_feature_flag_with_variants(self):
-        """Test feature flag lookup with multivariate flag using Taxonomy Agent"""
-        tool = self._setup_tool()
-
-        # Create a multivariate feature flag
-        flag = await sync_to_async(FeatureFlag.objects.create)(
-            team=self.team,
-            key="multivariate-flag",
-            name="Multivariate Flag",
+            key="test-lookup-flag",
+            name="Test Lookup Flag",
             created_by=self.user,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": 100}],
                 "multivariate": {
                     "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "treatment", "rollout_percentage": 50},
+                        {"key": "variant-a", "rollout_percentage": 50},
+                        {"key": "variant-b", "rollout_percentage": 50},
                     ]
                 },
             },
@@ -459,7 +391,7 @@ class TestFeatureFlagLookupTool(BaseTest):
         from products.surveys.backend.max_tools import FeatureFlagLookupResult
 
         mock_result = FeatureFlagLookupResult(
-            flag_id=flag.id, flag_key="multivariate-flag", variants=["control", "treatment"], exists=True
+            flag_id=flag.id, flag_key="test-lookup-flag", variants=["variant-a", "variant-b"], exists=True
         )
 
         with patch("products.surveys.backend.max_tools.FeatureFlagLookupGraph") as mock_graph_class:
@@ -470,24 +402,19 @@ class TestFeatureFlagLookupTool(BaseTest):
             compiled_graph.ainvoke.return_value = {"output": mock_result}
             mock_graph_instance.compile_full_graph.return_value = compiled_graph
 
-            # Test the lookup
-            content, artifact = await tool._arun_impl("multivariate-flag")
+            # Test the lookup method
+            result = await tool.lookup_feature_flag("test-lookup-flag")
 
-            # Verify success response with variants
-            assert "✅ Found feature flag 'multivariate-flag'" in content
-            assert f"(ID: {flag.id})" in content
-            assert "with variants: control, treatment" in content
-
-            # Verify artifact data
-            assert artifact["flag_id"] == flag.id
-            assert artifact["flag_key"] == "multivariate-flag"
-            assert set(artifact["variants"]) == {"control", "treatment"}
-            assert artifact["exists"] is True
+            # Verify the result
+            assert result.flag_id == flag.id
+            assert result.flag_key == "test-lookup-flag"
+            assert result.variants == ["variant-a", "variant-b"]
+            assert result.exists is True
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_lookup_feature_flag_not_found(self):
-        """Test feature flag lookup for non-existent flag using Taxonomy Agent"""
+    async def test_feature_flag_lookup_not_found(self):
+        """Test the CreateSurveyTool's lookup_feature_flag method for non-existent flag"""
         tool = self._setup_tool()
 
         # Mock the Taxonomy Agent graph execution for non-existent flag
@@ -504,14 +431,11 @@ class TestFeatureFlagLookupTool(BaseTest):
             compiled_graph.ainvoke.return_value = {"output": mock_result}
             mock_graph_instance.compile_full_graph.return_value = compiled_graph
 
-            # Test lookup of non-existent flag
-            content, artifact = await tool._arun_impl("non-existent-flag")
+            # Test the lookup method
+            result = await tool.lookup_feature_flag("non-existent-flag")
 
-            # Verify error response
-            assert "❌ Feature flag 'non-existent-flag' not found" in content
-
-            # Verify artifact data
-            assert artifact["flag_id"] is None
-            assert artifact["flag_key"] == "non-existent-flag"
-            assert artifact["variants"] == []
-            assert artifact["exists"] is False
+            # Verify the result
+            assert result.flag_id is None
+            assert result.flag_key == "non-existent-flag"
+            assert result.variants == []
+            assert result.exists is False
