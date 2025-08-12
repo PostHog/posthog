@@ -2,7 +2,7 @@ from datetime import datetime, UTC, timedelta
 from collections.abc import Callable
 
 import dagster
-from dagster import Field
+from dagster import Field, RunsFilter, DagsterRunStatus, SkipReason
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
@@ -139,6 +139,18 @@ web_pre_aggregate_current_day_hourly_job = dagster.define_asset_job(
         "web_analytics_stats_table_hourly",
     ),
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    # Limit concurrency and add timeout for hourly jobs
+    config={
+        "execution": {
+            "config": {
+                "multiprocess": {
+                    "max_concurrent": 1,
+                    # Set Dagster timeout higher than ClickHouse timeout (900s) for cleanup
+                    "op_execution_timeout": 1200,
+                }
+            }
+        }
+    },
 )
 
 
@@ -152,6 +164,24 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
     """
     Creates real-time web analytics pre-aggregated data with 24h TTL for real-time analytics.
     """
+
+    # Check for existing runs of the same job to prevent concurrent execution
+    run_records = context.instance.get_run_records(
+        RunsFilter(
+            job_name="web_pre_aggregate_current_day_hourly_job",
+            statuses=[
+                DagsterRunStatus.QUEUED,
+                DagsterRunStatus.NOT_STARTED,
+                DagsterRunStatus.STARTING,
+                DagsterRunStatus.STARTED,
+            ],
+        )
+    )
+    
+    if len(run_records) > 0:
+        return SkipReason(
+            "Skipping hourly web analytics run because another run of the same job is already active"
+        )
 
     return dagster.RunRequest(
         run_config={

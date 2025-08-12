@@ -3,7 +3,7 @@ from collections.abc import Callable
 import os
 
 import dagster
-from dagster import DailyPartitionsDefinition, BackfillPolicy
+from dagster import DailyPartitionsDefinition, BackfillPolicy, RunsFilter, DagsterRunStatus, SkipReason
 import structlog
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
@@ -295,6 +295,8 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
             "config": {
                 "multiprocess": {
                     "max_concurrent": 1,
+                    # Set Dagster timeout higher than ClickHouse timeout (1600s) for cleanup
+                    "op_execution_timeout": 2000,
                 }
             }
         }
@@ -313,6 +315,24 @@ def web_pre_aggregate_daily_schedule(context: dagster.ScheduleEvaluationContext)
     Runs daily for the previous day's partition.
     The usage of pre-aggregated tables is controlled by a query modifier AND is behind a feature flag.
     """
+
+    # Check for existing runs of the same job to prevent concurrent execution
+    run_records = context.instance.get_run_records(
+        RunsFilter(
+            job_name="web_analytics_daily_job",
+            statuses=[
+                DagsterRunStatus.QUEUED,
+                DagsterRunStatus.NOT_STARTED,
+                DagsterRunStatus.STARTING,
+                DagsterRunStatus.STARTED,
+            ],
+        )
+    )
+    
+    if len(run_records) > 0:
+        return SkipReason(
+            "Skipping daily web analytics run because another run of the same job is already active"
+        )
 
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
 
