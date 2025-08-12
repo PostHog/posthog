@@ -100,7 +100,6 @@ class VercelAuthentication(authentication.BaseAuthentication):
             public_key,
             algorithms=["RS256"],
             issuer=VERCEL_ISSUER,
-            options={"verify_aud": False},  # TODO: Skip audience verification for now
         )
 
         # Validate claims based on auth type
