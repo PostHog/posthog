@@ -237,11 +237,6 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         report_user_logged_in(user, social_provider="")
         device.throttle_reset()
 
-        # Trigger login notification (2FA completion)
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
-
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
         cookie_value = get_remember_device_cookie(user=user, otp_device_id=device.persistent_id)
         response = Response({"success": True})
