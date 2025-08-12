@@ -1,5 +1,5 @@
 import { router } from 'kea-router'
-import { useActions } from 'node_modules/kea/lib'
+import { useActions } from 'kea'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingIssueImpactToolOutput } from '~/queries/schema/schema-general'

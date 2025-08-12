@@ -13,7 +13,7 @@ Error tracking in PostHog works with these core concepts:
    - Freeform text search (matches against exception type, message, function names, file paths in stack traces)
    - Property-based filtering (exact property matching like elsewhere in PostHog) - far more powerful
 
-"""
+""".strip()
 
 ERROR_TRACKING_FILTER_INITIAL_PROMPT = """
 Your task is to convert users' natural language queries into precise filters, to help users find relevant issues. You are
@@ -111,7 +111,7 @@ The final part of your message must be a valid json object, output as follow:
 
 Remember - you must output properly formatted, valid JSON, between the output tags.
 ```
-"""
+""".strip()
 
 day = datetime.now().day
 today_date = datetime.now().strftime(f"{day} %B %Y")
@@ -206,7 +206,7 @@ export const COMMON_LIB_VALUES = new Set([
 ```
 
 Users might ask you for a platform not listed about - if they do, take a best guess as to what they mean.
-"""
+""".strip()
 
 
 PREFER_FILTERS_PROMPT = """
@@ -240,4 +240,58 @@ Remember to consolidate overlapping filters and search queries. Examples where y
 - A user asks you to look for errors impacting a particular email, and then also look for errors for another email - clear the old filter, and create a new one where the value is a list of both user IDs.
 
 Again, always, always strongly prefer filterGroup over searchQuery.
-"""
+""".strip()
+
+
+ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT = """
+PostHog (posthog.com) offers an Error Tracking feature that allows users to monitor and filter application errors and exceptions.
+## Key Concepts
+
+Error tracking in PostHog works with these core concepts:
+
+1. **Issues**: Groups of similar exceptions/errors that are automatically clustered based on exception type, message, and stack trace
+2. **Exceptions**: Individual `$exception` events that get grouped into issues
+
+We can asses the impact of certain issues on events using an odds ratio calculation, which compares the odds of an event occurring in the presence of an issue versus the odds of it occurring without the issue.
+""".strip()
+
+ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT = """
+<events>
+In order to perform the task you are given, you need to know the list of events available to the user. Here is a non-exhaustive list of known event names:
+{{{events}}}
+If you find the event name the user is asking for in the list, use it to retrieve the impacted issues.
+</events>
+""".strip()
+
+
+ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT = """
+<tool_usage>
+## Tool Usage Rules
+
+1. Infer the list of event names from the user query
+2. Use the `issue_impact_query_runner_tool` to get the impacted issues for a list of events
+3. If `issue_impact_query_runner_tool` returns an empty list of issues, then respond with "No issues found for the given events."
+4. Use `ask_user_for_help` when you need clarification or it is not clear what event the user is referring to
+5. Use `final_answer` to return the final answer to the user
+
+</tool_usage>
+""".strip()
+
+ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES = """
+# Workflow examples
+
+## Single event example
+
+1. User asks: "Show me events that are stopping users from watching session recordings"
+2. You infer the event name "session recording viewed" from the user query. Use the list of event names provided in the context.
+3. This is a single event, you need to pass it as a list in the `issue_impact_query_runner_tool` to get the impacted issues for the "session recording viewed" event
+4. You call the `issue_impact_query_runner_tool` with the list containing the event name: ["session recording viewed"]
+5. Return the final answer to the user using the `final_answer` tool with the list of issues returned by the `issue_impact_query_runner_tool`
+
+## Multiple events example
+1. User asks: "Show me events that are impacting users from making a purchase"
+2. You infer from the user query that the event names "credit_card_entered", "payment_complete", "Added to cart" all relate to a user making a purchase. Use the list of event names provided in the context.
+3. You need to pass these event names as a list in the `issue_impact_query_runner_tool` to get the impacted issues for these events
+4. You call the `issue_impact_query_runner_tool` with the list containing the event names: ["credit_card_entered", "payment_complete", "Added to cart"]
+5. Return the final answer to the user using the `final_answer` tool with the list of issues returned by the `issue_impact_query_runner_tool`
+""".strip()

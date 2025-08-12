@@ -6,9 +6,14 @@ from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserExceptio
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, base_final_answer
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool, base_final_answer, ask_user_for_help
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.tool import MaxTool
+from posthog.schema import ErrorTrackingIssueCorrelationQuery
+from posthog.hogql_queries.error_tracking_issue_correlation_query_runner import (
+    ErrorTrackingIssueCorrelationQueryRunner,
+)
 from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
 from .prompts import (
@@ -16,6 +21,10 @@ from .prompts import (
     ERROR_TRACKING_FILTER_PROPERTIES_PROMPT,
     ERROR_TRACKING_SYSTEM_PROMPT,
     PREFER_FILTERS_PROMPT,
+    ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
+    ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT,
+    ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES,
+    ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT,
 )
 from typing import Optional
 import json
@@ -104,35 +113,37 @@ class final_answer(base_final_answer[ErrorTrackingIssueImpactToolOutput]):
     __doc__ = base_final_answer.__doc__  # Inherit from the base final answer or create your own.
 
 
-class hello_world(BaseModel):
-    """Tool for saying hello to the user, should be used in the very beginning of the conversation. Use it before you use any other tool."""
+class issue_impact_query_runner_tool(BaseModel):
+    """Tool for finding events that are impacted by issues in the error tracking product."""
 
-    name: str = Field(description="The name of the person to say hello to.")
-
-
-def hello_world_tool(name: str) -> str:
-    return f"Hello, {name}!"
+    events: list[str] = Field(description="The list of event names that will be used to find impactful issues.")
 
 
 class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    # You must override this method if you are adding a custom tool that is only applicable to your usecase
+    def issue_impact_query_runner(self, events: list[str]) -> str:
+        return ErrorTrackingIssueCorrelationQueryRunner(
+            query=ErrorTrackingIssueCorrelationQuery(kind="ErrorTrackingIssueCorrelationQuery", events=events),
+            team=self._team,
+            # timings=timings,
+            # modifiers=modifiers,
+            # limit_context=limit_context,
+        )
+
     def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
-        """Override the handle_tools method to add custom tools."""
-        if tool_name == "hello_world":
-            result = hello_world_tool(tool_input.arguments.name)
+        if tool_name == "issue_impact_query_runner_tool":
+            result = self.issue_impact_query_runner(tool_input.arguments.events)  # type: ignore
             return tool_name, result
         return super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
-        return [final_answer, hello_world]
+        return [final_answer, issue_impact_query_runner_tool]
 
-    # Optional: prefer YAML over XML for property lists, but not a must to override
-    # If not overriden XML will be used
-    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
-        return self._format_properties_yaml(props)
+    def get_tools(self) -> list:
+        """Returns the list of tools available in this toolkit."""
+        return [*self._get_custom_tools(), ask_user_for_help]
 
 
 class ErrorTrackingIssueImpactLoopNode(
@@ -142,7 +153,13 @@ class ErrorTrackingIssueImpactLoopNode(
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
-        system = [*super()._get_default_system_prompts()]
+        system = [
+            ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
+            ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT,
+            ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT,
+            ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES,
+            HUMAN_IN_THE_LOOP_PROMPT,
+        ]
         return ChatPromptTemplate([("system", m) for m in system], template_format="mustache")
 
 
@@ -166,18 +183,26 @@ class ErrorTrackingIssueImpactGraph(
         )
 
 
+class IssueImpactQueryArgs(BaseModel):
+    instructions: str = Field(description="The specific user query to find issues impacting an event.")
+
+
 class ErrorTrackingIssueImpactTool(MaxTool):
     name: str = "find_error_tracking_impactful_issues"
     description: str = "Find error tracking issues that are impacting the occurrence of your events."
     thinking_message: str = "Finding impactful issues..."
-    # root_system_prompt_template: str = "Current issue filters are: {current_query}"
-    # args_schema: type[BaseModel] = UpdateIssueQueryArgs
+    root_system_prompt_template: str = "The user is wants to find issues impacting the event."
+    args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
-    async def _run_impl(self) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
+    async def _run_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
         graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
 
+        change = f"""
+Goal: {instructions}
+"""
+
         graph_context = {
-            "change": "Show me recordings of users in Germany that used a mobile device while performing a payment",
+            "change": change,
             "output": None,
             "tool_progress_messages": [],
             **self.context,
@@ -187,11 +212,11 @@ class ErrorTrackingIssueImpactTool(MaxTool):
 
         if type(result["output"]) is not ErrorTrackingIssueImpactToolOutput:
             content = "❌ I need to know what events you are looking to understand the impact for."
-            events = []
+            issues = []
         else:
             try:
-                content = "✅ Updated session recordings filters."
-                events = ErrorTrackingIssueImpactToolOutput.model_validate(result["output"])
+                content = "✅ Impacted issues found."
+                issues = ErrorTrackingIssueImpactToolOutput.model_validate(result["output"])
             except Exception as e:
                 raise ValueError(f"Failed to generate ErrorTrackingIssueImpactToolOutput: {e}")
-        return content, events
+        return content, issues
