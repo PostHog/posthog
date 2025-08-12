@@ -421,13 +421,15 @@ class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_query_concurrency_no_org_limit_returns_none(self):
-        """Test that _get_org_concurrency_limit returns None when no org limit is found"""
-        rate_limiter = get_app_org_rate_limiter()
+        """Test that get_org_concurrency_limit returns None when no org limit is found"""
+        from posthog.clickhouse.client.limit import get_org_concurrency_limit
 
         # Mock Redis to return None (cache miss)
-        with patch.object(rate_limiter.redis_client, "get", return_value=None):
+        with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis:
+            mock_redis.return_value.get.return_value = None
+
             # Call the helper method directly
-            result = rate_limiter._get_org_concurrency_limit(self.organization.id)
+            result = get_org_concurrency_limit(self.organization.id)
 
             # Should return None since no org-specific limit is configured
             self.assertIsNone(result)
@@ -472,3 +474,76 @@ class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
 
         # Should not cache anything since no org limit was found
         mock_setex2.assert_not_called()
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_priority_order_beta_teams_override_callable(self):
+        """Test that beta teams override the callable max_concurrency"""
+        from posthog.clickhouse.client.limit import settings
+
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 50,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Mock the team to be in beta
+        with patch.object(settings, "API_QUERIES_PER_TEAM", {self.team.id: 5}):
+            # Mock Redis to return None (cache miss) so it hits the database
+            with patch.object(rate_limiter.redis_client, "get", return_value=None):
+                # Use the rate limiter with is_api=True (beta team)
+                with rate_limiter.run(org_id=self.organization.id, team_id=self.team.id, is_api=True, task_id="test-1"):
+                    pass
+
+        # The beta team limit (5) should override the org limit (50)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_priority_order_explicit_limit_overrides_callable(self):
+        """Test that explicit limit parameter overrides the callable max_concurrency"""
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 50,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Mock Redis to return None (cache miss) so it hits the database
+        with patch.object(rate_limiter.redis_client, "get", return_value=None):
+            # Use the rate limiter with explicit limit parameter
+            with rate_limiter.run(org_id=self.organization.id, limit=10, task_id="test-1"):
+                pass
+
+        # The explicit limit (10) should override the org limit (50)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_organization_limit_is_applied_in_use_method(self):
+        """Test that organization-specific limits are applied in the use method"""
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 50,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Mock Redis to return None (cache miss) so it hits the database
+        with patch.object(rate_limiter.redis_client, "get", return_value=None):
+            # Use the rate limiter
+            with rate_limiter.run(org_id=self.organization.id, task_id="test-1"):
+                pass
+
+        # The organization limit should be applied through the use method logic

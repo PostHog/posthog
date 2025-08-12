@@ -3,7 +3,7 @@ import time
 from contextlib import contextmanager
 from functools import wraps
 from time import sleep
-from typing import Optional
+from typing import Optional, Union
 from collections.abc import Callable
 
 from celery import current_task
@@ -57,6 +57,35 @@ return 1
 """
 
 
+def get_org_concurrency_limit(org_id: int) -> Optional[int]:
+    """
+    Get organization concurrency limit with Redis caching.
+    Returns None if no org-specific limit is found.
+    This is used as a helper to pass to the RateLimit class
+    as a callable max_concurrency.
+    """
+    cache_key = f"org_concurrency_limit:{org_id}"
+    cached_limit = redis.get_client().get(cache_key)
+    if cached_limit:
+        return int(cached_limit)
+
+    try:
+        from posthog.models.organization import Organization
+
+        org = Organization.objects.get(id=org_id)
+        feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
+        if feature and isinstance(feature.get("limit"), int):
+            limit = feature["limit"]
+            # Cache for 5 minutes
+            redis.get_client().setex(cache_key, 300, limit)
+            return limit
+    except Exception:
+        # Fall back to default if anything goes wrong
+        pass
+
+    return None
+
+
 @dataclasses.dataclass
 class RateLimit:
     """
@@ -64,7 +93,7 @@ class RateLimit:
     Tasks have ttl as a safeguard against not being removed.
     """
 
-    max_concurrency: int
+    max_concurrency: Union[int, Callable[..., int]]
     limit_name: str
     get_task_name: Callable
     get_task_id: Callable
@@ -101,19 +130,21 @@ class RateLimit:
         task_id = self.get_task_id(*args, **kwargs)
         team_id: Optional[int] = kwargs.get("team_id", None)
 
-        max_concurrency = self.max_concurrency
+        # Determine max_concurrency with proper priority order
         in_beta = kwargs.get("is_api") and (team_id in settings.API_QUERIES_PER_TEAM)
+
         if in_beta:
+            # Beta teams get highest priority
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
-            max_concurrency = kwargs.get("limit") or max_concurrency
-        elif self.limit_name == "app_per_org":
-            # For app_per_org rate limiter, check for QUERY_CONCURRENCY feature
-            org_id = kwargs.get("org_id")
-            if org_id:
-                org_limit = self._get_org_concurrency_limit(org_id)
-                if org_limit is not None:
-                    max_concurrency = org_limit
+            # Explicit limit override
+            max_concurrency = kwargs.get("limit")
+        elif callable(self.max_concurrency):
+            # Dynamic logic from callable
+            max_concurrency = self.max_concurrency(*args, **kwargs)
+        else:
+            # Static default
+            max_concurrency = self.max_concurrency
 
         # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
@@ -166,32 +197,6 @@ class RateLimit:
             )
 
         return running_tasks_key, task_id
-
-    def _get_org_concurrency_limit(self, org_id: int) -> Optional[int]:
-        """
-        Get organization concurrency limit with Redis caching.
-        Returns None if no org-specific limit is found.
-        """
-        cache_key = f"org_concurrency_limit:{org_id}"
-        cached_limit = self.redis_client.get(cache_key)
-        if cached_limit:
-            return int(cached_limit)
-
-        try:
-            from posthog.models.organization import Organization
-
-            org = Organization.objects.get(id=org_id)
-            feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
-            if feature and isinstance(feature.get("limit"), int):
-                limit = feature["limit"]
-                # Cache for 5 minutes
-                self.redis_client.setex(cache_key, 300, limit)
-                return limit
-        except Exception:
-            # Fall back to default if anything goes wrong
-            pass
-
-        return None
 
     def release(self, running_task_key, task_id):
         """
