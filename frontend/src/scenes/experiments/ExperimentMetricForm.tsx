@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -100,6 +101,8 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+    const isRatioMetricEnabled =
+        useFeatureFlag('EXPERIMENTS_RATIO_METRIC') || metric.metric_type == ExperimentMetricType.RATIO
 
     const getEventTypeLabel = (): string => {
         if (metric.metric_type === ExperimentMetricType.MEAN) {
@@ -140,12 +143,16 @@ export function ExperimentMetricForm({
             description:
                 'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
         },
-        {
-            value: ExperimentMetricType.RATIO,
-            label: 'Ratio',
-            description:
-                'Calculates the ratio between two metrics, useful for measuring metrics like revenue per purchase or page views per session.',
-        },
+        ...(isRatioMetricEnabled
+            ? [
+                  {
+                      value: ExperimentMetricType.RATIO,
+                      label: 'Ratio',
+                      description:
+                          'Calculates the ratio between two metrics, useful for measuring metrics like revenue per purchase or page views per session.',
+                  },
+              ]
+            : []),
     ]
 
     const metricFilter = getFilter(metric)
