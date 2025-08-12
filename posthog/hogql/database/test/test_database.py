@@ -1052,6 +1052,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 team_id=self.team.pk,
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(),
+                database=deseralized,
             ),
             "clickhouse",
         )
