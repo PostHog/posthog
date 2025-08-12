@@ -819,7 +819,7 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
                 # Fallback: cast via string, truncate, then cast to reduced decimal
                 reduced_decimal_type = pa.decimal128(precision, scale)
                 string_col = pc.cast(col, pa.string())
-                truncated = pc.utf8_slice_codeunits(strings=string_col, start=0, stop=precision)
+                truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
                 cast_reduced = _ensure_array(pc.cast(truncated, reduced_decimal_type))
                 new_fields.append(field.with_type(reduced_decimal_type))
                 new_columns.append(cast_reduced)
