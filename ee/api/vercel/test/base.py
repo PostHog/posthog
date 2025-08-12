@@ -3,6 +3,7 @@ import base64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.utils import timezone
+from ee.api.authentication import VERCEL_CLIENT_INTEGRATION_ID, VERCEL_ISSUER
 from ee.models.vercel.vercel_installation import VercelInstallation
 from posthog.test.base import APIBaseTest
 
@@ -53,9 +54,9 @@ class VercelTestBase(APIBaseTest):
         self, installation_id: str | None = None, account_id: str | None = None, user_id: str | None = None
     ) -> dict:
         return {
-            "iss": "https://marketplace.vercel.com",
+            "iss": VERCEL_ISSUER,
             "sub": f"account:{account_id or self.account_id}:user:{user_id or self.user_id}",
-            "aud": "test_audience",
+            "aud": VERCEL_CLIENT_INTEGRATION_ID,
             "account_id": account_id or self.account_id,
             "installation_id": installation_id or self.installation_id,
             "user_id": user_id or self.user_id,
@@ -66,9 +67,9 @@ class VercelTestBase(APIBaseTest):
     def _create_system_auth_payload(self, installation_id: str | None = None, account_id: str | None = None) -> dict:
         account = account_id or self.account_id
         return {
-            "iss": "https://marketplace.vercel.com",
+            "iss": VERCEL_ISSUER,
             "sub": f"account:{account[3:] if account.startswith('acc') else account}",
-            "aud": "test_audience",
+            "aud": VERCEL_CLIENT_INTEGRATION_ID,
             "account_id": account,
             "installation_id": installation_id or self.installation_id,
             "exp": timezone.now().timestamp() + 3600,
