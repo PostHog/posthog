@@ -215,7 +215,7 @@ class VercelInstallationViewSet(
             backend_processor="VercelInstallationViewSet",
             user_analytics_metadata=user.get_analytics_metadata(),
             org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
-            social_provider="vercel",  # Does this make sense?
+            social_provider="vercel",
         )
 
         VercelInstallation.objects.create(
