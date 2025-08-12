@@ -128,7 +128,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     }
 
     return (
-        <LemonModal title="Configure email domain" width="auto" onClose={props.onComplete}>
+        <LemonModal title="Configure email sender" width="auto" onClose={props.onComplete}>
             {modalContent}
         </LemonModal>
     )
