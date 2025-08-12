@@ -29,14 +29,8 @@ services:
             interval: 3s
             timeout: 10s
             retries: 10
-            ALLOW_PLAINTEXT_LISTENER: 'true'
         ports:
             - '9092:9092'
-        healthcheck:
-            test: kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1
-            interval: 3s
-            timeout: 10s
-            retries: 10
 
     redis:
         image: redis:6.2.7-alpine
