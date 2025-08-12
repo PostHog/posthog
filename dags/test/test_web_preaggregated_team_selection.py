@@ -221,7 +221,8 @@ class TestStrategyClasses:
         strategy = ProjectSettingsStrategy()
         mock_team_objects.filter.return_value.values_list.return_value = [123, 456]
 
-        result = strategy.get_teams(self.mock_context)
+        with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"):
+            result = strategy.get_teams(self.mock_context)
 
         assert result == {123, 456}
         mock_team_objects.filter.assert_called_once_with(web_analytics_pre_aggregated_tables_enabled=True)
