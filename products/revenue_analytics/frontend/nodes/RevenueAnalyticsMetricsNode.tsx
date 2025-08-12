@@ -119,7 +119,7 @@ const makeTile = (
                 title={title}
                 tooltip={tooltip}
                 extra={
-                    <div className="flex flex-row items-center gap-1 text-muted-alt">
+                    <div className="flex flex-row items-center gap-2 text-muted-alt">
                         <span className="flex items-center">
                             <AlphaTag />
                         </span>
