@@ -1,6 +1,7 @@
 import concurrent.futures
 from datetime import datetime
 from typing import cast
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection
@@ -678,7 +679,8 @@ class TestModelCache(BaseTest):
         cache.clear()
         return super().setUp()
 
-    def test_save_updates_cache(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_save_updates_cache(self, mock_on_commit):
         initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
         self.assertIsNone(initial_cached_flags)
 
