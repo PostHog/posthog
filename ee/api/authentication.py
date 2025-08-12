@@ -1,6 +1,6 @@
-from typing import Any, Union, Optional
-from functools import lru_cache
+from typing import Any, Union
 import re
+from django.core.cache import cache
 import jwt
 from jwt.algorithms import RSAAlgorithm
 import requests
@@ -35,13 +35,18 @@ from social_django.models import UserSocialAuth
 
 VERCEL_JWKS_URL = "https://marketplace.vercel.com/.well-known/jwks.json"
 VERCEL_ISSUER = "https://marketplace.vercel.com"
+VERCEL_JWKS_CACHE_KEY = "vercel_jwks"
+VERCEL_JWKS_CACHE_TIMEOUT = 600
 
 
-@lru_cache(maxsize=1)
 def get_vercel_jwks() -> dict[str, Any]:
-    response: Response = requests.get(VERCEL_JWKS_URL, timeout=10)
-    response.raise_for_status()
-    return response.json()
+    jwks = cache.get(VERCEL_JWKS_CACHE_KEY)
+    if jwks is None:
+        response: Response = requests.get(VERCEL_JWKS_URL, timeout=10)
+        response.raise_for_status()
+        jwks = response.json()
+        cache.set(VERCEL_JWKS_CACHE_KEY, jwks, timeout=VERCEL_JWKS_CACHE_TIMEOUT)
+    return jwks
 
 
 class VercelAuthentication(authentication.BaseAuthentication):
@@ -53,7 +58,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
     def authenticate_header(self, request: Request) -> str:
         return 'Bearer realm="vercel-integration"'
 
-    def authenticate(self, request: Request) -> Optional[tuple[AnonymousUser, dict[str, Any]]]:
+    def authenticate(self, request: Request) -> tuple[AnonymousUser, dict[str, Any]] | None:
         """Authentication logic that uses X-Vercel-Auth header to determine validation type"""
         token = self._get_bearer_token(request)
         if not token:
@@ -163,7 +168,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
         if "installation_id" not in payload:
             raise jwt.InvalidTokenError("Missing installation_id claim")
 
-    def _get_bearer_token(self, request: Request) -> Optional[str]:
+    def _get_bearer_token(self, request: Request) -> str | None:
         auth_header = request.META.get("HTTP_AUTHORIZATION")
 
         if auth_header:
