@@ -76,6 +76,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         isEditingFeature,
         earlyAccessFeatureMissing,
         implementOptInInstructionsModal,
+        originalEarlyAccessFeatureStage,
     } = useValues(earlyAccessFeatureLogic)
     const {
         submitEarlyAccessFeatureRequest,
@@ -85,12 +86,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         deleteEarlyAccessFeature,
         toggleImplementOptInInstructionsModal,
         setEarlyAccessFeatureValue,
+        showGAPromotionConfirmation,
     } = useActions(earlyAccessFeatureLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
+
+    // Determine if Save/Cancel buttons should be visible
+    const wasOriginallyGA = originalEarlyAccessFeatureStage === EarlyAccessFeatureStage.GeneralAvailability
+    const canShowSaveButtons = !wasOriginallyGA && (isNewEarlyAccessFeature || isEditingFeature)
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -125,8 +131,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
             <PageHeader
                 buttons={
                     !earlyAccessFeatureLoading ? (
-                        earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&
-                        (isNewEarlyAccessFeature || isEditingFeature) ? (
+                        canShowSaveButtons ? (
                             <>
                                 <LemonButton
                                     type="secondary"
@@ -148,7 +153,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     htmlType="submit"
                                     data-attr="save-feature"
                                     onClick={() => {
-                                        submitEarlyAccessFeatureRequest(earlyAccessFeature)
+                                        // Check if user is promoting to General Availability
+                                        const isPromotingToGA =
+                                            earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
+
+                                        if (isPromotingToGA) {
+                                            showGAPromotionConfirmation(() =>
+                                                submitEarlyAccessFeatureRequest(earlyAccessFeature)
+                                            )
+                                        } else {
+                                            submitEarlyAccessFeatureRequest(earlyAccessFeature)
+                                        }
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
                                     form="early-access-feature"

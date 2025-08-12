@@ -7,6 +7,18 @@ import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/
 import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 
+export class PersonPropertiesSizeViolationError extends Error {
+    constructor(
+        message: string,
+        public teamId: number,
+        public personId?: string,
+        public distinctId?: string
+    ) {
+        super(message)
+        this.name = 'PersonPropertiesSizeViolationError'
+    }
+}
+
 export interface PersonRepository {
     fetchPerson(
         teamId: Team['id'],
@@ -43,7 +55,7 @@ export interface PersonRepository {
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
 
-    personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number>
+    personPropertiesSize(personId: string): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],

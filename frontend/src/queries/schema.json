@@ -15059,7 +15059,8 @@
             "additionalProperties": false,
             "properties": {
                 "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter"
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -20732,6 +20733,9 @@
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
+                "showTrendLines": {
+                    "type": "boolean"
+                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
@@ -23305,6 +23309,9 @@
                 },
                 "deviceTypesMatchType": {
                     "$ref": "#/definitions/SurveyMatchType"
+                },
+                "linkedFlagVariant": {
+                    "type": "string"
                 },
                 "seenSurveyWaitPeriodInDays": {
                     "type": "number"
