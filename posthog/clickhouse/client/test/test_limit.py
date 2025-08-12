@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import Mock, patch
 from posthog.clickhouse.client.limit import (
     RateLimit,
@@ -305,5 +306,5 @@ class TestOrgConcurrencyLimit(BaseTest):
         with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis:
             mock_redis.return_value.get.return_value = None
 
-            result = get_org_concurrency_limit(99999)  # Non-existent org
+            result = get_org_concurrency_limit(uuid.uuid4())  # Non-existent org
             self.assertIsNone(result)

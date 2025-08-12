@@ -110,9 +110,12 @@ class RateLimit:
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
             # Explicit limit override
-            max_concurrency = kwargs.get("limit")
-        else:
-            # Static default
+            limit_value = kwargs.get("limit")
+            if limit_value is not None:
+                max_concurrency = int(limit_value)
+
+        # Fallback to static default
+        if not max_concurrency:
             max_concurrency = self.max_concurrency
 
         # p80 is below 1.714ms, therefore max retry is 1.714s
