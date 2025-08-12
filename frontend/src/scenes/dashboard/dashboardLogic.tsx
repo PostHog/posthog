@@ -207,7 +207,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
             variableId,
             value,
-            allVariables: values.variables,
             isNull,
         }),
 
@@ -1654,11 +1653,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    actionToUrl(() => ({
-        overrideVariableValue: ({ variableId, value, allVariables }) => {
+    actionToUrl(({ values }) => ({
+        overrideVariableValue: ({ variableId, value }) => {
             const { currentLocation } = router.values
 
-            const currentVariable = allVariables.find((variable: Variable) => variable.id === variableId)
+            const currentVariable = values.variables.find((variable: Variable) => variable.id === variableId)
 
             if (!currentVariable) {
                 return [currentLocation.pathname, currentLocation.searchParams, currentLocation.hashParams]
