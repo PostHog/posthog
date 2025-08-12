@@ -65,17 +65,36 @@ def get_driver() -> webdriver.Chrome:
     temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
     options.add_argument(f"--user-data-dir={temp_dir.name}")
 
+    # Store original HOME to restore later
+    original_home = os.environ.get("HOME")
+
     # Necessary to let the nobody user run chromium
     os.environ["HOME"] = temp_dir.name
 
-    if os.environ.get("CHROMEDRIVER_BIN"):
-        service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
-        return webdriver.Chrome(service=service, options=options)
+    try:
+        if os.environ.get("CHROMEDRIVER_BIN"):
+            service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
+            driver = webdriver.Chrome(service=service, options=options)
+        else:
+            driver = webdriver.Chrome(
+                service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
+                options=options,
+            )
 
-    return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
-        options=options,
-    )
+        # Restore original HOME after Chrome is created
+        if original_home:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+        return driver
+    except Exception:
+        # Restore HOME on failure too
+        if original_home:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+        raise
 
 
 def _export_to_png(exported_asset: ExportedAsset) -> None:
@@ -314,6 +333,12 @@ def _record_asset(
     try:
         temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-")
         record_dir = temp_dir_ctx.name
+
+        # Clear Chrome temp HOME that might be deleted
+        original_home = os.environ.get("HOME")
+        if original_home and "chrome-profile" in original_home:
+            # Reset to user's actual home or remove entirely
+            os.environ["HOME"] = os.path.expanduser("~")
 
         with sync_playwright() as p:
             headless = os.getenv("EXPORTER_HEADLESS", "1") != "0"
