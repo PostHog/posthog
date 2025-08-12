@@ -6,6 +6,11 @@
     & .LemonCollapsePanel > .LemonButton:hover:has(.LemonSegmentedButton:hover) {
         background-color: inherit;
     }
+
+    // Needed for the NotFound state inside SessionRecordingPlayer
+    .NotFoundComponent {
+        margin: 0 auto;
+    }
 }
 
 body[theme='light'] .ErrorTrackingIssue {

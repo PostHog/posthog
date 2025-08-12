@@ -5,6 +5,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { ItemCategory, ItemCollector, TimelineItem } from './SessionTimeline/timeline'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 export type SessionTabLogicProps = {
     sessionId: string
@@ -35,6 +36,10 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     props({} as SessionTabLogicProps),
     key(({ sessionId }) => sessionId as KeyType),
     connect(({ sessionId }: SessionTabLogicProps) => ({
+        values: [
+            sessionRecordingDataLogic(getRecordingProps(sessionId)),
+            ['isNotFound', 'sessionPlayerMetaDataLoading'],
+        ],
         actions: [
             sessionRecordingPlayerLogic(getRecordingProps(sessionId)),
             ['seekToTimestamp', 'setPlay', 'setPause'],
