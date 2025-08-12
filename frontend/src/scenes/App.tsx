@@ -98,11 +98,11 @@ export function App(): JSX.Element | null {
     return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
 }
 
-function LoadedSceneLogic({ scene, tabId }: { scene: LoadedScene; tabId: string }): null {
+function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
     if (!scene.logic) {
         throw new Error('Loading scene without a logic')
     }
-    useMountedLogic(scene.logic({ tabId, ...scene.paramsToProps?.(scene.sceneParams) }))
+    useMountedLogic(scene.logic(scene.paramsToProps?.(scene.sceneParams)))
     return null
 }
 
@@ -113,7 +113,7 @@ function LoadedSceneLogics(): JSX.Element {
             {Object.entries(loadedScenes)
                 .filter(([, { logic }]) => !!logic)
                 .map(([key, loadedScene]) => (
-                    <LoadedSceneLogic key={key} scene={loadedScene} tabId={loadedScene.tabId} />
+                    <LoadedSceneLogic key={key} scene={loadedScene} />
                 ))}
         </>
     )
@@ -149,13 +149,7 @@ function AppScene(): JSX.Element | null {
     const wrappedSceneElement = (
         <ErrorBoundary key={activeScene} exceptionProps={{ feature: activeScene }}>
             {activeLoadedScene?.logic ? (
-                <BindLogic
-                    logic={activeLoadedScene.logic}
-                    props={{
-                        tabId: activeLoadedScene.tabId,
-                        ...activeLoadedScene.paramsToProps?.(sceneParams),
-                    }}
-                >
+                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
                     {sceneElement}
                 </BindLogic>
             ) : (
