@@ -21,6 +21,7 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import Any, cast, Optional, Union
+from collections.abc import Iterator
 
 from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
@@ -277,17 +278,18 @@ class CohortSerializer(serializers.ModelSerializer):
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
 
-    def _parse_csv_file(self, file) -> tuple[list, csv.reader]:
+    def _parse_csv_file(self, file) -> tuple[list[str], Iterator[list[str]]]:
         """Handle file reading and CSV parsing with error handling"""
         decoded_file = file.read().decode(CSVConfig.ENCODING).splitlines()
         reader = csv.reader(decoded_file)
 
         # Skip empty rows at the beginning
-        first_row = []
+        first_row: list[str] = []
         while not first_row:
-            first_row = next(reader, None)
-            if first_row is None:
+            row = next(reader, None)
+            if row is None:
                 raise ValidationError({"csv": [CSVConfig.ErrorMessages.EMPTY_FILE]})
+            first_row = row
 
         return first_row, reader
 
@@ -304,7 +306,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 return i
         return None
 
-    def _extract_distinct_ids_single_column(self, first_row: list, reader: csv.reader) -> list[str]:
+    def _extract_distinct_ids_single_column(self, first_row: list[str], reader: Iterator[list[str]]) -> list[str]:
         """Process single-column CSV format"""
         distinct_ids = [first_row[0]] if first_row and first_row[0].strip() else []
         for row in reader:
@@ -312,7 +314,9 @@ class CohortSerializer(serializers.ModelSerializer):
                 distinct_ids.append(row[0].strip())
         return distinct_ids
 
-    def _extract_distinct_ids_multi_column(self, reader: csv.reader, distinct_id_col: int, cohort_pk: int) -> list[str]:
+    def _extract_distinct_ids_multi_column(
+        self, reader: Iterator[list[str]], distinct_id_col: int, cohort_pk: int
+    ) -> list[str]:
         """Process multi-column CSV format with robust error handling"""
         distinct_ids = []
         skipped_rows = 0
@@ -347,13 +351,13 @@ class CohortSerializer(serializers.ModelSerializer):
         if isinstance(e, UnicodeDecodeError):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
         elif isinstance(e, csv.Error):
-            capture_exception(e, extra={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.FORMAT_ERROR.format(error=str(e))]})
         elif isinstance(e, ValidationError):
             # If it's already a ValidationError, just re-raise it to preserve format
             raise
         else:
-            capture_exception(e, extra={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.GENERIC_ERROR]})
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
