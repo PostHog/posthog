@@ -32,7 +32,7 @@ export const exportsLogic = kea<exportsLogicType>([
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
         startReplayExport: (
-            replayId: string,
+            sessionRecordingId: string,
             timestamp?: number,
             options?: {
                 width?: number
@@ -40,7 +40,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 css_selector?: string
                 filename?: string
             }
-        ) => ({ replayId, timestamp, options }),
+        ) => ({ sessionRecordingId, timestamp, options }),
     }),
 
     connect(() => ({
@@ -119,16 +119,16 @@ export const exportsLogic = kea<exportsLogicType>([
                 lemonToast.error('Cohort save failed')
             }
         },
-        startReplayExport: async ({ replayId, timestamp, options }) => {
+        startReplayExport: async ({ sessionRecordingId, timestamp, options }) => {
             const exportData: TriggerExportProps = {
                 export_format: ExporterFormat.PNG,
                 export_context: {
-                    session_recording_id: replayId,
+                    session_recording_id: sessionRecordingId,
                     timestamp: timestamp,
                     css_selector: options?.css_selector || '.replayer-wrapper',
                     width: options?.width || 1400,
                     height: options?.height || 600,
-                    filename: options?.filename || `replay-${replayId}${timestamp ? `-t${timestamp}` : ''}`,
+                    filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
                 },
             }
 

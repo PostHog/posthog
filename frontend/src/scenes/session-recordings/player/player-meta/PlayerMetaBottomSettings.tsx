@@ -96,7 +96,7 @@ function Screenshot(): JSX.Element {
         <SettingsButton
             title="Take a screenshot of the current frame"
             label="Screenshot"
-            data-attr="screenshot"
+            data-attr="replay-screenshot"
             onClick={takeScreenshot}
             icon={<IconLlmPromptEvaluation />}
         />
