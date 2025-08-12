@@ -63,10 +63,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolDefinition) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
-        setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
-        setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
-        setShowFloatingMaxSuggestions: (value: boolean) => ({ value }),
-        setFloatingMaxDragState: (dragState: { isDragging: boolean; isAnimating: boolean }) => ({ dragState }),
+
     }),
     reducers({
         toolMap: [
@@ -115,36 +112,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
             },
         ],
-        isFloatingMaxExpanded: [
-            true,
-            {
-                persist: true,
-            },
-            {
-                setIsFloatingMaxExpanded: (_, { isExpanded }) => isExpanded,
-            },
-        ],
-        floatingMaxPosition: [
-            null as { x: number; y: number; side: 'left' | 'right' } | null,
-            {
-                persist: true,
-            },
-            {
-                setFloatingMaxPosition: (_, { position }) => position,
-            },
-        ],
-        showFloatingMaxSuggestions: [
-            false,
-            {
-                setShowFloatingMaxSuggestions: (_, { value }) => value,
-            },
-        ],
-        floatingMaxDragState: [
-            { isDragging: false, isAnimating: false } as { isDragging: boolean; isAnimating: boolean },
-            {
-                setFloatingMaxDragState: (_, { dragState }) => dragState,
-            },
-        ],
+
     }),
     listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
@@ -161,24 +129,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         },
     })),
     selectors({
-        showFloatingMax: [
-            (s) => [
-                s.scene,
-                s.sceneConfig,
-                s.isFloatingMaxExpanded,
-                sidePanelLogic.selectors.sidePanelOpen,
-                sidePanelLogic.selectors.selectedTab,
-                s.featureFlags,
-            ],
-            (scene, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
-                sceneConfig &&
-                !sceneConfig.onlyUnauthenticated &&
-                sceneConfig.layout !== 'plain' &&
-                !(scene === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
-                !(sidePanelOpen && selectedTab === SidePanelTab.Max) && // The Max side panel is open
-                featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
-                featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
-        ],
+
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,

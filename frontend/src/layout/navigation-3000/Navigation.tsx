@@ -8,7 +8,7 @@ import { SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 
-import { MaxFloatingInput } from '../../scenes/max/MaxFloatingInput'
+
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
@@ -110,7 +110,6 @@ export function Navigation({
             </main>
             <SidePanel />
             <CommandBar />
-            <MaxFloatingInput />
         </div>
     )
 }
