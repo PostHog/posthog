@@ -26,6 +26,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -70,6 +71,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const {
         isLayoutPanelVisible,
         activePanelIdentifier,
+        activePanelIdentifierFromUrl,
         mainContentRef,
         isLayoutPanelPinned,
         isLayoutNavCollapsed,
@@ -79,6 +81,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
+    const { location } = useValues(router)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
 
@@ -107,6 +110,25 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (to) {
             router.actions.push(to)
         }
+    }
+
+    const isStaticNavItemActive = (itemId: string): boolean => {
+        const currentPath = removeProjectIdIfPresent(location.pathname)
+
+        if (itemId === 'Home' && currentPath === '/') {
+            return true
+        }
+        if (itemId === 'Activity' && currentPath.startsWith('/activity/')) {
+            return true
+        }
+        if (itemId === 'Settings' && currentPath.startsWith('/settings/')) {
+            return true
+        }
+        if (itemId === 'Toolbar' && currentPath === '/toolbar') {
+            return true
+        }
+
+        return false
     }
 
     const navItems = [
@@ -308,7 +330,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         >
                                             {item.showChevron ? (
                                                 <ButtonPrimitive
-                                                    active={activePanelIdentifier === item.id}
+                                                    active={
+                                                        activePanelIdentifier === item.id ||
+                                                        activePanelIdentifierFromUrl === item.identifier
+                                                    }
                                                     className="group"
                                                     menuItem={!isLayoutNavCollapsed}
                                                     iconOnly={isLayoutNavCollapsed}
@@ -347,6 +372,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             menuItem: !isLayoutNavCollapsed,
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
+                                                            active: isStaticNavItemActive(item.id),
                                                         }}
                                                         to={item.to}
                                                         tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
@@ -412,6 +438,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     menuItem: !isLayoutNavCollapsed,
                                     className: 'group',
                                     iconOnly: isLayoutNavCollapsed,
+                                    active: isStaticNavItemActive('Toolbar'),
                                 }}
                                 to={urls.toolbarLaunch()}
                                 onClick={() => {
@@ -437,6 +464,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     menuItem: !isLayoutNavCollapsed,
                                     className: 'group',
                                     iconOnly: isLayoutNavCollapsed,
+                                    active: isStaticNavItemActive('Settings'),
                                 }}
                                 to={urls.settings('project')}
                                 onClick={() => {
