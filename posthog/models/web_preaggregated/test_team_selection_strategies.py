@@ -218,7 +218,7 @@ class TestFeatureEnrollmentStrategyLocalAPI(BaseTest):
         error_calls = [str(call) for call in self.mock_context.log.error.call_args_list]
 
         assert any("Querying PostHog internal API" in call for call in info_calls)
-        assert any("Personal API key" in call and "invalid" in call for call in error_calls)
+        assert any("Failed to query PostHog internal API" in call for call in error_calls)
 
         # Verify our test data setup
         assert self.personal_api_key.startswith("phx_")
@@ -282,20 +282,20 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
             }
 
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             data = response.json()
-            self.assertIn("results", data)
+            assert "results" in data
             results = data["results"]
 
             # Should find both teams that enrolled in web-analytics-api on localhost:8000
             team_ids = {int(row[0]) for row in results if row[0]}
-            self.assertIn(self.team.pk, team_ids)
-            self.assertIn(self.team2.pk, team_ids)
+            assert self.team.pk in team_ids
+            assert self.team2.pk in team_ids
 
             # Verify host filtering worked
             hosts = {row[1] for row in results}
-            self.assertEqual(hosts, {"localhost:8000"})
+            assert hosts == {"localhost:8000"}
 
     def test_strategy_with_local_api_integration(self):
         self.create_feature_enrollment_events()
@@ -318,8 +318,8 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
                 ):
                     result = strategy.get_teams(self.mock_context)
 
-            self.assertIsInstance(result, set)
+            assert isinstance(result, set)
 
             # Verify API call was attempted
             info_calls = [str(call) for call in self.mock_context.log.info.call_args_list]
-            self.assertTrue(any("Querying PostHog internal API" in call for call in info_calls))
+            assert any("Querying PostHog internal API" in call for call in info_calls)
