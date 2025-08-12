@@ -113,6 +113,8 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 STRIPE_CHARGE_COLUMNS,
                 CHARGES_TEST_BUCKET,
                 self.team,
+                source=self.source,
+                credential=self.credential,
             )
         )
 
