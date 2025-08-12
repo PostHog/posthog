@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PipelineTab } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,8 +14,7 @@ import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogi
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
-import { externalDataSourcesLogic } from './externalDataSourcesLogic'
-import { availableSourcesDataLogic } from './new/availableSourcesDataLogic'
+import { fetchRecentActivity, fetchTotalRowsProcessed, type UnifiedRecentActivity } from './externalDataSourcesLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
@@ -42,69 +41,48 @@ interface DashboardDataSource {
     url: string
 }
 
-interface DashboardActivity {
-    name: string
-    type: 'Materialization' | 'Data Sync'
-    status: string
-    time: string
-    rowCount: number | null
-    sourceName?: string
-}
-
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-    const { recentJobs } = useValues(externalDataSourcesLogic)
-    const { availableSources } = useValues(availableSourcesDataLogic)
 
-    const lifetimeRowsSynced = recentJobs.reduce((total, job) => total + (job.rows_synced || 0), 0)
+    const [recentActivity, setRecentActivity] = useState<UnifiedRecentActivity[]>([])
+    const [totalRowsProcessed, setTotalRowsProcessed] = useState<number>(0)
 
-    const recentActivity = useMemo((): DashboardActivity[] => {
-        const items: DashboardActivity[] = []
+    useEffect(() => {
+        const loadData = async (): Promise<void> => {
+            const [activities, totalRows] = await Promise.all([
+                fetchRecentActivity(dataWarehouseSources?.results || [], materializedViews),
+                fetchTotalRowsProcessed(dataWarehouseSources?.results || [], materializedViews),
+            ])
+            setRecentActivity(activities)
+            setTotalRowsProcessed(totalRows)
+        }
 
-        materializedViews.forEach((view) => {
-            if (view.last_run_at) {
-                items.push({
-                    name: view.name,
-                    type: 'Materialization',
-                    status: view.status || 'unknown',
-                    time: String(view.last_run_at),
-                    rowCount: view.row_count ?? null,
-                })
-            }
-        })
-        ;(recentJobs || []).forEach((job) => {
-            const source = dataWarehouseSources?.results?.find((s) =>
-                s.schemas?.some((schema) => schema.id === job.schema.id)
-            )
+        if ((dataWarehouseSources?.results?.length || 0) > 0 || materializedViews.length > 0) {
+            loadData()
+        }
+    }, [dataWarehouseSources?.results, materializedViews])
 
-            items.push({
-                name: job.schema.name,
-                type: 'Data Sync',
-                status: job.status,
-                time: job.created_at,
-                rowCount: job.rows_synced,
-                sourceName: source?.source_type,
-            })
-        })
-
-        return items.sort((a, b) => new Date(b.time).valueOf() - new Date(a.time).valueOf())
-    }, [materializedViews, recentJobs, dataWarehouseSources?.results])
+    const totalRowsWithSelfManaged = useMemo(() => {
+        // Add self-managed tables to the total (they don't have job history, so we use current state)
+        const selfManagedRows = selfManagedTables.reduce((sum, table) => sum + (table.row_count ?? 0), 0)
+        return totalRowsProcessed + selfManagedRows
+    }, [totalRowsProcessed, selfManagedTables])
 
     const allSources = useMemo(
         (): DashboardDataSource[] => [
             ...(dataWarehouseSources?.results || []).map((source): DashboardDataSource => {
-                const sourceJobs = recentJobs.filter((job) =>
-                    source.schemas?.some((schema) => schema.id === job.schema.id)
+                const sourceActivities = recentActivity.filter(
+                    (activity) => activity.type === 'Data Sync' && activity.sourceName === source.source_type
                 )
-                const totalRows = sourceJobs.reduce((sum, job) => sum + (job.rows_synced || 0), 0)
-                const lastSync = sourceJobs.length > 0 ? sourceJobs[0].created_at : null
+                const totalRows = sourceActivities.reduce((sum, activity) => sum + (activity.rowCount || 0), 0)
+                const lastSync = sourceActivities.length > 0 ? sourceActivities[0].created_at : null
 
                 return {
                     id: source.id,
                     name: source.source_type,
-                    type: getSourceType(source.source_type, availableSources),
+                    type: getSourceType(source.source_type),
                     status: source.status,
                     lastSync,
                     rowCount: totalRows,
@@ -123,7 +101,7 @@ export function DataWarehouseScene(): JSX.Element {
                 })
             ),
         ],
-        [dataWarehouseSources?.results, selfManagedTables, recentJobs, availableSources]
+        [dataWarehouseSources?.results, selfManagedTables, recentActivity]
     )
 
     const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
@@ -157,12 +135,17 @@ export function DataWarehouseScene(): JSX.Element {
               : ['completed', 'success'].includes(s)
                 ? 'success'
                 : s === 'running'
-                  ? 'primary'
+                  ? 'none'
                   : 'muted'
         const size = ['completed', 'failed', 'error'].includes(s) ? 'medium' : 'small'
 
         return (
-            <LemonTag size={size} type={type}>
+            <LemonTag
+                size={size}
+                type={type}
+                className="px-1 rounded-lg"
+                style={type === 'none' ? { color: '#3b82f6', borderColor: '#3b82f6' } : undefined}
+            >
                 {s || '—'}
             </LemonTag>
         )
@@ -194,8 +177,8 @@ export function DataWarehouseScene(): JSX.Element {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
-                    <div className="text-sm text-muted">Rows Synced (Lifetime)</div>
-                    <div className="text-2xl font-semibold mt-1">{lifetimeRowsSynced.toLocaleString()}</div>
+                    <div className="text-sm text-muted">Total Rows Processed</div>
+                    <div className="text-2xl font-semibold mt-1">{totalRowsWithSelfManaged.toLocaleString()}</div>
                 </LemonCard>
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="text-sm text-muted">Materialized Views</div>
@@ -314,7 +297,7 @@ export function DataWarehouseScene(): JSX.Element {
                         <div className="space-y-2">
                             {activityPagination.dataSourcePage.map((activity) => (
                                 <div
-                                    key={`${activity.type}-${activity.name}-${activity.time}`}
+                                    key={`${activity.type}-${activity.name}-${activity.created_at}`}
                                     className="flex items-center justify-between border rounded p-2"
                                 >
                                     <div className="flex-1 min-w-0">
@@ -327,7 +310,7 @@ export function DataWarehouseScene(): JSX.Element {
                                             </LemonTag>
                                         </div>
                                         <div className="text-xs text-muted mt-1">
-                                            <TZLabel time={activity.time} />
+                                            <TZLabel time={activity.created_at} />
                                         </div>
                                     </div>
                                     <div className="ml-4 text-right">
