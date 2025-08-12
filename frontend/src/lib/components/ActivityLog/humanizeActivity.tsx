@@ -84,10 +84,7 @@ export function detectBoolean(candidate: unknown): boolean {
 }
 
 const FIELD_NAME_OVERRIDES: Record<string, Record<string, string>> = {
-    PersonalAPIKey: {
-        scoped_teams: 'Team restrictions',
-        scoped_organizations: 'Organization restrictions',
-    },
+    // Add field name overrides here
 }
 
 function applyFieldNameOverrides(logItem: ActivityLogItem): ActivityLogItem {

@@ -162,6 +162,9 @@ def log_personal_api_key_scope_change(
     log_entries = calculate_scope_change_logs(before_api_key, after_api_key, changes)
 
     for log_entry in log_entries:
+        team_id = log_entry["team_id"]
+        org_id = log_entry["organization_id"]
+
         detail_data = Detail(
             changes=changes,
             name=after_api_key.label,
@@ -169,11 +172,10 @@ def log_personal_api_key_scope_change(
                 user_id=after_api_key.user_id,
                 user_email=after_api_key.user.email,
                 user_name=after_api_key.user.get_full_name(),
+                organization_name=get_organization_name(log_entry["organization_id"]) if team_id is None else None,
+                team_name=get_team_name(team_id) if team_id is not None else None,
             ),
         )
-
-        org_id = log_entry["organization_id"]
-        team_id = log_entry["team_id"]
 
         log_activity(
             organization_id=uuid.UUID(org_id),
@@ -243,7 +245,7 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
                         user_id=api_key.user_id,
                         user_email=api_key.user.email,
                         user_name=api_key.user.get_full_name(),
-                        organization_name=get_organization_name(org_id),
+                        organization_name=None,  # Regular activity logs are always team-level
                         team_name=get_team_name(team_id),
                     ),
                 ),
