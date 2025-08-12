@@ -18,11 +18,18 @@ import { urls } from 'scenes/urls'
 
 import { CohortType, ProductKey } from '~/types'
 
-import { cohortsModel } from '../../models/cohortsModel'
+import { SceneExport } from 'scenes/sceneTypes'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
+
+export const scene: SceneExport = {
+    component: Cohorts,
+    logic: cohortsSceneLogic,
+}
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(cohortsModel)
-    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsModel)
+    const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState(cohortFilters.search || '')
 
@@ -142,6 +149,19 @@ export function Cohorts(): JSX.Element {
 
     return (
         <>
+            <PersonsManagementSceneTabs
+                tabKey="cohorts"
+                buttons={
+                    <LemonButton
+                        type="primary"
+                        data-attr="new-cohort"
+                        onClick={() => router.actions.push(urls.cohort('new'))}
+                    >
+                        New cohort
+                    </LemonButton>
+                }
+            />
+
             <ProductIntroduction
                 productName="Cohorts"
                 productKey={ProductKey.COHORTS}

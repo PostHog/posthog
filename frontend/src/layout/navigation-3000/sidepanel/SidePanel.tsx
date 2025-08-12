@@ -9,6 +9,7 @@ import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerL
 import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { userLogic } from 'scenes/userLogic'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
@@ -141,6 +142,8 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
+    const { setSceneContainerRect } = useActions(sceneLayoutLogic)
+    const { sceneContainerRef } = useValues(sceneLayoutLogic)
 
     useEffect(() => {
         setSidePanelAvailable(true)
@@ -148,6 +151,13 @@ export function SidePanel(): JSX.Element | null {
             setSidePanelAvailable(false)
         }
     }, [setSidePanelAvailable])
+
+    // Trigger scene width recalculation when SidePanel size changes
+    useEffect(() => {
+        if (sceneContainerRef?.current) {
+            setSceneContainerRect(sceneContainerRef.current.getBoundingClientRect())
+        }
+    }, [desiredSize, sidePanelOpen, setSceneContainerRect, sceneContainerRef])
 
     if (!visibleTabs.length) {
         return null
