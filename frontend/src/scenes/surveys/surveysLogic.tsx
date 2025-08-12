@@ -5,12 +5,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
-import {
-    defaultSurveyAppearance,
-    defaultSurveyTemplates,
-    SURVEY_CREATED_SOURCE,
-    SURVEY_PAGE_SIZE,
-} from 'scenes/surveys/constants'
+import { SURVEY_CREATED_SOURCE, SURVEY_PAGE_SIZE, SurveyTemplate } from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -123,7 +118,7 @@ export const surveysLogic = kea<surveysLogicType>([
         setTab: (tab: SurveysTabs) => ({ tab }),
         loadNextPage: true,
         loadNextSearchPage: true,
-        createSurveyFromTemplate: (templateType: string) => ({ templateType }),
+        createSurveyFromTemplate: (surveyTemplate: SurveyTemplate) => ({ surveyTemplate }),
     }),
     loaders(({ values, actions }) => ({
         data: {
@@ -207,22 +202,10 @@ export const surveysLogic = kea<surveysLogicType>([
                     searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
                 }
             },
-            createSurveyFromTemplate: async ({ templateType }) => {
-                const template = defaultSurveyTemplates.find((t) => t.templateType === templateType)
-                if (!template) {
-                    throw new Error('Template not found')
-                }
-
+            createSurveyFromTemplate: async ({ surveyTemplate }) => {
                 const surveyPayload = {
-                    name: template.templateType,
-                    description: template.description || '',
-                    questions: template.questions || [],
-                    type: template.type,
-                    appearance: {
-                        ...defaultSurveyAppearance,
-                        ...template.appearance,
-                    },
-                    conditions: template.conditions || null,
+                    ...surveyTemplate,
+                    name: surveyTemplate.templateType,
                 }
 
                 const response = await api.surveys.create(surveyPayload)
@@ -233,7 +216,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     metadata: {
                         survey_id: response.id,
                         source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
-                        template_type: templateType,
+                        template_type: surveyTemplate.templateType,
                     },
                 })
 

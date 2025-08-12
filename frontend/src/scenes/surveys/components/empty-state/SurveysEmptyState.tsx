@@ -17,6 +17,7 @@ import {
     defaultSurveyTemplates,
     SURVEY_CREATED_SOURCE,
     SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT,
+    SurveyTemplate,
     SurveyTemplateType,
 } from '../../constants'
 import { surveysLogic } from '../../surveysLogic'
@@ -32,20 +33,25 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
 
-    // Get the three priority templates
-    const priorityTemplates = defaultSurveyTemplates.filter((template) =>
-        [SurveyTemplateType.OpenFeedback, SurveyTemplateType.NPS, SurveyTemplateType.CSAT].includes(
-            template.templateType
+    // Get the three priority templates - most popular based on the Surveys dashboard
+    const priorityTemplates = defaultSurveyTemplates
+        .filter((template) =>
+            [SurveyTemplateType.OpenFeedback, SurveyTemplateType.NPS, SurveyTemplateType.CSAT].includes(
+                template.templateType
+            )
         )
-    )
+        .map((template) => ({
+            ...template,
+            name: template.templateType,
+            appearance: {
+                ...template.appearance,
+                ...currentTeam?.survey_config?.appearance,
+            },
+        }))
 
-    const surveyAppearance = {
-        ...currentTeam?.survey_config?.appearance,
-    }
-
-    const handleCreateSurveyFromTemplate = async (templateType: SurveyTemplateType): Promise<void> => {
+    const handleCreateSurveyFromTemplate = async (survey: SurveyTemplate): Promise<void> => {
         try {
-            await createSurveyFromTemplate(templateType)
+            await createSurveyFromTemplate(survey)
         } catch (error) {
             console.error('Failed to create survey from template:', error)
         }
@@ -66,6 +72,12 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     Choose from our most popular templates to get started quickly, or create your own
                                     from scratch.
                                 </p>
+                                {numOfSurveys > 0 && (
+                                    <p className="mb-0">
+                                        Your team is already using surveys. You can take a look at what they're doing,
+                                        or get started yourself.
+                                    </p>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -76,10 +88,8 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                         idx={idx}
                                         setSurveyTemplateValues={() => {}} // Not used in this context
                                         reportSurveyTemplateClicked={() => {}} // Not used in this context
-                                        surveyAppearance={surveyAppearance}
-                                        handleTemplateClick={() =>
-                                            handleCreateSurveyFromTemplate(template.templateType)
-                                        }
+                                        surveyAppearance={template.appearance}
+                                        handleTemplateClick={() => handleCreateSurveyFromTemplate(template)}
                                     />
                                 ))}
                             </div>
