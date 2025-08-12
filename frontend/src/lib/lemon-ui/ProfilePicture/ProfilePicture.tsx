@@ -8,7 +8,7 @@ import md5 from 'md5'
 import React, { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { MinimalHedgehogConfig, UserBasicType } from '~/types'
+import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
@@ -16,7 +16,7 @@ import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 export interface ProfilePictureProps {
     user?:
         | (Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name'> & {
-              hedgehog_config?: Partial<MinimalHedgehogConfig>
+              hedgehog_config?: MinimalHedgehogConfig | HedgehogConfig
           })
         | null
     name?: string
@@ -60,8 +60,8 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
 
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)} ref={ref}>
-            {hedgehogProfile ? (
-                <HedgehogModeProfile {...user.hedgehog_config?.actor_options} size="100%" />
+            {hedgehogProfile && user.hedgehog_config ? (
+                <HedgehogModeProfile config={user.hedgehog_config} size="100%" />
             ) : (
                 gravatarLoaded !== true && (
                     <>

@@ -364,12 +364,17 @@ export type HedgehogColorOptions =
 
 export type MinimalHedgehogConfig = {
     use_as_profile: boolean
-    actor_options: HedgehogActorOptions
+    color: HedgehogActorOptions['color']
+    skin: HedgehogActorOptions['skin']
+    accessories: HedgehogActorOptions['accessories']
 }
 
-export type HedgehogConfig = MinimalHedgehogConfig & {
+export type HedgehogConfig = {
+    version: 2
+    use_as_profile: boolean
     party_mode_enabled: boolean
     enabled: boolean
+    actor_options: HedgehogActorOptions
 }
 
 export interface NotificationSettings {

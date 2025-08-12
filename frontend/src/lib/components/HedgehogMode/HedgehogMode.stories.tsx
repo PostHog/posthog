@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 
 import { HedgehogModeStatic, HedgehogModeStaticProps } from './HedgehogModeStatic'
+import { MinimalHedgehogConfig } from '~/types'
 
 const meta: Meta<typeof HedgehogModeStatic> = {
     title: 'HedgehogMode',
@@ -9,7 +10,7 @@ const meta: Meta<typeof HedgehogModeStatic> = {
 }
 export default meta
 
-const EXAMPLES: HedgehogModeStaticProps[] = [
+const EXAMPLES: MinimalHedgehogConfig = [
     { accessories: ['beret', 'xmas-scarf', 'glasses'], color: null, skin: 'default' },
     { accessories: ['chef'], color: 'red', skin: 'default' },
     { skin: 'robohog' },
@@ -20,7 +21,7 @@ export const Customization: StoryFn = () => {
     return (
         <div className="flex flex-wrap gap-2 w-[30rem]">
             {EXAMPLES.map((x, i) => (
-                <HedgehogModeStatic key={i} {...x} />
+                <HedgehogModeStatic key={i} config={x} />
             ))}
         </div>
     )

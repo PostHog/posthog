@@ -1,11 +1,12 @@
 import { StaticHedgehogRenderer } from '@posthog/hedgehog-mode'
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { HedgehogConfig } from '~/types'
+import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
-export type HedgehogModeStaticProps = Pick<HedgehogConfig['actor_options'], 'accessories' | 'color' | 'skin'> & {
+export type HedgehogModeStaticProps = {
     size?: number | string
+    config: HedgehogConfig | MinimalHedgehogConfig
 }
 
 const staticHedgehogRenderer = new StaticHedgehogRenderer({
@@ -13,15 +14,17 @@ const staticHedgehogRenderer = new StaticHedgehogRenderer({
 })
 
 // Takes a range of options and renders a static hedgehog
-export function HedgehogModeStatic({
-    accessories,
-    color,
-    size,
-    skin = 'default',
-}: HedgehogModeStaticProps): JSX.Element | null {
+export function HedgehogModeStatic({ config, size }: HedgehogModeStaticProps): JSX.Element | null {
     const imgSize = size ?? 60
-
     const [dataUrl, setDataUrl] = useState<string | null>(null)
+
+    // TRICKY: The minimal version of the config on an org member has a smaller footprint so we need to parse the right ones here
+    const { skin, color, accessories } = useMemo(() => {
+        if ('actor_options' in config) {
+            return config.actor_options
+        }
+        return config
+    }, [config])
 
     useEffect(() => {
         void staticHedgehogRenderer
@@ -56,7 +59,7 @@ export function HedgehogModeStatic({
     )
 }
 
-export function HedgehogModeProfile({ size, ...props }: HedgehogModeStaticProps): JSX.Element {
+export function HedgehogModeProfile({ size, config }: HedgehogModeStaticProps): JSX.Element {
     return (
         <div
             className="overflow-hidden relative rounded-full"
@@ -67,7 +70,7 @@ export function HedgehogModeProfile({ size, ...props }: HedgehogModeStaticProps)
             }}
         >
             <div className="absolute top-0 left-0 w-full h-full transform translate-x-[-3%] translate-y-[10%] scale-[1.8]">
-                <HedgehogModeStatic {...props} size={size} />
+                <HedgehogModeStatic config={config} size={size} />
             </div>
         </div>
     )

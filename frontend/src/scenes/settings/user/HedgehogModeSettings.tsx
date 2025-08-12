@@ -9,7 +9,7 @@ export function HedgehogModeSettings(): JSX.Element {
     return (
         <>
             <div className="flex gap-2">
-                <HedgehogModeProfile {...hedgehogConfig.actor_options} size={36} />
+                <HedgehogModeProfile config={hedgehogConfig} size={36} />
                 <LemonSwitch
                     label="Enable hedgehog mode"
                     data-attr="hedgehog-mode-switch"

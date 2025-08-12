@@ -11,6 +11,7 @@ import { HedgehogConfig } from '~/types'
 
 import type { hedgehogModeLogicType } from './hedgehogModeLogicType'
 import { HedgehogModeInterface } from './types'
+import { sanitizeHedgehogConfig } from './hedgehog-mode-utils'
 
 export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     path(['hedgehog', 'hedgehogModeLogic']),
@@ -59,7 +60,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                     let newConfig: Partial<HedgehogConfig>
 
                     let payload = {
-                        ...values.remoteConfig,
+                        ...values.hedgehogConfig,
                         ...config,
                     }
 
@@ -84,21 +85,9 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         hedgehogConfig: [
             (s) => [s.remoteConfig],
             (remoteConfig): HedgehogConfig => {
-                return {
-                    enabled: false,
-                    use_as_profile: false,
-                    party_mode_enabled: false,
-                    actor_options: {
-                        color: null,
-                        accessories: [],
-                        ai_enabled: true,
-                        interactions_enabled: true,
-                        controls_enabled: true,
-                        id: 'player',
-                        player: true,
-                    },
+                return sanitizeHedgehogConfig({
                     ...remoteConfig,
-                }
+                })
             },
         ],
 

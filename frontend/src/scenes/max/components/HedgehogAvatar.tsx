@@ -70,7 +70,7 @@ export function HedgehogAvatar({ onExpand, fixedDirection, onPositionChange }: H
                             justifyContent: 'center',
                         }}
                     >
-                        <HedgehogModeProfile {...hedgehogConfig.actor_options} size="100%" />
+                        <HedgehogModeProfile config={hedgehogConfig} size="100%" />
                     </div>
                 </Tooltip>
             </div>
