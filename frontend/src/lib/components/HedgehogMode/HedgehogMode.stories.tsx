@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 
-import { HedgehogModeStatic, HedgehogModeStaticProps } from './HedgehogModeStatic'
+import { HedgehogModeStatic } from './HedgehogModeStatic'
 import { MinimalHedgehogConfig } from '~/types'
 
 const meta: Meta<typeof HedgehogModeStatic> = {
