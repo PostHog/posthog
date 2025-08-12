@@ -33,7 +33,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from social_django.models import UserSocialAuth
 
 
-VERCEL_JWKS_URL = "https://marketplace.vercel.com/.well-known/jwks.json"
+VERCEL_JWKS_URL: str = "https://marketplace.vercel.com/.well-known/jwks.json"
 VERCEL_ISSUER = "https://marketplace.vercel.com"
 VERCEL_JWKS_CACHE_KEY = "vercel_jwks"
 VERCEL_JWKS_CACHE_TIMEOUT = 600
