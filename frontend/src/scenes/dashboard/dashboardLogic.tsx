@@ -263,6 +263,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
             loadLayoutFromServerOnPreview,
         }),
+        dashboardNotFound: true,
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -537,7 +538,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...(payload?.action === DashboardLoadAction.Preview ||
                               payload?.action === DashboardLoadAction.InitialLoadWithVariables
                                   ? {}
-                                  : dashboard.variables ?? {}),
+                                  : (dashboard.variables ?? {})),
                           }
                         : state
                 },
@@ -567,7 +568,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...(payload?.action === DashboardLoadAction.Preview ||
                               payload?.action === DashboardLoadAction.InitialLoadWithVariables
                                   ? {}
-                                  : dashboard.variables ?? {}),
+                                  : (dashboard.variables ?? {})),
                           }
                         : state,
             },
@@ -784,8 +785,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: loading
                         ? { loading: true, queued: true, timer: new Date() }
                         : queued
-                        ? { loading: false, queued: true, timer: null }
-                        : { refreshed: true, timer: state[shortId]?.timer || null },
+                          ? { loading: false, queued: true, timer: null }
+                          : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
                 setRefreshStatuses: (state, { shortIds, loading, queued }) =>
                     Object.fromEntries(
@@ -794,8 +795,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             loading
                                 ? { loading: true, queued: true, timer: new Date() }
                                 : queued
-                                ? { loading: false, queued: true, timer: null }
-                                : { refreshed: true, timer: state[shortId]?.timer || null },
+                                  ? { loading: false, queued: true, timer: null }
+                                  : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
                 setRefreshError: (state, { shortId, error }) => ({
@@ -894,6 +895,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return dashboard?.last_refresh ? dayjs(dashboard.last_refresh) : null
                 },
                 updateDashboardLastRefresh: (_, { lastDashboardRefresh }) => lastDashboardRefresh,
+            },
+        ],
+        error404: [
+            false,
+            {
+                dashboardNotFound: () => true,
+                loadDashboardSuccess: () => false,
+                loadDashboardFailure: () => false,
             },
         ],
     })),
@@ -1166,8 +1175,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s._dashboardLoading, s.dashboardFailedToLoad, s.canEditDashboard],
-            (dashboard, dashboardLoading, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, s.canEditDashboard],
+            (dashboard, error404, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
                 {
                     key: Scene.Dashboards,
                     name: 'Dashboards',
@@ -1178,10 +1187,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     name: dashboard?.id
                         ? dashboard.name
                         : dashboardFailedToLoad
-                        ? 'Could not load'
-                        : !dashboardLoading
-                        ? 'Not found'
-                        : null,
+                          ? 'Could not load'
+                          : error404
+                            ? 'Not found'
+                            : '...',
                     onRename: canEditDashboard
                         ? async (name) => {
                               if (dashboard) {
@@ -1558,6 +1567,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             void sharedListeners.reportLoadTiming(...args)
 
             if (!values.dashboard) {
+                actions.dashboardNotFound()
                 return // We hit a 404
             }
 

@@ -1,4 +1,4 @@
-# HogQL bytecode changelog 
+# HogQL bytecode changelog
 
 ## 2023-06-30 - 1.0.2
 

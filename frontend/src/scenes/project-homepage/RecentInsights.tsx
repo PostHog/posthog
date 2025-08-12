@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
@@ -12,6 +11,7 @@ import { QueryBasedInsightModel } from '~/types'
 
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 import { projectHomepageLogic } from './projectHomepageLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 interface InsightRowProps {
     insight: QueryBasedInsightModel
@@ -36,10 +36,8 @@ export function InsightRow({ insight }: InsightRowProps): JSX.Element {
 export function RecentInsights(): JSX.Element {
     const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
     const { loadRecentInsights } = useActions(projectHomepageLogic)
+    useOnMountEffect(loadRecentInsights)
 
-    useEffect(() => {
-        loadRecentInsights()
-    }, [])
     return (
         <>
             <CompactList

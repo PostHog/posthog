@@ -120,8 +120,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         ? itemId === 'new'
                             ? 'new'
                             : Number.isInteger(+itemId)
-                            ? parseInt(itemId, 10)
-                            : itemId
+                              ? parseInt(itemId, 10)
+                              : itemId
                         : null,
             },
         ],
@@ -330,12 +330,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 mode === 'subscriptions'
                     ? ItemMode.Subscriptions
                     : mode === 'alerts'
-                    ? ItemMode.Alerts
-                    : mode === 'sharing'
-                    ? ItemMode.Sharing
-                    : mode === 'edit' || shortId === 'new'
-                    ? ItemMode.Edit
-                    : ItemMode.View
+                      ? ItemMode.Alerts
+                      : mode === 'sharing'
+                        ? ItemMode.Sharing
+                        : mode === 'edit' || shortId === 'new'
+                          ? ItemMode.Edit
+                          : ItemMode.View
             const insightId = String(shortId) as InsightShortId
 
             const currentScene = sceneLogic.findMounted()?.values

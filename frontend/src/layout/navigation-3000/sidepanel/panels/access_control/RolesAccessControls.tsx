@@ -152,8 +152,8 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                             !canEditRoles
                                 ? 'You cannot edit this'
                                 : !onSubmit
-                                ? 'Please select members to add'
-                                : undefined
+                                  ? 'Please select members to add'
+                                  : undefined
                         }
                     >
                         Add members

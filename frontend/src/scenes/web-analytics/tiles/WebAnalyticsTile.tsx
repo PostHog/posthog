@@ -72,7 +72,7 @@ const VariationCell = (
     { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
 ): QueryContextColumnComponent => {
     const formatNumber = (value: number): string =>
-        isPercentage ? `${(value * 100).toFixed(1)}%` : value?.toLocaleString() ?? '(empty)'
+        isPercentage ? `${(value * 100).toFixed(1)}%` : (value?.toLocaleString() ?? '(empty)')
 
     return function Cell({ value }) {
         const { compareFilter } = useValues(webAnalyticsLogic)
@@ -91,25 +91,25 @@ const VariationCell = (
             previous === 0 && current === 0 // Special case, render as flatline
                 ? 0
                 : current === null || !compareFilter || compareFilter.compare === false
-                ? null
-                : previous === null || previous === 0
-                ? Infinity
-                : current / previous - 1
+                  ? null
+                  : previous === null || previous === 0
+                    ? Infinity
+                    : current / previous - 1
 
         const trend =
             pctChangeFromPrevious === null
                 ? null
                 : pctChangeFromPrevious === 0
-                ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
-                : pctChangeFromPrevious > 0
-                ? {
-                      Icon: IconTrending,
-                      color: reverseColors ? getColorVar('danger') : getColorVar('success'),
-                  }
-                : {
-                      Icon: IconTrendingDown,
-                      color: reverseColors ? getColorVar('success') : getColorVar('danger'),
-                  }
+                  ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
+                  : pctChangeFromPrevious > 0
+                    ? {
+                          Icon: IconTrending,
+                          color: reverseColors ? getColorVar('danger') : getColorVar('success'),
+                      }
+                    : {
+                          Icon: IconTrendingDown,
+                          color: reverseColors ? getColorVar('success') : getColorVar('danger'),
+                      }
 
         // If current === previous, say "increased by 0%"
         const tooltip =

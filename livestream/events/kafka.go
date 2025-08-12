@@ -185,3 +185,7 @@ func (c *PostHogKafkaConsumer) Close() {
 	}
 	close(c.incoming)
 }
+
+func (c *PostHogKafkaConsumer) IncomingRatio() float64 {
+	return float64(len(c.incoming)) / float64(cap(c.incoming))
+}
