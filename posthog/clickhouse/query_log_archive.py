@@ -193,6 +193,7 @@ AS SELECT
     JSONExtractString(log_comment, 'kind') as lc_kind,
     JSONExtractString(log_comment, 'id') as lc_id,
     JSONExtractString(log_comment, 'route_id') as lc_route_id,
+    JSONExtractString(log_comment, 'access_method') as lc_access_method,
 
     JSONExtractString(log_comment, 'query_type') as lc_query_type,
     JSONExtractString(log_comment, 'product') as lc_product,
@@ -226,7 +227,11 @@ AS SELECT
     JSONExtractString(log_comment, 'temporal', 'workflow_run_id') as lc_temporal__workflow_run_id,
     JSONExtractString(log_comment, 'temporal', 'activity_type') as lc_temporal__activity_type,
     JSONExtractString(log_comment, 'temporal', 'activity_id') as lc_temporal__activity_id,
-    JSONExtractInt(log_comment, 'temporal', 'attempt') as lc_temporal__attempt
+    JSONExtractInt(log_comment, 'temporal', 'attempt') as lc_temporal__attempt,
+
+    JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
+    JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
+    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
 FROM system.query_log
 WHERE
     type != 'QueryStart'
