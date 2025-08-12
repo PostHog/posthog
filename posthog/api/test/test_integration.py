@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 from rest_framework import exceptions
 from django.test import override_settings
+from posthog.api.test.test_team import create_team
 from posthog.models.integration import Integration
 from posthog.models.integration import EmailIntegration, SlackIntegration, PRIVATE_CHANNEL_WITHOUT_ACCESS
 from posthog.models.user import User
@@ -323,3 +324,43 @@ class TestEmailIntegration:
             "mailjet_verified": True,
             "aws_ses_verified": False,
         }
+
+    def test_email_verify_updates_all_other_integrations_with_same_domain(self):
+        integration1 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
+        integration2 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
+        integrationOtherDomain = EmailIntegration.create_native_integration(
+            {
+                "email": "me@otherdomain.com",
+                "name": "Me",
+            },
+            self.team.id,
+            self.user,
+        )
+        other_team = create_team(organization=self.organization)
+        integrationOtherTeam = EmailIntegration.create_native_integration(
+            {
+                "email": "me@otherdomain.com",
+                "name": "Me",
+            },
+            other_team.id,
+            self.user,
+        )
+
+        assert not integration1.config["mailjet_verified"]
+        assert not integration2.config["mailjet_verified"]
+        assert not integrationOtherDomain.config["mailjet_verified"]
+        assert not integrationOtherTeam.config["mailjet_verified"]
+
+        email_integration = EmailIntegration(integration1)
+        verification_result = email_integration.verify()
+        assert verification_result["status"] == "success"
+
+        integration1.refresh_from_db()
+        integration2.refresh_from_db()
+        integrationOtherDomain.refresh_from_db()
+        integrationOtherTeam.refresh_from_db()
+
+        assert integration1.config["mailjet_verified"]
+        assert integration2.config["mailjet_verified"]
+        assert not integrationOtherDomain.config["mailjet_verified"]
+        assert not integrationOtherTeam.config["mailjet_verified"]
