@@ -1,11 +1,13 @@
 import fs from 'fs'
-import path from 'path'
 import { DateTime } from 'luxon'
-import { Hub, Team } from "~/types"
-import { createHub, closeHub } from "~/utils/db/hub"
-import { resetTestDatabase } from "~/tests/helpers/sql"
-import { PostgresRouter, PostgresUse } from "~/utils/db/postgres"
-import { PostgresDualWritePersonRepository } from "./postgres-dualwrite-person-repository"
+import path from 'path'
+
+import { resetTestDatabase } from '~/tests/helpers/sql'
+import { Hub, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
+
+import { PostgresDualWritePersonRepository } from './postgres-dualwrite-person-repository'
 
 jest.mock('../../../../utils/logger')
 
@@ -43,9 +45,19 @@ describe('PostgresDualWritePersonRepository', () => {
     async function cleanupPrepared(hub: Hub) {
         const routers = [hub.db.postgres, hub.db.postgresPersonMigration]
         for (const r of routers) {
-            const res = await r.query(PostgresUse.PERSONS_WRITE, `SELECT gid FROM pg_prepared_xacts WHERE gid LIKE 'dualwrite:%'`, [], 'list-prepared')
+            const res = await r.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT gid FROM pg_prepared_xacts WHERE gid LIKE 'dualwrite:%'`,
+                [],
+                'list-prepared'
+            )
             for (const row of res.rows) {
-                await r.query(PostgresUse.PERSONS_WRITE, `ROLLBACK PREPARED '${String(row.gid).replace(/'/g, "''")}'`, [], 'rollback-prepared')
+                await r.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `ROLLBACK PREPARED '${String(row.gid).replace(/'/g, "''")}'`,
+                    [],
+                    'rollback-prepared'
+                )
             }
         }
     }
@@ -133,9 +145,17 @@ describe('PostgresDualWritePersonRepository', () => {
         const team = await getFirstTeam(hub)
         const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
         const uuid = '22222222-2222-2222-2222-222222222222'
-        const { person } = (await repository.createPerson(createdAt, { name: 'A' }, {}, {}, team.id, null, false, uuid, [
-            { distinctId: 'dw-2' },
-        ])) as any
+        const { person } = (await repository.createPerson(
+            createdAt,
+            { name: 'A' },
+            {},
+            {},
+            team.id,
+            null,
+            false,
+            uuid,
+            [{ distinctId: 'dw-2' }]
+        )) as any
 
         const [updated] = await repository.updatePerson(person, { properties: { name: 'B' } })
 
@@ -269,7 +289,16 @@ describe('PostgresDualWritePersonRepository', () => {
         const team = await getFirstTeam(hub)
         const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
         const uuid = '77777777-7777-7777-7777-777777777777'
-        const { person } = (await repository.createPerson(createdAt, { x: 1 }, {}, {}, team.id, null, false, uuid)) as any
+        const { person } = (await repository.createPerson(
+            createdAt,
+            { x: 1 },
+            {},
+            {},
+            team.id,
+            null,
+            false,
+            uuid
+        )) as any
 
         const [version] = await repository.updatePersonAssertVersion({
             id: person.id,
