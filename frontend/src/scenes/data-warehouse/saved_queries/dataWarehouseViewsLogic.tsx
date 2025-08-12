@@ -11,7 +11,6 @@ import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
-const REFRESH_INTERVAL = 10000
 const DEFAULT_JOBS_PAGE_SIZE = 10
 
 export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
@@ -130,25 +129,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     })),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
-        },
-        loadDataWarehouseSavedQueriesSuccess: () => {
-            clearTimeout(cache.savedQueriesRefreshTimeout)
-
-            cache.savedQueriesRefreshTimeout = setTimeout(() => {
-                actions.loadDataWarehouseSavedQueries()
-            }, REFRESH_INTERVAL)
-        },
-        loadDataModelingJobsSuccess: ({ payload }) => {
-            clearTimeout(cache.dataModelingJobsRefreshTimeout)
-
-            cache.dataModelingJobsRefreshTimeout = setTimeout(() => {
-                if (payload) {
-                    actions.loadDataModelingJobs(payload)
-                }
-            }, REFRESH_INTERVAL)
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
