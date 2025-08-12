@@ -216,6 +216,7 @@ class VercelInstallationViewSet(
             user_analytics_metadata=user.get_analytics_metadata(),
             org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
             social_provider="vercel",
+            referral_source="vercel",
         )
 
         VercelInstallation.objects.create(
