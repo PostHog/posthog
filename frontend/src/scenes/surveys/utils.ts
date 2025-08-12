@@ -306,40 +306,28 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
                     condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
                 } else {
-                    condition = `(arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(
-                        question,
-                        questionIndex
-                    )}))`
+                    condition = `(arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
                 }
                 break
             case 'not_icontains':
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
                     condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
                 } else {
-                    condition = `(NOT arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(
-                        question,
-                        questionIndex
-                    )}))`
+                    condition = `(NOT arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
                 }
                 break
             case 'regex':
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
                     condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
                 } else {
-                    condition = `(arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(
-                        question,
-                        questionIndex
-                    )}))`
+                    condition = `(arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
                 }
                 break
             case 'not_regex':
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
                     condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
                 } else {
-                    condition = `(NOT arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(
-                        question,
-                        questionIndex
-                    )}))`
+                    condition = `(NOT arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
                 }
                 break
             // Add more operators as needed
