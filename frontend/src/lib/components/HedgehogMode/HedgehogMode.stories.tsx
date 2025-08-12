@@ -1,3 +1,8 @@
+import {
+    HedgehogActorAccessoryOptions,
+    HedgehogActorColorOptions,
+    HedgehogActorSkinOptions,
+} from '@posthog/hedgehog-mode'
 import { Meta, StoryFn } from '@storybook/react'
 
 import { HedgehogModeStatic } from './HedgehogModeStatic'
@@ -10,17 +15,24 @@ const meta: Meta<typeof HedgehogModeStatic> = {
 }
 export default meta
 
-const EXAMPLES: MinimalHedgehogConfig = [
-    { accessories: ['beret', 'xmas-scarf', 'glasses'], color: null, skin: 'default' },
-    { accessories: ['chef'], color: 'red', skin: 'default' },
-    { skin: 'robohog' },
-    { skin: 'spiderhog' },
-]
+// Generate all combinations of accessories, colors, and skins
+const allCombinations = Object.values(HedgehogActorAccessoryOptions).flatMap((accessory) =>
+    Object.values(HedgehogActorColorOptions).flatMap((color) =>
+        Object.values(HedgehogActorSkinOptions).map(
+            (skin): MinimalHedgehogConfig => ({
+                accessories: [accessory],
+                color,
+                skin,
+                use_as_profile: false,
+            })
+        )
+    )
+)
 
 export const Customization: StoryFn = () => {
     return (
-        <div className="flex flex-wrap gap-2 w-[30rem]">
-            {EXAMPLES.map((x, i) => (
+        <div className="flex flex-wrap gap-2 w-[100rem]">
+            {allCombinations.map((x, i) => (
                 <HedgehogModeStatic key={i} config={x} />
             ))}
         </div>
