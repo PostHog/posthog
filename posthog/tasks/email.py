@@ -464,12 +464,28 @@ def login_from_new_device_notification(
     if not is_email_available(with_absolute_urls=True):
         return
 
+    user: User = User.objects.get(pk=user_id)
+
+    # Send email if feature flag is enabled or in tests
+    if settings.TEST:
+        enabled = True
+    elif user.current_organization is None:
+        enabled = False
+    else:
+        enabled = posthoganalytics.feature_enabled(
+            key="login-from-new-device-notification",
+            distinct_id=user.distinct_id,
+            groups={"organization": str(user.current_organization.id)},
+        )
+
+    if not enabled:
+        return
+
     is_new_device = check_and_cache_login_device(user_id, ip_address, short_user_agent)
     if not is_new_device:
         return
 
     login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
-
     geoip_data = get_geoip_properties(ip_address)
 
     # Compose location as "City, Country" (omit city if missing)
@@ -479,7 +495,6 @@ def login_from_new_device_notification(
         if part
     )
 
-    user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
         campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
