@@ -483,9 +483,9 @@ Jane Smith,jane@example.com,25
         csv = SimpleUploadedFile(
             "no_ids.csv",
             str.encode(
-                """
-
-
+                """,,,
+,
+,
 """
             ),
             content_type="application/csv",
