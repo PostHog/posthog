@@ -15,27 +15,15 @@ import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
-import { availableSourcesDataLogic } from './new/availableSourcesDataLogic'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
 const LIST_SIZE = 5
 
-interface SourceFieldConfig {
-    name: string
-    type: string
-}
-
-const getSourceType = (sourceType: string, availableSources?: Record<string, any> | null): 'Database' | 'API' => {
-    const fields: SourceFieldConfig[] = availableSources?.[sourceType]?.fields || []
-    if (fields.some((f) => f.name === 'connection_string' || ['host', 'port', 'database'].includes(f.name))) {
-        return 'Database'
-    }
-    if (fields.some((f) => f.type === 'oauth' || ['api_key', 'access_token'].includes(f.name))) {
-        return 'API'
-    }
-    return 'API'
+const getSourceType = (sourceType: string): 'Database' | 'API' => {
+    const dbSources = ['Postgres', 'MySQL', 'MSSQL', 'Snowflake', 'BigQuery', 'Redshift', 'MongoDB']
+    return dbSources.includes(sourceType) ? 'Database' : 'API'
 }
 
 interface DashboardDataSource {
@@ -62,7 +50,6 @@ export function DataWarehouseScene(): JSX.Element {
     const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
     const { billing } = useValues(billingLogic)
-    const { availableSources } = useValues(availableSourcesDataLogic)
     const { recentJobs } = useValues(externalDataSourcesLogic)
 
     const billingRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
@@ -115,7 +102,7 @@ export function DataWarehouseScene(): JSX.Element {
                 return {
                     id: source.id,
                     name: source.source_type,
-                    type: getSourceType(source.source_type, availableSources),
+                    type: getSourceType(source.source_type),
                     status: source.status,
                     lastSync,
                     rowCount: totalRows,
@@ -134,7 +121,7 @@ export function DataWarehouseScene(): JSX.Element {
                 })
             ),
         ],
-        [dataWarehouseSources?.results, selfManagedTables, availableSources, recentJobs]
+        [dataWarehouseSources?.results, selfManagedTables, recentJobs]
     )
 
     const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
