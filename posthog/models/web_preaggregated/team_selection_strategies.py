@@ -1,9 +1,12 @@
 import os
+import requests
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import dagster
 from posthog.models.team.team import Team
 from posthog.clickhouse.client import sync_execute
+from posthog.cloud_utils import is_cloud
 from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT,
     get_top_teams_by_median_pageviews_sql,
@@ -77,6 +80,19 @@ class ProjectSettingsStrategy(TeamSelectionStrategy):
 
     def get_name(self) -> str:
         return "project_settings"
+
+    def _get_expected_host(self) -> Optional[str]:
+        """Get the expected host for the current deployment region."""
+        if not is_cloud():
+            return None  # Don't filter by host for self-hosted instances
+
+        if settings.SITE_URL == "https://us.posthog.com":
+            return "us.posthog.com"
+        elif settings.SITE_URL == "https://eu.posthog.com":
+            return "eu.posthog.com"
+        else:
+            # Default to app.posthog.com for other cloud deployments
+            return "app.posthog.com"
 
     def get_teams(self, context: dagster.OpExecutionContext) -> set[int]:
         try:
