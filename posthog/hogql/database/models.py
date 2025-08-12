@@ -227,7 +227,7 @@ class LazyJoin(FieldOrTable):
 
     @model_validator(mode="before")
     @classmethod
-    def validate(cls, data: dict):
+    def validate_model(cls, data: dict):
         from posthog.hogql.database.join_functions import is_join_function_allowed
 
         v = data.get("join_function")
@@ -265,6 +265,8 @@ class LazyJoin(FieldOrTable):
 
     # dill serialization for cache
     def __reduce_ex__(self, protocol):
+        join_function_config: LazyJoinClosureSerialConfig | LazyJoinFunctionSerialConfig
+
         if self.join_closure_args:
             join_function_config = LazyJoinClosureSerialConfig(
                 name=self.join_function.__name__,

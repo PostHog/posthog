@@ -1,6 +1,6 @@
 import json
 from typing import Any, cast
-
+import dill
 from unittest.mock import patch
 import pytest
 from django.test import override_settings
@@ -1018,3 +1018,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_serialize_database_for_cache(self):
+        # serializes a database using dill
+
+        db = create_hogql_database(team=self.team)
+        serialized = dill.dumps(db)
+
+        assert serialized == self.snapshot
