@@ -193,7 +193,7 @@ class VercelInstallationViewSet(
             # by the default project created here and their "Resource" project.
             organization, _, user = User.objects.bootstrap(
                 is_staff=False,
-                is_email_verified=True,
+                is_email_verified=False,
                 role_at_organization="admin",
                 email=serializer.validated_data["account"]["contact"]["email"],
                 first_name=serializer.validated_data["account"]["contact"].get("name", ""),
