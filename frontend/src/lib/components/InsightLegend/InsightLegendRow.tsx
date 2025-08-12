@@ -37,9 +37,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
     let highlighted = false
     if (highlightedSeries) {
         const currentKey = getTrendResultCustomizationKey(resultCustomizationBy, item)
-        const highlightedKey = highlightedSeries
-            ? getTrendResultCustomizationKey(resultCustomizationBy, highlightedSeries)
-            : null
+        const highlightedKey = getTrendResultCustomizationKey(resultCustomizationBy, highlightedSeries)
         highlighted = currentKey === highlightedKey
     }
     const highlightStyle: Record<string, any> = highlighted

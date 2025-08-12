@@ -14,7 +14,6 @@ export function SeriesCheckColumnTitle({
     getTrendsHidden,
     toggleAllResultsHidden,
 }: SeriesCheckColumnTitleProps): JSX.Element {
-    // return null
     const isAnySeriesChecked = indexedResults.some((dataset) => !getTrendsHidden(dataset))
     const areAllSeriesChecked = indexedResults.every((dataset) => !getTrendsHidden(dataset))
 

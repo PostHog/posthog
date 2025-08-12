@@ -70,7 +70,15 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             ])
             setTotal(visibleResults.reduce((prev, item) => prev + item.aggregated_value, 0))
         }
-    }, [indexedResults, theme, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay, getTrendsColor])
+    }, [
+        indexedResults,
+        theme,
+        breakdownFilter,
+        cohorts?.results,
+        formatPropertyValueForDisplay,
+        getTrendsColor,
+        getTrendsHidden,
+    ])
 
     return data && total > 0 ? (
         <LineGraph

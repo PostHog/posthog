@@ -72,9 +72,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                     borderColor: colorList, // For colors to display in the tooltip
                 },
             ])
-            setTotal(
-                visibleResults.reduce((prev, item) => prev + (!getTrendsHidden(item) ? item.aggregated_value : 0), 0)
-            )
+            setTotal(visibleResults.reduce((prev, item) => prev + item.aggregated_value, 0))
         }
     }, [
         indexedResults,
