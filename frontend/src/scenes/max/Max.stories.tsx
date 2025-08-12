@@ -66,6 +66,10 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
         featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG, FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
+        testOptions: {
+            // "loading the thread in progress" has a spinner but no failed network request
+            waitForLoadersToDisappear: false,
+        },
     },
 }
 export default meta

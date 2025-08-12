@@ -18,7 +18,7 @@ const setupMsw = (): void => {
         quiet: true,
         onUnhandledRequest(request, print) {
             // MSW warns on all unhandled requests, but we don't necessarily care
-            const pathAllowList = ['/images/']
+            const pathAllowList = ['/images/', '/static/hedgehog/']
 
             if (pathAllowList.some((path) => request.url.pathname.startsWith(path))) {
                 return
@@ -36,7 +36,7 @@ setupMsw()
 const setupPosthogJs = (): void => {
     // Make sure we don't hit production posthog. We want to control requests to,
     // e.g. `/decide/` for feature flags
-    window.JS_POSTHOG_HOST = apiHostOrigin()
+    ;(window as any).JS_POSTHOG_HOST = apiHostOrigin()
 
     loadPostHogJS()
 }

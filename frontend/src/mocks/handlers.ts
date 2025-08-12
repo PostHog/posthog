@@ -212,24 +212,30 @@ export const defaultMocks: Mocks = {
         'api/environments/:team_id/error_tracking/symbol_sets': EMPTY_PAGINATED_RESPONSE,
         'api/projects/@current/global_access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/@current/access_controls': EMPTY_PAGINATED_RESPONSE,
+        'https://us-assets.i.posthog.com/array/fake token': (_req, res, ctx): MockSignature => {
+            return res(ctx.text(''), ctx.set('Content-Type', 'application/javascript'))
+        },
+        '/api/organizations/@current/pipeline_destinations': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/pipeline_destination_configs': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/batch_exports/': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
-        'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        '/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        'https://us.i.posthog.com/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        '/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        '/api/environments/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
+        'https://us.i.posthog.com/e': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/e': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/decide': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/flags': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/decide': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/flags': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/engage': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/api/environments/:team_id/insights/:insight_id/viewed': (): MockSignature => [201, null],
         'api/environments/:team_id/query': [200, { results: [] }],
     },
     patch: {
-        '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
-        '/api/environments/:team_id/': MOCK_DEFAULT_TEAM,
+        '/api/projects/:team_id/session_recording_playlists/:playlist_id': {},
+        '/api/environments/:team_id': MOCK_DEFAULT_TEAM,
     },
     options: {
-        'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/decide': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
     },
 }
 export const handlers = mocksToHandlers(defaultMocks)

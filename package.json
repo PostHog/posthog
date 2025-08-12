@@ -102,5 +102,8 @@
     },
     "browser": {
         "path": "path-browserify"
+    },
+    "msw": {
+        "workerDirectory": "common/storybook/.storybook/public"
     }
 }
