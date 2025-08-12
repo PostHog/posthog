@@ -114,12 +114,12 @@ export const cohortsModel = kea<cohortsModelType>([
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
     })),
-    loaders(({ values }) => ({
+    loaders(() => ({
         cohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadCohorts: async () => {
                 const response = await api.cohorts.listPaginated({
-                    ...values.paramsFromFilters,
+                    limit: MAX_COHORTS_FOR_FULL_LIST,
                 })
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
                 return {
