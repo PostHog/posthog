@@ -16,6 +16,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 import { actionLogic } from './actionLogic'
 
+import { urls } from 'scenes/urls'
 import type { actionEditLogicType } from './actionEditLogicType'
 
 export interface SetActionProps {
@@ -107,7 +108,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                         lemonToast.error(
                             <>
                                 Action with this name already exists.{' '}
-                                <Link to={productUrls.action(dupeId)} target="_blank">
+                                <Link to={urls.action(dupeId)} target="_blank">
                                     Edit it here
                                 </Link>
                             </>
@@ -122,7 +123,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 actions.resetAction(updatedAction)
                 refreshTreeItem('action', String(action.id))
                 if (!props.id) {
-                    router.actions.push(productUrls.action(action.id))
+                    router.actions.push(urls.action(action.id))
                 } else {
                     const id = parseInt(props.id.toString()) // props.id can be a string
                     const logic = actionLogic.findMounted(id)
@@ -179,12 +180,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     object: values.action,
                     callback: (undo: boolean) => {
                         if (undo) {
-                            router.actions.push(productUrls.action(actionId))
+                            router.actions.push(urls.action(actionId))
                             refreshTreeItem('action', String(actionId))
                         } else {
                             actions.resetAction()
                             deleteFromTree('action', String(actionId))
-                            router.actions.push(productUrls.actions())
+                            router.actions.push(urls.actions())
                             actions.loadActions()
                         }
                     },

@@ -182,7 +182,6 @@ export interface SceneConfig {
     defaultDocsPath?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
-    children?: Record<string, SceneConfig>
 }
 
 // Map scenes to their access control resource types

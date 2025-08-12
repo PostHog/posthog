@@ -8,7 +8,7 @@ import { ActionType, Breadcrumb } from '~/types'
 import { Scene } from 'scenes/sceneTypes'
 import type { actionsLogicType } from './actionsLogicType'
 import { urls } from 'scenes/urls'
-import { productUrls } from '~/products'
+
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 
 export type ActionsFilterType = 'all' | 'me'
@@ -83,7 +83,7 @@ export const actionsLogic = kea<actionsLogicType>([
                     {
                         key: DataManagementTab.Actions,
                         name: 'Actions',
-                        path: productUrls.actions(),
+                        path: urls.actions(),
                     },
                 ]
             },

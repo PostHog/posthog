@@ -26,7 +26,6 @@ import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, 
 import { NewActionButton } from './NewActionButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { productUrls } from '~/products'
 
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -86,7 +85,7 @@ export function ActionsTable(): JSX.Element {
                 return (
                     <LemonTableLink
                         data-attr={'action-link-' + index}
-                        to={productUrls.action(action.id)}
+                        to={urls.action(action.id)}
                         title={action.name || <i>Unnamed</i>}
                         description={action.description}
                     />
@@ -184,10 +183,10 @@ export function ActionsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton to={productUrls.action(action.id)} fullWidth>
+                                <LemonButton to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
-                                <LemonButton to={productUrls.duplicateAction(action)} fullWidth>
+                                <LemonButton to={urls.duplicateAction(action)} fullWidth>
                                     Duplicate
                                 </LemonButton>
                                 <LemonButton

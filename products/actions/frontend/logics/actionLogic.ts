@@ -4,7 +4,6 @@ import api from 'lib/api'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { productUrls } from '~/products'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActionStepType, ActionType, ActivityScope, Breadcrumb, HogFunctionType, ProjectTreeRef } from '~/types'
@@ -87,7 +86,7 @@ export const actionLogic = kea<actionLogicType>([
                 {
                     key: DataManagementTab.Actions,
                     name: 'Actions',
-                    path: productUrls.actions(),
+                    path: urls.actions(),
                 },
                 {
                     key: [Scene.Action, action?.id || 'new'],

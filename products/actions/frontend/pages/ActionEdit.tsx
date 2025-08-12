@@ -16,7 +16,7 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { productUrls } from '~/products'
+
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -64,7 +64,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
             status="danger"
             type="secondary"
             onClick={() => {
-                router.actions.push(productUrls.actions())
+                router.actions.push(urls.actions())
             }}
             tooltip="Cancel and return to the list of actions"
         >
