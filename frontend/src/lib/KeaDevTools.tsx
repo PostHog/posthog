@@ -54,9 +54,9 @@ function displayName(logic: BuiltLogic): string {
 /** size metric → used for a subtle tint & node size */
 function logicSize(logic: BuiltLogic): number {
     const c = Math.max(0, Object.keys((logic as any)?.connections || {}).length - 1)
-    const a = Object.keys((logic as any).actions || {}).length
-    const s = Object.keys((logic as any).selectors || {}).length
-    const v = Object.keys((logic as any).values || {}).length
+    const a = Object.keys((logic as any)?.actions || {}).length
+    const s = Object.keys((logic as any)?.selectors || {}).length
+    const v = Object.keys((logic as any)?.values || {}).length
     return c + a + s + v
 }
 
@@ -429,8 +429,6 @@ function GraphTab({
                         b.vx -= rx
                         b.vy -= ry
                     }
-
-                    // hard non-overlap
                     const minD = a.size + b.size + COLLISION_PAD
                     if (dist < minD) {
                         const overlap = minD - dist
