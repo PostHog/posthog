@@ -8,7 +8,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { productUrls } from '~/products'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
@@ -203,7 +202,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        [productUrls.createAction()]: (_, searchParams) => {
+        [urls.createAction()]: (_, searchParams) => {
             try {
                 if (searchParams.copy) {
                     const {

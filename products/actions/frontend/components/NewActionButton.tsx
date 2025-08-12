@@ -5,7 +5,7 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
-import { productUrls } from '~/products'
+import { urls } from 'scenes/urls'
 
 export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
     const [visible, setVisible] = useState(false)
@@ -61,7 +61,7 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
                             icon={<IconPencil />}
                             onClick={() => {
                                 onSelectOption?.()
-                                router.actions.push(productUrls.createAction())
+                                router.actions.push(urls.createAction())
                             }}
                             size="large"
                             fullWidth
