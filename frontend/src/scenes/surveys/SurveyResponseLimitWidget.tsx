@@ -1,5 +1,4 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -28,21 +27,21 @@ export function SurveyResponseLimitWidget(): JSX.Element | null {
     let message: string
 
     if (usage === 0) {
-        message = `You have used 0 responses this month.`
+        message = `You have received 0 responses this month.`
     } else if (limit && usage >= limit) {
         type = 'error'
-        message = `You have used all ${limit} responses this month. Further responses will not be collected.`
+        message = `You have received ${usage} responses this month. You have reached your limit of ${limit} responses per month.`
     } else if (limit && percentageUsed >= 80) {
         type = 'warning'
-        message = `You have used ${usage} of ${limit} responses this month. You have ${
+        message = `You have received ${usage} of ${limit} responses this month. You have ${
             limit - usage
         } responses remaining.`
     } else if (limit) {
-        message = `You have used ${usage} of ${limit} responses this month. You have ${
+        message = `You have received ${usage} of ${limit} responses this month. You have ${
             limit - usage
         } responses remaining.`
     } else {
-        message = `You have used ${usage} responses this month.`
+        message = `You have received ${usage} responses this month.`
     }
 
     return (
