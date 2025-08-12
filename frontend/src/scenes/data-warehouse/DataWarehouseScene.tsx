@@ -17,6 +17,7 @@ import { Dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { availableSourcesDataLogic } from './new/availableSourcesDataLogic'
+import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
@@ -45,10 +46,11 @@ interface DashboardDataSource {
 
 interface DashboardActivity {
     name: string
-    type: 'Materialization' | 'Sync'
+    type: 'Materialization' | 'Data Sync'
     status: string
     time: string
     rowCount: number | null
+    sourceName?: string
 }
 
 export function DataWarehouseScene(): JSX.Element {
@@ -57,6 +59,7 @@ export function DataWarehouseScene(): JSX.Element {
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
     const { billing } = useValues(billingLogic)
     const { availableSources } = useValues(availableSourcesDataLogic)
+    const { recentJobs } = useValues(externalDataSourcesLogic)
 
     const billingRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
 
@@ -74,6 +77,7 @@ export function DataWarehouseScene(): JSX.Element {
     const recentActivity = useMemo((): DashboardActivity[] => {
         const items: DashboardActivity[] = []
 
+        // Add materialized view runs
         materializedViews.forEach((view) => {
             if (view.last_run_at) {
                 items.push({
@@ -86,24 +90,24 @@ export function DataWarehouseScene(): JSX.Element {
             }
         })
 
-        dataWarehouseSources?.results?.forEach((source) => {
-            source.schemas?.forEach((schema) => {
-                if (schema.should_sync) {
-                    items.push({
-                        name: `${schema.name} (${source.source_type})`,
-                        type: 'Sync',
-                        status: schema.status || 'completed',
-                        time: schema.last_synced_at
-                            ? String(schema.last_synced_at)
-                            : String(source.last_run_at || new Date().toISOString()),
-                        rowCount: schema.table?.row_count || 0,
-                    })
-                }
+        // Add sync jobs from recent jobs data
+        recentJobs.forEach((job) => {
+            const source = dataWarehouseSources?.results?.find((s) =>
+                s.schemas?.some((schema) => schema.id === job.schema.id)
+            )
+
+            items.push({
+                name: job.schema.name,
+                type: 'Data Sync',
+                status: job.status,
+                time: job.created_at,
+                rowCount: job.rows_synced,
+                sourceName: source?.source_type,
             })
         })
 
         return items.sort((a, b) => new Date(b.time).valueOf() - new Date(a.time).valueOf())
-    }, [materializedViews, dataWarehouseSources?.results])
+    }, [materializedViews, recentJobs, dataWarehouseSources?.results])
 
     const allSources = useMemo(
         (): DashboardDataSource[] => [
@@ -330,10 +334,14 @@ export function DataWarehouseScene(): JSX.Element {
                                     <div className="flex-1 min-w-0">
                                         <div className="font-medium text-base flex items-center gap-1">
                                             <StatusIcon status={activity.status} />
+                                            {activity.sourceName && <span>{activity.sourceName} </span>}
                                             <span>{activity.name}</span>
+                                            <LemonTag size="medium" type="muted" className="px-1 rounded-lg ml-1">
+                                                {activity.type}
+                                            </LemonTag>
                                         </div>
                                         <div className="text-xs text-muted mt-1">
-                                            {activity.type} • <TZLabel time={activity.time} />
+                                            <TZLabel time={activity.time} />
                                         </div>
                                     </div>
                                     <div className="ml-4 text-right">

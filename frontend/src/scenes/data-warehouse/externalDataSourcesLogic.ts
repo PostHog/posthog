@@ -10,6 +10,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     path(['scenes', 'data-warehouse', 'externalDataSourcesLogic']),
     actions({
         abortAnyRunningQuery: true,
+        loadRecentJobs: true,
     }),
     loaders(({ cache, values, actions }) => ({
         dataWarehouseSources: [
@@ -42,6 +43,22 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                 },
             },
         ],
+        recentJobs: [
+            [] as ExternalDataJob[],
+            {
+                loadRecentJobs: async () => {
+                    const ids = values.dataWarehouseSources?.results?.map((s) => s.id) || []
+                    if (!ids.length) {
+                        return []
+                    }
+                    const batches = await Promise.all(
+                        ids.map((id) => api.externalDataSources.jobs(id, null, null).catch(() => []))
+                    )
+                    const flat: any[] = batches.flat()
+                    return flat as ExternalDataJob[]
+                },
+            },
+        ],
     })),
     reducers(({ cache }) => ({
         dataWarehouseSourcesLoading: [
@@ -53,12 +70,15 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             },
         ],
     })),
-    listeners(({ cache }) => ({
+    listeners(({ cache, actions }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
                 cache.abortController = null
             }
+        },
+        loadSourcesSuccess: () => {
+            actions.loadRecentJobs()
         },
     })),
 ])

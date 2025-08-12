@@ -12,7 +12,6 @@ import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
-import { fetchExternalDataSourceJobs } from '../../externalDataSourcesLogic'
 
 export interface DataWarehouseSourceSettingsLogicProps {
     id: string
@@ -72,18 +71,23 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             [] as ExternalDataJob[],
             {
                 loadJobs: async () => {
+                    const normalize = (res: any): ExternalDataJob[] =>
+                        (Array.isArray(res) ? res : (res as any)?.results || []) as ExternalDataJob[]
+
                     if (values.jobs.length === 0) {
-                        return await fetchExternalDataSourceJobs(values.sourceId, null, null)
+                        const res = await api.externalDataSources.jobs(values.sourceId, null, null)
+                        return normalize(res)
                     }
 
-                    const newJobs = await fetchExternalDataSourceJobs(values.sourceId, null, values.jobs[0].created_at)
-                    return [...newJobs, ...values.jobs]
+                    const res = await api.externalDataSources.jobs(values.sourceId, null, values.jobs[0].created_at)
+                    return [...normalize(res), ...values.jobs]
                 },
                 loadMoreJobs: async () => {
                     const hasJobs = values.jobs.length >= 0
                     if (hasJobs) {
                         const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
-                        const oldJobs = await fetchExternalDataSourceJobs(values.sourceId, lastJobCreatedAt, null)
+                        const res = await api.externalDataSources.jobs(values.sourceId, lastJobCreatedAt, null)
+                        const oldJobs = (Array.isArray(res) ? res : (res as any)?.results || []) as ExternalDataJob[]
 
                         if (oldJobs.length === 0) {
                             actions.setCanLoadMoreJobs(false)
