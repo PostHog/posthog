@@ -535,6 +535,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
+            // If there's no active tab, create one first to ensure Monaco Editor is available
+            if (!values.activeModelUri || values.allTabs.length === 0) {
+                // Create a new tab with the suggested query and then return early
+                // The tab creation will handle setting up Monaco Editor properly
+                actions.createTab(suggestedQueryInput)
+                return
+            }
+
             if (values.queryInput) {
                 actions._setSuggestionPayload({
                     suggestedValue: suggestedQueryInput,
