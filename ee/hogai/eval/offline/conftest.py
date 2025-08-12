@@ -227,7 +227,7 @@ def eval_ctx(setup_evals, dagster_context: PipesContext, django_db_blocker) -> G
         with open("eval_results.jsonl") as f:
             lines = f.readlines()
             dagster_context.report_asset_materialization(
-                asset_key="ai_evaluation",
+                asset_key="evaluation_report",
                 metadata={
                     "output": "\n".join(lines),
                 },

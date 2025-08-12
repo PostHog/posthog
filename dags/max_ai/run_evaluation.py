@@ -70,7 +70,7 @@ def spawn_evaluation_container(
         ],
     )
 
-    return docker_pipes_client.run(
+    asset_result = docker_pipes_client.run(
         context=context,
         image="posthog-ai-evals:test",
         container_kwargs={
@@ -78,7 +78,7 @@ def spawn_evaluation_container(
             "auto_remove": True,
         },
         env={
-            "EVAL_SCRIPT": f"pytest {config.evaluation_module}",
+            "EVAL_SCRIPT": f"pytest {config.evaluation_module} -s -vv",
             "OBJECT_STORAGE_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,  # type: ignore
             "OBJECT_STORAGE_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,  # type: ignore
             "OPENAI_API_KEY": settings.OPENAI_API_KEY,
@@ -92,6 +92,14 @@ def spawn_evaluation_container(
         },
         extras=evaluation_config.model_dump(exclude_unset=True),
     ).get_materialize_result()
+
+    context.log_event(
+        dagster.AssetMaterialization(
+            asset_key=asset_result.asset_key or "evaluation_report",
+            metadata=asset_result.metadata,
+            tags={"owner": JobOwners.TEAM_MAX_AI.value},
+        )
+    )
 
 
 @dagster.job(
@@ -109,4 +117,3 @@ def run_evaluation():
     postgres_snapshots = project_ids.map(snapshot_postgres_project_data)
     clickhouse_snapshots = project_ids.map(snapshot_clickhouse_project_data)
     spawn_evaluation_container(project_ids.collect(), postgres_snapshots.collect(), clickhouse_snapshots.collect())
-    # return evaluation_result
