@@ -151,7 +151,7 @@ export function ExperimentMetricForm({
                       value: ExperimentMetricType.RATIO,
                       label: 'Ratio',
                       description:
-                          'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.' +
+                          'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment. ' +
                           'For example to measure average order value where the denominator is number of orders rather than users exposed to the experiment.',
                   },
               ]
