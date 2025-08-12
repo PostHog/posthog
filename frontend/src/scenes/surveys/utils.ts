@@ -426,10 +426,19 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         delete sanitizedAppearance.widgetColor
     }
 
-    return {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    const sanitized: Partial<Survey> = {
         ...survey,
-        conditions: sanitizeSurveyDisplayConditions(survey.conditions),
+        conditions: conditions,
         questions: sanitizedQuestions,
         appearance: sanitizedAppearance,
     }
+    if (!conditions || Object.keys(conditions).length === 0) {
+        delete sanitized.conditions
+    }
+    if (!sanitizedAppearance || Object.keys(sanitizedAppearance).length === 0) {
+        delete sanitized.appearance
+    }
+
+    return sanitized
 }

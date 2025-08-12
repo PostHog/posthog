@@ -391,7 +391,7 @@ class TestFeatureFlagLookupTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_lookup_feature_flag_success(self):
-        """Test successful feature flag lookup"""
+        """Test successful feature flag lookup using Taxonomy Agent"""
         tool = self._setup_tool()
 
         # Create a test feature flag
@@ -403,24 +403,38 @@ class TestFeatureFlagLookupTool(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        # Test the lookup
-        content, artifact = await tool._arun_impl("test-flag")
+        # Mock the Taxonomy Agent graph execution
+        from unittest.mock import patch, AsyncMock
+        from products.surveys.backend.max_tools import FeatureFlagLookupResult
 
-        # Verify success response
-        assert "✅ Found feature flag 'test-flag'" in content
-        assert f"(ID: {flag.id})" in content
-        assert "(no variants)" in content
+        mock_result = FeatureFlagLookupResult(flag_id=flag.id, flag_key="test-flag", variants=[], exists=True)
 
-        # Verify artifact data
-        assert artifact["flag_id"] == flag.id
-        assert artifact["flag_key"] == "test-flag"
-        assert artifact["variants"] == []
-        assert artifact["exists"] is True
+        with patch("products.surveys.backend.max_tools.FeatureFlagLookupGraph") as mock_graph_class:
+            mock_graph_instance = AsyncMock()
+            mock_graph_class.return_value = mock_graph_instance
+
+            compiled_graph = AsyncMock()
+            compiled_graph.ainvoke.return_value = {"output": mock_result}
+            mock_graph_instance.compile_full_graph.return_value = compiled_graph
+
+            # Test the lookup
+            content, artifact = await tool._arun_impl("test-flag")
+
+            # Verify success response
+            assert "✅ Found feature flag 'test-flag'" in content
+            assert f"(ID: {flag.id})" in content
+            assert "(no variants)" in content
+
+            # Verify artifact data
+            assert artifact["flag_id"] == flag.id
+            assert artifact["flag_key"] == "test-flag"
+            assert artifact["variants"] == []
+            assert artifact["exists"] is True
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_lookup_feature_flag_with_variants(self):
-        """Test feature flag lookup with multivariate flag"""
+        """Test feature flag lookup with multivariate flag using Taxonomy Agent"""
         tool = self._setup_tool()
 
         # Create a multivariate feature flag
@@ -440,34 +454,64 @@ class TestFeatureFlagLookupTool(BaseTest):
             },
         )
 
-        # Test the lookup
-        content, artifact = await tool._arun_impl("multivariate-flag")
+        # Mock the Taxonomy Agent graph execution
+        from unittest.mock import patch, AsyncMock
+        from products.surveys.backend.max_tools import FeatureFlagLookupResult
 
-        # Verify success response with variants
-        assert "✅ Found feature flag 'multivariate-flag'" in content
-        assert f"(ID: {flag.id})" in content
-        assert "with variants: control, treatment" in content
+        mock_result = FeatureFlagLookupResult(
+            flag_id=flag.id, flag_key="multivariate-flag", variants=["control", "treatment"], exists=True
+        )
 
-        # Verify artifact data
-        assert artifact["flag_id"] == flag.id
-        assert artifact["flag_key"] == "multivariate-flag"
-        assert set(artifact["variants"]) == {"control", "treatment"}
-        assert artifact["exists"] is True
+        with patch("products.surveys.backend.max_tools.FeatureFlagLookupGraph") as mock_graph_class:
+            mock_graph_instance = AsyncMock()
+            mock_graph_class.return_value = mock_graph_instance
+
+            compiled_graph = AsyncMock()
+            compiled_graph.ainvoke.return_value = {"output": mock_result}
+            mock_graph_instance.compile_full_graph.return_value = compiled_graph
+
+            # Test the lookup
+            content, artifact = await tool._arun_impl("multivariate-flag")
+
+            # Verify success response with variants
+            assert "✅ Found feature flag 'multivariate-flag'" in content
+            assert f"(ID: {flag.id})" in content
+            assert "with variants: control, treatment" in content
+
+            # Verify artifact data
+            assert artifact["flag_id"] == flag.id
+            assert artifact["flag_key"] == "multivariate-flag"
+            assert set(artifact["variants"]) == {"control", "treatment"}
+            assert artifact["exists"] is True
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_lookup_feature_flag_not_found(self):
-        """Test feature flag lookup for non-existent flag"""
+        """Test feature flag lookup for non-existent flag using Taxonomy Agent"""
         tool = self._setup_tool()
 
-        # Test lookup of non-existent flag
-        content, artifact = await tool._arun_impl("non-existent-flag")
+        # Mock the Taxonomy Agent graph execution for non-existent flag
+        from unittest.mock import patch, AsyncMock
+        from products.surveys.backend.max_tools import FeatureFlagLookupResult
 
-        # Verify error response
-        assert "❌ Feature flag 'non-existent-flag' not found" in content
+        mock_result = FeatureFlagLookupResult(flag_id=None, flag_key="non-existent-flag", variants=[], exists=False)
 
-        # Verify artifact data
-        assert artifact["flag_id"] is None
-        assert artifact["flag_key"] == "non-existent-flag"
-        assert artifact["variants"] == []
-        assert artifact["exists"] is False
+        with patch("products.surveys.backend.max_tools.FeatureFlagLookupGraph") as mock_graph_class:
+            mock_graph_instance = AsyncMock()
+            mock_graph_class.return_value = mock_graph_instance
+
+            compiled_graph = AsyncMock()
+            compiled_graph.ainvoke.return_value = {"output": mock_result}
+            mock_graph_instance.compile_full_graph.return_value = compiled_graph
+
+            # Test lookup of non-existent flag
+            content, artifact = await tool._arun_impl("non-existent-flag")
+
+            # Verify error response
+            assert "❌ Feature flag 'non-existent-flag' not found" in content
+
+            # Verify artifact data
+            assert artifact["flag_id"] is None
+            assert artifact["flag_key"] == "non-existent-flag"
+            assert artifact["variants"] == []
+            assert artifact["exists"] is False
