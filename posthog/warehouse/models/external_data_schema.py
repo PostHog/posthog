@@ -342,7 +342,7 @@ def sync_old_schemas_with_new_schemas(
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
     for schema in schemas_to_possibly_delete:
-        s = ExternalDataSchema.objects.get(team_id=team_id, name=schema, source_id=source_id)
+        s = ExternalDataSchema.objects.get(team_id=team_id, name=schema, source_id=source_id, deleted=False)
         if s.table_id is None:
             s.soft_delete()
             deleted_schemas.append(schema)

@@ -16,6 +16,7 @@ import { GraphDataset } from '~/types'
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import {
+    AlphaTag,
     DISPLAY_MODE_OPTIONS,
     extractLabelAndDatasets,
     RevenueAnalyticsLineGraph,
@@ -46,18 +47,6 @@ export function RevenueAnalyticsMetricsNode(props: {
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <ARPUTile
-                    response={response as RevenueAnalyticsMetricsQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
-                <LTVTile
-                    response={response as RevenueAnalyticsMetricsQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
                 <SubscriptionCountTile
                     response={response as RevenueAnalyticsMetricsQueryResponse}
                     responseLoading={responseLoading}
@@ -65,6 +54,18 @@ export function RevenueAnalyticsMetricsNode(props: {
                     context={props.context}
                 />
                 <CustomerCountTile
+                    response={response as RevenueAnalyticsMetricsQueryResponse}
+                    responseLoading={responseLoading}
+                    queryId={queryId ?? ''}
+                    context={props.context}
+                />
+                <ARPUTile
+                    response={response as RevenueAnalyticsMetricsQueryResponse}
+                    responseLoading={responseLoading}
+                    queryId={queryId ?? ''}
+                    context={props.context}
+                />
+                <LTVTile
                     response={response as RevenueAnalyticsMetricsQueryResponse}
                     responseLoading={responseLoading}
                     queryId={queryId ?? ''}
@@ -118,7 +119,10 @@ const makeTile = (
                 title={title}
                 tooltip={tooltip}
                 extra={
-                    <div className="flex items-center gap-1 text-muted-alt">
+                    <div className="flex flex-row items-center gap-2 text-muted-alt">
+                        <span className="flex items-center">
+                            <AlphaTag />
+                        </span>
                         <LemonSegmentedButton
                             value={insightsDisplayMode}
                             onChange={setInsightsDisplayMode}

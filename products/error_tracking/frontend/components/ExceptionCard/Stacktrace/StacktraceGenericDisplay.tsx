@@ -69,14 +69,14 @@ export function StacktraceGenericExceptionHeader({
                     <LemonSkeleton className="w-[25%] h-2" />
                 ) : (
                     <>
-                        {runtime && <RuntimeIcon runtime={runtime} />}
-                        <div className="font-bold text-lg">{type || 'Unknown type'}</div>
+                        {runtime && <RuntimeIcon runtime={runtime} fontSize="0.9rem" className="ml-1" />}
+                        <div className="font-semibold text-[1rem]">{type || 'Unknown type'}</div>
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </>
                 )}
             </div>
             <div
-                className={cn('text-tertiary leading-6', {
+                className={cn('font-medium text-[var(--gray-8)] leading-6', {
                     'line-clamp-1': truncate,
                 })}
             >
