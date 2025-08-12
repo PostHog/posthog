@@ -64,9 +64,9 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(views), 1)
         self.assertEqual(views[0].name, "stripe.invoice_item_revenue_view")
 
-        charge_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source)
-        self.assertEqual(len(charge_views), 1)
-        self.assertEqual(charge_views[0].name, "stripe.invoice_item_revenue_view")
+        invoice_item_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source)
+        self.assertEqual(len(invoice_item_views), 1)
+        self.assertEqual(invoice_item_views[0].name, "stripe.invoice_item_revenue_view")
 
         customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source)
         self.assertEqual(len(customer_views), 0)
