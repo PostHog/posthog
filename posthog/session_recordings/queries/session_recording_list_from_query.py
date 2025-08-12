@@ -124,20 +124,22 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     def run(self) -> SessionRecordingQueryResult:
         query = self.get_query()
 
-        paginated_response = self._paginator.execute_hogql_query(
-            # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
-            query=cast(ast.SelectQuery, query),
-            team=self._team,
-            query_type="SessionRecordingListQuery",
-            modifiers=self._hogql_query_modifiers,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),  # Using global ClickHouse setting
-        )
+        with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
+            paginated_response = self._paginator.execute_hogql_query(
+                # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
+                query=cast(ast.SelectQuery, query),
+                team=self._team,
+                query_type="SessionRecordingListQuery",
+                modifiers=self._hogql_query_modifiers,
+                settings=HogQLGlobalSettings(allow_experimental_analyzer=None),  # Using global ClickHouse setting
+            )
 
-        return SessionRecordingQueryResult(
-            results=(self._data_to_return(self._paginator.results)),
-            has_more_recording=self._paginator.has_more(),
-            timings=paginated_response.timings,
-        )
+        with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
+            return SessionRecordingQueryResult(
+                results=(self._data_to_return(self._paginator.results)),
+                has_more_recording=self._paginator.has_more(),
+                timings=paginated_response.timings,
+            )
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.get_query")
     def get_query(self):
@@ -167,6 +169,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         parsed_query.order_by = [self._order_by_clause()]
         return parsed_query
 
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._order_by_clause")
     def _order_by_clause(self) -> ast.OrderExpr:
         # KLUDGE: we only need a default here because mypy is silly
         order_by = self._query.order.value if self._query.order else RecordingOrder.START_TIME
@@ -174,6 +177,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -299,6 +303,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         return ast.And(exprs=exprs)
 
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._having_predicates")
     def _having_predicates(self) -> ast.Expr | None:
         return (
             property_to_expr(self._query.having_predicates, team=self._team, scope="replay")

@@ -1255,10 +1255,11 @@ describe('BatchWritingPersonStore', () => {
             const mockRepo = createMockRepository()
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+            const personId = 'test-person-id'
 
-            const result = await personStoreForBatch.personPropertiesSize(teamId, 'test-distinct')
+            const result = await personStoreForBatch.personPropertiesSize(personId)
 
-            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(personId)
             expect(result).toBe(1024)
         })
 
@@ -1267,10 +1268,11 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.personPropertiesSize = jest.fn().mockResolvedValue(0)
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+            const personId = 'test-person-id'
 
-            const result = await personStoreForBatch.personPropertiesSize(teamId, 'test-distinct')
+            const result = await personStoreForBatch.personPropertiesSize(personId)
 
-            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(personId)
             expect(result).toBe(0)
         })
     })

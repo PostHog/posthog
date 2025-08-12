@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.sharing import shared_url_as_png
+from posthog.constants import AvailableFeature
 from posthog.models import ExportedAsset, ActivityLog
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
@@ -910,3 +911,27 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
             "detailed": True,
         }
         assert data["settings"] == expected_settings
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_shared_resource_blocked_when_organization_disallows_public_sharing(self, _patched_exporter_task: Mock):
+        """Test that shared resources return 404 when organization.allow_publicly_shared_resources is False and feature is enabled"""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"},
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        access_token = response.json()["access_token"]
+
+        response = self.client.get(f"/shared/{access_token}")
+        assert response.status_code == 200
+
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+
+        response = self.client.get(f"/shared/{access_token}")
+        assert response.status_code == 404

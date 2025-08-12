@@ -279,6 +279,7 @@ export async function createUserTeamAndOrganization(
         available_product_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
+        allow_publicly_shared_resources: true,
         members_can_use_personal_api_keys: true,
         slug: new UUIDT().toString(),
     } as RawOrganization)
@@ -402,6 +403,7 @@ export const createOrganization = async (pg: PostgresRouter) => {
         for_internal_metrics: false,
         available_product_features: [],
         domain_whitelist: [],
+        allow_publicly_shared_resources: true,
         members_can_use_personal_api_keys: true,
         is_member_join_email_enabled: false,
         slug: new UUIDT().toString(),
@@ -565,5 +567,14 @@ export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string
     const query = `SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = ${personId} ORDER BY id`
     return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'distinctIds')).rows.map(
         (row: { distinct_id: string }) => row.distinct_id
+    )
+}
+
+export async function resetCountersDatabase(db: PostgresRouter): Promise<void> {
+    await db.query(
+        PostgresUse.COUNTERS_RW,
+        'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
+        undefined,
+        'reset-counters-db'
     )
 }
