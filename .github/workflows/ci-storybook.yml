@@ -537,7 +537,6 @@ jobs:
                   pull: --rebase --autostash # Make sure we're up to date with other browsers' updates
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
-
             - name: Add commit hash to outputs, including browser name
               id: commit-hash
               if: needs.changes.outputs.frontend == 'true' && steps.commit.outputs.pushed == 'true'
@@ -642,6 +641,23 @@ jobs:
 
                       👉 **[Review this PR's diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)**`
                       })
+
+    # Job just to collate the status of the matrix jobs for requiring passing status
+    visual_regression_tests:
+        needs: [visual-regression]
+        name: Visual regression tests pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  # The `needs.visual-regression.result` will be 'success' only if all jobs in the matrix succeeded.
+                  # Otherwise, it will be 'failure'.
+                  if [[ "${{ needs.visual-regression.result }}" != "success" ]]; then
+                    echo "One or more jobs in the visual-regression test matrix failed."
+                    exit 1
+                  fi
+                  echo "All jobs in the visual-regression test matrix passed."
 
     calculate-running-time:
         name: Calculate running time

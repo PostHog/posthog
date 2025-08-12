@@ -1,8 +1,10 @@
 import './LemonSwitch.scss'
 
 import clsx from 'clsx'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { forwardRef, useMemo, useState } from 'react'
+import { cn } from 'lib/utils/css-classes'
 
 export interface LemonSwitchProps {
     className?: string
@@ -19,10 +21,10 @@ export interface LemonSwitchProps {
     disabledReason?: string | null | false
     'data-attr'?: string
     tooltip?: string | JSX.Element | null
-    handleContent?: React.ReactElement | null
     'aria-label'?: string
     sliderColorOverrideChecked?: string
     sliderColorOverrideUnchecked?: string
+    loading?: boolean
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -45,9 +47,9 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             tooltip,
             'data-attr': dataAttr,
             'aria-label': ariaLabel,
-            handleContent,
             sliderColorOverrideChecked,
             sliderColorOverrideUnchecked,
+            loading = false,
         },
         ref
     ): JSX.Element {
@@ -67,6 +69,9 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             tooltipContent = <span>{tooltip}</span>
         }
 
+        // Disable the switch when loading
+        const isDisabled = disabled || loading
+
         const ButtonHtmlComponent = onChange ? 'button' : 'div'
 
         let buttonComponent = (
@@ -80,18 +85,28 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 type="button"
                 role="switch"
                 onClick={() => {
-                    if (onChange) {
+                    if (onChange && !loading) {
                         onChange(!checked)
                     }
                 }}
-                onMouseDown={() => setIsActive(true)}
+                onMouseDown={() => !loading && setIsActive(true)}
                 onMouseUp={() => setIsActive(false)}
                 onMouseOut={() => setIsActive(false)}
                 data-attr={dataAttr}
-                disabled={disabled}
+                disabled={isDisabled}
                 {...conditionalProps}
             >
-                <div className="LemonSwitch__handle">{handleContent}</div>
+                <div className="LemonSwitch__handle">
+                    {loading && (
+                        <div
+                            className={cn(
+                                'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex pointer-events-none'
+                            )}
+                        >
+                            <Spinner textColored={true} className="LemonSwitch__spinner-icon" />
+                        </div>
+                    )}
+                </div>
             </ButtonHtmlComponent>
         )
         if (tooltipContent) {
@@ -110,8 +125,9 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                     'LemonSwitch--checked': checked,
                     'LemonSwitch--active': isActive,
                     'LemonSwitch--bordered': bordered,
-                    'LemonSwitch--disabled': disabled,
+                    'LemonSwitch--disabled': isDisabled,
                     'LemonSwitch--full-width': fullWidth,
+                    'LemonSwitch--loading': loading,
                 })}
             >
                 {label && (
