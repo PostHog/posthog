@@ -5,6 +5,7 @@ import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { sanitizeString } from '../../utils/db/utils'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -100,36 +101,6 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         return Array.from(aggregatedEventsMap.values())
     }
 
-    // Clean string to be PostgreSQL-compatible by removing null bytes and control characters
-    // This is necessary because PostgreSQL TEXT columns cannot store null bytes
-    private cleanForPostgres(text: string): string {
-        // Fast path: check if cleaning is needed
-        let needsCleaning = false
-        for (let i = 0; i < text.length; i++) {
-            const code = text.charCodeAt(i)
-            // Check for null byte or control chars (except tab=9, newline=10, CR=13)
-            if (code === 0 || (code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127) {
-                needsCleaning = true
-                break
-            }
-        }
-
-        if (!needsCleaning) {
-            return text
-        }
-
-        // Remove null bytes and control characters
-        // Keep only printable chars and allowed whitespace (tab, newline, CR)
-        let result = ''
-        for (let i = 0; i < text.length; i++) {
-            const code = text.charCodeAt(i)
-            if ((code >= 32 && code < 127) || code === 9 || code === 10 || code === 13 || code > 127) {
-                result += text[i]
-            }
-        }
-        return result
-    }
-
     // Process batch by aggregating and writing to postgres
     private async processBatch(parsedBatch: ParsedBatch): Promise<void> {
         // Deduplicate person performed events
@@ -159,7 +130,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         const params = [
             personEvents.map((e) => e.teamId),
             personEvents.map((e) => e.personId),
-            personEvents.map((e) => this.cleanForPostgres(e.eventName)),
+            personEvents.map((e) => sanitizeString(e.eventName)),
         ]
 
         return { cte, params }
@@ -181,8 +152,8 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         const params = [
             behaviouralEvents.map((e) => e.teamId),
             behaviouralEvents.map((e) => e.personId),
-            behaviouralEvents.map((e) => this.cleanForPostgres(e.filterHash)),
-            behaviouralEvents.map((e) => this.cleanForPostgres(e.date)),
+            behaviouralEvents.map((e) => sanitizeString(e.filterHash)),
+            behaviouralEvents.map((e) => sanitizeString(e.date)),
             behaviouralEvents.map((e) => e.counter),
         ]
 

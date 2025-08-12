@@ -389,10 +389,11 @@ describe('CdpAggregationWriterConsumer', () => {
             )
 
             expect(result.rows).toHaveLength(2)
-            // Verify null bytes and control chars were removed but readable text preserved
-            // ORDER BY is case-sensitive, so 'O' comes before 'e'
-            expect(result.rows[0].event_name).toBe('OpenApp>-')
-            expect(result.rows[1].event_name).toBe('eventwithcontrolchars')
+            // sanitizeString replaces null bytes with � (replacement character)
+            // Control character \x04 remains, null bytes become �
+            expect(result.rows[0].event_name).toBe('OpenApp����\x04>-')
+            // Control characters \x13 and \x01 remain, null byte becomes �
+            expect(result.rows[1].event_name).toBe('event\x13with�control\x01chars')
         })
 
         it('should handle special characters that could cause PostgreSQL protocol errors', async () => {
