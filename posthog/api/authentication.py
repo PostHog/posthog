@@ -43,6 +43,7 @@ from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import send_password_reset, send_two_factor_auth_backup_code_used_email
 from posthog.utils import get_instance_available_sso_providers
 from posthog.tasks.email import login_from_new_device_notification
+from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.utils import get_short_user_agent, get_ip_address
 
 
@@ -54,6 +55,12 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
     """
 
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+
+    # Cache device info on signup to skip login notification for this device
+    if user.last_login is None:
+        short_user_agent = get_short_user_agent(request)
+        ip_address = get_ip_address(request)
+        check_and_cache_login_device(user.id, ip_address, short_user_agent)
 
 
 @csrf_protect
