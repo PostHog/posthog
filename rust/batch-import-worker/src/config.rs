@@ -1,3 +1,4 @@
+use crate::job::backoff::BackoffPolicy;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 
@@ -41,6 +42,20 @@ pub struct Config {
         default = "events_plugin_ingestion_overflow"
     )]
     pub kafka_topic_overflow: String,
+
+    // Exponential backoff defaults
+    #[envconfig(from = "BACKOFF_INITIAL_SECONDS", default = "60")]
+    pub backoff_initial_seconds: u64,
+
+    #[envconfig(from = "BACKOFF_MAX_SECONDS", default = "3600")]
+    pub backoff_max_seconds: u64,
+
+    #[envconfig(from = "BACKOFF_MULTIPLIER", default = "2.0")]
+    pub backoff_multiplier: f64,
+
+    // 0 means unlimited retries
+    #[envconfig(from = "BACKOFF_MAX_ATTEMPTS", default = "0")]
+    pub backoff_max_attempts: u32,
 }
 
 impl Config {
@@ -54,6 +69,14 @@ impl Config {
                 logical_topic
             ))),
         }
+    }
+
+    pub fn backoff_policy(&self) -> BackoffPolicy {
+        BackoffPolicy::new(
+            std::time::Duration::from_secs(self.backoff_initial_seconds),
+            self.backoff_multiplier,
+            std::time::Duration::from_secs(self.backoff_max_seconds),
+        )
     }
 }
 
@@ -81,6 +104,10 @@ mod tests {
             kafka_topic_main: "test_main_topic".to_string(),
             kafka_topic_historical: "test_historical_topic".to_string(),
             kafka_topic_overflow: "test_overflow_topic".to_string(),
+            backoff_initial_seconds: 60,
+            backoff_max_seconds: 3600,
+            backoff_multiplier: 2.0,
+            backoff_max_attempts: 0,
         }
     }
 
@@ -136,5 +163,14 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Unknown kafka topic: MAIN"));
+    }
+
+    #[test]
+    fn test_backoff_policy_defaults() {
+        let config = create_test_config();
+        let p = config.backoff_policy();
+        assert_eq!(p.initial_delay.as_secs(), 60);
+        assert_eq!(p.max_delay.as_secs(), 3600);
+        assert!((p.multiplier - 2.0).abs() < f64::EPSILON);
     }
 }
