@@ -1,10 +1,11 @@
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, sync::Arc, time::Duration as StdDuration};
 
+use crate::metrics;
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgQueryResult, PgPool};
-use tracing::warn;
+use sqlx::{postgres::PgQueryResult, PgPool, Row};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::context::AppContext;
@@ -30,6 +31,9 @@ pub struct JobModel {
     pub state: Option<JobState>,
     pub import_config: JobConfig,
     pub secrets: JobSecrets,
+
+    pub backoff_attempt: i32,
+    pub backoff_until: Option<DateTime<Utc>>,
 
     // Not actually in the model, but we calculate it on fetch to let us reason about whether
     // we're resuming an interrupted job
@@ -80,7 +84,7 @@ impl JobModel {
             WITH next_job AS (
                 SELECT *, lease_id as previous_lease_id
                 FROM posthog_batchimport
-                WHERE status = 'running' AND coalesce(leased_until, now()) <= now()
+                WHERE status = 'running' AND (leased_until IS NULL OR leased_until <= now())
                 ORDER BY created_at
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
@@ -102,6 +106,8 @@ impl JobModel {
                 posthog_batchimport.state,
                 posthog_batchimport.import_config,
                 posthog_batchimport.secrets,
+                posthog_batchimport.backoff_attempt,
+                posthog_batchimport.backoff_until,
                 next_job.previous_lease_id
             "#,
             new_lease_id
@@ -115,10 +121,12 @@ impl JobModel {
 
         let id = row.id;
 
-        match (row, context.encryption_keys.as_slice(), new_lease_id)
-            .try_into()
-            .context("Failed to parse job row")
-        {
+        let parsed: anyhow::Result<JobModel> =
+            (row, context.encryption_keys.as_slice(), new_lease_id)
+                .try_into()
+                .context("Failed to parse job row");
+
+        match parsed {
             Ok(model) => Ok(Some(model)),
             Err(e) => {
                 // If we failed to parse a job, we pause it and leave it for manual intervention
@@ -148,6 +156,71 @@ impl JobModel {
                 Ok(None)
             }
         }
+    }
+
+    /// Schedule the job for a future retry by pushing leased_until forward and updating messages.
+    /// Keeps status as 'running' so the main loop can pick it up when the lease expires.
+    pub async fn schedule_backoff(
+        &mut self,
+        pool: &PgPool,
+        delay: StdDuration,
+        status_message: String,
+        display_message: Option<String>,
+        next_attempt: i32,
+    ) -> Result<(), Error> {
+        let Some(current_lease) = self.lease_id.as_ref() else {
+            anyhow::bail!("Cannot schedule backoff on a job with no lease")
+        };
+
+        // Use DB clock for timestamps; pass delay in whole seconds
+        let delay_secs: i64 = std::cmp::min(delay.as_secs(), i64::MAX as u64) as i64;
+
+        let rec = sqlx::query(
+            r#"
+            UPDATE posthog_batchimport
+            SET
+                status = 'running',
+                status_message = $3,
+                display_status_message = $4,
+                updated_at = now(),
+                leased_until = now() + make_interval(secs => $2),
+                backoff_attempt = $5,
+                backoff_until = leased_until
+            WHERE id = $1 AND lease_id = $6
+            RETURNING leased_until, backoff_until, updated_at
+            "#,
+        )
+        .bind(self.id)
+        .bind(delay_secs)
+        .bind(&status_message)
+        .bind(&display_message)
+        .bind(next_attempt)
+        .bind(current_lease)
+        .fetch_one(pool)
+        .await?;
+
+        let until: DateTime<Utc> = rec.try_get("leased_until")?;
+        let returned_backoff_until: DateTime<Utc> = rec.try_get("backoff_until")?;
+        let returned_updated_at: DateTime<Utc> = rec.try_get("updated_at")?;
+
+        self.status = JobStatus::Running;
+        self.status_message = Some(status_message);
+        self.display_status_message = display_message;
+        self.leased_until = Some(until);
+        self.backoff_attempt = next_attempt;
+        self.backoff_until = Some(returned_backoff_until);
+        self.updated_at = returned_updated_at;
+
+        info!(
+            job_id = %self.id,
+            next_attempt = next_attempt,
+            delay_secs = delay.as_secs(),
+            until = %until,
+            "scheduled backoff for job"
+        );
+        metrics::backoff_event(delay.as_secs_f64());
+
+        Ok(())
     }
 
     pub async fn flush(&mut self, pool: &PgPool, extend_lease: bool) -> Result<(), Error> {
@@ -213,7 +286,46 @@ impl JobModel {
         self.status = JobStatus::Running;
         self.status_message = None;
         self.display_status_message = None;
-        self.flush(&context.db, true).await
+        self.backoff_attempt = 0;
+        self.backoff_until = None;
+
+        self.flush(&context.db, true).await?;
+        let rec = sqlx::query(
+            r#"
+            UPDATE posthog_batchimport
+            SET backoff_attempt = 0, backoff_until = NULL
+            WHERE id = $1
+            RETURNING updated_at
+            "#,
+        )
+        .bind(self.id)
+        .fetch_one(&context.db)
+        .await?;
+
+        self.updated_at = rec.try_get("updated_at")?;
+
+        info!(job_id = %self.id, "unpaused job and reset backoff state");
+        metrics::unpause_event();
+
+        Ok(())
+    }
+
+    /// Reset backoff columns in the database after a successful request and update in-memory fields.
+    pub async fn reset_backoff_in_db(&mut self, pool: &PgPool) -> Result<(), Error> {
+        sqlx::query(
+            r#"
+            UPDATE posthog_batchimport
+            SET backoff_attempt = 0, backoff_until = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(self.id)
+        .execute(pool)
+        .await?;
+
+        self.backoff_attempt = 0;
+        self.backoff_until = None;
+        Ok(())
     }
 
     pub async fn fail(
@@ -256,6 +368,8 @@ struct JobRow {
     state: Option<serde_json::Value>,
     import_config: serde_json::Value,
     secrets: String,
+    backoff_attempt: Option<i32>,
+    backoff_until: Option<DateTime<Utc>>,
     previous_lease_id: Option<String>,
 }
 
@@ -286,6 +400,8 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
             state: Some(state),
             import_config,
             secrets,
+            backoff_attempt: row.backoff_attempt.unwrap_or(0),
+            backoff_until: row.backoff_until,
             was_leased: row.previous_lease_id.is_some(),
         })
     }
@@ -296,6 +412,215 @@ pub fn throw_if_no_rows(res: PgQueryResult) -> Result<(), Error> {
     if res.rows_affected() == 0 {
         anyhow::bail!("No update done")
     } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use envconfig::Envconfig;
+    use sqlx::Row;
+
+    async fn get_pool() -> Option<PgPool> {
+        let url = std::env::var("DATABASE_URL").ok()?;
+        PgPool::connect(&url).await.ok()
+    }
+
+    fn make_dummy_job_model(id: Uuid, lease: &str, team_id: i32) -> JobModel {
+        JobModel {
+            id,
+            team_id,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            lease_id: Some(lease.to_string()),
+            leased_until: None,
+            status: JobStatus::Running,
+            status_message: None,
+            display_status_message: None,
+            state: None,
+            import_config: crate::job::config::JobConfig {
+                source: crate::job::config::SourceConfig::Folder(
+                    crate::job::config::FolderSourceConfig {
+                        path: "/tmp".to_string(),
+                    },
+                ),
+                data_format: crate::parse::format::FormatConfig::JsonLines {
+                    skip_blanks: true,
+                    content: crate::parse::content::ContentType::Captured,
+                },
+                sink: crate::job::config::SinkConfig::NoOp,
+            },
+            secrets: crate::job::config::JobSecrets {
+                secrets: std::collections::HashMap::new(),
+            },
+            backoff_attempt: 0,
+            backoff_until: None,
+            was_leased: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_schedule_backoff_persists_db() -> Result<(), anyhow::Error> {
+        let Some(pool) = get_pool().await else {
+            return Ok(());
+        };
+
+        // Start a transaction to avoid side effects
+        let mut tx = pool.begin().await?;
+
+        // Insert a minimal batch import row
+        let id = Uuid::now_v7();
+        let team_id = 1;
+        let lease = "test-lease";
+        // Best-effort: if FK constraints fail in local env, skip test
+        let inserted = sqlx::query(
+            r#"
+            INSERT INTO posthog_batchimport (id, team_id, status, import_config, secrets, lease_id, backoff_attempt)
+            VALUES ($1, $2, 'running', '{}'::jsonb, '', $3, 0)
+            "#,
+        )
+        .bind(id)
+        .bind(team_id)
+        .bind(lease)
+        .execute(&mut *tx)
+        .await;
+        if inserted.is_err() {
+            return Ok(());
+        }
+
+        let mut model = make_dummy_job_model(id, lease, team_id);
+        let delay = StdDuration::from_secs(60);
+        model
+            .schedule_backoff(
+                &pool,
+                delay,
+                "rate limited".to_string(),
+                Some("retrying".to_string()),
+                3,
+            )
+            .await?;
+
+        let rec = sqlx::query(
+            r#"SELECT leased_until, backoff_attempt, backoff_until, status_message, display_status_message
+               FROM posthog_batchimport WHERE id = $1"#,
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let leased_until: Option<DateTime<Utc>> = rec.try_get("leased_until")?;
+        let backoff_attempt: Option<i32> = rec.try_get("backoff_attempt")?;
+        let backoff_until: Option<DateTime<Utc>> = rec.try_get("backoff_until")?;
+        let status_message: Option<String> = rec.try_get("status_message")?;
+        let display_status_message: Option<String> = rec.try_get("display_status_message")?;
+
+        assert_eq!(backoff_attempt.unwrap_or_default(), 3);
+        assert!(leased_until.is_some());
+        assert_eq!(backoff_until, leased_until);
+        assert_eq!(status_message.as_deref(), Some("rate limited"));
+        assert_eq!(display_status_message.as_deref(), Some("retrying"));
+
+        tx.rollback().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_unpause_resets_backoff_db() -> Result<(), anyhow::Error> {
+        let Some(pool) = get_pool().await else {
+            return Ok(());
+        };
+        let cfg = crate::config::Config::init_from_env().unwrap();
+        let context = Arc::new(crate::context::AppContext::new(&cfg).await?);
+
+        let mut tx = pool.begin().await?;
+
+        let id = Uuid::now_v7();
+        let team_id = 1;
+        let lease = "test-lease";
+        let inserted = sqlx::query(
+            r#"
+            INSERT INTO posthog_batchimport (id, team_id, status, import_config, secrets, lease_id, backoff_attempt, backoff_until)
+            VALUES ($1, $2, 'running', '{}'::jsonb, '', $3, 5, now())
+            "#,
+        )
+        .bind(id)
+        .bind(team_id)
+        .bind(lease)
+        .execute(&mut *tx)
+        .await;
+        if inserted.is_err() {
+            return Ok(());
+        }
+
+        let mut model = make_dummy_job_model(id, lease, team_id);
+        model.backoff_attempt = 5;
+        model.backoff_until = Some(Utc::now());
+
+        model.unpause(context.clone()).await?;
+
+        let rec = sqlx::query(
+            r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let backoff_attempt: Option<i32> = rec.try_get("backoff_attempt")?;
+        let backoff_until: Option<DateTime<Utc>> = rec.try_get("backoff_until")?;
+        assert_eq!(backoff_attempt.unwrap_or_default(), 0);
+        assert!(backoff_until.is_none());
+
+        tx.rollback().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reset_backoff_in_db_resets_columns() -> Result<(), anyhow::Error> {
+        let Some(pool) = get_pool().await else {
+            return Ok(());
+        };
+
+        let mut tx = pool.begin().await?;
+
+        let id = Uuid::now_v7();
+        let team_id = 1;
+        let lease = "test-lease";
+        let inserted = sqlx::query(
+            r#"
+            INSERT INTO posthog_batchimport (id, team_id, status, import_config, secrets, lease_id, backoff_attempt, backoff_until)
+            VALUES ($1, $2, 'running', '{}'::jsonb, '', $3, 5, now())
+            "#,
+        )
+        .bind(id)
+        .bind(team_id)
+        .bind(lease)
+        .execute(&mut *tx)
+        .await;
+        if inserted.is_err() {
+            return Ok(());
+        }
+
+        let mut model = make_dummy_job_model(id, lease, team_id);
+        model.backoff_attempt = 5;
+        model.backoff_until = Some(Utc::now());
+
+        model.reset_backoff_in_db(&pool).await?;
+
+        let rec = sqlx::query(
+            r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let backoff_attempt: Option<i32> = rec.try_get("backoff_attempt")?;
+        let backoff_until: Option<DateTime<Utc>> = rec.try_get("backoff_until")?;
+        assert_eq!(backoff_attempt.unwrap_or_default(), 0);
+        assert!(backoff_until.is_none());
+
+        tx.rollback().await?;
         Ok(())
     }
 }

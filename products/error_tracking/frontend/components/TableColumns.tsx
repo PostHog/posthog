@@ -37,7 +37,7 @@ export const IssueListTitleHeader = ({
 }
 
 export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackingCorrelatedIssue>(props: {
-    results: (ErrorTrackingIssue | ErrorTrackingCorrelatedIssue)[]
+    results: T[]
     record: unknown
     recordIndex: number
 }): JSX.Element => {
@@ -45,7 +45,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(errorTrackingBulkSelectLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
 
-    const record = props.record as T
+    const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
     const recordIndex = props.recordIndex
@@ -71,9 +71,9 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
 
     return (
         <div className="flex items-start gap-x-2 group my-1">
-            <LemonCheckbox className="h-[1.2rem]" checked={checked} onChange={onChange} />
+            <LemonCheckbox className="h-[1rem]" checked={checked} onChange={onChange} />
 
-            <div className="flex flex-col gap-[2px]">
+            <div className="flex flex-col gap-[3px]">
                 <Link
                     className="flex-1 pr-12"
                     to={urls.errorTrackingIssue(record.id, { timestamp: record.last_seen })}
@@ -83,12 +83,14 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                         issueLogic.actions.setIssue(record)
                     }}
                 >
-                    <div className="flex items-center h-[1.2rem] gap-2">
-                        <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.8rem" />
-                        <span className="font-semibold text-[1.2em] line-clamp-1">{record.name || 'Unknown Type'}</span>
+                    <div className="flex items-center h-[1rem] gap-2">
+                        <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.7rem" />
+                        <span className="font-semibold text-[0.9rem] line-clamp-1">
+                            {record.name || 'Unknown Type'}
+                        </span>
                     </div>
                 </Link>
-                <div title={record.description || undefined} className="line-clamp-1 text-secondary">
+                <div title={record.description || undefined} className="font-medium line-clamp-1 text-[var(--gray-8)]">
                     {record.description}
                 </div>
                 <div className="flex items-center text-secondary">

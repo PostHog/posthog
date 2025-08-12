@@ -63,18 +63,20 @@ export function ErrorTrackingScene(): JSX.Element {
     return (
         <ErrorTrackingSetupPrompt>
             {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
-            <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-                <Header />
-                {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                <ErrorFilters.Root>
-                    <ErrorFilters.DateRange />
-                    <ErrorFilters.FilterGroup />
-                    <ErrorFilters.InternalAccounts />
-                </ErrorFilters.Root>
-                <LemonDivider className="mt-2" />
-                <ErrorTrackingListOptions />
-                <Query query={query} context={context} />
-            </BindLogic>
+            <div className="ErrorTracking">
+                <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+                    <Header />
+                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                    <ErrorFilters.Root>
+                        <ErrorFilters.DateRange />
+                        <ErrorFilters.FilterGroup />
+                        <ErrorFilters.InternalAccounts />
+                    </ErrorFilters.Root>
+                    <LemonDivider className="mt-2" />
+                    <ErrorTrackingListOptions />
+                    <Query query={query} context={context} />
+                </BindLogic>
+            </div>
         </ErrorTrackingSetupPrompt>
     )
 }

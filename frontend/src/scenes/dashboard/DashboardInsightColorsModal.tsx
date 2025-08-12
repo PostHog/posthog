@@ -36,7 +36,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const { setBreakdownColorConfig, setDataColorThemeId, setDashboardMode } = useActions(dashboardLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
 
     const themes = _themes || []
 
@@ -49,7 +49,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 const breakdownLabel = formatBreakdownLabel(
                     breakdownValue,
                     breakdownFilter,
-                    cohorts?.results,
+                    allCohorts?.results,
                     formatPropertyValueForDisplay
                 )
                 const formattedLabel = stringWithWBR(breakdownLabel, 20)
