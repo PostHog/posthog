@@ -124,7 +124,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
-    show_tool_call_messages: bool = Field(description="Whether to show tool call messages.", default=False)
+    show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]
     _config: RunnableConfig
@@ -144,7 +144,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
         self._team = team
         self._user = user
         self._state = state if state else AssistantState(messages=[])
-        self._state.show_tool_call_messages = self.show_tool_call_messages
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
