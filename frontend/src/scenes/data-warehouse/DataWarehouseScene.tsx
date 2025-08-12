@@ -13,7 +13,6 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { availableSourcesDataLogic } from './new/availableSourcesDataLogic'
@@ -23,12 +22,17 @@ export const scene: SceneExport = { component: DataWarehouseScene }
 
 const LIST_SIZE = 5
 
+interface SourceFieldConfig {
+    name: string
+    type: string
+}
+
 const getSourceType = (sourceType: string, availableSources?: Record<string, any> | null): 'Database' | 'API' => {
-    const fields = availableSources?.[sourceType]?.fields || []
-    if (fields.some((f: any) => f.name === 'connection_string' || ['host', 'port', 'database'].includes(f.name))) {
+    const fields: SourceFieldConfig[] = availableSources?.[sourceType]?.fields || []
+    if (fields.some((f) => f.name === 'connection_string' || ['host', 'port', 'database'].includes(f.name))) {
         return 'Database'
     }
-    if (fields.some((f: any) => f.type === 'oauth' || ['api_key', 'access_token'].includes(f.name))) {
+    if (fields.some((f) => f.type === 'oauth' || ['api_key', 'access_token'].includes(f.name))) {
         return 'API'
     }
     return 'API'
@@ -39,7 +43,7 @@ interface DashboardDataSource {
     name: string
     type: 'Database' | 'API'
     status: string | null
-    lastSync: Dayjs | null
+    lastSync: string | null
     rowCount: number | null
     url: string
 }
@@ -63,21 +67,13 @@ export function DataWarehouseScene(): JSX.Element {
 
     const billingRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
 
-    const calculatedRowsSynced = (dataWarehouseSources?.results || []).reduce((total, source) => {
-        return (
-            total +
-            (source.schemas?.reduce((schemaTotal, schema) => {
-                return schemaTotal + (schema.table?.row_count || 0)
-            }, 0) || 0)
-        )
-    }, 0)
+    const calculatedRowsSynced = recentJobs.reduce((total, job) => total + (job.rows_synced || 0), 0)
 
     const lifetimeRowsSynced = billingRowsSynced || calculatedRowsSynced
 
     const recentActivity = useMemo((): DashboardActivity[] => {
         const items: DashboardActivity[] = []
 
-        // Add materialized view runs
         materializedViews.forEach((view) => {
             if (view.last_run_at) {
                 items.push({
@@ -89,9 +85,7 @@ export function DataWarehouseScene(): JSX.Element {
                 })
             }
         })
-
-        // Add sync jobs from recent jobs data
-        recentJobs.forEach((job) => {
+        ;(recentJobs || []).forEach((job) => {
             const source = dataWarehouseSources?.results?.find((s) =>
                 s.schemas?.some((schema) => schema.id === job.schema.id)
             )
@@ -111,20 +105,23 @@ export function DataWarehouseScene(): JSX.Element {
 
     const allSources = useMemo(
         (): DashboardDataSource[] => [
-            ...(dataWarehouseSources?.results || []).map(
-                (source): DashboardDataSource => ({
+            ...(dataWarehouseSources?.results || []).map((source): DashboardDataSource => {
+                const sourceJobs = recentJobs.filter((job) =>
+                    source.schemas?.some((schema) => schema.id === job.schema.id)
+                )
+                const totalRows = sourceJobs.reduce((sum, job) => sum + (job.rows_synced || 0), 0)
+                const lastSync = sourceJobs.length > 0 ? sourceJobs[0].created_at : null
+
+                return {
                     id: source.id,
                     name: source.source_type,
                     type: getSourceType(source.source_type, availableSources),
                     status: source.status,
-                    lastSync: source.last_run_at ?? null,
-                    rowCount:
-                        source.schemas?.reduce((total, schema) => {
-                            return total + (schema.table?.row_count || 0)
-                        }, 0) || 0,
+                    lastSync,
+                    rowCount: totalRows,
                     url: urls.dataWarehouseSource(`managed-${source.id}`),
-                })
-            ),
+                }
+            }),
             ...selfManagedTables.map(
                 (table): DashboardDataSource => ({
                     id: table.id,
@@ -137,7 +134,7 @@ export function DataWarehouseScene(): JSX.Element {
                 })
             ),
         ],
-        [dataWarehouseSources?.results, selfManagedTables, availableSources]
+        [dataWarehouseSources?.results, selfManagedTables, availableSources, recentJobs]
     )
 
     const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
