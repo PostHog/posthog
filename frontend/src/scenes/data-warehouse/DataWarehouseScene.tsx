@@ -6,9 +6,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { urls } from 'scenes/urls'
-import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { IconPlusSmall, IconCheckCircle } from '@posthog/icons'
+import { IconPlusSmall, IconCheckCircle, IconInfo } from '@posthog/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
@@ -63,12 +63,6 @@ export function DataWarehouseScene(): JSX.Element {
             loadData()
         }
     }, [dataWarehouseSources?.results, materializedViews])
-
-    const totalRowsWithSelfManaged = useMemo(() => {
-        // Add self-managed tables to the total (they don't have job history, so we use current state)
-        const selfManagedRows = selfManagedTables.reduce((sum, table) => sum + (table.row_count ?? 0), 0)
-        return totalRowsProcessed + selfManagedRows
-    }, [totalRowsProcessed, selfManagedTables])
 
     const allSources = useMemo(
         (): DashboardDataSource[] => [
@@ -177,8 +171,16 @@ export function DataWarehouseScene(): JSX.Element {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
-                    <div className="text-sm text-muted">Total Rows Processed</div>
-                    <div className="text-2xl font-semibold mt-1">{totalRowsWithSelfManaged.toLocaleString()}</div>
+                    <div className="flex items-start gap-1">
+                        <div className="text-sm text-muted">Total Rows Processed</div>
+                        <Tooltip
+                            title="Total rows processed by all data sources and materialized views summed together"
+                            placement="bottom"
+                        >
+                            <IconInfo className="text-muted mt-0.5" />
+                        </Tooltip>
+                    </div>
+                    <div className="text-2xl font-semibold mt-1">{totalRowsProcessed.toLocaleString()}</div>
                 </LemonCard>
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="text-sm text-muted">Materialized Views</div>

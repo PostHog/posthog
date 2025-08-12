@@ -11,17 +11,13 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     actions({
         abortAnyRunningQuery: true,
     }),
-    loaders(({ cache, values }) => ({
+    loaders(({ cache, values, actions }) => ({
         dataWarehouseSources: [
             null as PaginatedResponse<ExternalDataSource> | null,
             {
                 loadSources: async (_, breakpoint) => {
                     await breakpoint(300)
-                    // Abort any running query before starting new one
-                    if (cache.abortController) {
-                        cache.abortController.abort()
-                        cache.abortController = null
-                    }
+                    actions.abortAnyRunningQuery()
 
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
