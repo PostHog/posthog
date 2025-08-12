@@ -852,7 +852,8 @@
                 "navigate",
                 "search_error_tracking_issues",
                 "experiment_results_summary",
-                "create_survey"
+                "create_survey",
+                "search_docs"
             ],
             "type": "string"
         },
