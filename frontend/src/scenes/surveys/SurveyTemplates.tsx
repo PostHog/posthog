@@ -30,34 +30,15 @@ interface TemplateCardProps {
     setSurveyTemplateValues: (values: Partial<NewSurvey>) => void
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
+    handleTemplateClick: (template: SurveyTemplate) => void
 }
 
-function TemplateCard({
-    template,
-    idx,
-    setSurveyTemplateValues,
-    reportSurveyTemplateClicked,
-    surveyAppearance,
-}: TemplateCardProps): JSX.Element {
-    const handleClick = (): void => {
-        setSurveyTemplateValues({
-            name: template.templateType,
-            questions: template.questions ?? [],
-            appearance: {
-                ...defaultSurveyAppearance,
-                ...template.appearance,
-                ...surveyAppearance,
-            },
-            conditions: template.conditions ?? null,
-        })
-        reportSurveyTemplateClicked(template.templateType)
-    }
-
+export function TemplateCard({ template, idx, handleTemplateClick, surveyAppearance }: TemplateCardProps): JSX.Element {
     return (
         <button
-            className="flex flex-col bg-bg-light border border-border rounded-lg overflow-hidden hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 overflow-hidden"
+            className="flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer"
             data-attr="survey-template"
-            onClick={handleClick}
+            onClick={() => handleTemplateClick(template)}
         >
             <div>
                 <div className="flex items-start justify-between">
@@ -133,6 +114,19 @@ export function SurveyTemplates(): JSX.Element {
                             setSurveyTemplateValues={setSurveyTemplateValues}
                             reportSurveyTemplateClicked={reportSurveyTemplateClicked}
                             surveyAppearance={surveyAppearance}
+                            handleTemplateClick={(template) => {
+                                setSurveyTemplateValues({
+                                    name: template.templateType,
+                                    questions: template.questions ?? [],
+                                    appearance: {
+                                        ...defaultSurveyAppearance,
+                                        ...template.appearance,
+                                        ...surveyAppearance,
+                                    },
+                                    conditions: template.conditions ?? null,
+                                })
+                                reportSurveyTemplateClicked(template.templateType)
+                            }}
                         />
                     ))}
                 </div>

@@ -5,7 +5,12 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import {
+    defaultSurveyAppearance,
+    defaultSurveyTemplates,
+    SURVEY_CREATED_SOURCE,
+    SURVEY_PAGE_SIZE,
+} from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -110,6 +115,7 @@ export const surveysLogic = kea<surveysLogicType>([
         setTab: (tab: SurveysTabs) => ({ tab }),
         loadNextPage: true,
         loadNextSearchPage: true,
+        createSurveyFromTemplate: (templateType: string) => ({ templateType }),
     }),
     loaders(({ values, actions }) => ({
         data: {
@@ -191,6 +197,46 @@ export const surveysLogic = kea<surveysLogicType>([
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
                     searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
+                }
+            },
+            createSurveyFromTemplate: async ({ templateType }) => {
+                const template = defaultSurveyTemplates.find((t) => t.templateType === templateType)
+                if (!template) {
+                    throw new Error('Template not found')
+                }
+
+                const surveyPayload = {
+                    name: template.templateType,
+                    description: template.description || '',
+                    questions: template.questions || [],
+                    type: template.type,
+                    appearance: {
+                        ...defaultSurveyAppearance,
+                        ...template.appearance,
+                    },
+                    conditions: template.conditions || null,
+                }
+
+                const response = await api.surveys.create(surveyPayload)
+
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: response.id,
+                        source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
+                        template_type: templateType,
+                    },
+                })
+
+                // Navigate to the created survey
+                router.actions.push(urls.survey(response.id))
+
+                // Return updated data with the new survey
+                return {
+                    ...values.data,
+                    surveys: [response, ...values.data.surveys],
+                    surveysCount: values.data.surveysCount + 1,
                 }
             },
         },
