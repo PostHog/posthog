@@ -351,28 +351,29 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             <div className="flex items-start">
                                 <IconWarning className="text-danger text-xl mt-0.5 mr-2 flex-shrink-0" />
                                 <div>
-                                    <p className="font-semibold">Feature flags called before PostHog initialization</p>
+                                    <p className="font-semibold">Feature flag(s) called before PostHog loaded</p>
                                     <p className="text-sm mt-1">
-                                        You're calling feature flags before PostHog has finished loading. This can cause
-                                        flags to return incorrect values (usually false) and lead to inconsistent user
-                                        experiences.
+                                        Ooops. It looks you're calling feature flags before PostHog has finished
+                                        loading. This can cause flags to return incorrect values, make experiment
+                                        results inaccurate, and cause inconsistent user experiences.
                                     </p>
                                     <p className="text-sm mt-1">
-                                        To fix this, either use bootstrapping to make flags available immediately, or
-                                        wait for PostHog to load before calling flags using the onFeatureFlags callback.
+                                        To fix this: Use bootstrapping to make flags available instantly, or use{' '}
+                                        <code>onFeatureFlags</code> to wait on PostHog before calling flags. (See the
+                                        links below for details)
                                     </p>
                                     <div className="mt-2 flex gap-3">
                                         <Link
                                             to="https://posthog.com/docs/feature-flags/bootstrapping"
                                             target="_blank"
-                                            targetBlankIcon
+                                            disableDocsPanel
                                         >
                                             View bootstrapping docs
                                         </Link>
                                         <Link
-                                            to="https://posthog.com/docs/libraries/js/features#waiting-for-flags-to-load"
+                                            to="https://posthog.com/docs/libraries/js/features#ensuring-flags-are-loaded-before-usage"
                                             target="_blank"
-                                            targetBlankIcon
+                                            disableDocsPanel
                                         >
                                             onFeatureFlags callback docs
                                         </Link>

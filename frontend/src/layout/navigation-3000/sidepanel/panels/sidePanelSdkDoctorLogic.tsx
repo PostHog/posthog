@@ -739,13 +739,13 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         )
                         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
-                    // Find PostHog init events (pageviews with $lib initialization)
+                    // Find PostHog init events (any event with SDK loaded, not just pageviews for autocapture-disabled users)
                     const initEvents = customerEvents
                         .filter(
                             (event) =>
-                                event.event === '$pageview' &&
                                 event.properties?.$lib === 'web' &&
                                 event.properties?.hasOwnProperty('$lib_version') &&
+                                event.event !== '$feature_flag_called' && // Any event except flags = SDK initialization
                                 new Date(event.timestamp).getTime() > tenMinutesAgo
                         )
                         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
@@ -802,7 +802,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                         if (flagName) {
                                             problematicFlags.add(flagName)
 
-                                            // Capture first example
+                                            // Capture first example (most useful for troubleshooting root cause)
                                             if (!exampleEventId && flagEvent.id) {
                                                 exampleEventId = flagEvent.id
                                                 exampleEventTimestamp = flagEvent.timestamp
@@ -829,10 +829,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     }
 
                     // Check if issue appears resolved (recent flag events with proper timing)
-                    if (state.detected && problematicFlags.size === 0) {
+                    if (state.detected) {
                         const recentFlagEvents = flagEvents.slice(-5) // Last 5 flag events
 
-                        if (recentFlagEvents.length >= 3) {
+                        if (recentFlagEvents.length >= 2) {
+                            // Lowered threshold to 2 events for quicker resolution
                             // If recent flag events all have proper timing relative to inits, consider resolved
                             const hasProperTiming = recentFlagEvents.every((flagEvent) => {
                                 const sessionId = flagEvent.properties?.$session_id
@@ -848,7 +849,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 return flagTime >= initTime // Flag called after init
                             })
 
-                            if (hasProperTiming) {
+                            if (hasProperTiming && problematicFlags.size === 0) {
+                                // Check both conditions
                                 return {
                                     detected: false,
                                     detectedAt: '',
