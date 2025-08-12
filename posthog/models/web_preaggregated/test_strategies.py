@@ -1,12 +1,12 @@
 import requests
 from unittest.mock import Mock, patch
+from freezegun import freeze_time
 
-from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
-from posthog.models import PersonalAPIKey
+from posthog.test.base import BaseTest, APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.models import PersonalAPIKey, Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.models.personal_api_key import hash_key_value
-
-from dags.web_preaggregated_team_selection_strategies import FeatureEnrollmentStrategy
+from posthog.models.web_preaggregated.strategies import FeatureEnrollmentStrategy
 
 
 class BaseFeatureEnrollmentTest:
@@ -64,7 +64,7 @@ class TestFeatureEnrollmentStrategyUnit(BaseFeatureEnrollmentTest):
             "WEB_ANALYTICS_FEATURE_ENROLLMENT_API_TOKEN not configured, cannot fetch feature enrollment data"
         )
 
-    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=False)
+    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=False)
     def test_returns_empty_set_for_self_hosted(self, mock_is_cloud):
         strategy = self.create_strategy()
         result = strategy.get_teams(self.mock_context)
@@ -74,7 +74,7 @@ class TestFeatureEnrollmentStrategyUnit(BaseFeatureEnrollmentTest):
             "Skipping feature enrollment strategy for self-hosted instances. This strategy is only available on posthog cloud."
         )
 
-    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True)
     def test_region_host_detection(self, mock_is_cloud):
         strategy = self.create_strategy()
 
@@ -86,12 +86,12 @@ class TestFeatureEnrollmentStrategyUnit(BaseFeatureEnrollmentTest):
         ]
 
         for site_url, expected_host in test_cases:
-            with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", site_url):
+            with patch("posthog.models.web_preaggregated.strategies.settings.SITE_URL", site_url):
                 assert strategy._get_region_host() == expected_host
 
 
 class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
-    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True)
     @patch("requests.post")
     def test_successful_api_call_with_results(self, mock_post, mock_is_cloud):
         # Setup
@@ -99,7 +99,7 @@ class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
         mock_response = self.create_mock_response(results=[["123", "us.posthog.com"], ["456", "us.posthog.com"]])
         mock_post.return_value = mock_response
 
-        with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"):
+        with patch("posthog.models.web_preaggregated.strategies.settings.SITE_URL", "https://us.posthog.com"):
             # Execute
             result = strategy.get_teams(self.mock_context)
 
@@ -112,7 +112,7 @@ class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
         assert "properties.$host = 'us.posthog.com'" in query
         assert "event = '$feature_enrollment_update'" in query
 
-    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True)
     @patch("requests.post")
     def test_api_response_data_validation(self, mock_post, mock_is_cloud):
         strategy = self.create_strategy()
@@ -131,19 +131,10 @@ class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
         result = strategy.get_teams(self.mock_context)
         assert result == {123, 456, 789}
 
-    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True)
+    @patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True)
     @patch("requests.post")
     def test_api_error_handling(self, mock_post, mock_is_cloud):
         strategy = self.create_strategy()
-
-        # error_scenarios = [
-        #     # Network errors
-        #     (requests.RequestException("Network timeout"), "Error querying PostHog internal API"),
-        #     # HTTP errors
-        #     (None, "Failed to query PostHog internal API: 403"),
-        #     # Malformed response
-        #     (None, None),  # This will be handled by the malformed response test case
-        # ]
 
         # Test network error
         mock_post.side_effect = requests.RequestException("Network timeout")
@@ -210,8 +201,8 @@ class TestFeatureEnrollmentStrategyLocalAPI(BaseTest):
             api_host="http://localhost:8000", api_token=self.personal_api_key, flag_key="web-analytics-api"
         )
 
-        with patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True):
-            with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", "https://localhost:8000"):
+        with patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True):
+            with patch("posthog.models.web_preaggregated.strategies.settings.SITE_URL", "https://localhost:8000"):
                 result = strategy.get_teams(self.mock_context)
 
         # Verify the test setup works correctly
@@ -228,3 +219,100 @@ class TestFeatureEnrollmentStrategyLocalAPI(BaseTest):
         # Verify our test data setup
         assert self.personal_api_key.startswith("phx_")
         assert len(PersonalAPIKey.objects.filter(user=self.user)) == 1
+
+
+class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        self.mock_context = Mock()
+        self.mock_context.log = Mock()
+
+        # Create additional test team for multi-team scenarios
+        self.team2 = Team.objects.create(organization=self.organization, name="Test Team 2")
+
+    def create_feature_enrollment_events(self):
+        with freeze_time("2024-01-10 12:00:00"):
+            # Event for team 1 with web-analytics-api flag
+            _create_event(
+                team=self.team,
+                event="$feature_enrollment_update",
+                distinct_id="user1",
+                properties={
+                    "$feature_flag": "web-analytics-api",
+                    "$host": "localhost:8000",
+                    "$current_url": f"https://localhost:8000/project/{self.team.pk}/insights",
+                },
+            )
+
+            # Event for team 2 with web-analytics-api flag
+            _create_event(
+                team=self.team,
+                event="$feature_enrollment_update",
+                distinct_id="user2",
+                properties={
+                    "$feature_flag": "web-analytics-api",
+                    "$host": "localhost:8000",
+                    "$current_url": f"https://localhost:8000/project/{self.team2.pk}/dashboard",
+                },
+            )
+
+        flush_persons_and_events()
+
+    def test_direct_api_query_finds_enrolled_teams(self):
+        self.create_feature_enrollment_events()
+
+        with freeze_time("2024-01-10 12:30:00"):
+            query = {
+                "kind": "HogQLQuery",
+                "query": """
+                    SELECT DISTINCT
+                        extract(properties.$current_url, '/project/([0-9]+)/') as project_id,
+                        properties.$host
+                    FROM events
+                    WHERE event = '$feature_enrollment_update'
+                        AND properties.$host = 'localhost:8000'
+                        AND timestamp >= '2024-01-01'
+                        AND properties.$feature_flag = 'web-analytics-api'
+                """,
+            }
+
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
+            self.assertEqual(response.status_code, 200)
+
+            data = response.json()
+            self.assertIn("results", data)
+            results = data["results"]
+
+            # Should find both teams that enrolled in web-analytics-api on localhost:8000
+            team_ids = {int(row[0]) for row in results if row[0]}
+            self.assertIn(self.team.pk, team_ids)
+            self.assertIn(self.team2.pk, team_ids)
+
+            # Verify host filtering worked
+            hosts = {row[1] for row in results}
+            self.assertEqual(hosts, {"localhost:8000"})
+
+    def test_strategy_with_local_api_integration(self):
+        self.create_feature_enrollment_events()
+
+        # Create personal API token for the strategy
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Strategy API Key", user=self.user, secure_value=hash_key_value(personal_api_key)
+        )
+
+        with freeze_time("2024-01-10 12:30:00"):
+            strategy = FeatureEnrollmentStrategy(
+                api_host=f"http://localhost:8000", api_token=personal_api_key, flag_key="web-analytics-api"
+            )
+
+            with patch("posthog.models.web_preaggregated.strategies.is_cloud", return_value=True):
+                with patch("posthog.models.web_preaggregated.strategies.settings.SITE_URL", "https://localhost:8000"):
+                    result = strategy.get_teams(self.mock_context)
+
+            self.assertIsInstance(result, set)
+
+            # Verify API call was attempted
+            info_calls = [str(call) for call in self.mock_context.log.info.call_args_list]
+            self.assertTrue(any("Querying PostHog internal API" in call for call in info_calls))

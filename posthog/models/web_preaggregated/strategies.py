@@ -14,16 +14,12 @@ from posthog.tasks.early_access_feature import POSTHOG_TEAM_ID
 
 
 class TeamSelectionStrategy(ABC):
-    """Abstract base class for team selection strategies."""
-
     @abstractmethod
     def get_teams(self, context: dagster.OpExecutionContext) -> set[int]:
-        """Get teams using this strategy."""
         pass
 
     @abstractmethod
     def get_name(self) -> str:
-        """Get the strategy name."""
         pass
 
 
@@ -96,7 +92,6 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
         return "feature_enrollment"
 
     def _get_region_host(self) -> str:
-        """Get the expected host for the current deployment region."""
         return settings.SITE_URL.removeprefix("https://")
 
     def get_teams(self, context: dagster.OpExecutionContext) -> set[int]:
