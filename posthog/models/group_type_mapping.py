@@ -1,6 +1,9 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 from posthog.models.utils import RootTeamMixin
+from posthog.redis import get_client
 
 # Defined here for reuse between OS and EE
 GROUP_TYPE_MAPPING_SERIALIZER_FIELDS = [
@@ -56,3 +59,19 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
                 check=models.Q(project_id__isnull=False),
             ),
         ]
+
+
+@receiver(post_save, sender=GroupTypeMapping)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    from posthog.hogql.database.database import get_hogql_database_cache_key
+
+    redis_client = get_client()
+    redis_client.delete(get_hogql_database_cache_key(instance.team_id))
+
+
+@receiver(post_delete, sender=GroupTypeMapping)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    from posthog.hogql.database.database import get_hogql_database_cache_key
+
+    redis_client = get_client()
+    redis_client.delete(get_hogql_database_cache_key(instance.team_id))

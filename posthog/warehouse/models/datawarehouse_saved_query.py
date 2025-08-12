@@ -7,12 +7,15 @@ from urllib.parse import urlparse
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+from posthog.redis import get_client
 from posthog.schema import HogQLQueryModifiers
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -219,6 +222,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             query=self.query["query"],
             fields=fields,
         )
+
+
+@receiver(post_save, sender=DataWarehouseSavedQuery)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    from posthog.hogql.database.database import get_hogql_database_cache_key
+
+    redis_client = get_client()
+    redis_client.delete(get_hogql_database_cache_key(instance.team_id))
+
+
+@receiver(post_delete, sender=DataWarehouseSavedQuery)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    from posthog.hogql.database.database import get_hogql_database_cache_key
+
+    redis_client = get_client()
+    redis_client.delete(get_hogql_database_cache_key(instance.team_id))
 
 
 @database_sync_to_async

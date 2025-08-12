@@ -6,6 +6,8 @@ from uuid import UUID
 import chdb
 from django.db import models
 from django.db.models import Q
+from django.dispatch import receiver
+from django.db.models.signals import post_delete, post_save
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
@@ -25,6 +27,7 @@ from posthog.models.utils import (
     UUIDModel,
     sane_repr,
 )
+from posthog.redis import get_client
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 from posthog.settings import TEST
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -391,6 +394,22 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             raise err
 
         raise Exception("Could not get columns")
+
+
+@receiver(post_save, sender=DataWarehouseTable)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    from posthog.hogql.database.database import get_hogql_database_cache_key
+
+    redis_client = get_client()
+    redis_client.delete(get_hogql_database_cache_key(instance.team_id))
+
+
+@receiver(post_delete, sender=DataWarehouseTable)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    from posthog.hogql.database.database import get_hogql_database_cache_key
+
+    redis_client = get_client()
+    redis_client.delete(get_hogql_database_cache_key(instance.team_id))
 
 
 @database_sync_to_async

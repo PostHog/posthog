@@ -2,6 +2,8 @@ from typing import Any, cast
 from warnings import warn
 from datetime import datetime
 from django.db import models
+from django.dispatch import receiver
+from django.db.models.signals import post_delete, post_save
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
@@ -12,6 +14,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+from posthog.redis import get_client
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
@@ -52,6 +55,22 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         self.deleted = True
         self.deleted_at = datetime.now()
         self.save()
+
+
+@receiver(post_save, sender=DataWarehouseJoin)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    from posthog.hogql.database.database import get_hogql_database_cache_key
+
+    redis_client = get_client()
+    redis_client.delete(get_hogql_database_cache_key(instance.team_id))
+
+
+@receiver(post_delete, sender=DataWarehouseJoin)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    from posthog.hogql.database.database import get_hogql_database_cache_key
+
+    redis_client = get_client()
+    redis_client.delete(get_hogql_database_cache_key(instance.team_id))
 
 
 @register_join_function(name="_join_function", closure=True)

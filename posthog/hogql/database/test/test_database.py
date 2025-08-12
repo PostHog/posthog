@@ -2,6 +2,7 @@ import json
 from typing import Any, cast
 import dill
 from unittest.mock import patch
+from unittest import mock
 import pytest
 from django.test import override_settings
 from parameterized import parameterized
@@ -1057,3 +1058,100 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "clickhouse",
         )
         assert pretty_print_in_tests(query, self.team.pk) == self.snapshot
+
+    def test_hogql_database_cache(self):
+        # Patch Redis client to assert cache behavior
+        with patch("posthog.hogql.database.database.get_client") as get_client_mock:
+
+            def fake_get(key: str):
+                return
+
+            def fake_set(key: str, value: bytes, ex: int | None = None):
+                return
+
+            client = mock.Mock()
+            client.get.side_effect = fake_get
+            client.set.side_effect = fake_set
+            get_client_mock.return_value = client
+
+            db = create_hogql_database(team=self.team)
+            assert db is not None
+
+            db2 = create_hogql_database(team=self.team)
+            assert db2 is not None
+
+            # First call: get() then set(); Second call: get() only
+            assert client.get.call_count == 2
+            assert client.set.call_count == 1
+
+    def test_hogql_database_cache_invalidation(self):
+        # Patch Redis client to assert cache behavior
+        with patch("posthog.models.group_type_mapping.get_client") as get_client_mock:
+
+            def fake_delete(key: str):
+                return
+
+            client = mock.Mock()
+            client.delete.side_effect = fake_delete
+            get_client_mock.return_value = client
+
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
+            )
+
+            assert client.delete.call_count == 1
+
+        with patch("posthog.warehouse.models.datawarehouse_saved_query.get_client") as get_client_mock:
+
+            def fake_delete(key: str):
+                return
+
+            client = mock.Mock()
+            client.delete.side_effect = fake_delete
+            get_client_mock.return_value = client
+
+            DataWarehouseSavedQuery.objects.create(team=self.team, name="test", query="select 1")
+
+            assert client.delete.call_count == 1
+
+        with patch("posthog.warehouse.models.table.get_client") as get_client_mock:
+
+            def fake_delete(key: str):
+                return
+
+            client = mock.Mock()
+            client.delete.side_effect = fake_delete
+            get_client_mock.return_value = client
+
+            DataWarehouseTable.objects.create(
+                name="table_1",
+                format="Parquet",
+                team=self.team,
+                credential=None,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+
+            assert client.delete.call_count == 1
+
+        with patch("posthog.warehouse.models.join.get_client") as get_client_mock:
+
+            def fake_delete(key: str):
+                return
+
+            client = mock.Mock()
+            client.delete.side_effect = fake_delete
+            get_client_mock.return_value = client
+
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name="test",
+                source_table_key="test",
+                joining_table_name="test",
+                joining_table_key="test",
+                field_name="test",
+            )
+
+            assert client.delete.call_count == 1

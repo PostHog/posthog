@@ -1,4 +1,5 @@
 import dataclasses
+import dill
 from collections.abc import Callable
 from typing import (
     TYPE_CHECKING,
@@ -16,6 +17,7 @@ from django.db.models import Prefetch, Q
 from pydantic import BaseModel, ConfigDict
 
 from posthog.exceptions_capture import capture_exception
+from posthog.git import get_git_commit_short
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -107,6 +109,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
+from posthog.redis import get_client
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
@@ -419,6 +422,13 @@ class WarehouseProperties(VirtualTable):
         return self.parent_table.to_printed_clickhouse(context)
 
 
+def get_hogql_database_cache_key(team_id: int) -> str:
+    current_sha = get_git_commit_short()
+
+    # cache key based on sha to invalidate cache on deploys in case of migrations
+    return f"hogql_database:{team_id}:{current_sha}"
+
+
 def create_hogql_database(
     team_id: Optional[int] = None,
     *,
@@ -426,17 +436,12 @@ def create_hogql_database(
     modifiers: Optional[HogQLQueryModifiers] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
-    from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.models import Team
-    from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
-    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-        RevenueAnalyticsBaseView,
-    )
 
     if timings is None:
         timings = HogQLTimings()
 
-    with timings.measure("team"):
+    with timings.measure("team_id"):
         if team_id is None and team is None:
             raise ValueError("Either team_id or team must be provided")
 
@@ -448,6 +453,40 @@ def create_hogql_database(
 
         # Team is definitely not None at this point, make mypy believe that
         team = cast("Team", team)
+        team_id = team_id or team.pk
+
+    # hogql database caching
+    # Cache invalidated at:
+    # - post_save/post_delete of GroupTypeMapping
+    # - post_save/post_delete of DataWarehouseSavedQuery
+    # - post_save/post_delete of DataWarehouseTable
+    # - post_save/post_delete of DataWarehouseJoin
+
+    redis_client = get_client()
+    cache_key = get_hogql_database_cache_key(team_id)
+
+    db = redis_client.get(cache_key)
+    if db is not None:
+        return dill.loads(db)
+
+    db = _create_hogql_database(team=team, modifiers=modifiers, timings=timings)
+
+    redis_client.set(cache_key, dill.dumps(db), ex=60 * 60)  # 1 hour
+
+    return db
+
+
+def _create_hogql_database(
+    *,
+    team: "Team",
+    timings: HogQLTimings,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+) -> Database:
+    from posthog.hogql.query import create_default_modifiers_for_team
+    from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
+    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
+        RevenueAnalyticsBaseView,
+    )
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -795,13 +834,13 @@ def create_hogql_database(
                         for chain in person_field.chain:
                             if isinstance(table_or_field, ast.LazyJoin):
                                 table_or_field = table_or_field.resolve_table(
-                                    HogQLContext(team_id=team_id, database=database)
+                                    HogQLContext(team_id=team.pk, database=database)
                                 )
                                 if table_or_field.has_field(chain):
                                     table_or_field = table_or_field.get_field(chain)
                                     if isinstance(table_or_field, ast.LazyJoin):
                                         table_or_field = table_or_field.resolve_table(
-                                            HogQLContext(team_id=team_id, database=database)
+                                            HogQLContext(team_id=team.pk, database=database)
                                         )
                             elif isinstance(table_or_field, ast.Table):
                                 table_or_field = table_or_field.get_field(chain)
