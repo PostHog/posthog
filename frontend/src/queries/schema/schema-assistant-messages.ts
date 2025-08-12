@@ -130,6 +130,7 @@ export type AssistantContextualTool =
     | 'find_error_tracking_impactful_issues'
     | 'experiment_results_summary'
     | 'create_survey'
+    | 'search_docs'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
