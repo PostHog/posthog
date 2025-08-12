@@ -146,6 +146,7 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+        was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
         user = cast(
             Optional[User],
             authenticate(
@@ -176,10 +177,11 @@ class LoginSerializer(serializers.Serializer):
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
-        # Trigger login notification (password, no-2FA)
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
+        # Trigger login notification (password, no-2FA) and skip re-auth
+        if not was_authenticated_before_login_attempt:
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
         report_user_logged_in(user, social_provider="")
         return user
