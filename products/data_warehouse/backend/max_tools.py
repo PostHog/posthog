@@ -1,9 +1,8 @@
 import json
-import asyncio
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from typing import Optional
-
+from asgiref.sync import async_to_sync
 from ee.hogai.graph.schema_generator.parsers import parse_pydantic_structured_output
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
@@ -71,10 +70,7 @@ class HogQLGeneratorNode(
         """
 
         # Get the async system prompt
-        async def get_system_prompt():
-            return await self._construct_system_prompt()
-
-        system_prompt = asyncio.run(get_system_prompt())
+        system_prompt = async_to_sync(self._construct_system_prompt)()
 
         # Create combined system messages, preserving the original taxonomy system prompt structure
         taxonomy_system_messages = [("system", message) for message in super()._get_default_system_prompts()]

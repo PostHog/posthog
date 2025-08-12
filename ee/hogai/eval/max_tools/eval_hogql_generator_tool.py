@@ -112,7 +112,7 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                         "Cross join events with persons where event timestamp is greater than person created_at. Use include both the event name and the uuid."
                     )
                 ),
-                expected="SELECT e.event, e.uuid, e.timestamp, p.properties.name AS person_name FROM events e CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at ND e.timestamp >= now() - INTERVAL 30 DAY",
+                expected="SELECT e.event, e.uuid, e.timestamp, p.properties.name AS person_name FROM events e CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at AND e.timestamp >= now() - INTERVAL 30 DAY",
                 metadata=metadata,
             ),
             EvalCase(
