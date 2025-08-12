@@ -592,29 +592,18 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 19)  # 5 + 6 + 8
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_hogql_math_type(self):
-        """Test ratio metric with HogQL math type for custom expressions"""
+        """Test ratio metric with revenue per distinct user id with hogql expression"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
 
-        ff_property = f"$feature/{feature_flag.key}"
-
-        # Create a ratio metric with HogQL expressions:
-        # Numerator: custom calculation using HogQL (sum of revenue * discount_multiplier)
-        # Denominator: total count of orders
+        # Create a ratio metric: total revenue / total purchase events
         metric = ExperimentRatioMetric(
-            numerator=EventsNode(
-                event="purchase",
-                math=ExperimentMetricMathType.HOGQL,
-                math_hogql="sum(toFloat(properties.revenue) * toFloat(properties.discount_multiplier))",
-            ),
-            denominator=EventsNode(
-                event="order",
-                math=ExperimentMetricMathType.TOTAL,
-            ),
+            numerator=EventsNode(event="purchase", math_hogql="sum(properties.amount)"),
+            denominator=EventsNode(event="purchase", math_hogql="count(distinctt distinct_id)"),
         )
 
         experiment_query = ExperimentQuery(
@@ -626,86 +615,82 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        def _create_events_for_user(variant: str, purchases: list[dict], orders: int) -> list[dict]:
-            events = [
-                {
-                    "event": "$feature_flag_called",
-                    "timestamp": "2024-01-02T12:00:00",
-                    "properties": {
-                        "$feature_flag_response": variant,
-                        ff_property: variant,
-                        "$feature_flag": feature_flag.key,
-                    },
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group: 10 visitors, 6 make purchases with varying amounts
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
                 },
-            ]
+            )
 
-            # Add purchase events with HogQL-calculable properties
-            for i, purchase in enumerate(purchases):
-                events.append(
-                    {
-                        "event": "purchase",
-                        "timestamp": f"2024-01-02T12:0{i+1}:00",
-                        "properties": {
-                            ff_property: variant,
-                            "revenue": purchase["revenue"],
-                            "discount_multiplier": purchase["discount_multiplier"],
-                        },
-                    }
-                )
+            # First 6 users make purchases
+            if i < 6:
+                # Some users make multiple purchases to test aggregation
+                if i < 3:
+                    # Users 0,1,2 make single purchases of $10 each
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_control_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: "control", "amount": 10},
+                    )
+                else:
+                    # Users 3,4,5 make two purchases each of $15
+                    for j in range(2):
+                        _create_event(
+                            team=self.team,
+                            event="purchase",
+                            distinct_id=f"user_control_{i}",
+                            timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                            properties={feature_flag_property: "control", "amount": 15},
+                        )
 
-            # Add order events
-            for i in range(orders):
-                events.append(
-                    {
-                        "event": "order",
-                        "timestamp": f"2024-01-02T12:1{i}:00",
-                        "properties": {
-                            ff_property: variant,
-                        },
-                    }
-                )
+        # Test group: 10 visitors, 8 make purchases with varying amounts
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
 
-            return events
-
-        journeys_for(
-            {
-                # Control: HogQL calculation should be 100*0.9 + 50*0.8 = 90 + 40 = 130, 2 orders
-                "control_1": _create_events_for_user(
-                    "control",
-                    [
-                        {"revenue": 100, "discount_multiplier": 0.9},
-                        {"revenue": 50, "discount_multiplier": 0.8},
-                    ],
-                    2,
-                ),
-                # Control user 2: HogQL calculation should be 200*1.0 = 200, 3 orders
-                "control_2": _create_events_for_user(
-                    "control",
-                    [
-                        {"revenue": 200, "discount_multiplier": 1.0},
-                    ],
-                    3,
-                ),
-                # Test: HogQL calculation should be 150*0.95 + 80*0.7 = 142.5 + 56 = 198.5, 2 orders
-                "test_1": _create_events_for_user(
-                    "test",
-                    [
-                        {"revenue": 150, "discount_multiplier": 0.95},
-                        {"revenue": 80, "discount_multiplier": 0.7},
-                    ],
-                    2,
-                ),
-                # Test user 2: HogQL calculation should be 120*1.1 = 132, 1 order
-                "test_2": _create_events_for_user(
-                    "test",
-                    [
-                        {"revenue": 120, "discount_multiplier": 1.1},
-                    ],
-                    1,
-                ),
-            },
-            self.team,
-        )
+            # First 8 users make purchases
+            if i < 8:
+                if i < 4:
+                    # Users 0,1,2,3 make single purchases of $20 each
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_test_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: "test", "amount": 20},
+                    )
+                else:
+                    # Users 4,5,6,7 make two purchases each of $10
+                    for j in range(2):
+                        _create_event(
+                            team=self.team,
+                            event="purchase",
+                            distinct_id=f"user_test_{i}",
+                            timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                            properties={feature_flag_property: "test", "amount": 10},
+                        )
 
         flush_persons_and_events()
 
@@ -719,18 +704,21 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        # Control: HogQL sum = 130 + 200 = 330, total orders = 2 + 3 = 5
-        self.assertEqual(control_variant.sum, 330)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(control_variant.denominator_sum, 5)
+        # Check main metric values (numerator - total revenue)
+        self.assertEqual(control_variant.sum, 120)  # 3×$10 + 6×$15 = $30 + $90 = $120
+        self.assertEqual(test_variant.sum, 160)  # 4×$20 + 8×$10 = $80 + $80 = $160
+        self.assertEqual(control_variant.number_of_samples, 10)  # 10 visitors in total
+        self.assertEqual(test_variant.number_of_samples, 10)  # 10 visitors in total
 
-        # Test: HogQL sum = 198.5 + 132 = 330.5, total orders = 2 + 1 = 3
-        self.assertEqual(test_variant.sum, 330.5)
-        self.assertEqual(test_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.denominator_sum, 3)
+        # Check ratio-specific fields (denominator - number of distinct user id's)
+        self.assertEqual(control_variant.denominator_sum, 6)  # 6 distinct users make a purchase
+        self.assertEqual(test_variant.denominator_sum, 8)  # 8 distinct users make a purchase
 
-        # Verify that the ratio metric fields are present
+        # Check denominator sum squares and main-denominator sum product exist
+        # (specific values depend on how purchase events are aggregated per user)
         self.assertIsNotNone(control_variant.denominator_sum_squares)
         self.assertIsNotNone(test_variant.denominator_sum_squares)
+
+        # Check main-denominator sum product
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
         self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
