@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -11,7 +11,8 @@ import MaxTool from 'scenes/max/MaxTool'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { ProductKey } from '~/types'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { ProductKey, SidePanelTab } from '~/types'
 import { defaultSurveyTemplates, SURVEY_CREATED_SOURCE, SurveyTemplateType } from '../constants'
 import { surveysLogic } from '../surveysLogic'
 import { TemplateCard } from '../SurveyTemplates'
@@ -24,6 +25,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
     const { createSurveyFromTemplate, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { openSidePanel } = useActions(sidePanelLogic)
 
     // Get the three priority templates
     const priorityTemplates = defaultSurveyTemplates.filter((template) =>
@@ -79,7 +81,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     <MaxTool
                                         name="create_survey"
                                         description="Max can create surveys to collect qualitative feedback from your users."
-                                        displayName="Use Max AI"
+                                        displayName="Create with Max AI"
                                         initialMaxPrompt="Create a survey to collect "
                                         suggestions={[
                                             'Create an NPS survey for customers who completed checkout',
@@ -107,8 +109,14 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                             router.actions.push(urls.survey(toolOutput.survey_id))
                                         }}
                                     >
-                                        <LemonButton type="tertiary" icon={<IconPlus />}>
-                                            Use Max AI
+                                        <LemonButton
+                                            type="primary"
+                                            icon={<IconSparkles />}
+                                            onClick={() =>
+                                                openSidePanel(SidePanelTab.Max, 'Create a survey to collect ')
+                                            }
+                                        >
+                                            Create your own custom survey with Max
                                         </LemonButton>
                                     </MaxTool>
                                 )}
@@ -116,7 +124,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     type="secondary"
                                     onClick={() => router.actions.push(urls.surveyTemplates())}
                                 >
-                                    See all templates
+                                    See all other templates
                                 </LemonButton>
                             </div>
                         </div>

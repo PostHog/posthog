@@ -36,7 +36,7 @@ interface TemplateCardProps {
 export function TemplateCard({ template, idx, handleTemplateClick, surveyAppearance }: TemplateCardProps): JSX.Element {
     return (
         <button
-            className="flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer"
+            className="flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
             data-attr="survey-template"
             onClick={() => handleTemplateClick(template)}
         >
