@@ -11,13 +11,15 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { currencyFormatter } from './billing-utils'
+import { currencyFormatter, buildBillingCsv } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { BillingNoAccess } from './BillingNoAccess'
 import { billingSpendLogic } from './billingSpendLogic'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { ExporterFormat } from '~/types'
 import { USAGE_TYPES } from './constants'
 
 export function BillingSpendView(): JSX.Element {
@@ -43,6 +45,7 @@ export function BillingSpendView(): JSX.Element {
         teamOptions,
         billingPeriodMarkers,
     } = useValues(logic)
+    const { startExport } = useActions(exportsLogic)
     const {
         setFilters,
         setDateRange,
@@ -55,6 +58,23 @@ export function BillingSpendView(): JSX.Element {
 
     if (restrictionReason) {
         return <BillingNoAccess title="Spend" reason={restrictionReason} />
+    }
+
+    const onExportCsv = (): void => {
+        const csv = buildBillingCsv({
+            series,
+            dates,
+            hiddenSeries: finalHiddenSeries,
+            options: { decimals: 2 },
+        })
+        const filename = `posthog_spend_${dateFrom}_${dateTo}_${filters.interval || 'day'}.csv`
+        startExport({
+            export_format: ExporterFormat.CSV,
+            export_context: {
+                localData: csv,
+                filename,
+            },
+        })
     }
 
     return (
@@ -158,13 +178,18 @@ export function BillingSpendView(): JSX.Element {
                         </div>
                     </div>
 
-                    {/* Clear Filters */}
+                    {/* Clear Filters / Export */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>&nbsp;</LemonLabel>
-                        <div className="flex items-center">
+                        <div className="flex items-center gap-2">
                             <LemonButton type="secondary" size="medium" onClick={resetFilters}>
                                 Clear filters
                             </LemonButton>
+                            {showSeries && (
+                                <LemonButton type="secondary" size="medium" onClick={onExportCsv}>
+                                    Export CSV
+                                </LemonButton>
+                            )}
                         </div>
                     </div>
                 </div>
