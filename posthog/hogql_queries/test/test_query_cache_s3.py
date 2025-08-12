@@ -77,7 +77,7 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
     def test_set_cache_data_success(self, mock_settings):
         """Test successful cache data storage."""
         mock_settings.CACHED_RESULTS_TTL_DAYS = 1
-        mock_settings.OBJECT_STORAGE_BUCKET = "test-bucket"
+        mock_settings.QUERY_CACHE_S3_BUCKET = "test-bucket"
 
         manager = self._create_cache_manager()
         test_data = {"result": "test", "count": 42}

@@ -40,7 +40,7 @@ class S3QueryCacheManager(QueryCacheManagerBase):
             dashboard_id=dashboard_id,
         )
         self.storage_client = object_storage_client()
-        self.bucket = settings.OBJECT_STORAGE_BUCKET
+        self.bucket = settings.QUERY_CACHE_S3_BUCKET
 
     def _cache_object_key(self) -> str:
         """Generate S3 object key for cache data."""

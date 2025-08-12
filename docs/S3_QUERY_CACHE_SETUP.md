@@ -5,7 +5,6 @@
 1 **Object Tagging**: Each S3 object gets tags:
    ```
    ttl_days=1              # Calculated TTL in days
-   cache_type=query_data   # Object type identifier
    team_id=123            # Team identifier
    ```
 2 **Automatic Deletion**: S3 lifecycle rules delete objects matching tag criteria
@@ -27,7 +26,6 @@ cat > lifecycle-config.json << EOF
                 "And": {
                     "Tags": [
                         {"Key": "ttl_days", "Value": "1"},
-                        {"Key": "cache_type", "Value": "query_data"}
                     ]
                 }
             },
@@ -40,7 +38,6 @@ cat > lifecycle-config.json << EOF
                 "And": {
                     "Tags": [
                         {"Key": "ttl_days", "Value": "7"},
-                        {"Key": "cache_type", "Value": "query_data"}
                     ]
                 }
             },
@@ -68,7 +65,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "query_cache" {
       and {
         tags = {
           ttl_days   = "1"
-          cache_type = "query_data"
         }
       }
     }
