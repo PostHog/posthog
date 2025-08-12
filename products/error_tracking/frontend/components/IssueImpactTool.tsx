@@ -15,9 +15,7 @@ export function ErrorTrackingIssueImpactTool(): JSX.Element {
 
     return (
         <MaxTool
-            name="find_error_tracking_impactful_issues"
-            displayName="Find impactful issues"
-            description="Max can find issues that are affecting signup, activation or any of your events."
+            identifier="find_error_tracking_impactful_issues"
             context={{}}
             callback={callback}
             suggestions={[]}
