@@ -28,10 +28,12 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
-    const { sdkHealth, multipleInitSdks, featureFlagMisconfiguration, outdatedSdkCount } =
-        useValues(sidePanelSdkDoctorLogic)
+    const { sdkHealth, featureFlagMisconfiguration, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
 
-    const hasMultipleInits = multipleInitSdks.length > 0
+    // TODO: Multi-init detection temporarily disabled for post-MVP
+    // const { multipleInitSdks } = useValues(sidePanelSdkDoctorLogic)
+    // const hasMultipleInits = multipleInitSdks.length > 0
+    const hasMultipleInits = false
     const hasFlagMisconfiguration = featureFlagMisconfiguration.detected
 
     const title = hasFlagMisconfiguration
@@ -145,8 +147,10 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
 }
 
 export function SidePanelSdkDoctor(): JSX.Element {
-    const { sdkVersions, recentEventsLoading, outdatedSdkCount, multipleInitDetection, featureFlagMisconfiguration } =
+    const { sdkVersions, recentEventsLoading, outdatedSdkCount, featureFlagMisconfiguration } =
         useValues(sidePanelSdkDoctorLogic)
+    // TODO: Multi-init detection temporarily disabled for post-MVP
+    // const { multipleInitDetection } = useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
 
     // Group the versions by SDK type (each SDK type gets its own table)
@@ -222,7 +226,8 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 Close enough
                             </LemonTag>
                         )}
-                        {record.multipleInitializations && (
+                        {/* TODO: Multi-init detection temporarily disabled for post-MVP */}
+                        {/* {record.multipleInitializations && (
                             <Tooltip
                                 placement="right"
                                 title={`SDK initialized multiple times (${record.initCount} times).`}
@@ -231,7 +236,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                     Multiple init
                                 </LemonTag>
                             </Tooltip>
-                        )}
+                        )} */}
                     </div>
                 )
             },
@@ -254,8 +259,9 @@ export function SidePanelSdkDoctor(): JSX.Element {
                 </LemonMenu>
             </SidePanelPaneHeader>
             <div className="p-3 overflow-y-auto flex-1">
+                {/* TODO: Multi-init detection temporarily disabled for post-MVP */}
                 {/* Show warning for multiple initializations if detected */}
-                {(sdkVersions.some((sdk) => sdk.multipleInitializations) || multipleInitDetection.detected) && (
+                {/* {(sdkVersions.some((sdk) => sdk.multipleInitializations) || multipleInitDetection.detected) && (
                     <Section title="Multiple SDK initializations detected">
                         <div className="p-3 bg-danger/10 rounded border border-danger/20">
                             <div className="flex items-start">
@@ -309,7 +315,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             </div>
                         </div>
 
-                        {/* Table showing the URLs/screens where multiple initializations happen */}
+                        {/* Table showing the URLs/screens where multiple initializations happen 
                         <div className="mt-3">
                             <h4 className="text-sm font-semibold mb-2">Source(s) of multiple initialization</h4>
                             <LemonTable
@@ -342,7 +348,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             />
                         </div>
                     </Section>
-                )}
+                )} */}
 
                 {/* Show warning for feature flag misconfigurations if detected */}
                 {featureFlagMisconfiguration.detected && (
@@ -457,8 +463,9 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         </div>
                     </Section>
                 ) : (
-                    !sdkVersions.some((sdk) => sdk.multipleInitializations) &&
-                    !multipleInitDetection.detected &&
+                    // TODO: Multi-init detection temporarily disabled for post-MVP
+                    // !sdkVersions.some((sdk) => sdk.multipleInitializations) &&
+                    // !multipleInitDetection.detected &&
                     !featureFlagMisconfiguration.detected && (
                         <Section title="SDK health is good">
                             <div className="p-3 bg-success/10 rounded border border-success/20">
