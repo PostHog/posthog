@@ -143,6 +143,35 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
+    // Show active state for items that are active in the URL
+    function isItemActive(item: TreeDataItem): boolean {
+        if (!item.record?.href) {
+            return false
+        }
+
+        const currentPath = removeProjectIdIfPresent(window.location.pathname)
+        const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+
+        if (currentPath === itemHref) {
+            return true
+        }
+
+        // Current path is a sub-path of item (e.g., /insights/new under /insights)
+        if (currentPath.startsWith(itemHref + '/')) {
+            return true
+        }
+
+        // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+        if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+            return true
+        }
+        if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
+            return true
+        }
+
+        return false
+    }
+
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
         // Determine the separator component based on MenuItem type
@@ -379,33 +408,7 @@ export function ProjectTree({
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
-            isItemActive={(item) => {
-                if (!item.record?.href) {
-                    return false
-                }
-
-                const currentPath = removeProjectIdIfPresent(window.location.pathname)
-                const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
-
-                if (currentPath === itemHref) {
-                    return true
-                }
-
-                // Current path is a sub-path of item (e.g., /insights/new under /insights)
-                if (currentPath.startsWith(itemHref + '/')) {
-                    return true
-                }
-
-                // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
-                if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
-                    return true
-                }
-                if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
-                    return true
-                }
-
-                return false
-            }}
+            isItemActive={isItemActive}
             size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
@@ -658,7 +661,27 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
                 if (root === 'products://' || root === 'data://' || root === 'persons://') {
-                    return <>{nameNode}</>
+                    return (
+                        <>
+                            {nameNode}
+                            {item.record?.protocol === 'products://' && item.tags?.length && (
+                                <>
+                                    {item.tags?.map((tag) => (
+                                        <LemonTag
+                                            key={tag}
+                                            type={
+                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
+                                            }
+                                            size="small"
+                                            className="ml-2 relative top-[-1px]"
+                                        >
+                                            {tag.toUpperCase()}
+                                        </LemonTag>
+                                    ))}
+                                </>
+                            )}
+                        </>
+                    )
                 }
                 if (root === 'new://') {
                     if (item.children) {
