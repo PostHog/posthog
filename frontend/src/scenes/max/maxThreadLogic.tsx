@@ -331,6 +331,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     status: 'completed',
                                 })
                             } else if (isNotebookUpdateMessage(parsedResponse)) {
+                                // Check if we already have a notebook update message in the thread
+                                const lastMessage = values.threadRaw[values.threadRaw.length - 1]
+                                if (lastMessage && isNotebookUpdateMessage(lastMessage)) {
+                                    // Replace the existing notebook update message
+                                    actions.replaceMessage(values.threadRaw.length - 1, {
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                } else {
+                                    // Add new notebook update message
+                                    actions.addMessage({
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                }
                                 actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
                             } else if (
                                 values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
