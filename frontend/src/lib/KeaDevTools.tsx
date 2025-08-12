@@ -838,7 +838,7 @@ function GraphTab({
 
 /* ---------- main component ---------- */
 
-export default function KeaDevtools({
+export function KeaDevtools({
     defaultOpen = false,
     buttonSize = 56,
     offset = 16,
