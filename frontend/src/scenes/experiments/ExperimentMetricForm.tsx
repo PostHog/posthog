@@ -149,7 +149,7 @@ export function ExperimentMetricForm({
                       value: ExperimentMetricType.RATIO,
                       label: 'Ratio',
                       description:
-                          'Calculates the ratio between two metrics, useful for measuring metrics like revenue per purchase or page views per session.',
+                          'Calculates the ratio between two metrics, useful for measuring average order value, etc.',
                   },
               ]
             : []),
