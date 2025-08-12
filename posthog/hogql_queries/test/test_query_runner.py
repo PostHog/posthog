@@ -160,6 +160,7 @@ class TestQueryRunner(BaseTest):
                                 "static": None,
                             },
                             "revenueProperty": "revenue",
+                            "subscriptionProperty": "subscription",
                         }
                     ],
                 },

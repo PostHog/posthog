@@ -9,7 +9,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, InsightShortId, SharingConfigurationType } from '~/types'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { AvailableFeature, InsightShortId, OrganizationType, SharingConfigurationType } from '~/types'
 
 import type { sharingLogicType } from './sharingLogicType'
 
@@ -56,7 +57,7 @@ export const sharingLogic = kea<sharingLogicType>([
         ({ insightShortId, dashboardId, recordingId }) =>
             `sharing-${insightShortId || dashboardId || recordingId || ''}`
     ),
-    connect(() => [preflightLogic, userLogic, dashboardsModel]),
+    connect(() => [preflightLogic, userLogic, dashboardsModel, organizationLogic]),
 
     actions({
         togglePreview: true,
@@ -137,6 +138,11 @@ export const sharingLogic = kea<sharingLogicType>([
         whitelabelAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
+        ],
+
+        sharingAllowed: [
+            () => [organizationLogic.selectors.currentOrganization],
+            (currentOrganization: OrganizationType) => currentOrganization?.allow_publicly_shared_resources ?? true,
         ],
 
         params: [

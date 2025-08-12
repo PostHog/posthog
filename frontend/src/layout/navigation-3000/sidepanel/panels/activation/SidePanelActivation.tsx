@@ -41,7 +41,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                         <LemonProgress
                             percent={completionPercent}
                             size="medium"
-                            bgColor="var(--bg-3000)"
+                            bgColor="var(--color-bg-3000)"
                             strokeColor="var(--success)"
                             className="w-full stroke-opacity-80 h-2"
                         />

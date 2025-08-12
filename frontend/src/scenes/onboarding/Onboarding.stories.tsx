@@ -15,7 +15,7 @@ import { OnboardingProduct, ProductKey, OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { availableOnboardingProducts } from './utils'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',
@@ -53,7 +53,7 @@ export const _OnboardingSDKs = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
     const { setProduct } = useActions(onboardingLogic)
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         const product: OnboardingProduct = availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS]
         setProduct(product)
         router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
@@ -67,7 +67,7 @@ export const _OnboardingProductConfiguration = (): JSX.Element => {
 
     const { setProduct } = useActions(onboardingLogic)
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.SESSION_REPLAY])
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.PRODUCT_CONFIGURATION))
     })
@@ -88,7 +88,7 @@ export const _OnboardingBilling = (): JSX.Element => {
 
     const { setProduct } = useActions(onboardingLogic)
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
         router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.PLANS))
     })
@@ -101,7 +101,7 @@ export const _OnboardingInvite = (): JSX.Element => {
 
     const { setProduct } = useActions(onboardingLogic)
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
         router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INVITE_TEAMMATES))
     })
@@ -114,7 +114,7 @@ export const _OnboardingReverseProxy = (): JSX.Element => {
 
     const { setProduct } = useActions(onboardingLogic)
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.FEATURE_FLAGS])
         router.actions.push(urls.onboarding(ProductKey.FEATURE_FLAGS, OnboardingStepKey.REVERSE_PROXY))
     })
@@ -127,7 +127,7 @@ export const _OnboardingLinkData = (): JSX.Element => {
 
     const { setProduct } = useActions(onboardingLogic)
 
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
         router.actions.push(urls.onboarding(ProductKey.DATA_WAREHOUSE, OnboardingStepKey.LINK_DATA))
     })
