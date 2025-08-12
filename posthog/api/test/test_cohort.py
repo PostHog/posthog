@@ -9,7 +9,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APIClient
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
@@ -20,7 +19,6 @@ from posthog.models.team.team import Team
 from posthog.schema import PropertyOperator, PersonsOnEventsMode
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
-    calculate_cohort_from_list,
     get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
 )
@@ -300,8 +298,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
-    def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
+    def test_static_cohort_csv_upload_end_to_end(self):
+        """Test CSV upload end-to-end with actual celery task execution"""
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"email": "email@example.org"})
@@ -322,20 +320,25 @@ email@example.org
             content_type="application/csv",
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts/",
-            {"name": "test", "csv": csv, "is_static": True},
-            format="multipart",
-        )
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "test", "csv": csv, "is_static": True},
+                format="multipart",
+            )
+
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertFalse(cohort.is_calculating)
+        # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertEqual(distinct_ids, {"123", "0"})
 
-        calculate_cohort_from_list(response.json()["id"], ["User ID", "email@example.org", "123"])
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 1)
-
-        csv = SimpleUploadedFile(
+        # Test CSV update
+        csv_update = SimpleUploadedFile(
             "example.csv",
             str.encode(
                 """
@@ -346,35 +349,40 @@ User ID
             content_type="application/csv",
         )
 
-        #  A weird issue with pytest client, need to user Rest framework's one
-        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
-        client = APIClient()
-        client.force_login(self.user)
-        response = client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            {"name": "test", "csv": csv},
-            format="multipart",
-        )
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+                {"name": "test", "csv": csv_update},
+                format="multipart",
+            )
+
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        # Verify CSV update worked - 456 should now be included
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertIn("456", distinct_ids)  # New ID should be included
 
-        calculate_cohort_from_list(response.json()["id"], ["User ID", "456"])
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 2)
-
-        # Only change name without updating CSV
-        response = client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+        # Test name-only update without CSV
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
             {"name": "test2"},
             format="multipart",
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).name, "test2")
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.name, "test2")
+        # Verify distinct_ids remain the same after name-only update
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertIn("456", distinct_ids)  # Should still contain 456
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_distinct_id_column(self, patch_calculate_cohort_from_list):
