@@ -58,7 +58,18 @@ export function DataWarehouseScene(): JSX.Element {
     const { billing } = useValues(billingLogic)
     const { availableSources } = useValues(availableSourcesDataLogic)
 
-    const monthlyRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
+    const billingRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
+
+    const calculatedRowsSynced = (dataWarehouseSources?.results || []).reduce((total, source) => {
+        return (
+            total +
+            (source.schemas?.reduce((schemaTotal, schema) => {
+                return schemaTotal + (schema.table?.row_count || 0)
+            }, 0) || 0)
+        )
+    }, 0)
+
+    const lifetimeRowsSynced = billingRowsSynced || calculatedRowsSynced
 
     const recentActivity = useMemo((): DashboardActivity[] => {
         const items: DashboardActivity[] = []
@@ -85,7 +96,7 @@ export function DataWarehouseScene(): JSX.Element {
                         time: schema.last_synced_at
                             ? String(schema.last_synced_at)
                             : String(source.last_run_at || new Date().toISOString()),
-                        rowCount: null,
+                        rowCount: schema.table?.row_count || 0,
                     })
                 }
             })
@@ -103,7 +114,10 @@ export function DataWarehouseScene(): JSX.Element {
                     type: getSourceType(source.source_type, availableSources),
                     status: source.status,
                     lastSync: source.last_run_at ?? null,
-                    rowCount: null,
+                    rowCount:
+                        source.schemas?.reduce((total, schema) => {
+                            return total + (schema.table?.row_count || 0)
+                        }, 0) || 0,
                     url: urls.dataWarehouseSource(`managed-${source.id}`),
                 })
             ),
@@ -190,8 +204,8 @@ export function DataWarehouseScene(): JSX.Element {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
-                    <div className="text-sm text-muted">Rows Synced (MTD)</div>
-                    <div className="text-2xl font-semibold mt-1">{monthlyRowsSynced.toLocaleString()}</div>
+                    <div className="text-sm text-muted">Rows Synced (Lifetime)</div>
+                    <div className="text-2xl font-semibold mt-1">{lifetimeRowsSynced.toLocaleString()}</div>
                 </LemonCard>
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="text-sm text-muted">Materialized Views</div>
