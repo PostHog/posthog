@@ -114,7 +114,7 @@ class ExperimentQueryRunner(QueryRunner):
         Columns: variant, entity_id, value (sum of all event values)
         For ratio metrics, also includes denominator_value
         """
-        # For ratio metrics, we need a different approach to avoid Cartesian product
+        # For ratio metrics, we need a different approach
         if self.is_ratio_metric and denominator_events_query:
             return self._get_ratio_metrics_aggregated_per_entity_query(
                 exposure_query, metric_events_query, denominator_events_query
