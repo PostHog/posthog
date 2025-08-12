@@ -225,46 +225,53 @@ class TestStrategyClasses:
         assert result == set()
         self.mock_context.log.warning.assert_called_once()
 
-    @patch("posthog.models.person.person.Person.objects")
-    def test_feature_enrollment_strategy_returns_teams(self, mock_person_objects):
-        strategy = FeatureEnrollmentStrategy()
+    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True)
+    @patch("requests.post")
+    def test_feature_enrollment_strategy_returns_teams(self, mock_post, mock_is_cloud):
+        strategy = FeatureEnrollmentStrategy(api_token="test-token")
 
-        # Mock the Django ORM query chain
-        mock_queryset = Mock()
-        mock_queryset.values_list.return_value.distinct.return_value = [1, 2, 3]
-        mock_person_objects.filter.return_value = mock_queryset
+        # Mock successful API response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"results": [["123", "us.posthog.com"], ["456", "us.posthog.com"]]}
+        mock_post.return_value = mock_response
 
-        result = strategy.get_teams(self.mock_context)
+        with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"):
+            result = strategy.get_teams(self.mock_context)
 
-        assert result == {1, 2, 3}
-        mock_person_objects.filter.assert_called_once_with(
-            **{"properties__$feature_enrollment/web-analytics-api": True}
-        )
-        self.mock_context.log.info.assert_called_once()
+        assert result == {123, 456}
+        mock_post.assert_called_once()
+        self.mock_context.log.info.assert_called()
 
-    @patch("posthog.models.person.person.Person.objects")
-    def test_feature_enrollment_strategy_handles_errors(self, mock_person_objects):
-        strategy = FeatureEnrollmentStrategy()
-        mock_person_objects.filter.side_effect = Exception("DB error")
+    def test_feature_enrollment_strategy_handles_missing_token(self):
+        strategy = FeatureEnrollmentStrategy(api_token=None)
 
         result = strategy.get_teams(self.mock_context)
 
         assert result == set()
-        self.mock_context.log.warning.assert_called_once()
+        # Should log error about missing API token
+        self.mock_context.log.error.assert_called_once_with(
+            "WEB_ANALYTICS_FEATURE_ENROLLMENT_API_TOKEN not configured, cannot fetch feature enrollment data"
+        )
 
-    @patch("posthog.models.person.person.Person.objects")
-    def test_feature_enrollment_strategy_uses_custom_flag_key(self, mock_person_objects):
-        strategy = FeatureEnrollmentStrategy()
+    @patch("dags.web_preaggregated_team_selection_strategies.is_cloud", return_value=True)
+    @patch("requests.post")
+    def test_feature_enrollment_strategy_uses_custom_flag_key(self, mock_post, mock_is_cloud):
+        strategy = FeatureEnrollmentStrategy(api_token="test-token", flag_key="custom-flag")
 
-        mock_queryset = Mock()
-        mock_queryset.values_list.return_value.distinct.return_value = [5, 6]
-        mock_person_objects.filter.return_value = mock_queryset
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"results": [["123", "us.posthog.com"]]}
+        mock_post.return_value = mock_response
 
-        with patch.dict(os.environ, {"WEB_ANALYTICS_FEATURE_FLAG_KEY": "custom-flag"}):
+        with patch("dags.web_preaggregated_team_selection_strategies.settings.SITE_URL", "https://us.posthog.com"):
             result = strategy.get_teams(self.mock_context)
 
-        assert result == {5, 6}
-        mock_person_objects.filter.assert_called_once_with(**{"properties__$feature_enrollment/custom-flag": True})
+        assert result == {123}
+        # Verify the query contains the custom flag key
+        query_payload = mock_post.call_args[1]["json"]
+        query = query_payload["query"]["query"]
+        assert "custom-flag" in query
 
 
 class TestStoreTeamSelectionInClickhouse:

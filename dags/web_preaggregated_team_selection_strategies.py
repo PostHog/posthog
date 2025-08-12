@@ -1,7 +1,6 @@
 import os
 import requests
 from abc import ABC, abstractmethod
-from typing import Optional
 
 import dagster
 from django.conf import settings
@@ -11,6 +10,7 @@ from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT,
     get_top_teams_by_median_pageviews_sql,
 )
+from posthog.tasks.early_access_feature import POSTHOG_TEAM_ID
 
 
 class TeamSelectionStrategy(ABC):
@@ -82,36 +82,38 @@ class HighPageviewsStrategy(TeamSelectionStrategy):
 class FeatureEnrollmentStrategy(TeamSelectionStrategy):
     """Select teams where users have enrolled in a specific feature preview (default: web-analytics-api)."""
 
+    def __init__(
+        self,
+        api_host: str = "https://internal-t.posthog.com",
+        api_token: str | None = None,
+        flag_key: str = "web-analytics-api",
+    ):
+        self.api_host = api_host
+        self.api_token = api_token
+        self.flag_key = flag_key
+
     def get_name(self) -> str:
         return "feature_enrollment"
 
-    def _get_expected_host(self) -> Optional[str]:
+    def _get_region_host(self) -> str:
         """Get the expected host for the current deployment region."""
-        if not is_cloud():
-            return None  # Don't filter by host for self-hosted instances
-
-        if settings.SITE_URL == "https://us.posthog.com":
-            return "us.posthog.com"
-        elif settings.SITE_URL == "https://eu.posthog.com":
-            return "eu.posthog.com"
-        else:
-            # Default to app.posthog.com for other cloud deployments
-            return "app.posthog.com"
+        return settings.SITE_URL.removeprefix("https://")
 
     def get_teams(self, context: dagster.OpExecutionContext) -> set[int]:
-        flag_key = os.getenv("WEB_ANALYTICS_FEATURE_FLAG_KEY", "web-analytics-api")
+        if not self.api_token:
+            context.log.error(
+                "WEB_ANALYTICS_FEATURE_ENROLLMENT_API_TOKEN not configured, cannot fetch feature enrollment data"
+            )  # noqa: TRY400
+            return set()
 
-        # Configuration for PostHog internal API - make parameters configurable
-        api_host = os.getenv("POSTHOG_INTERNAL_API_HOST", "https://internal-t.posthog.com")
-        api_token = os.getenv("POSTHOG_INTERNAL_API_TOKEN")
-        team_id = int(os.getenv("POSTHOG_INTERNAL_TEAM_ID", "2"))  # PostHog's internal team ID
+        if not is_cloud():
+            context.log.warning(
+                "Skipping feature enrollment strategy for self-hosted instances. This strategy is only available on posthog cloud."
+            )  # noqa: TRY400
+            return set()
 
-        # Get expected host for filtering
-        expected_host = self._get_expected_host()
-
-        if not api_token:
-            context.log.warning("POSTHOG_INTERNAL_API_TOKEN not configured, falling back to local query")
-            return self._get_teams_from_local_db(context, flag_key)
+        # Get host so we only add the teams from the appropriate region to the CH dictionary
+        environment_host = self._get_region_host()
 
         try:
             # Build HogQL query with optional host filtering
@@ -121,18 +123,10 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
                     properties.$host
                 FROM events
                 WHERE event = '$feature_enrollment_update'
-                AND timestamp >= '2025-07-01'
-                AND properties.$feature_flag = '{flag_key}'
+                    AND properties.$host = '{environment_host}'
+                    AND timestamp >= '2025-07-01'
+                    AND properties.$feature_flag = '{self.flag_key}'
             """
-
-            # Add host filtering if we have an expected host
-            if expected_host:
-                base_query += f" AND properties.$host = '{expected_host}'"
-                context.log.info(f"Filtering enrollment data for host: {expected_host}")
-            else:
-                context.log.info("No host filtering applied (self-hosted instance)")
-
-            base_query += " LIMIT 1000"
 
             query_payload = {
                 "query": {
@@ -141,17 +135,17 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
                 }
             }
 
-            headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
-            url = f"{api_host}/api/environments/{team_id}/query/"
+            headers = {"Authorization": f"Bearer {self.api_token}", "Content-Type": "application/json"}
+            url = f"{self.api_host}/api/environments/{POSTHOG_TEAM_ID}/query/"
 
-            context.log.info(f"Querying PostHog internal API for feature enrollment data (team_id: {team_id})")
+            context.log.info(f"Querying PostHog internal API for feature enrollment data (team_id: {POSTHOG_TEAM_ID})")
             response = requests.post(url, json=query_payload, headers=headers, timeout=30)
 
             if response.status_code != 200:
-                context.log.warning(
+                context.log.error(
                     f"Failed to query PostHog internal API: {response.status_code} - {response.text[:200]}"
-                )
-                return self._get_teams_from_local_db(context, flag_key)
+                )  # noqa: TRY400
+                return set()
 
             data = response.json()
             results = data.get("results", [])
@@ -165,42 +159,27 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
                     except (ValueError, TypeError):
                         context.log.debug(f"Invalid project_id: {row[0]}")
 
-            host_info = f" on host '{expected_host}'" if expected_host else ""
+            host_info = f" on host '{environment_host}'" if environment_host else ""
             context.log.info(
-                f"Found {len(team_ids)} teams with users enrolled in '{flag_key}'{host_info} via internal API"
+                f"Found {len(team_ids)} teams with users enrolled in '{self.flag_key}'{host_info} via internal API"
             )
             return team_ids
 
         except requests.RequestException as e:
-            context.log.warning(f"Error querying PostHog internal API: {e}")
-            return self._get_teams_from_local_db(context, flag_key)
+            context.log.error(f"Error querying PostHog internal API: {e}")  # noqa: TRY400
+            return set()
         except Exception as e:
-            context.log.warning(f"Unexpected error in feature enrollment strategy: {e}")
-            return self._get_teams_from_local_db(context, flag_key)
-
-    def _get_teams_from_local_db(self, context: dagster.OpExecutionContext, flag_key: str) -> set[int]:
-        """Fallback to local database query if API is not available."""
-        try:
-            from posthog.models.person.person import Person
-
-            # Query PostgreSQL for teams with enrolled users
-            enrollment_key = f"$feature_enrollment/{flag_key}"
-            team_ids = (
-                Person.objects.filter(**{f"properties__{enrollment_key}": True})
-                .values_list("team_id", flat=True)
-                .distinct()
-            )
-
-            team_ids_set = set(team_ids)
-            context.log.info(f"Found {len(team_ids_set)} teams with users enrolled in '{flag_key}' from local DB")
-            return team_ids_set
-
-        except Exception as e:
-            context.log.warning(f"Failed to get teams from local DB: {e}")
+            context.log.error(f"Unexpected error in feature enrollment strategy: {e}")  # noqa: TRY400
             return set()
 
 
 class StrategyRegistry:
+    """
+    This class is the source for all available strategies we can use to enable the pre-aggregated tables for teams.
+
+    The actual strategies to be used are configured in the environment variable WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES because we may have different strategies for different environments.
+    """
+
     def __init__(self):
         self._strategies: dict[str, TeamSelectionStrategy] = {}
         self._register_default_strategies()
@@ -209,7 +188,11 @@ class StrategyRegistry:
         for strategy in [
             EnvironmentVariableStrategy(),
             HighPageviewsStrategy(),
-            FeatureEnrollmentStrategy(),
+            FeatureEnrollmentStrategy(
+                api_host=os.getenv("WEB_ANALYTICS_FEATURE_ENROLLMENT_API_HOST", "https://internal-t.posthog.com"),
+                api_token=os.getenv("WEB_ANALYTICS_FEATURE_ENROLLMENT_API_TOKEN"),
+                flag_key=os.getenv("WEB_ANALYTICS_API_FEATURE_PREVIEW_FLAG_KEY", "web-analytics-api"),
+            ),
         ]:
             self.register(strategy)
 
