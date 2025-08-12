@@ -281,9 +281,14 @@ class CohortSerializer(serializers.ModelSerializer):
         """Handle file reading and CSV parsing with error handling"""
         decoded_file = file.read().decode(CSVConfig.ENCODING).splitlines()
         reader = csv.reader(decoded_file)
-        first_row = next(reader, [])
-        if not first_row:
-            raise ValidationError(CSVConfig.ErrorMessages.EMPTY_FILE)
+
+        # Skip empty rows at the beginning
+        first_row = []
+        while not first_row:
+            first_row = next(reader, None)
+            if first_row is None:
+                raise ValidationError({"csv": [CSVConfig.ErrorMessages.EMPTY_FILE]})
+
         return first_row, reader
 
     def _is_single_column_format(self, first_row: list) -> bool:
