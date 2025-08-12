@@ -598,10 +598,7 @@ describe('createAnswerFilterHogQLExpression', () => {
 
             const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
             expect(result).toBe(
-                `AND (arrayExists(x -> x ilike '%test%', ${getSurveyResponse(
-                    surveyWithMultipleChoiceQuestion.questions[0],
-                    0
-                )}))`
+                `AND (arrayExists(x -> x ilike '%test%', ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
         })
 
@@ -617,10 +614,7 @@ describe('createAnswerFilterHogQLExpression', () => {
 
             const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
             expect(result).toBe(
-                `AND (NOT arrayExists(x -> x ilike '%test%', ${getSurveyResponse(
-                    surveyWithMultipleChoiceQuestion.questions[0],
-                    0
-                )}))`
+                `AND (NOT arrayExists(x -> x ilike '%test%', ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
         })
 
@@ -631,10 +625,7 @@ describe('createAnswerFilterHogQLExpression', () => {
 
             const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
             expect(result).toBe(
-                `AND (arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(
-                    surveyWithMultipleChoiceQuestion.questions[0],
-                    0
-                )}))`
+                `AND (arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
         })
 
@@ -650,10 +641,7 @@ describe('createAnswerFilterHogQLExpression', () => {
 
             const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
             expect(result).toBe(
-                `AND (NOT arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(
-                    surveyWithMultipleChoiceQuestion.questions[0],
-                    0
-                )}))`
+                `AND (NOT arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
         })
     })
