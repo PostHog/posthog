@@ -27,9 +27,6 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, ReplayTabs, SidePanelTab, UniversalFiltersGroup } from '~/types'
 
-import { ReplayActiveHoursHeatMap } from '../components/ReplayActiveHoursHeatMap'
-import { ReplayActiveScreensTable } from '../components/ReplayActiveScreensTable'
-import { ReplayActiveUsersTable } from '../components/ReplayActiveUsersTable'
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
@@ -99,9 +96,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     return (
         <>
             <MaxTool
-                name="search_session_recordings"
-                displayName="Search recordings"
-                description="Max can set up filters for the recordings list"
+                identifier="search_session_recordings"
                 context={{
                     current_filters: filters,
                 }}
@@ -510,20 +505,6 @@ export const RecordingsUniversalFiltersEmbed = ({
             ),
             content: <SavedFilters setFilters={setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
-        },
-        {
-            key: 'explore',
-            label: <div className="px-2">Explore</div>,
-            content: (
-                <div className="flex flex-col gap-2 w-full pb-2">
-                    <div className="flex flex-row gap-2 w-full">
-                        <ReplayActiveUsersTable />
-                        <ReplayActiveScreensTable />
-                    </div>
-                    <ReplayActiveHoursHeatMap />
-                </div>
-            ),
-            'data-attr': 'session-recordings-explore-tab',
         },
     ]
 
