@@ -1,8 +1,22 @@
-import { TransactionClient } from "~/utils/db/postgres";
-import { PersonRepositoryTransaction } from "./person-repository-transaction";
+import { DateTime } from 'luxon'
+import { Properties } from '@posthog/plugin-scaffold'
+import { TopicMessage } from '~/kafka/producer'
+import {
+    CreatePersonResult,
+    MoveDistinctIdsResult,
+} from '~/utils/db/db'
+import { TransactionClient } from '~/utils/db/postgres'
+import { logger } from '~/utils/logger'
+import {
+    InternalPerson,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+} from '~/types'
+import { PersonRepositoryTransaction } from './person-repository-transaction'
+import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
-
-class DualWritePersonRepositoryTransaction implements PersonRepositoryTransaction {
+export class DualWritePersonRepositoryTransaction implements PersonRepositoryTransaction {
     constructor(
       private primaryRepo: RawPostgresPersonRepository,
       private secondaryRepo: RawPostgresPersonRepository,

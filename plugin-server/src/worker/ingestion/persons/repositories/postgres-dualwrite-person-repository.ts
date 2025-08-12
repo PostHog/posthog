@@ -15,6 +15,7 @@ import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
+import { DualWritePersonRepositoryTransaction } from './dualwrite-person-repository-transaction'
 import { logger } from '../../../../utils/logger'
 
 type SIDE = 'primary' | 'secondary'
@@ -26,6 +27,7 @@ export interface PostgresDualWritePersonRepositoryOptions {
 }
 
 const DEFAULT_OPTIONS: PostgresDualWritePersonRepositoryOptions = {
+  // NICKS TODO: understand if this actually works?
     usePreparedTransactions: true,
 }
 
@@ -45,7 +47,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         this.secondaryRepo = new PostgresPersonRepository(secondaryRouter)
         this.coordinator = new TwoPhaseCommitCoordinator({
             left: { router: primaryRouter, use: PostgresUse.PERSONS_WRITE, name: 'primary' },
-            right: { router: secondaryRouter, use: PostgresUse.PERSONS_WRITE_MIGRATION, name: 'secondary' },
+            right: { router: secondaryRouter, use: PostgresUse.PERSONS_WRITE, name: 'secondary' },
         })
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
@@ -73,14 +75,42 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     ): Promise<CreatePersonResult> {
         let primaryResult!: CreatePersonResult
         await this.coordinator.run('createPerson', async (leftTx, rightTx) => {
-            const [p, s] = await Promise.all([
-                this.primaryRepo.createPerson(createdAt, properties, propertiesLastUpdatedAt, propertiesLastOperation, teamId, isUserId, isIdentified, uuid, distinctIds),
-                this.secondaryRepo.createPerson(createdAt, properties, propertiesLastUpdatedAt, propertiesLastOperation, teamId, isUserId, isIdentified, uuid, distinctIds),
-            ])
-
-            if (!p.success || !s.success) {
-                throw new Error(`DualWrite conflict: primary=${p.success} secondary=${s.success}`)
+            // serial: create on primary first
+            const p = await this.primaryRepo.createPerson(
+                createdAt,
+                properties,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                distinctIds,
+                leftTx
+            )
+            if (!p.success) {
+                throw new Error(`DualWrite primary create failed`)
             }
+
+            // force same id on secondary
+            const forcedId = Number(p.person.id)
+            const s = await this.secondaryRepo.createPerson(
+                createdAt,
+                properties,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                distinctIds,
+                rightTx,
+                forcedId
+            )
+            if (!s.success) {
+                throw new Error(`DualWrite secondary create failed`)
+            }
+
             primaryResult = p
             return true
         })

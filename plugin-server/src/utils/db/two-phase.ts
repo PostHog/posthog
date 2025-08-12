@@ -27,11 +27,15 @@ export class TwoPhaseCommitCoordinator {
 
     }
 
-    async rn<T>(
+    async run<T>(
         tag: string,
         fn: (leftTx: TransactionClient, rightTx: TransactionClient) => Promise<T>
     ): Promise<T> {
-        const gid = this.makeGid(tag)
+        const gidRoot = this.makeGid(tag)
+        const gidLeft = `${gidRoot}:left`
+        const gidRight = `${gidRoot}:right`
+        const gidLeftLiteral = `'${gidLeft.replace(/'/g, "''")}'`
+        const gidRightLiteral = `'${gidRight.replace(/'/g, "''")}'`
         const {left, right} = this.sides
 
         return await instrumentQuery('query.dualwrite_spc', tag, async() => {
@@ -53,14 +57,14 @@ export class TwoPhaseCommitCoordinator {
                 )
 
                 try {
-                    await lClient?.query('PREPARE TRANSACTION $1', [gid])
+                    await lClient?.query(`PREPARE TRANSACTION ${gidLeftLiteral}`)
                     preparedLeft = true
                 } catch (e) {
                     twoPhaseCommitFailuresCounter.labels(tag, 'prepare_left_failed').inc()
                     throw e
                 }
                 try {
-                    await rClient?.query('PREPARE TRANSACTION $1', [gid])
+                    await rClient?.query(`PREPARE TRANSACTION ${gidRightLiteral}`)
                     preparedRight = true
                 } catch (e) {
                     twoPhaseCommitFailuresCounter.labels(tag, 'prepare_right_failed').inc()
@@ -73,13 +77,13 @@ export class TwoPhaseCommitCoordinator {
                 rClient = undefined
 
                 try {
-                    await left.router.query(left.use, 'COMMIT PREPARED $1', [gid], `2pc-commit-left:${tag}`)
+                    await left.router.query(left.use, `COMMIT PREPARED ${gidLeftLiteral}`, [], `2pc-commit-left:${tag}`)
                 } catch (e) {
                     twoPhaseCommitFailuresCounter.labels(tag, 'commit_left_failed').inc()
                     throw e
                 }
                 try {
-                    await right.router.query(right.use, 'COMMIT PREPARED $1', [gid], `2pc-commit-right:${tag}`)
+                    await right.router.query(right.use, `COMMIT PREPARED ${gidRightLiteral}`, [], `2pc-commit-right:${tag}`)
                 } catch (e) {
                     twoPhaseCommitFailuresCounter.labels(tag, 'commit_right_failed').inc()
                     throw e
@@ -90,7 +94,7 @@ export class TwoPhaseCommitCoordinator {
                 try{
                     if (preparedLeft) {
                         try {
-                            await left.router.query(left.use, 'ROLLBACK PREPARED $1', [gid], `2pc-rollback-left:${tag}`)
+                            await left.router.query(left.use, `ROLLBACK PREPARED ${gidLeftLiteral}`, [], `2pc-rollback-left:${tag}`)
                         } catch (e) {
                             twoPhaseCommitFailuresCounter.labels(tag, 'rollback_left_failed').inc()
                             throw e
@@ -104,7 +108,7 @@ export class TwoPhaseCommitCoordinator {
                 try {
                     if (preparedRight) {
                         try {
-                            await right.router.query(right.use, 'ROLLBACK PREPARED $1', [gid], `2pc-rollback-right:${tag}`)
+                            await right.router.query(right.use, `ROLLBACK PREPARED ${gidRightLiteral}`, [], `2pc-rollback-right:${tag}`)
                         } catch (e) {
                             twoPhaseCommitFailuresCounter.labels(tag, 'rollback_right_failed').inc()
                             throw e
@@ -117,7 +121,7 @@ export class TwoPhaseCommitCoordinator {
                 }
                 logger.error('2 phase commit failed', {
                     tag,
-                    gid,
+                    gid: gidRoot,
                     left: this.sides.left.name ?? 'left',
                     right: this.sides.right.name ?? 'right',
                     error,
@@ -135,5 +139,3 @@ export class TwoPhaseCommitCoordinator {
         })
     }
 }
-
-// NICKS TODO add tests for this

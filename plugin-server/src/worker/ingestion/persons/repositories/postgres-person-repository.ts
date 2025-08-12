@@ -258,7 +258,8 @@ export class PostgresPersonRepository
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
+        tx?: TransactionClient,
+        forcedId?: number
     ): Promise<CreatePersonResult> {
         distinctIds ||= []
 
@@ -272,14 +273,21 @@ export class PostgresPersonRepository
         try {
             const { rows } = await this.postgres.query<RawPerson>(
                 tx ?? PostgresUse.PERSONS_WRITE,
-                `WITH inserted_person AS (
+                `${forcedId ? `WITH inserted_person AS (
+                        INSERT INTO posthog_person (
+                            id, created_at, properties, properties_last_updated_at,
+                            properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        RETURNING *
+                    )` : `WITH inserted_person AS (
                         INSERT INTO posthog_person (
                             created_at, properties, properties_last_updated_at,
                             properties_last_operation, team_id, is_user_id, is_identified, uuid, version
                         )
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                         RETURNING *
-                    )` +
+                    )`} ` +
                     distinctIds
                         .map(
                             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
@@ -287,39 +295,54 @@ export class PostgresPersonRepository
                             (_, index) => `, distinct_id_${index} AS (
                             INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                             VALUES (
-                                $${11 + index + distinctIds!.length - 1},
+                                $${(forcedId ? 12 : 11) + index + distinctIds!.length - 1},
                                 (SELECT id FROM inserted_person),
-                                $5,
-                                $${10 + index})
+                                $${forcedId ? 6 : 5},
+                                $${(forcedId ? 11 : 10) + index})
                             )`
                         )
                         .join('') +
                     `SELECT * FROM inserted_person;`,
-                [
-                    createdAt.toISO(),
-                    sanitizeJsonbValue(properties),
-                    sanitizeJsonbValue(propertiesLastUpdatedAt),
-                    sanitizeJsonbValue(propertiesLastOperation),
-                    teamId,
-                    isUserId,
-                    isIdentified,
-                    uuid,
-                    personVersion,
-                    // The copy and reverse here is to maintain compatability with pre-existing code
-                    // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
-                    // CTEs above, so we need to reverse the distinctIds to match the old behavior where
-                    // we would do a round trip for each INSERT. We shouldn't actually depend on the
-                    // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
-                    // the same and prove behavior is the same as before.
-                    ...distinctIds
-                        .slice()
-                        .reverse()
-                        .map(({ version }) => version),
-                    ...distinctIds
-                        .slice()
-                        .reverse()
-                        .map(({ distinctId }) => distinctId),
-                ],
+                forcedId
+                    ? [
+                          forcedId,
+                          createdAt.toISO(),
+                          sanitizeJsonbValue(properties),
+                          sanitizeJsonbValue(propertiesLastUpdatedAt),
+                          sanitizeJsonbValue(propertiesLastOperation),
+                          teamId,
+                          isUserId,
+                          isIdentified,
+                          uuid,
+                          personVersion,
+                          ...distinctIds
+                              .slice()
+                              .reverse()
+                              .map(({ version }) => version),
+                          ...distinctIds
+                              .slice()
+                              .reverse()
+                              .map(({ distinctId }) => distinctId),
+                      ]
+                    : [
+                          createdAt.toISO(),
+                          sanitizeJsonbValue(properties),
+                          sanitizeJsonbValue(propertiesLastUpdatedAt),
+                          sanitizeJsonbValue(propertiesLastOperation),
+                          teamId,
+                          isUserId,
+                          isIdentified,
+                          uuid,
+                          personVersion,
+                          ...distinctIds
+                              .slice()
+                              .reverse()
+                              .map(({ version }) => version),
+                          ...distinctIds
+                              .slice()
+                              .reverse()
+                              .map(({ distinctId }) => distinctId),
+                      ],
                 'insertPerson',
                 'warn'
             )
