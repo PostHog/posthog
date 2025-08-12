@@ -13,6 +13,5 @@ class VercelResource(UpdatedMetaFields, UUIDModel):
 
     team = models.OneToOneField(Team, on_delete=models.CASCADE)
     installation = models.ForeignKey(VercelInstallation, related_name="resources", on_delete=models.CASCADE)
-    resource_id = models.CharField(max_length=255, unique=True)
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
