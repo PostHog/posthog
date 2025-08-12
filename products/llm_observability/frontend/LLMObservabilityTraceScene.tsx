@@ -639,6 +639,11 @@ const EventContent = React.memo(
                                                         raisedError={event.properties.$ai_is_error}
                                                         searchQuery={searchQuery}
                                                     />
+                                                ) : event.event === '$ai_embedding' ? (
+                                                    <EventContentDisplay
+                                                        input={event.properties.$ai_input}
+                                                        output="Embedding vector generated"
+                                                    />
                                                 ) : (
                                                     <EventContentDisplay
                                                         input={event.properties.$ai_input_state}
@@ -683,15 +688,27 @@ EventContent.displayName = 'EventContent'
 
 function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {
     let eventType = 'trace'
+    let tagType: LemonTagProps['type'] = 'completion'
+
     if (isLLMTraceEvent(event)) {
-        eventType = event.event === '$ai_generation' ? 'generation' : 'span'
+        switch (event.event) {
+            case '$ai_generation':
+                eventType = 'generation'
+                tagType = 'success'
+                break
+            case '$ai_embedding':
+                eventType = 'embedding'
+                tagType = 'warning'
+                break
+            default:
+                eventType = 'span'
+                tagType = 'default'
+                break
+        }
     }
+
     return (
-        <LemonTag
-            className="uppercase"
-            type={eventType === 'trace' ? 'completion' : eventType === 'span' ? 'default' : 'success'}
-            size={size}
-        >
+        <LemonTag className="uppercase" type={tagType} size={size}>
             {eventType}
         </LemonTag>
     )

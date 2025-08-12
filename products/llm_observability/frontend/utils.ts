@@ -424,6 +424,19 @@ export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
             return title
         }
 
+        if (event.event === '$ai_embedding') {
+            const spanName = event.properties.$ai_span_name
+            if (spanName) {
+                return `${spanName}`
+            }
+            const title = event.properties.$ai_model || 'Embedding'
+            if (event.properties.$ai_provider) {
+                return `${title} (${event.properties.$ai_provider})`
+            }
+
+            return title
+        }
+
         return event.properties.$ai_span_name ?? 'Span'
     }
 
