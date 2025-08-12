@@ -36,6 +36,10 @@ export function getDefaultConfig(): PluginsServerConfig {
               ? 'postgres://posthog:posthog@localhost:5432/posthog'
               : '',
         PERSONS_READONLY_DATABASE_URL: '',
+        // NICKS TODO: figure out if this is what we want
+        PERSONS_MIGRATION_DATABASE_URL: isTestEnv() ? 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
+        : isDevEnv() ? 'postgres://posthog:posthog@localhost:5432/posthog_persons_migration' : '',
+        PERSONS_MIGRATION_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',

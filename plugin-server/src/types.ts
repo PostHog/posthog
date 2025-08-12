@@ -203,6 +203,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
+    PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
+    PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     COUNTERS_DATABASE_URL: string // Optional read-write Postgres database for counters
     POSTGRES_CONNECTION_POOL_SIZE: number
@@ -389,6 +391,7 @@ export interface Hub extends PluginsServerConfig {
     // active connections to Postgres, Redis, Kafka
     db: DB
     postgres: PostgresRouter
+    postgresPersonMigration: PostgresRouter
     redisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
