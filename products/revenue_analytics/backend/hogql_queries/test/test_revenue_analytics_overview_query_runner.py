@@ -27,14 +27,15 @@ from posthog.test.base import (
 from posthog.warehouse.models import ExternalDataSchema
 
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import (
-    STRIPE_INVOICE_RESOURCE_NAME,
-)
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import STRIPE_PRODUCT_RESOURCE_NAME
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
+)
+
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 
 INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_invoices"
@@ -222,6 +223,30 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=1),
                 RevenueAnalyticsOverviewItem(
                     key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("9.74731")
+                ),
+            ],
+        )
+
+    def test_with_property_filter_multiple_values(self):
+        results = self._run_revenue_analytics_overview_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="product",
+                    operator=PropertyOperator.EXACT,
+                    value=["Product A", "Product C"],
+                )
+            ]
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("133.9132683333")
+                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("66.9566341666")
                 ),
             ],
         )

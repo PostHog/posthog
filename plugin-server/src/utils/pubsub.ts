@@ -1,56 +1,49 @@
+import { EventEmitter } from 'events'
 import { Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
 import { createRedis } from './db/redis'
+import { parseJSON } from './json-parse'
 import { logger } from './logger'
-import { captureException } from './posthog'
-
-export type PubSubTask = ((message: string) => void) | ((message: string) => Promise<void>)
-
-export interface PubSubTaskMap {
-    [channel: string]: PubSubTask
-}
+import { PromiseScheduler } from './promise-scheduler'
 
 export class PubSub {
+    private eventEmitter: EventEmitter
     private serverConfig: PluginsServerConfig
     private redisSubscriber?: Redis
     private redisPublisher?: Promise<Redis>
-    public taskMap: PubSubTaskMap
+    private promises: PromiseScheduler
 
-    constructor(serverConfig: PluginsServerConfig, taskMap: PubSubTaskMap = {}) {
+    constructor(serverConfig: PluginsServerConfig) {
+        this.eventEmitter = new EventEmitter()
         this.serverConfig = serverConfig
-        this.taskMap = taskMap
+        this.promises = new PromiseScheduler()
     }
 
     public async start(): Promise<void> {
         if (this.redisSubscriber) {
             throw new Error('Started PubSub cannot be started again!')
         }
-        this.redisSubscriber = await createRedis(this.serverConfig, 'ingestion')
-        const channels = Object.keys(this.taskMap)
-        await this.redisSubscriber.subscribe(channels)
-        this.redisSubscriber.on('message', (channel: string, message: string) => {
-            const task: PubSubTask | undefined = this.taskMap[channel]
-            if (!task) {
-                captureException(
-                    new Error(
-                        `Received a pubsub message for unassociated channel ${channel}! Associated channels are: ${Object.keys(
-                            this.taskMap
-                        ).join(', ')}`
-                    )
-                )
-            }
-            void task(message)
+        this.redisSubscriber = await createRedis(this.serverConfig, 'ingestion').catch((error) => {
+            logger.error('🛑', 'Failed to create Redis subscriber', { error })
+            throw error
         })
-        logger.info('👀', `Pub-sub started for channels: ${channels.join(', ')}`)
+
+        this.redisSubscriber.on('message', (channel: string, message: string) => {
+            this.eventEmitter.emit(channel, message)
+        })
+        logger.info('👀', 'Pub-sub started')
     }
 
     public async stop(): Promise<void> {
         if (!this.redisSubscriber) {
-            throw new Error('Unstarted PubSub cannot be stopped!')
+            logger.error('🛑', 'Unstarted PubSub cannot be stopped!')
+            return
         }
 
+        await this.promises.waitForAll()
         await this.redisSubscriber.unsubscribe()
+
         if (this.redisSubscriber) {
             this.redisSubscriber.disconnect()
         }
@@ -64,7 +57,9 @@ export class PubSub {
             this.redisPublisher = undefined
         }
 
-        logger.info('🛑', `Pub-sub stopped for channels: ${Object.keys(this.taskMap).join(', ')}`)
+        this.eventEmitter.removeAllListeners()
+
+        logger.info('🛑', 'Pub-sub stopped')
     }
 
     public async publish(channel: string, message: string): Promise<void> {
@@ -74,5 +69,14 @@ export class PubSub {
 
         const redisPublisher = await this.redisPublisher
         await redisPublisher.publish(channel, message)
+    }
+
+    public on<T extends Record<string, any>>(channel: string, listener: (message: T) => void): void {
+        if (!this.redisSubscriber) {
+            throw new Error('PubSub must be started before subscribing to channels!')
+        }
+
+        void this.promises.schedule(this.redisSubscriber.subscribe(channel))
+        this.eventEmitter.on(channel, (message) => listener(message ? parseJSON(message) : {}))
     }
 }

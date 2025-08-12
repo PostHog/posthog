@@ -14,7 +14,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: Object.values(FEATURE_FLAGS), // Enable all feature flags to properly render the sidebar
+        featureFlags: Object.values(FEATURE_FLAGS).filter((flag) => flag !== FEATURE_FLAGS.NEW_SCENE_LAYOUT), // Enable all feature flags for the settings page, except the new scene layout
         pageUrl: urls.settings('organization-members'),
     },
     decorators: [

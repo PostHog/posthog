@@ -171,12 +171,10 @@ def test_cancelling_a_batch_export_run(client: HttpClient, temporal):
     user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with patch(
-        "products.batch_exports.backend.temporal.destinations.s3_batch_export.Producer.start"
-    ) as mock_producer_start:
+    with patch("products.batch_exports.backend.temporal.pipeline.producer.Producer.start") as mock_producer_start:
         # Mock the producer to sleep so we can test cancellation
         async def mock_sleep(*args, **kwargs):
-            await asyncio.sleep(5)
+            await asyncio.sleep(30)
             return None
 
         mock_producer_start.side_effect = mock_sleep

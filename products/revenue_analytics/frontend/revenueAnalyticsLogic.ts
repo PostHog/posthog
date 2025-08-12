@@ -22,7 +22,7 @@ import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettin
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
     REVENUE,
-    CUSTOMER_COUNT,
+    METRICS,
     GROWTH_RATE,
     TOP_CUSTOMERS,
 }
@@ -246,8 +246,8 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         interval,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.CUSTOMER_COUNT]: {
-                        kind: NodeKind.RevenueAnalyticsCustomerCountQuery,
+                    [RevenueAnalyticsQuery.METRICS]: {
+                        kind: NodeKind.RevenueAnalyticsMetricsQuery,
                         properties: revenueAnalyticsFilter,
                         groupBy,
                         interval,

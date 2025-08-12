@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ error_title }}</title>
+    <style>
+        :root {
+            --ph-brand-blue: #1D4AFF;
+            --ph-brand-orange: #F54E00;
+            --ph-brand-yellow: #F9BD2B;
+            --ph-brand-black: #000;
+            --ph-brand-white: #fff;
+
+            --ph-bg-primary: #fafaf9;
+            --ph-bg-surface-primary: #fff;
+            --ph-text-primary: #1d1f27;
+            --ph-text-secondary: #6b7280;
+            --ph-text-tertiary: #9ca3af;
+            --ph-border-primary: #e5e7eb;
+            --ph-shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --ph-radius: 0.75rem;
+            --ph-radius-lg: 1rem;
+
+            --ph-font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial, sans-serif;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --ph-bg-primary: #1d1f27;
+                --ph-bg-surface-primary: #2d2f3a;
+                --ph-text-primary: #fff;
+                --ph-text-secondary: #d1d5db;
+                --ph-text-tertiary: #9ca3af;
+                --ph-border-primary: #374151;
+                --ph-brand-black: #fff;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--ph-font-family);
+            background: var(--ph-bg-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            color: var(--ph-text-primary);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .error-container {
+            background: var(--ph-bg-surface-primary);
+            border: 1px solid var(--ph-border-primary);
+            border-radius: var(--ph-radius-lg);
+            box-shadow: var(--ph-shadow-lg);
+            max-width: 600px;
+            width: 100%;
+            padding: 3rem 2rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .error-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg,
+                    var(--ph-brand-blue) 0%,
+                    var(--ph-brand-orange) 50%,
+                    var(--ph-brand-yellow) 100%);
+        }
+
+        .logo-container {
+            margin-bottom: 2rem;
+        }
+
+        .logo {
+            height: 40px;
+            width: auto;
+        }
+
+        .error-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            background: var(--ph-brand-orange);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .error-icon::before {
+            content: '!';
+            color: white;
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .error-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--ph-text-primary);
+            margin-bottom: 1rem;
+            line-height: 1.2;
+        }
+
+        .error-message {
+            font-size: 1.125rem;
+            color: var(--ph-text-secondary);
+            margin-bottom: 2rem;
+            line-height: 1.5;
+        }
+
+        .error-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem 1.5rem;
+            border-radius: var(--ph-radius);
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.15s ease;
+            cursor: pointer;
+            font-size: 0.875rem;
+            min-width: 140px;
+        }
+
+        .btn-primary {
+            background: var(--ph-brand-orange);
+            color: white;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            background: #e04400;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--ph-text-secondary);
+            border: 1px solid var(--ph-border-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--ph-bg-primary);
+            color: var(--ph-text-primary);
+        }
+
+        .error-code {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            font-size: 0.75rem;
+            color: var(--ph-text-tertiary);
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+        }
+
+        .decorative-dots {
+            position: absolute;
+            bottom: -20px;
+            right: -20px;
+            width: 120px;
+            height: 120px;
+            opacity: 0.05;
+            background-image: radial-gradient(var(--ph-brand-blue) 2px, transparent 2px);
+            background-size: 20px 20px;
+            border-radius: 50%;
+        }
+
+        @media (max-width: 640px) {
+            .error-container {
+                padding: 2rem 1.5rem;
+                margin: 1rem;
+            }
+
+            .error-title {
+                font-size: 1.5rem;
+            }
+
+            .error-message {
+                font-size: 1rem;
+            }
+
+            .logo {
+                height: 32px;
+            }
+
+            .error-icon {
+                width: 64px;
+                height: 64px;
+            }
+
+            .error-icon::before {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="error-container">
+        <div class="error-code">ERROR</div>
+        <div class="decorative-dots"></div>
+
+        <div class="logo-container">
+            <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 140">
+                <g fill-rule="nonzero" fill="none">
+                    <path
+                        d="M55.383 75.225c-1.874 3.748-7.222 3.748-9.096 0l-4.482-8.963a5.085 5.085 0 0 1 0-4.548l4.482-8.964c1.874-3.748 7.222-3.748 9.096 0l4.482 8.964a5.084 5.084 0 0 1 0 4.548l-4.482 8.963Zm0 50.836c-1.874 3.747-7.222 3.747-9.096 0l-4.482-8.964a5.085 5.085 0 0 1 0-4.548l4.482-8.964c1.874-3.748 7.222-3.748 9.096 0l4.482 8.964a5.084 5.084 0 0 1 0 4.548l-4.482 8.964Z"
+                        fill="var(--ph-brand-blue)" />
+                    <path
+                        d="M0 106.765c0-4.53 5.477-6.8 8.68-3.596l23.307 23.307c3.204 3.204.935 8.68-3.595 8.68H5.085A5.085 5.085 0 0 1 0 130.073v-23.307Zm0-24.55c0 1.35.536 2.643 1.49 3.596l47.856 47.856a5.086 5.086 0 0 0 3.595 1.49h26.286c4.53 0 6.799-5.477 3.595-8.681L8.681 52.334C5.477 49.131 0 51.4 0 55.93v26.286Zm0-50.834c0 1.348.536 2.642 1.49 3.595l98.69 98.691a5.086 5.086 0 0 0 3.596 1.49h26.285c4.53 0 6.8-5.477 3.596-8.681L8.681 1.5C5.477-1.704 0 .565 0 5.095v26.286Zm50.835 0c0 1.348.536 2.642 1.49 3.595l91.5 91.5c3.203 3.204 8.68.935 8.68-3.596V96.595a5.086 5.086 0 0 0-1.49-3.596l-91.5-91.5c-3.203-3.203-8.68-.934-8.68 3.596v26.286ZM110.35 1.5c-3.203-3.204-8.68-.935-8.68 3.595v26.286c0 1.348.536 2.642 1.49 3.595l40.664 40.665c3.204 3.204 8.68.935 8.68-3.596V45.76a5.086 5.086 0 0 0-1.489-3.596L110.35 1.5Z"
+                        fill="var(--ph-brand-yellow)" />
+                    <path
+                        d="m216.24 107.388-47.864-47.863c-3.204-3.204-8.681-.935-8.681 3.595v66.952a5.085 5.085 0 0 0 5.085 5.085h74.142a5.085 5.085 0 0 0 5.085-5.085v-6.097c0-2.809-2.286-5.052-5.07-5.414a39.27 39.27 0 0 1-22.698-11.173Zm-32.145 11.502a8.137 8.137 0 0 1-8.133-8.134 8.137 8.137 0 0 1 8.133-8.134 8.137 8.137 0 0 1 8.134 8.134 8.137 8.137 0 0 1-8.134 8.134Z"
+                        fill="var(--ph-brand-black)" />
+                    <path
+                        d="M0 130.072a5.085 5.085 0 0 0 5.085 5.085h23.307c4.53 0 6.799-5.477 3.595-8.681L8.681 103.169C5.477 99.966 0 102.235 0 106.765v23.307Zm50.835-86.418L8.68 1.5C5.477-1.704 0 .565 0 5.095v26.286c0 1.348.536 2.642 1.49 3.595l49.345 49.346V43.654ZM8.68 52.334C5.477 49.131 0 51.4 0 55.93v26.286c0 1.348.536 2.642 1.49 3.595l49.345 49.346V94.489L8.68 52.334Z"
+                        fill="var(--ph-brand-blue)" />
+                    <path
+                        d="M101.67 45.76a5.083 5.083 0 0 0-1.49-3.596L59.516 1.5c-3.204-3.204-8.681-.935-8.681 3.595v26.286c0 1.348.536 2.642 1.49 3.595l49.345 49.346V45.76Zm-50.835 89.397h28.392c4.53 0 6.799-5.477 3.595-8.681L50.835 94.489v40.668Zm0-91.503v38.562c0 1.348.536 2.642 1.49 3.595l49.345 49.346V96.595a5.084 5.084 0 0 0-1.49-3.596L50.835 43.654Z"
+                        fill="var(--ph-brand-orange)" />
+                    <path
+                        d="M303.32 114.86h20.888V80.22h17.452c19.17 0 31.466-11.37 31.466-28.954 0-17.584-12.295-28.954-31.466-28.954h-38.34v92.547Zm20.888-52.488V40.16h15.337c7.932 0 12.692 4.23 12.692 11.105 0 6.876-4.76 11.106-12.692 11.106h-15.337Zm86.71 53.545c20.36 0 35.167-14.543 35.167-34.375 0-19.831-14.807-34.374-35.167-34.374-20.625 0-35.168 14.543-35.168 34.374 0 19.832 14.543 34.375 35.168 34.375Zm-15.866-34.375c0-10.577 6.346-17.848 15.866-17.848 9.386 0 15.733 7.271 15.733 17.848 0 10.577-6.347 17.849-15.733 17.849-9.52 0-15.866-7.272-15.866-17.849Zm84.462 34.375c15.601 0 26.178-9.784 26.178-21.286 0-26.97-35.829-18.245-35.829-28.822 0-2.908 3.04-4.759 7.404-4.759 4.495 0 9.916 2.776 11.634 8.858l15.601-6.479c-3.04-9.65-14.279-16.261-27.896-16.261-14.676 0-23.798 8.725-23.798 19.17 0 25.252 35.3 18.245 35.3 28.69 0 3.702-3.437 6.214-8.594 6.214-7.403 0-12.56-5.156-14.146-11.37l-15.601 6.081c3.438 10.048 13.486 19.964 29.747 19.964Zm76.43-1.718-1.321-16.791c-2.248 1.19-5.157 1.586-7.536 1.586-4.76 0-7.933-3.437-7.933-9.387V64.355h16.13v-16.13h-16.13V28.923h-19.435v19.302h-10.577v16.13h10.577v27.764c0 16.13 10.974 23.798 25.384 23.798 3.967 0 7.669-.66 10.842-1.718Zm67.764-91.887v35.961h-36.755v-35.96h-20.89v92.546h20.89V76.122h36.755v38.737h21.021V22.312h-21.021Zm67.386 93.605c20.36 0 35.168-14.543 35.168-34.375 0-19.831-14.807-34.374-35.168-34.374-20.625 0-35.168 14.543-35.168 34.374 0 19.832 14.543 34.375 35.168 34.375ZM675.23 81.542c0-10.577 6.346-17.848 15.865-17.848 9.387 0 15.733 7.271 15.733 17.848 0 10.577-6.346 17.849-15.733 17.849-9.519 0-15.865-7.272-15.865-17.849Zm88.545 31.202c7.272 0 13.75-2.512 17.188-6.875v6.346c0 7.404-5.95 12.56-15.072 12.56-6.479 0-12.164-3.173-13.09-8.594l-17.715 2.777c2.38 12.56 15.204 21.022 30.805 21.022 20.492 0 34.11-12.032 34.11-29.88V48.225h-19.17v5.685c-3.57-4.098-9.652-6.742-17.452-6.742-18.51 0-30.144 12.692-30.144 32.788 0 20.096 11.634 32.788 30.54 32.788ZM752.14 79.956c0-9.916 5.817-16.262 14.807-16.262 9.123 0 14.94 6.346 14.94 16.262s-5.817 16.262-14.94 16.262c-8.99 0-14.807-6.346-14.807-16.262Z"
+                        fill="var(--ph-brand-black)" />
+                </g>
+            </svg>
+        </div>
+
+        <div class="error-icon"></div>
+
+        <h1 class="error-title">{{ error_title }}</h1>
+        <p class="error-message">{{ error_message }}</p>
+
+        <div class="error-actions">
+            <a href="javascript:history.back()" class="btn btn-primary">Go Back</a>
+            <a href="javascript:location.reload()" class="btn btn-secondary">Try Again</a>
+        </div>
+    </div>
+</body>
+
+</html>

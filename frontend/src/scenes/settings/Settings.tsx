@@ -119,7 +119,7 @@ export function Settings({
     ) : (
         <>
             {SettingLevelNames[selectedLevel]}
-            {selectedSection ? <>` / `{selectedSection.title}</> : null}
+            {selectedSection ? <> / {selectedSection.title}</> : null}
         </>
     )
 

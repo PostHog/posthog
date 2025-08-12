@@ -98,10 +98,10 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                 return loading
                     ? 'Loading...'
                     : Object.values(pluginConfigsToDisable).some((pluginConfig) => pluginConfig.enabled)
-                    ? 'All apps above must be disabled first'
-                    : Object.values(batchExportConfigs).some((batchExportConfig) => !batchExportConfig.paused)
-                    ? 'All batch exports must be disabled first'
-                    : null
+                      ? 'All apps above must be disabled first'
+                      : Object.values(batchExportConfigs).some((batchExportConfig) => !batchExportConfig.paused)
+                        ? 'All batch exports must be disabled first'
+                        : null
             },
         ],
         itemsToDisable: [

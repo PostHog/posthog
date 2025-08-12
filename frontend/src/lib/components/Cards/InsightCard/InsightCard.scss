@@ -6,14 +6,14 @@
     min-width: 0;
     max-width: 100%;
     height: 30rem;
-    background: var(--bg-surface-primary);
-    border: 1px solid var(--border-primary);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
     border-radius: var(--radius);
     transition: border 200ms ease;
 
     &--highlighted {
-        border-color: var(--accent);
-        outline: 1px solid var(--accent);
+        border-color: var(--color-accent);
+        outline: 1px solid var(--color-accent);
     }
 
     .ErrorBoundary {
@@ -132,9 +132,9 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     vertical-align: middle;
-    background: var(--accent-highlight-secondary);
+    background: var(--color-accent-highlight-secondary);
     border-radius: var(--radius);
 
     &.SeriesDisplay__raw-name--action,
@@ -149,9 +149,9 @@
             font-size: 0.625rem;
             font-weight: 700;
             line-height: 1rem;
-            color: var(--bg-surface-primary);
+            color: var(--color-bg-surface-primary);
             text-align: center;
-            background: var(--accent);
+            background: var(--color-accent);
             border-radius: var(--radius);
         }
     }
@@ -173,5 +173,5 @@
     flex-shrink: 0;
     margin-right: 0.25rem;
     font-size: 1.25rem;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
 }

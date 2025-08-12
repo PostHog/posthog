@@ -42,7 +42,10 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                 </button>
             </div>
             {!storiesCollapsed && (
-                <div className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto">
+                <div
+                    id="dopamine-brainrot"
+                    className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto"
+                >
                     {sortedStories.map((storyGroup) => {
                         const { hasViewedEntireGroup } = storyGroup
                         const nextStoryIndex = hasViewedEntireGroup
@@ -56,7 +59,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                         return (
                             <div
                                 key={storyGroup.id}
-                                className={`flex flex-col items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity ${
+                                className={`flex flex-col items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity min-w-[64px] ${
                                     hasViewedEntireGroup ? 'opacity-75' : ''
                                 }`}
                                 onClick={() => {
@@ -97,7 +100,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                         </div>
                                     </div>
                                 </div>
-                                <span className="text-xs line-clamp-2 text-center max-w-[64px]">
+                                <span className="text-xs line-clamp-2 text-center max-w-[70px]">
                                     {storyGroup.title}
                                 </span>
                             </div>

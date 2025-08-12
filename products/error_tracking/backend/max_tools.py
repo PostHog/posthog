@@ -36,13 +36,13 @@ class ErrorTrackingSceneTool(MaxTool):
             + "<system_task>"
             + ERROR_TRACKING_FILTER_INITIAL_PROMPT
             + "</system_task>"
-            + f"\n\n Current issue filters are: {current_query}\n\n"
             + "<properties_taxonomy>"
             + ERROR_TRACKING_FILTER_PROPERTIES_PROMPT
             + "</properties_taxonomy>"
             + "<prefer_filters>"
             + PREFER_FILTERS_PROMPT
             + "</prefer_filters>"
+            + f"\n\n Current issue filters are: {current_query}\n\n"
         )
 
         user_content = f"Update the error tracking issue list filters to: {change}"

@@ -19,16 +19,18 @@
 
 from typing import Literal, cast, get_args
 from collections.abc import Callable
+from urllib.parse import urljoin
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS
 from django.db import connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
+import requests
 from structlog import get_logger
 
 from posthog.celery import app
-from posthog.clickhouse.client import sync_execute
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 
@@ -207,12 +209,14 @@ def are_postgres_migrations_uptodate() -> bool:
 
 def is_clickhouse_connected() -> bool:
     """
-    Check we can perform a super simple Clickhouse query.
+    Check we can ping the ClickHouse cluster.
 
     Returns `True` if so, `False` otherwise
     """
+    ping_url = urljoin(settings.CLICKHOUSE_HTTP_URL, "ping")
     try:
-        sync_execute("SELECT 1")
+        response = requests.get(ping_url, timeout=3, verify=False)
+        response.raise_for_status()
     except Exception:
         logger.debug("clickhouse_connection_failure", exc_info=True)
         return False

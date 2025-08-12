@@ -24,6 +24,8 @@ logger = structlog.get_logger(__name__)
 
 
 def validate_private_project_access(value):
+    from posthog.rbac.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
+
     if not isinstance(value, list):
         raise exceptions.ValidationError("The field must be a list of dictionaries.")
     for item in value:
@@ -33,8 +35,11 @@ def validate_private_project_access(value):
             raise exceptions.ValidationError('Each dictionary must contain "id" and "level" keys.')
         if not isinstance(item["id"], int):
             raise exceptions.ValidationError('The "id" field must be an integer.')
-        if item["level"] not in ExplicitTeamMembership.Level.values:
-            raise exceptions.ValidationError('The "level" field must be either "member" or "admin".')
+        # This is a temporary fix to support both the old ExplicitTeamMembership.Level int and the new ACCESS_CONTROL_LEVELS_MEMBER
+        # In the future it will only check for ACCESS_CONTROL_LEVELS_MEMBER str
+        valid_levels = list(ExplicitTeamMembership.Level.values) + list(ACCESS_CONTROL_LEVELS_MEMBER)
+        if item["level"] not in valid_levels:
+            raise exceptions.ValidationError('The "level" field must be a valid access level.')
 
 
 class InviteExpiredException(exceptions.ValidationError):
@@ -120,7 +125,8 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization, level=self.level)
-        for item in self.private_project_access:
+
+        for item in self.private_project_access or []:
             try:
                 team: Team = self.organization.teams.get(id=item["id"])
                 parent_membership = OrganizationMembership.objects.get(
@@ -136,16 +142,20 @@ class OrganizationInvite(UUIDModel):
                 ExplicitTeamMembership.objects.create(
                     team=team,
                     parent_membership=parent_membership,
-                    level=item["level"],
+                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
+                    level=item["level"] if isinstance(item["level"], int) else (8 if item["level"] == "admin" else 1),
                 )
             else:
                 # New access control
                 AccessControl.objects.create(
                     team=team,
-                    resource="team",
+                    resource="project",
                     resource_id=str(team.id),
                     organization_member=parent_membership,
-                    access_level="admin" if item["level"] == OrganizationMembership.Level.ADMIN else "member",
+                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
+                    access_level=item["level"]
+                    if isinstance(item["level"], str)
+                    else ("admin" if item["level"] == 8 else "member"),
                 )
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
@@ -157,7 +167,9 @@ class OrganizationInvite(UUIDModel):
                     "organization_id": self.organization_id,
                 }
             )
-        OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
+        OrganizationInvite.objects.filter(
+            organization=self.organization, target_email__iexact=self.target_email
+        ).delete()
 
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""

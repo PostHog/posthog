@@ -1,9 +1,9 @@
 import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -12,7 +12,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send data to RudderStack",
     icon_url="/static/services/rudderstack.png",
     category=["Custom"],
-    hog="""
+    code_language="hog",
+    code="""
 fun getPayload() {
     let rudderPayload := {
         'context': {
@@ -134,6 +135,8 @@ class TemplateRudderstackMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         host = obj.config.get("dataPlaneUrl", "https://hosted.rudderlabs.com")
         token = obj.config.get("writeKey", "")

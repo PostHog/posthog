@@ -6,6 +6,7 @@ from posthog.schema import (
     CachedRevenueAnalyticsOverviewQueryResponse,
     RevenueAnalyticsOverviewQueryResponse,
     RevenueAnalyticsOverviewQuery,
+    ResolvedDateRangeResponse,
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
@@ -120,6 +121,10 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
         return RevenueAnalyticsOverviewQueryResponse(
             results=results,
             modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
         )
 
 

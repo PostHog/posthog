@@ -25,7 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,
-    logic: sourceWizardLogic,
+    // logic: sourceWizardLogic, // NOTE: We can't mount it here as it needs the availableSourcesDataLogic to be mounted first
 }
 
 export function NewSourceWizardScene(): JSX.Element {
@@ -170,13 +170,15 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
         setManualLinkingProvider(manualLinkSource)
     }
 
-    const filteredConnectors = connectors.filter((n) => {
-        if (n.name === 'MetaAds') {
-            return featureFlags[FEATURE_FLAGS.META_ADS_DWH]
-        }
+    const filteredConnectors = connectors
+        .filter((n) => {
+            if (n.name === 'MetaAds') {
+                return featureFlags[FEATURE_FLAGS.META_ADS_DWH]
+            }
 
-        return true
-    })
+            return true
+        })
+        .sort((a, b) => Number(a.unreleasedSource) - Number(b.unreleasedSource))
 
     return (
         <>

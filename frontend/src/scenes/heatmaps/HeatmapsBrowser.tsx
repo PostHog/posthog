@@ -73,10 +73,10 @@ function UrlSearchHeader(): JSX.Element {
                               userIntent: 'heatmaps',
                           })
                         : hasValidReplayIframeData && replayIframeData?.url
-                        ? appEditorUrl(replayIframeData?.url, {
-                              userIntent: 'heatmaps',
-                          })
-                        : undefined
+                          ? appEditorUrl(replayIframeData?.url, {
+                                userIntent: 'heatmaps',
+                            })
+                          : undefined
                 }
                 targetBlank
                 disabledReason={!browserUrl && !hasValidReplayIframeData ? 'Select a URL first' : undefined}

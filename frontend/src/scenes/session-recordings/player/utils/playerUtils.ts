@@ -41,9 +41,9 @@ export async function addRecordingToPlaylist(
 ): Promise<void> {
     await api.recordings.addRecordingToPlaylist(playlistId, sessionRecordingId)
     if (!silent) {
-        lemonToast.success('Recording added to playlist', {
+        lemonToast.success('Recording added to collection', {
             button: {
-                label: 'View playlist',
+                label: 'View collection',
                 action: () => router.actions.push(urls.replayPlaylist(playlistId)),
             },
         })
@@ -57,7 +57,7 @@ export async function removeRecordingFromPlaylist(
 ): Promise<void> {
     await api.recordings.removeRecordingFromPlaylist(playlistId, sessionRecordingId)
     if (!silent) {
-        lemonToast.success('Recording removed from playlist')
+        lemonToast.success('Recording removed from collection')
     }
 }
 

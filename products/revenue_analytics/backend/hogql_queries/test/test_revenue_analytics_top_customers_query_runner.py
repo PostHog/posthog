@@ -8,14 +8,10 @@ from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_customer_view import (
-    STRIPE_CUSTOMER_RESOURCE_NAME,
-)
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import (
-    STRIPE_INVOICE_RESOURCE_NAME,
-)
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import (
-    STRIPE_PRODUCT_RESOURCE_NAME,
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 
 from posthog.schema import (

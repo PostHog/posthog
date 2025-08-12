@@ -23,9 +23,6 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     is_zero_decimal_in_stripe,
 )
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_expr_for_team
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-)
 from posthog.hogql.database.schema.exchange_rate import (
     revenue_comparison_and_value_exprs_for_events,
     currency_expression_for_events,
@@ -197,19 +194,41 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
                     ast.Alias(alias="created_at", expr=ast.Field(chain=["timestamp"])),
-                    ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
-                    ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
+                    ast.Alias(
+                        alias="is_recurring",
+                        expr=ast.Call(
+                            name="notEmpty", args=[ast.Field(chain=["properties", event.subscriptionProperty])]
+                        )
+                        if event.subscriptionProperty
+                        else ast.Constant(value=False),
+                    ),
+                    ast.Alias(
+                        alias="product_id",
+                        expr=ast.Field(chain=["properties", event.productProperty])
+                        if event.productProperty
+                        else ast.Constant(value=None),
+                    ),
                     ast.Alias(
                         alias="customer_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["person_id"])])
                     ),
                     ast.Alias(alias="invoice_id", expr=ast.Constant(value=None)),
-                    ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
+                    ast.Alias(
+                        alias="subscription_id",
+                        expr=ast.Field(chain=["properties", event.subscriptionProperty])
+                        if event.subscriptionProperty
+                        else ast.Constant(value=None),
+                    ),
                     ast.Alias(
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
                     ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
-                    ast.Alias(alias="coupon", expr=ast.Constant(value=None)),
-                    ast.Alias(alias="coupon_id", expr=ast.Constant(value=None)),
+                    ast.Alias(
+                        alias="coupon",
+                        expr=ast.Field(chain=["properties", event.couponProperty])
+                        if event.couponProperty
+                        else ast.Constant(value=None),
+                    ),
+                    ast.Alias(alias="coupon_id", expr=ast.Field(chain=["coupon"])),  # Same as above, just copy
                     ast.Alias(alias="original_currency", expr=currency_expression_for_events(revenue_config, event)),
                     ast.Alias(alias="original_amount", expr=value_expr),
                     # Being zero-decimal implies we will NOT divide the original amount by 100
@@ -246,6 +265,10 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
 
     @classmethod
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+        from posthog.temporal.data_imports.sources.stripe.constants import (
+            INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+        )
+
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []

@@ -19,6 +19,7 @@ import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
+import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
@@ -36,11 +37,16 @@ import { useDebouncedCallback } from 'use-debounce'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
+import { MovingAverageIntervalsInput } from 'scenes/insights/views/LineGraph/MovingAverageIntervalsInput'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { isTrendsQuery } from '~/queries/utils'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const {
+        querySource,
         isTrends,
         isFunnels,
         isRetention,
@@ -63,12 +69,11 @@ export function InsightDisplayConfig(): JSX.Element {
         compareFilter,
         supportsCompare,
     } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
-
-    const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -79,11 +84,15 @@ export function InsightDisplayConfig(): JSX.Element {
         isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
     const showMultipleYAxesConfig = isTrends || isStickiness
     const showAlertThresholdLinesConfig = isTrends
+    const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
+    const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
-    const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
+    const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
+        trendsDataLogic(insightProps)
+    )
 
     const advancedOptions: LemonMenuItems = [
-        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsResultCustomizationBy
+        ...(isTrends || isRetention
             ? [
                   {
                       title: 'Display',
@@ -95,6 +104,7 @@ export function InsightDisplayConfig(): JSX.Element {
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
+                          ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
                       ],
                   },
               ]
@@ -129,6 +139,79 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'Y-axis scale',
                       items: [{ label: () => <ScalePicker /> }],
+                  },
+                  {
+                      title: 'Statistical analysis',
+                      items: [
+                          {
+                              label: () => (
+                                  <LemonSwitch
+                                      label="Show confidence intervals"
+                                      className="pb-2"
+                                      fullWidth
+                                      checked={showConfidenceIntervals}
+                                      disabledReason={
+                                          !isLineGraph
+                                              ? 'Confidence intervals are only available for line graphs'
+                                              : !isLinearScale
+                                                ? 'Confidence intervals are only supported for linear scale.'
+                                                : undefined
+                                      }
+                                      onChange={(checked) => {
+                                          if (isTrendsQuery(querySource)) {
+                                              const newQuery = { ...querySource }
+                                              newQuery.trendsFilter = {
+                                                  ...trendsFilter,
+                                                  showConfidenceIntervals: checked,
+                                              }
+                                              updateQuerySource(newQuery)
+                                          }
+                                      }}
+                                  />
+                              ),
+                          },
+                          ...(showConfidenceIntervals
+                              ? [
+                                    {
+                                        label: () => <ConfidenceLevelInput />,
+                                    },
+                                ]
+                              : []),
+                          {
+                              label: () => (
+                                  <LemonSwitch
+                                      label="Show moving average"
+                                      className="pb-2"
+                                      fullWidth
+                                      checked={showMovingAverage}
+                                      disabledReason={
+                                          !isLineGraph
+                                              ? 'Moving average is only available for line graphs'
+                                              : !isLinearScale
+                                                ? 'Moving average is only supported for linear scale.'
+                                                : undefined
+                                      }
+                                      onChange={(checked) => {
+                                          if (isTrendsQuery(querySource)) {
+                                              const newQuery = { ...querySource }
+                                              newQuery.trendsFilter = {
+                                                  ...trendsFilter,
+                                                  showMovingAverage: checked,
+                                              }
+                                              updateQuerySource(newQuery)
+                                          }
+                                      }}
+                                  />
+                              ),
+                          },
+                          ...(showMovingAverage
+                              ? [
+                                    {
+                                        label: () => <MovingAverageIntervalsInput />,
+                                    },
+                                ]
+                              : []),
+                      ],
                   },
               ]
             : []),

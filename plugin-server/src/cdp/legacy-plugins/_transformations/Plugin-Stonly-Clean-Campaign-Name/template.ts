@@ -13,7 +13,8 @@ export const pluginStonlyCleanCampaignName: LegacyTransformationPlugin = {
         description: 'Clean campaign name',
         icon_url: '/static/hedgehog/builder-hog-01.png',
         category: ['Custom'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [],
     },
 }

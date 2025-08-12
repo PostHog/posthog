@@ -36,6 +36,7 @@ export const navigationLogic = kea<navigationLogicType>([
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
+        acknowledgeFeaturePreviewChange: true,
     }),
     loaders({
         navigationStatus: [
@@ -75,6 +76,14 @@ export const navigationLogic = kea<navigationLogicType>([
             { persist: true },
             {
                 closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
+            },
+        ],
+        // TODO: Remove this in a while so all users have acknowledged the change
+        featurePreviewChangeAcknowledged: [
+            false,
+            { persist: true },
+            {
+                acknowledgeFeaturePreviewChange: () => true,
             },
         ],
     }),

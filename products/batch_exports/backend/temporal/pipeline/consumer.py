@@ -1,7 +1,6 @@
 import abc
 import asyncio
 import collections.abc
-import datetime as dt
 
 import pyarrow as pa
 import temporalio.common
@@ -14,6 +13,7 @@ from products.batch_exports.backend.temporal.metrics import (
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     get_stream_transformer,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     raise_on_task_failure,
@@ -32,19 +32,9 @@ class Consumer:
 
     This is an alternative implementation of the `spmc.Consumer` class that consumes data from a producer which is in
     turn reading data from the internal S3 staging area.
-
-    Attributes:
-        data_interval_start: The beginning of the batch export period.
-        data_interval_end: The end of the batch export period.
     """
 
-    def __init__(
-        self,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-    ):
-        self.data_interval_start = data_interval_start
-        self.data_interval_end = data_interval_end
+    def __init__(self):
         self.logger = LOGGER.bind()
         self.external_logger = EXTERNAL_LOGGER.bind()
 
@@ -68,7 +58,7 @@ class Consumer:
         include_inserted_at: bool = False,
         max_file_size_bytes: int = 0,
         json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
-    ) -> int:
+    ) -> BatchExportResult:
         """Start consuming record batches from queue.
 
         Record batches will be processed by the `transformer`, which transforms the record batch into chunks of bytes,
@@ -86,7 +76,12 @@ class Consumer:
         multiple files that must each individually be valid.
 
         Returns:
-            Total number of records in all consumed record batches.
+            BatchExportResult:
+                - The total number of records in all consumed record batches. If an error occurs, this will be None.
+                - The total number of bytes exported (this is the size of the actual data exported, which takes into
+                    account the file type and compression). If an error occurs, this will be None.
+                - The error that occurred, if any. If no error occurred, this will be None. If an error occurs, this
+                    will be a string representation of the error.
         """
 
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
@@ -158,7 +153,7 @@ class Consumer:
             f"from {total_record_batches_count:,} record batches. "
             f"Total file MiB: {total_file_bytes_count / 1024**2:.2f}"
         )
-        return total_records_count
+        return BatchExportResult(total_records_count, total_file_bytes_count)
 
     async def generate_record_batches_from_queue(
         self,
@@ -210,7 +205,7 @@ async def run_consumer_from_stage(
     include_inserted_at: bool = False,
     max_file_size_bytes: int = 0,
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
-) -> int:
+) -> BatchExportResult:
     """Run a consumer that takes record batches from a queue and writes them to a destination.
 
     This uses a newer version of the consumer that works with the internal S3 stage activities.
@@ -227,9 +222,12 @@ async def run_consumer_from_stage(
         json_columns: The columns which contain JSON data.
 
     Returns:
-        Number of records exported. Not the number of record batches, but the number of records in all record batches.
+        BatchExportResult (A tuple containing):
+            - The total number of records in all consumed record batches.
+            - The total number of bytes exported (this is the size of the actual data exported, which takes into
+                account the file type and compression).
     """
-    records_completed = await consumer.start(
+    result = await consumer.start(
         queue=queue,
         producer_task=producer_task,
         schema=schema,
@@ -241,4 +239,4 @@ async def run_consumer_from_stage(
     )
 
     await raise_on_task_failure(producer_task)
-    return records_completed
+    return result

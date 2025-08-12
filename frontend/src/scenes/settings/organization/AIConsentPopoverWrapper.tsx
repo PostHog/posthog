@@ -1,7 +1,8 @@
 import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
-import { useAsyncActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { useAsyncActions, useValues } from 'kea'
+import { Link } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 export function AIConsentPopoverWrapper({
@@ -27,22 +28,33 @@ export function AIConsentPopoverWrapper({
         <Popover
             // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
-                <div className="flex flex-col items-end m-1.5">
-                    <p className="font-medium text-pretty mb-1.5">
+                <div className="flex flex-col m-1.5">
+                    <p className="font-medium text-pretty mb-0">
                         Max needs your approval to potentially process
                         <br />
-                        identifying user data using{' '}
+                        identifying user data with{' '}
                         <Tooltip
                             title={`As of ${dayjs().format(
                                 'MMMM YYYY'
                             )}: OpenAI for core analysis, Perplexity for fetching product information`}
                         >
-                            <dfn>external AI services</dfn>
-                        </Tooltip>{' '}
-                        <br />
-                        <em>Your data won't be used for training models.</em>
+                            <dfn>external AI providers</dfn>
+                        </Tooltip>
+                        .<br />
+                        <i>Your data won't be used for training models.</i>
                     </p>
-                    <div className="flex gap-1.5">
+                    <p className="text-muted text-xs leading-relaxed mb-2">
+                        If your org requires a Data Processing Agreement (DPA)
+                        <br />
+                        for compliance (and your existing DPA doesn't already
+                        <br />
+                        cover AI subprocessors),{' '}
+                        <Link to="https://posthog.com/dpa" target="_blank">
+                            you can get a fresh DPA here
+                        </Link>
+                        .
+                    </p>
+                    <div className="flex gap-1.5 self-end">
                         <LemonButton type="secondary" size="xsmall" onClick={onDismiss}>
                             Cancel
                         </LemonButton>
@@ -58,6 +70,9 @@ export function AIConsentPopoverWrapper({
                             disabledReason={dataProcessingApprovalDisabledReason}
                             tooltip="You are approving this as an organization admin"
                             tooltipPlacement="bottom"
+                            ref={(el) => {
+                                el?.focus() // Auto-focus the button when the popover is opened, so that you just hit enter to approve
+                            }}
                         >
                             I allow AI analysis in this organization
                         </LemonButton>

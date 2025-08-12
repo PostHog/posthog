@@ -4,11 +4,9 @@ import { dayjs } from 'lib/dayjs'
 import { useCallback, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DateRange } from '~/queries/schema/schema-general'
 
 import { SparklineData, SparklineOptions } from './components/SparklineChart/SparklineChart'
 import { useDefaultSparklineColorVars, useSparklineOptions } from './hooks/use-sparkline-options'
-import { generateSparklineLabels } from './utils'
 
 export function OccurrenceSparkline({
     data,
@@ -77,21 +75,6 @@ export function useSparklineColors(): { color: string; hoverColor: string } {
             hoverColor: isDarkModeOn ? 'primitive-neutral-200' : 'primitive-neutral-700',
         }
     }, [isDarkModeOn])
-}
-
-export function useSparklineData(
-    resolution: number,
-    dateRange: DateRange,
-    values?: number[]
-): { values: number[]; labels: string[] } {
-    const result = useMemo(() => {
-        const labels = generateSparklineLabels(dateRange, resolution).map((label) => label.toISOString())
-        if (!values) {
-            return { values: new Array(resolution).fill(0), labels }
-        }
-        return { values, labels }
-    }, [values, dateRange, resolution])
-    return result
 }
 
 function wrapDataWithColor(data: SparklineData, options: SparklineOptions): any[] {

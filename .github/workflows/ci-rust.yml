@@ -135,7 +135,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
@@ -166,15 +166,8 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags') || '--workspace --exclude feature-flags --exclude links' }}
+                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags')|| '--workspace --exclude feature-flags'}}
                   echo "Cargo test completed"
-
-            - name: Run cargo test for links
-              if: needs.changes.outputs.rust == 'true'
-              run: |
-                  echo "Starting cargo test for links"
-                  ${{ matrix.package == 'feature-flags' && ('RUST_BACKTRACE=1 cargo test --all-features --package links') || 'echo "Skipping links tests as it is not needed"' }}
-                  echo "Cargo test for links completed"
 
     linting:
         name: Lint Rust services
@@ -252,15 +245,3 @@ jobs:
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && needs.changes.outputs.rust == 'true'
-        needs: [test, build, shear, linting] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

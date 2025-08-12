@@ -2,11 +2,7 @@ from posthog.schema import CurrencyCode
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, DataWarehouseTable, DataWarehouseCredential
 from posthog.test.base import BaseTest
 
-from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
-    RevenueAnalyticsChargeView,
-    STRIPE_CHARGE_RESOURCE_NAME,
-)
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsChargeView
 from products.revenue_analytics.backend.views.currency_helpers import ZERO_DECIMAL_CURRENCIES_IN_STRIPE
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
@@ -15,6 +11,10 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsSubscriptionView,
 )
 from posthog.hogql.timings import HogQLTimings
+
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
 
 
 class TestRevenueAnalyticsViews(BaseTest):

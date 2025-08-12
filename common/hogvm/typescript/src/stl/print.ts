@@ -234,6 +234,9 @@ export class HogQLPrinter {
             case 'RatioExpr':
                 result = this.visitRatioExpr(node)
                 break
+            case 'HogQLXTag':
+                result = this.visitHogQLXTag(node)
+                break
             default:
                 throw new Error(`Unknown AST node type: ${nodeType}`)
         }
@@ -706,6 +709,28 @@ export class HogQLPrinter {
         const sampleValue = this.visitRatioExpr(node.get('sample_value'))
         const offsetClause = node.has('offset_value') ? ` OFFSET ${this.visitRatioExpr(node.get('offset_value'))}` : ''
         return `SAMPLE ${sampleValue}${offsetClause}`
+    }
+
+    private visitHogQLXTag(node: ASTNode): string {
+        if (!node) {
+            return ''
+        }
+        const tagName = node.get('kind') as string
+        const args = (node.get('attributes') || []) as ASTNode[]
+        const argsString = args.length > 0 ? ` ${args.map((a) => this.visitHogQLXAttribute(a)).join(' ')}` : ''
+        return `<${tagName}${argsString} />`
+    }
+
+    private visitHogQLXAttribute(node: ASTNode): string {
+        if (!node) {
+            return ''
+        }
+        const name = node.get('name') as string
+        const value = this.visit(node.get('value'))
+        if (typeof node.get('value') === 'string') {
+            return `${escapeIdentifier(name)}=${value}`
+        }
+        return `${escapeIdentifier(name)}={${value}}`
     }
 
     private visitRatioExpr(node: ASTNode): string {

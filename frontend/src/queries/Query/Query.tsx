@@ -1,7 +1,7 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
-    RevenueAnalyticsCustomerCountNode,
     RevenueAnalyticsGrowthRateNode,
+    RevenueAnalyticsMetricsNode,
     RevenueAnalyticsOverviewNode,
     RevenueAnalyticsRevenueNode,
     RevenueAnalyticsTopCustomersNode,
@@ -37,8 +37,8 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
-    isRevenueAnalyticsCustomerCountQuery,
     isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsMetricsQuery,
     isRevenueAnalyticsOverviewQuery,
     isRevenueAnalyticsRevenueQuery,
     isRevenueAnalyticsTopCustomersQuery,
@@ -92,7 +92,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         if (propsQuery !== localQuery) {
             localSetQuery(propsQuery)
         }
-    }, [propsQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [propsQuery]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const query = readOnly ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery
@@ -155,17 +155,13 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
-    } else if (isRevenueAnalyticsCustomerCountQuery(query)) {
-        component = (
-            <RevenueAnalyticsCustomerCountNode
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
     } else if (isRevenueAnalyticsOverviewQuery(query)) {
         component = (
             <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsMetricsQuery(query)) {
+        component = (
+            <RevenueAnalyticsMetricsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
     } else if (isRevenueAnalyticsRevenueQuery(query)) {
         component = (

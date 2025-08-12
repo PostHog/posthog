@@ -1,10 +1,12 @@
 import './Paths.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { shouldQueryBeAsync } from '~/queries/utils'
 
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 
@@ -28,6 +30,7 @@ export function Paths(): JSX.Element {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
         useValues(pathsDataLogic(insightProps))
+    const { loadData } = useActions(insightDataLogic(insightProps))
 
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
@@ -58,7 +61,15 @@ export function Paths(): JSX.Element {
     }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter])
 
     if (insightDataError) {
-        return <InsightErrorState query={insightQuery} excludeDetail />
+        return (
+            <InsightErrorState
+                query={insightQuery}
+                excludeDetail
+                onRetry={() => {
+                    loadData(shouldQueryBeAsync(insightQuery) ? 'force_async' : 'force_blocking')
+                }}
+            />
+        )
     }
 
     return (

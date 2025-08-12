@@ -26,7 +26,6 @@ from posthog.temporal.common.logger import (
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
-    RecordsCompleted,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -44,11 +43,12 @@ from products.batch_exports.backend.temporal.heartbeat import (
     DateRange,
     should_resume_from_activity_heartbeat,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -58,11 +58,38 @@ from products.batch_exports.backend.temporal.temporary_file import (
 )
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_non_retryable_errors,
     set_status_to_running_task,
 )
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
+
+
+NON_RETRYABLE_ERROR_TYPES = (
+    # Raised on errors that are related to database operation.
+    # For example: unexpected disconnect, database or other object not found.
+    "OperationalError",
+    # The schema name provided is invalid (usually because it doesn't exist).
+    "InvalidSchemaName",
+    # Missing permissions to, e.g., insert into table.
+    "InsufficientPrivilege",
+    # A column, usually properties, exceeds the limit for a VARCHAR field,
+    # usually the max of 65535 bytes
+    "StringDataRightTruncation",
+    # Raised by our PostgreSQL client when failing to connect after several attempts.
+    "PostgreSQLConnectionError",
+    # Column missing in Redshift, likely the schema was altered.
+    "UndefinedColumn",
+    # Raised by our PostgreSQL client when a given feature is not supported.
+    # This can also happen when merging tables with a different number of columns:
+    # "Target relation and source relation must have the same number of columns"
+    "FeatureNotSupported",
+    # There is a mismatch between the schema of the table and our data. This
+    # usually means the table was created by the user, as we resolve types the
+    # same way every time.
+    "DatatypeMismatch",
+)
 
 
 class RedshiftClient(PostgreSQLClient):
@@ -344,7 +371,8 @@ class RedshiftInsertInputs(PostgresInsertInputs):
 
 
 @activity.defn
-async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> RecordsCompleted:
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchExportResult:
     """Activity to insert data from ClickHouse to Redshift.
 
     This activity executes the following steps:
@@ -424,7 +452,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 inputs.data_interval_end or "END",
             )
 
-            return details.records_completed
+            return BatchExportResult(records_completed=details.records_completed)
 
         record_batch_schema = pa.schema(
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
@@ -550,7 +578,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                             update_key=update_key,
                         )
 
-                return details.records_completed
+                return BatchExportResult(records_completed=details.records_completed)
 
 
 @workflow.defn(name="redshift-export", failure_exception_types=[workflow.NondeterminismError])
@@ -631,25 +659,5 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             insert_into_redshift_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=[
-                # Raised on errors that are related to database operation.
-                # For example: unexpected disconnect, database or other object not found.
-                "OperationalError",
-                # The schema name provided is invalid (usually because it doesn't exist).
-                "InvalidSchemaName",
-                # Missing permissions to, e.g., insert into table.
-                "InsufficientPrivilege",
-                # A column, usually properties, exceeds the limit for a VARCHAR field,
-                # usually the max of 65535 bytes
-                "StringDataRightTruncation",
-                # Raised by our PostgreSQL client when failing to connect after several attempts.
-                "PostgreSQLConnectionError",
-                # Column missing in Redshift, likely the schema was altered.
-                "UndefinedColumn",
-                # Raised by our PostgreSQL client when a given feature is not supported.
-                # This can also happen when merging tables with a different number of columns:
-                # "Target relation and source relation must have the same number of columns"
-                "FeatureNotSupported",
-            ],
             finish_inputs=finish_inputs,
         )

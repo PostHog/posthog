@@ -191,9 +191,9 @@ pub async fn insert_new_team_in_pg(
     // Create new organization from scratch
     client.run_query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys) 
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources) 
         VALUES
-        ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true)
+        ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
         ON CONFLICT DO NOTHING"#.to_string(),
         vec![ORG_ID.to_string()],
         Some(2000),
@@ -284,7 +284,7 @@ pub async fn insert_flag_for_team_in_pg(
             name: Some("flag1 description".to_string()),
             active: true,
             deleted: false,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             team_id,
             filters: json!({
                 "groups": [
@@ -301,15 +301,16 @@ pub async fn insert_flag_for_team_in_pg(
                 ],
             }),
             version: None,
+            evaluation_runtime: Some("all".to_string()),
         },
     };
 
     let mut conn = client.get_connection().await?;
     let res = sqlx::query(
         r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')"#
-    ).bind(payload_flag.id).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).execute(&mut *conn).await?;
+        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, created_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, '2024-06-17')"#
+    ).bind(payload_flag.id).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).execute(&mut *conn).await?;
 
     assert_eq!(res.rows_affected(), 1);
 
@@ -542,8 +543,9 @@ pub fn create_test_flag(
         }),
         deleted: deleted.unwrap_or(false),
         active: active.unwrap_or(true),
-        ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
+        ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
         version: Some(1),
+        evaluation_runtime: Some("all".to_string()),
     }
 }
 
@@ -638,7 +640,7 @@ pub fn create_test_flag_that_depends_on_flag(
         PropertyFilter {
             key: depends_on_flag_id.to_string(),
             value: Some(json!(depends_on_flag_value)),
-            operator: Some(OperatorType::Exact),
+            operator: Some(OperatorType::FlagEvaluatesTo),
             prop_type: PropertyType::Flag,
             group_type_index: None,
             negation: None,

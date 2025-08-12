@@ -16,7 +16,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -53,19 +53,14 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
 }
 
 export function SupportForm(): JSX.Element | null {
-    const { sendSupportRequest, focusedField } = useValues(supportLogic)
-    const { setSendSupportRequestValue, setFocusedField } = useActions(supportLogic)
+    const { sendSupportRequest } = useValues(supportLogic)
+    const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
     // only allow authentication issues for logged out users
 
     const dropRef = useRef<HTMLDivElement>(null)
-    const nameInputRef = useRef<HTMLInputElement>(null)
-    const emailInputRef = useRef<HTMLInputElement>(null)
-    const messageInputRef = useRef<HTMLTextAreaElement>(null)
-    // Track which fields have been initialized (had cursor positioned at end)
-    const initializedFields = useRef<Record<string, boolean>>({})
 
     const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
         const items = e.clipboardData?.items
@@ -84,36 +79,6 @@ export function SupportForm(): JSX.Element | null {
             }
         }
     }
-
-    // Restore focus to the appropriate field after re-renders
-    // Only position cursor at the end on first focus for each field
-    useEffect(() => {
-        if (focusedField === 'name' && nameInputRef.current) {
-            nameInputRef.current.focus()
-            // Position cursor at the end of the text only on first focus
-            if (!initializedFields.current['name'] && nameInputRef.current.value !== undefined) {
-                const length = nameInputRef.current.value.length
-                nameInputRef.current.setSelectionRange(length, length)
-                initializedFields.current['name'] = true
-            }
-        } else if (focusedField === 'email' && emailInputRef.current) {
-            emailInputRef.current.focus()
-            // Position cursor at the end of the text only on first focus
-            if (!initializedFields.current['email'] && emailInputRef.current.value !== undefined) {
-                const length = emailInputRef.current.value.length
-                emailInputRef.current.setSelectionRange(length, length)
-                initializedFields.current['email'] = true
-            }
-        } else if (focusedField === 'message' && messageInputRef.current) {
-            messageInputRef.current.focus()
-            // Position cursor at the end of the text only on first focus
-            if (!initializedFields.current['message'] && messageInputRef.current.value !== undefined) {
-                const length = messageInputRef.current.value.length
-                messageInputRef.current.setSelectionRange(length, length)
-                initializedFields.current['message'] = true
-            }
-        }
-    }, [focusedField, sendSupportRequest])
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
@@ -144,22 +109,10 @@ export function SupportForm(): JSX.Element | null {
             {!user && (
                 <>
                     <LemonField name="name" label="Name">
-                        <LemonInput
-                            data-attr="name"
-                            placeholder="Jane"
-                            ref={nameInputRef}
-                            onFocus={() => setFocusedField('name')}
-                            onBlur={() => setFocusedField(null)}
-                        />
+                        <LemonInput data-attr="name" placeholder="Jane" />
                     </LemonField>
                     <LemonField name="email" label="Email">
-                        <LemonInput
-                            data-attr="email"
-                            placeholder="your@email.com"
-                            ref={emailInputRef}
-                            onFocus={() => setFocusedField('email')}
-                            onBlur={() => setFocusedField(null)}
-                        />
+                        <LemonInput data-attr="email" placeholder="your@email.com" />
                     </LemonField>
                 </>
             )}
@@ -193,9 +146,6 @@ export function SupportForm(): JSX.Element | null {
                             placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"
                             minRows={5}
-                            ref={messageInputRef}
-                            onFocus={() => setFocusedField('message')}
-                            onBlur={() => setFocusedField(null)}
                             {...props}
                         />
                         {objectStorageAvailable && !!user && (
@@ -221,7 +171,11 @@ export function SupportForm(): JSX.Element | null {
                             </span>
                         </Tooltip>
                     </label>
-                    <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                    <Link
+                        target="_blank"
+                        disableDocsPanel
+                        to="https://posthog.com/docs/support-options#severity-levels"
+                    >
                         Definitions
                     </Link>
                 </div>

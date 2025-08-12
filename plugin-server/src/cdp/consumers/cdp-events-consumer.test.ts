@@ -311,12 +311,9 @@ describe.each([
                 ])
             })
 
-            it.each([
-                [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
-                [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
-            ])('should filter out functions that are disabled', async (state, metric_name) => {
-                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, state)
-                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, state)
+            it('should filter out functions that are disabled', async () => {
+                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, HogWatcherState.disabled)
+                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, HogWatcherState.disabled)
 
                 const { invocations } = await processor.processBatch([globals])
 
@@ -331,7 +328,7 @@ describe.each([
                             app_source_id: fnFetchNoFilters.id,
                             count: 1,
                             metric_kind: 'failure',
-                            metric_name: metric_name,
+                            metric_name: 'disabled_permanently',
                             team_id: 2,
                         },
                     },
@@ -342,7 +339,7 @@ describe.each([
                             app_source_id: fnPrinterPageviewFilters.id,
                             count: 1,
                             metric_kind: 'failure',
-                            metric_name: metric_name,
+                            metric_name: 'disabled_permanently',
                             team_id: 2,
                         },
                     },
@@ -566,7 +563,6 @@ describe('hog flow processing', () => {
                 queuePriority: 1,
                 state: {
                     event: globals.event,
-                    personId: 'uuid',
                     actionStepCount: 0,
                 },
                 teamId: 2,

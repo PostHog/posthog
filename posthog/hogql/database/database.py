@@ -123,7 +123,6 @@ from posthog.schema import (
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
-from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -394,21 +393,17 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             properties_path=["poe", "properties"],
         )
 
-    with timings.measure("revenue"):
-        field = "revenue"
-        field_name = f"$virt_{field}"
-        chain = ["revenue_analytics", field]
+    # :KLUDGE: Currently calculated at runtime via the `revenue_analytics` table,
+    # it'd be wise to make these computable fields in the future, but that's a big uplift
+    revenue_fields = ["revenue", "revenue_last_30_days"]
+    with timings.measure("revenue_analytics_virtual_fields"):
+        for field in revenue_fields:
+            with timings.measure(field):
+                field_name = f"$virt_{field}"
+                chain = ["revenue_analytics", field]
 
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
-        poe.fields[field_name] = ast.FieldTraverser(chain=chain)
-
-    with timings.measure("revenue_last_30_days"):
-        field = "revenue_last_30_days"
-        field_name = f"$virt_{field}"
-        chain = ["revenue_analytics", field]
-
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
-        poe.fields[field_name] = ast.FieldTraverser(chain=chain)
+                database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
+                poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 
 TableStore = dict[str, Table | TableGroup]
@@ -425,6 +420,9 @@ def create_hogql_database(
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
+    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
+        RevenueAnalyticsBaseView,
+    )
 
     if timings is None:
         timings = HogQLTimings()
@@ -557,54 +555,50 @@ def create_hogql_database(
             if views.get(table.name, None) is not None:
                 continue
 
-            try:
-                with timings.measure(f"table_{table.name}"):
-                    s3_table = table.hogql_definition(modifiers)
+            with timings.measure(f"table_{table.name}"):
+                s3_table = table.hogql_definition(modifiers)
 
-                    # If the warehouse table has no _properties_ field, then set it as a virtual table
-                    if s3_table.fields.get("properties") is None:
+                # If the warehouse table has no _properties_ field, then set it as a virtual table
+                if s3_table.fields.get("properties") is None:
 
-                        class WarehouseProperties(VirtualTable):
-                            fields: dict[str, FieldOrTable] = s3_table.fields
-                            parent_table: S3Table = s3_table
+                    class WarehouseProperties(VirtualTable):
+                        fields: dict[str, FieldOrTable] = s3_table.fields
+                        parent_table: S3Table = s3_table
 
-                            def to_printed_hogql(self):
-                                return self.parent_table.to_printed_hogql()
+                        def to_printed_hogql(self):
+                            return self.parent_table.to_printed_hogql()
 
-                            def to_printed_clickhouse(self, context):
-                                return self.parent_table.to_printed_clickhouse(context)
+                        def to_printed_clickhouse(self, context):
+                            return self.parent_table.to_printed_clickhouse(context)
 
-                        s3_table.fields["properties"] = WarehouseProperties(hidden=True)
+                    s3_table.fields["properties"] = WarehouseProperties(hidden=True)
 
-                    if table.external_data_source:
-                        warehouse_tables[table.name] = s3_table
+                if table.external_data_source:
+                    warehouse_tables[table.name] = s3_table
+                else:
+                    self_managed_warehouse_tables[table.name] = s3_table
+
+                # Add warehouse table using dot notation
+                if table.external_data_source:
+                    source_type = table.external_data_source.source_type
+                    prefix = table.external_data_source.prefix
+                    table_chain: list[str] = [source_type.lower()]
+
+                    if prefix is not None and isinstance(prefix, str) and prefix != "":
+                        table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
+                        table_chain.extend([prefix.strip("_").lower(), table_name_stripped])
                     else:
-                        self_managed_warehouse_tables[table.name] = s3_table
+                        table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
+                        table_chain.append(table_name_stripped)
 
-                    # Add warehouse table using dot notation
-                    if table.external_data_source:
-                        source_type = table.external_data_source.source_type
-                        prefix = table.external_data_source.prefix
-                        table_chain: list[str] = [source_type.lower()]
+                    # For a chain of type a.b.c, we want to create a nested table group
+                    # where a is the parent, b is the child of a, and c is the child of b
+                    # where a.b.c will contain the s3_table
+                    create_nested_table_group(table_chain, warehouse_tables, s3_table)
 
-                        if prefix is not None and isinstance(prefix, str) and prefix != "":
-                            table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                            table_chain.extend([prefix.strip("_").lower(), table_name_stripped])
-                        else:
-                            table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
-                            table_chain.append(table_name_stripped)
-
-                        # For a chain of type a.b.c, we want to create a nested table group
-                        # where a is the parent, b is the child of a, and c is the child of b
-                        # where a.b.c will contain the s3_table
-                        create_nested_table_group(table_chain, warehouse_tables, s3_table)
-
-                        joined_table_chain = ".".join(table_chain)
-                        s3_table.name = joined_table_chain
-                        warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-            except Exception as e:
-                capture_exception(e)
-                continue
+                    joined_table_chain = ".".join(table_chain)
+                    s3_table.name = joined_table_chain
+                    warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
     def define_mappings(store: TableStore, get_table: Callable):
         table: Table | None = None
@@ -897,6 +891,9 @@ def serialize_database(
 ) -> dict[str, DatabaseSchemaTable]:
     from posthog.warehouse.models.datawarehouse_saved_query import (
         DataWarehouseSavedQuery,
+    )
+    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
+        RevenueAnalyticsBaseView,
     )
 
     tables: dict[str, DatabaseSchemaTable] = {}

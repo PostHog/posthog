@@ -1,4 +1,4 @@
-from typing import cast, Literal, Union
+from typing import cast, Literal, Union, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -43,7 +43,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         super().__init__(*args, **kwargs)
         self.used_preaggregated_tables = False
         self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
+            limit_context=LimitContext.QUERY,
+            limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset if self.query.offset else None,
         )
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
@@ -113,21 +115,25 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 if self._include_extra_aggregation_value():
                     selects.append(self._extra_aggregation_value())
 
+                if self.query.includeBounceRate:
+                    selects.append(self._period_comparison_tuple("is_bounce", "context.columns.bounce_rate", "avg"))
+
+            order_by = self._order_by(columns=[select.alias for select in selects])
+            fill_fraction_expr = self._fill_fraction(order_by)
+            if fill_fraction_expr:
+                selects.append(fill_fraction_expr)
+
             query = ast.SelectQuery(
                 select=selects,
                 select_from=ast.JoinExpr(table=self._main_inner_query(breakdown)),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
-                order_by=self._order_by(columns=[select.alias for select in selects]),
+                order_by=order_by,
             )
 
         return query
 
     def to_entry_bounce_query(self) -> ast.SelectQuery:
         query = self.to_main_query(self._bounce_entry_pathname_breakdown())
-
-        if self.query.conversionGoal is None:
-            query.select.append(self._period_comparison_tuple("is_bounce", "context.columns.bounce_rate", "avg"))
-
         return query
 
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
@@ -243,6 +249,10 @@ ON counts.breakdown_value = scroll.breakdown_value
         columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
         query.order_by = self._order_by(columns)
 
+        fill_fraction = self._fill_fraction(query.order_by)
+        if fill_fraction:
+            query.select.append(fill_fraction)
+
         return query
 
     def to_path_bounce_query(self) -> ast.SelectQuery:
@@ -256,7 +266,7 @@ SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
     tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
     tuple(counts.views, counts.previous_views) AS "context.columns.views",
-    tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS "context.columns.bounce_rate"
+    tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS "context.columns.bounce_rate",
 FROM (
     SELECT
         breakdown_value,
@@ -326,6 +336,10 @@ ON counts.breakdown_value = bounce.breakdown_value
         # Compute query order based on the columns we're selecting
         columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
         query.order_by = self._order_by(columns)
+
+        fill_fraction = self._fill_fraction(query.order_by)
+        if fill_fraction:
+            query.select.append(fill_fraction)
 
         return query
 
@@ -450,25 +464,71 @@ GROUP BY session_id, breakdown_value
             elif field == WebAnalyticsOrderByFields.ERRORS:
                 column = "context.columns.errors"
 
+        def f(c: str) -> Optional[ast.OrderExpr]:
+            return ast.OrderExpr(expr=ast.Field(chain=[c]), order=direction) if column != c and c in columns else None
+
         return [
             expr
             for expr in [
+                # use order from query
                 ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
                 if column is not None and column in columns
                 else None,
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order=direction)
-                if column != "context.columns.visitors"
-                else None,
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order=direction)
-                if column != "context.columns.views" and "context.columns.views" in columns
-                else None,
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.total_conversions"]), order=direction)
-                if column != "context.columns.total_conversions" and "context.columns.total_conversions" in columns
-                else None,
+                f("context.columns.unique_conversions"),
+                f("context.columns.total_conversions"),
+                f("context.columns.visitors"),
+                f("context.columns.views"),
                 ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
             ]
             if expr is not None
         ]
+
+    def _fill_fraction(self, order: Optional[list[ast.OrderExpr]]):
+        # use whatever column we are sorting by to also visually fill the row by some fraction
+        col_name = (
+            order[0].expr.chain[0]
+            if order and isinstance(order[0].expr, ast.Field) and len(order[0].expr.chain) == 1
+            else None
+        )
+
+        if col_name:
+            # for these columns, use the fraction of the overall total belonging to this row
+            if col_name in [
+                "context.columns.visitors",
+                "context.columns.views",
+                "context.columns.clicks",
+                "context.columns.total_conversions",
+                "context.columns.unique_conversions",
+                "context.columns.rage_clicks",
+                "context.columns.dead_clicks",
+                "context.columns.errors",
+            ]:
+                return ast.Alias(
+                    alias="context.columns.ui_fill_fraction",
+                    expr=parse_expr(
+                        "{col}.1 / sum({col}.1) OVER ()",
+                        placeholders={"col": ast.Field(chain=[col_name])},
+                    ),
+                )
+            # these columns are fractions already, use them directly
+            if col_name in [
+                "context.columns.bounce_rate",
+                "context.columns.average_scroll_percentage",
+                "context.columns.scroll_gt80_percentage",
+                "context.columns.conversion_rate",
+            ]:
+                return ast.Alias(
+                    alias="context.columns.ui_fill_fraction",
+                    expr=parse_expr(
+                        "{col}.1",
+                        placeholders={"col": ast.Field(chain=[col_name])},
+                    ),
+                )
+        # use visitors as a fallback
+        return ast.Alias(
+            alias="context.columns.ui_fill_fraction",
+            expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
+        )
 
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(

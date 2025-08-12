@@ -1,5 +1,6 @@
 import '@xyflow/react/dist/style.css'
 
+import React, { useState, useEffect, useMemo } from 'react'
 import {
     Background,
     BackgroundVariant,
@@ -16,17 +17,18 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
-import { IconArchive, IconTarget } from '@posthog/icons'
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { IconArchive, IconTarget, IconPencil } from '@posthog/icons'
+import { LemonTag, LemonTagType, LemonButton } from '@posthog/lemon-ui'
+import { useValues, useActions } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { router } from 'kea-router'
 
 import { LineageNode as LineageNodeType } from '~/types'
 
 import { multitabEditorLogic } from '../../multitabEditorLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { dataWarehouseViewsLogic } from '../../../saved_queries/dataWarehouseViewsLogic'
 
 interface UpstreamGraphProps {
     codeEditorKey: string
@@ -40,39 +42,48 @@ interface LineageNodeProps {
 const MAT_VIEW_HEIGHT = 92
 const TABLE_HEIGHT = 68
 
-const NODE_WIDTH = 240
+const NODE_WIDTH = 300
 
 const MARKER_SIZE = 20
 
 const NODE_SEP = 80
 const RANK_SEP = 160
 
+const BRAND_YELLOW = '#f9bd2b'
+
 function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
+    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+    const { editView } = useActions(multitabEditorLogic({ key: codeEditorKey }))
+    const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
+
     const getNodeType = (type: string, lastRunAt?: string): string => {
         if (type === 'view') {
-            return lastRunAt ? 'Mat. View' : 'View'
+            return lastRunAt ? 'Mat. view' : 'View'
         }
         return 'Table'
     }
 
     const getTagType = (type: string): LemonTagType => {
-        if (type === 'view') {
-            return 'primary'
-        }
-        return 'highlight'
+        return type === 'view' ? 'primary' : 'highlight'
     }
 
-    // Only show handles if there are edges to/from this node
     const hasIncoming = edges.some((edge) => edge.target === data.id)
     const hasOutgoing = edges.some((edge) => edge.source === data.id)
-
-    // Dynamic height: mat views get extra height for last run time
     const isMatView = data.type === 'view' && !!data.last_run_at
     const nodeHeight = isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT
 
+    const handleEditView = async (): Promise<void> => {
+        if (data.type === 'view') {
+            const view = dataWarehouseSavedQueries.find((v) => v.name === data.name)
+            if (view?.query?.query) {
+                editView(view.query.query, view)
+            }
+        }
+    }
+
     return (
         <div
-            className="bg-bg-light border border-border rounded-lg p-3 min-w-[240px] shadow-sm"
+            className="bg-bg-light border border-border rounded-md p-3 min-w-[300px] shadow-sm"
             style={{ minHeight: nodeHeight }}
         >
             {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />}
@@ -84,7 +95,17 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
                     </Tooltip>
                 )}
                 <Tooltip title={data.name} placement="top">
-                    <span className="font-medium text-sm truncate max-w-[180px] block">{data.name}</span>
+                    <div className="flex items-center w-full justify-between">
+                        <div className="font-medium text-sm truncate max-w-[240px] block">{data.name}</div>
+                        {data.type === 'view' && !data.isCurrentView && (
+                            <LemonButton
+                                size="xxsmall"
+                                type="secondary"
+                                icon={<IconPencil />}
+                                onClick={handleEditView}
+                            />
+                        )}
+                    </div>
                 </Tooltip>
             </div>
 
@@ -124,7 +145,6 @@ const getLayoutedElements = (
     dagreGraph.setDefaultEdgeLabel(() => ({}))
     dagreGraph.setGraph({ rankdir: 'LR', nodesep: NODE_SEP, ranksep: RANK_SEP })
 
-    // Add nodes and edges to dagre and layout with dagre
     nodes.forEach((node) => {
         const isMatView = node.type === 'view' && !!node.last_run_at
         dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT })
@@ -157,12 +177,13 @@ const getLayoutedElements = (
         id: `edge-${index}`,
         source: edge.source,
         target: edge.target,
-        type: 'smoothstep',
+        type: 'default',
         animated: false,
         markerEnd: {
             type: MarkerType.ArrowClosed,
             width: MARKER_SIZE,
             height: MARKER_SIZE,
+            color: BRAND_YELLOW,
         },
     }))
 
@@ -174,6 +195,9 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
     const { fitView } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
 
+    const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
+    const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
+
     const { nodes, edges } = useMemo(() => {
         if (!upstream || upstream.nodes.length === 0) {
             return { nodes: [], edges: [] }
@@ -181,6 +205,29 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
         return getLayoutedElements(upstream.nodes, upstream.edges, editingView?.name)
     }, [upstream, editingView?.name])
+
+    const nodeTypes = useMemo(() => getNodeTypes(edges), [edges])
+
+    const coloredEdges: Edge[] = edges.map((edge) => {
+        const isHighlighted =
+            edge.id === hoveredEdgeId || edge.source === hoveredNodeId || edge.target === hoveredNodeId
+
+        return {
+            ...edge,
+            style: isHighlighted ? { stroke: BRAND_YELLOW } : undefined,
+            markerEnd: {
+                type: MarkerType.ArrowClosed,
+                width: MARKER_SIZE,
+                height: MARKER_SIZE,
+                ...(isHighlighted ? { color: BRAND_YELLOW } : {}),
+            },
+        }
+    })
+
+    const onNodeMouseEnter = (_e: React.MouseEvent, node: Node): void => setHoveredNodeId(node.id)
+    const onNodeMouseLeave = (): void => setHoveredNodeId(null)
+    const onEdgeMouseEnter = (_e: React.MouseEvent, edge: Edge): void => setHoveredEdgeId(edge.id)
+    const onEdgeMouseLeave = (): void => setHoveredEdgeId(null)
 
     // Fit view when nodes change
     useEffect(() => {
@@ -207,21 +254,22 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
     return (
         <div className="w-full h-full">
             <ReactFlow
-                proOptions={{
-                    hideAttribution: true,
-                }}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 nodes={nodes}
-                edges={edges}
-                nodeTypes={getNodeTypes(edges)}
+                edges={coloredEdges}
+                nodeTypes={nodeTypes}
                 fitView
                 fitViewOptions={{ padding: 0.1 }}
                 minZoom={0.1}
                 maxZoom={2}
+                onNodeMouseEnter={onNodeMouseEnter}
+                onNodeMouseLeave={onNodeMouseLeave}
+                onEdgeMouseEnter={onEdgeMouseEnter}
+                onEdgeMouseLeave={onEdgeMouseLeave}
             >
                 <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
                 <Controls showInteractive={false} position="bottom-right" />
-                <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} />
+                <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} className="hidden lg:block" />
             </ReactFlow>
         </div>
     )
@@ -229,7 +277,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
 export function UpstreamGraph({ codeEditorKey }: UpstreamGraphProps): JSX.Element {
     return (
-        <div className="w-full h-full">
+        <div className="h-[500px] border border-border rounded-md overflow-hidden">
             <ReactFlowProvider>
                 <UpstreamGraphContent codeEditorKey={codeEditorKey} />
             </ReactFlowProvider>

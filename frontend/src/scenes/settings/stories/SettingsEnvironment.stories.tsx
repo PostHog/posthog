@@ -22,7 +22,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: Object.values(FEATURE_FLAGS), // Enable all feature flags for the settings page
+        featureFlags: Object.values(FEATURE_FLAGS).filter((flag) => flag !== FEATURE_FLAGS.NEW_SCENE_LAYOUT), // Enable all feature flags for the settings page, except the new scene layout
     },
     decorators: [
         mswDecorator({
@@ -33,6 +33,14 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     realm: 'cloud',
                 },
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/billing/spend/': { results: [] },
+                '/api/billing/usage/': { results: [] },
+                '/api/billing/': { products: [] },
+                '/api/projects/:id/core_memory': { results: [] },
+                '/api/projects/:id/hog_functions': { results: [] },
+                '/api/projects/:id/pipeline_destination_configs': { results: [] },
+                '/api/organizations/:id/pipeline_destinations': { results: [] },
+                '/api/environments/:id/batch_exports': { results: [] },
             },
             patch: {
                 '/api/projects/:id': async (req, res, ctx) => {

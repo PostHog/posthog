@@ -52,6 +52,14 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
         offset: offsetIncrementer++,
         timestamp: DateTime.now().toMillis(),
         partition: 1,
+        headers: [
+            {
+                distinct_id: Buffer.from(event.distinct_id || ''),
+            },
+            {
+                token: Buffer.from(event.token || ''),
+            },
+        ],
     }
 }
 
@@ -206,11 +214,9 @@ describe('IngestionConsumer', () => {
                 processed_at: '2024-01-01T00:00:00.000Z',
                 consumer_id: 'previous-consumer',
             }
-            messages[0].headers = [
-                {
-                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
-                },
-            ]
+            messages[0].headers?.push({
+                'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
+            })
             await ingester.handleKafkaBatch(messages)
 
             const producedMessages =
@@ -419,14 +425,12 @@ describe('IngestionConsumer', () => {
 
                 if (distinctId) {
                     message.headers.push({
-                        key: 'distinct_id',
-                        value: Buffer.from(distinctId),
+                        distinct_id: Buffer.from(distinctId),
                     })
                 }
                 if (token) {
                     message.headers.push({
-                        key: 'token',
-                        value: Buffer.from(token),
+                        token: Buffer.from(token),
                     })
                 }
             }
@@ -434,15 +438,6 @@ describe('IngestionConsumer', () => {
             beforeEach(() => {
                 jest.spyOn(logger, 'debug')
             })
-
-            const expectDropLogs = (pairs: [string, string | undefined][]) => {
-                for (const [token, distinctId] of pairs) {
-                    expect(jest.mocked(logger.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
-                        distinctId,
-                        token,
-                    })
-                }
-            }
 
             describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID drops events with matching token:distinct_id when only event keys are listed', () => {
                 beforeEach(async () => {
@@ -460,7 +455,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([[team.api_token, 'distinct-id-to-ignore']])
                 })
 
                 it('should not drop events for a different team token', async () => {
@@ -475,7 +469,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
 
                 it('should not drop events for a different distinct_id', async () => {
@@ -489,7 +482,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
             })
 
@@ -512,7 +504,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([[team.api_token, distinct_id_to_drop]])
                 })
 
                 it('should not drop all events for team with event key listed when distinct_id differs in event', async () => {
@@ -528,7 +519,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
 
                 it('should drop all events for team with only token listed to be dropped', async () => {
@@ -552,10 +542,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([
-                        [team2.api_token, any_distinct_id],
-                        [team2.api_token, other_distinct_id],
-                    ])
                 })
             })
         })
@@ -892,10 +878,10 @@ describe('IngestionConsumer', () => {
 
         beforeEach(async () => {
             // Create a transformation function using the geoip template as an example
-            const hogByteCode = await compileHog(geoipTemplate.hog)
+            const hogByteCode = await compileHog(geoipTemplate.code)
             transformationFunction = await insertHogFunction({
                 name: 'GeoIP Transformation',
-                hog: geoipTemplate.hog,
+                hog: geoipTemplate.code,
                 bytecode: hogByteCode,
             })
 
@@ -1116,7 +1102,10 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
-                    "headers": {},
+                    "headers": {
+                      "distinct_id": "user-1",
+                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                    },
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {

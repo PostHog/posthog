@@ -16,6 +16,7 @@ export const ALL_METRIC_TYPES = [
     { label: 'Succeeded', value: 'succeeded' },
     { label: 'Failed', value: 'failed' },
     { label: 'Filtered', value: 'filtered' },
+    { label: 'Dropped', value: 'dropped' },
     { label: 'Disabled temporarily', value: 'disabled_temporarily' },
     { label: 'Disabled permanently', value: 'disabled_permanently' },
     { label: 'Masked', value: 'masked' },

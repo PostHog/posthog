@@ -1,9 +1,11 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-
+import { ActivityScope } from '~/types'
+import { AISummary } from '../components/AISummary'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -21,7 +23,7 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { isLegacyExperimentQuery } from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
     LegacyExploreButton,
@@ -58,6 +60,8 @@ const ResultsTab = (): JSX.Element => {
 
     const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
 
+    const hasLegacyResults = legacyPrimaryMetricsResults.some((result) => result != null)
+
     return (
         <>
             {!experiment.start_date && !primaryMetricsResultsLoading && (
@@ -78,7 +82,7 @@ const ResultsTab = (): JSX.Element => {
             {/**
              *  check if we should render the legacy metrics view or the new one
              */}
-            {legacyPrimaryMetricsResults.length > 0 ? (
+            {isLegacyExperiment(experiment) || hasLegacyResults ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
                     {/**
@@ -120,7 +124,13 @@ const ResultsTab = (): JSX.Element => {
                                         metricIndex={0}
                                         isPrimary={true}
                                     >
-                                        {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
+                                        {({
+                                            query,
+                                            breakdownResults,
+                                            breakdownResultsLoading,
+                                            exposureDifference,
+                                            breakdownLastRefresh,
+                                        }) => (
                                             <div>
                                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                                 {query && breakdownResults && (
@@ -135,6 +145,7 @@ const ResultsTab = (): JSX.Element => {
                                                             <ResultsQuery
                                                                 query={query}
                                                                 breakdownResults={breakdownResults}
+                                                                breakdownLastRefresh={breakdownLastRefresh}
                                                             />
                                                         </div>
                                                     </div>
@@ -180,6 +191,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
+                        <AISummary experimentId={experimentId} />
                         {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
@@ -194,6 +206,11 @@ export function ExperimentView(): JSX.Element {
                                     key: 'variants',
                                     label: 'Variants',
                                     content: <VariantsTab />,
+                                },
+                                {
+                                    key: 'history',
+                                    label: 'History',
+                                    content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
                                 },
                             ]}
                         />

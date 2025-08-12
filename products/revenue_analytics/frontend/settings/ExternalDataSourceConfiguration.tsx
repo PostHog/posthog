@@ -6,7 +6,7 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { urls } from 'scenes/urls'
 import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconPlus } from '@posthog/icons'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
@@ -34,10 +34,25 @@ export function ExternalDataSourceConfiguration({
                 we'll be able to properly display revenue for a person via the <code>persons.$virt_revenue</code> and{' '}
                 <code>persons.$virt_revenue_last_30_days</code> virtual fields.
             </p>
+            <div className="flex flex-col mb-1 items-end w-full">
+                <LemonButton
+                    className="my-1"
+                    ref={buttonRef}
+                    type="primary"
+                    icon={<IconPlus />}
+                    size="small"
+                    onClick={() => {
+                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
+                    }}
+                >
+                    Add new source
+                </LemonButton>
+            </div>
             <LemonTable
                 rowKey={(item) => item.id}
                 loading={dataWarehouseSources === null}
                 dataSource={revenueSources}
+                emptyState="No DWH revenue sources configured yet"
                 columns={[
                     {
                         key: 'source',
@@ -59,7 +74,7 @@ export function ExternalDataSourceConfiguration({
                                         PipelineNodeTab.Schemas
                                     )}
                                 >
-                                    {item.prefix || item.source_type}
+                                    {item.source_type}&nbsp;{item.prefix && `(${item.prefix})`}
                                 </Link>
                             )
                         },
@@ -130,25 +145,6 @@ export function ExternalDataSourceConfiguration({
                                 />
                             )
                         },
-                    },
-                    {
-                        key: 'actions',
-                        width: 0,
-                        title: (
-                            <LemonButton
-                                className="my-1"
-                                ref={buttonRef}
-                                type="primary"
-                                onClick={() => {
-                                    router.actions.push(
-                                        urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' })
-                                    )
-                                }}
-                            >
-                                Add new source
-                            </LemonButton>
-                        ),
-                        render: () => null,
                     },
                 ]}
             />

@@ -632,7 +632,7 @@ mod tests {
                 PropertyFilter {
                     key: leaf_flag.id.to_string(),
                     value: Some(json!(true)),
-                    operator: Some(OperatorType::Exact),
+                    operator: Some(OperatorType::FlagEvaluatesTo),
                     prop_type: PropertyType::Flag,
                     group_type_index: None,
                     negation: None,
@@ -1136,7 +1136,7 @@ mod tests {
             properties: Some(vec![PropertyFilter {
                 key: "1".to_string(),
                 value: Some(json!(true)),
-                operator: Some(OperatorType::Exact),
+                operator: Some(OperatorType::FlagEvaluatesTo),
                 prop_type: PropertyType::Flag,
                 group_type_index: None,
                 negation: None,
@@ -1202,8 +1202,9 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         }
     }
 
@@ -4023,8 +4024,9 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         // Test user "11" - should get first-variant

@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
-import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findNextAction } from '../hogflow-utils'
@@ -47,18 +47,13 @@ export async function checkConditions(
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
 }> {
-    const filterGlobals = convertToHogFunctionFilterGlobal({
-        event: invocation.state.event, // TODO: Fix typing
-        groups: {},
-    })
-
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
         // TODO(messaging): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,
-            filterGlobals,
+            filterGlobals: invocation.filterGlobals,
             eventUuid: invocation.state.event.uuid,
         })
 

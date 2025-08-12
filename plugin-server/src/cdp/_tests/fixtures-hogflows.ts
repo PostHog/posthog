@@ -3,7 +3,8 @@ import { insertRow } from '~/tests/helpers/sql'
 
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
-import { CyclotronJobInvocationHogFlow, HogFlowInvocationContext } from '../types'
+import { CyclotronJobInvocationHogFlow, CyclotronPerson, HogFlowInvocationContext } from '../types'
+import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createHogExecutionGlobals } from './fixtures'
 
 export const insertHogFlow = async (postgres: PostgresRouter, hogFlow: HogFlow): Promise<HogFlow> => {
@@ -34,11 +35,22 @@ export const createHogFlowInvocationContext = (
 
 export const createExampleHogFlowInvocation = (
     hogFlow: HogFlow,
-    _context: Partial<HogFlowInvocationContext> = {}
+    _context: Partial<HogFlowInvocationContext> = {},
+    _person: CyclotronPerson | undefined = undefined
 ): CyclotronJobInvocationHogFlow => {
     // Add the source of the trigger to the globals
 
     const context = createHogFlowInvocationContext(_context)
+
+    const person: CyclotronPerson = {
+        id: 'person_id',
+        properties: {
+            name: 'John Doe',
+        },
+        name: '',
+        url: '',
+        ..._person,
+    }
 
     return {
         id: new UUIDT().toString(),
@@ -48,6 +60,12 @@ export const createExampleHogFlowInvocation = (
         teamId: hogFlow.team_id,
         functionId: hogFlow.id,
         hogFlow,
+        person,
+        filterGlobals: convertToHogFunctionFilterGlobal({
+            event: context.event,
+            person,
+            groups: {},
+        }),
         queue: 'hogflow',
         queuePriority: 0,
     }

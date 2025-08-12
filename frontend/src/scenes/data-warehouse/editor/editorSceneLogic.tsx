@@ -4,7 +4,7 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -58,7 +58,7 @@ export const renderTableCount = (count: undefined | number): null | JSX.Element 
     }
 
     return (
-        <span className="text-xs mr-1 italic text-[color:var(--text-secondary-3000)]">
+        <span className="text-xs mr-1 italic text-[color:var(--color-text-secondary-3000)]">
             {`(${new Intl.NumberFormat('en', {
                 notation: 'compact',
                 compactDisplay: 'short',
@@ -102,7 +102,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     })),
     actions({
-        setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
         reportAIQueryPrompted: true,
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
@@ -110,13 +109,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
     }),
     reducers({
-        sidebarOverlayOpen: [
-            false,
-            {
-                setSidebarOverlayOpen: (_, { isOpen }) => isOpen,
-                selectSchema: (_, { schema }) => schema !== null,
-            },
-        ],
         wasPanelActive: [
             false,
             {
@@ -256,10 +248,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       key: `hogQLQueryEditor/${router.values.location.pathname}`,
                                   }).actions.createTab(`SELECT * FROM ${view.name}`)
                                 : isSavedQuery
-                                ? multitabEditorLogic({
-                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                  }).actions.editView(view.query.query, view)
-                                : null
+                                  ? multitabEditorLogic({
+                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                    }).actions.editView(view.query.query, view)
+                                  : null
                         }
 
                         const savedViewMenuItems = isSavedQuery
@@ -504,7 +496,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                 (result) =>
                                     [result.item, result.matches] as [
                                         DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
-                                        FuseSearchMatch[]
+                                        FuseSearchMatch[],
                                     ]
                             )
                     )
@@ -514,19 +506,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     })),
-    urlToAction(({ values }) => ({
+    urlToAction(() => ({
         [urls.sqlEditor()]: () => {
-            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
-                panelLayoutLogic.actions.showLayoutPanel(true)
-                panelLayoutLogic.actions.setActivePanelIdentifier('Database')
-                panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
-            }
+            panelLayoutLogic.actions.showLayoutPanel(true)
+            panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+            panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
         },
         '*': () => {
-            if (
-                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] &&
-                router.values.location.pathname !== urls.sqlEditor()
-            ) {
+            if (router.values.location.pathname !== urls.sqlEditor()) {
                 panelLayoutLogic.actions.clearActivePanelIdentifier()
                 panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
                 panelLayoutLogic.actions.showLayoutPanel(false)

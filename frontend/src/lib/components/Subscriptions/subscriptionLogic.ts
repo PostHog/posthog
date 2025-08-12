@@ -57,20 +57,20 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 target_value: !target_value
                     ? 'This field is required.'
                     : target_type == 'email'
-                    ? !target_value
-                        ? 'At least one email is required'
-                        : !target_value.split(',').every((email) => isEmail(email))
-                        ? 'All emails must be valid'
-                        : undefined
-                    : target_type == 'slack'
-                    ? !target_value
-                        ? 'A channel is required'
-                        : undefined
-                    : target_type == 'webhook'
-                    ? !isURL(target_value)
-                        ? 'Must be a valid URL'
-                        : undefined
-                    : undefined,
+                      ? !target_value
+                          ? 'At least one email is required'
+                          : !target_value.split(',').every((email) => isEmail(email))
+                            ? 'All emails must be valid'
+                            : undefined
+                      : target_type == 'slack'
+                        ? !target_value
+                            ? 'A channel is required'
+                            : undefined
+                        : target_type == 'webhook'
+                          ? !isURL(target_value)
+                              ? 'Must be a valid URL'
+                              : undefined
+                          : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined

@@ -15,6 +15,7 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -24,7 +25,6 @@ from posthog.tasks.tasks import (
     clear_clickhouse_deleted_person,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
-    clickhouse_mark_all_materialized,
     clickhouse_materialize_columns,
     clickhouse_mutation_count,
     clickhouse_part_count,
@@ -114,6 +114,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="0", day_of_week="mon"),
         send_all_periodic_digest_reports.s(),
         name="send all weekly digest reports",
+    )
+
+    # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
+    sender.add_periodic_task(
+        crontab(hour="9", minute="30"),
+        send_hog_functions_daily_digest.s(),
+        name="send HogFunctions daily digest",
     )
 
     # PostHog Cloud cron jobs
@@ -285,21 +292,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 name="clickhouse materialize columns",
             )
 
-            sender.add_periodic_task(
-                crontab(hour="*/4", minute="0"),
-                clickhouse_mark_all_materialized.s(),
-                name="clickhouse mark all columns as materialized",
-            )
-
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings.s(),
             name="persist finished recordings",
         )
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings_v2.s(),
             name="persist finished recordings v2",
         )

@@ -200,7 +200,14 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
                         ? [
                               {
-                                  label: 'Calendar Heatmap',
+                                  label: (
+                                      <>
+                                          Calendar heatmap
+                                          <LemonTag type="warning" className="uppercase ml-2">
+                                              Beta
+                                          </LemonTag>
+                                      </>
+                                  ),
                                   type: InsightType.CALENDAR_HEATMAP,
                                   dataAttr: 'insight-calendar-heatmap-tab',
                               },
@@ -323,8 +330,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.None
+                      ? MathAvailability.ActorsOnly
+                      : MathAvailability.None
                 mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
         }

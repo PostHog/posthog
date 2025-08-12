@@ -192,7 +192,7 @@ export const LineGraph = (): JSX.Element => {
                     type: graphType,
                     fill: isAreaChart ? 'origin' : false,
                     yAxisID,
-                    ...(settings?.display?.trendLine
+                    ...(settings?.display?.trendLine && xData && yData && xData.data.length > 0 && data.length > 0
                         ? {
                               trendlineLinear: {
                                   colorMin: hexToRGBA(color, 0.6),
@@ -536,7 +536,7 @@ export const LineGraph = (): JSX.Element => {
             plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
-    }, [xData, yData, seriesBreakdownData, visualizationType, goalLines, chartSettings])
+    }, [xData, yData, seriesBreakdownData, visualizationType, goalLines, chartSettings]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div

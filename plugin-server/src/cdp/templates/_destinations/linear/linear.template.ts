@@ -9,7 +9,8 @@ export const template: HogFunctionTemplate = {
     description: 'Creates an issue for a Linear team',
     icon_url: '/static/services/linear.png',
     category: ['Error tracking'],
-    hog: `
+    code_language: 'hog',
+    code: `
 let description :=f'{event.properties.description}
 
 [View Person in PostHog]({person.url})

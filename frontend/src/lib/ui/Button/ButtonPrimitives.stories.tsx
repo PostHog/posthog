@@ -25,7 +25,15 @@ export function Default(): JSX.Element {
     return (
         <div className="flex flex-col gap-4 max-w-lg">
             <ButtonPrimitive variant="outline" size="base">
-                Button base
+                Default
+            </ButtonPrimitive>
+
+            <ButtonPrimitive variant="outline" size="base">
+                Outline
+            </ButtonPrimitive>
+
+            <ButtonPrimitive variant="danger" size="base">
+                Danger
             </ButtonPrimitive>
 
             <ButtonPrimitive size="base" disabled>

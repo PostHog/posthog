@@ -55,7 +55,7 @@ export function PropertyGroupFilters({
         <div className="deprecated-space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <div className="flex flex-1 gap-2 flex-row space-between">
+                    <div className="flex flex-1 gap-2 flex-row space-between flex-wrap">
                         <LemonButton
                             data-attr={`${pageKey}-add-filter-group-inline`}
                             type="secondary"

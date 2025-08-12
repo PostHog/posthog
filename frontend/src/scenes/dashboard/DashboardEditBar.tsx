@@ -24,13 +24,11 @@ export function DashboardEditBar(): JSX.Element {
         temporaryFilters,
         dashboardMode,
         filtersUpdated,
-        dashboardVariables,
+        hasVariables,
     } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode, previewTemporaryFilters } =
         useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-
-    const hasVariables = Object.keys(dashboardVariables).length > 0
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',

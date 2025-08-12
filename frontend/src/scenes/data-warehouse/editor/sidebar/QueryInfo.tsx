@@ -1,8 +1,8 @@
 import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
-import { useValues } from 'kea'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -21,6 +21,36 @@ import { UpstreamGraph } from './graph/UpstreamGraph'
 
 interface QueryInfoProps {
     codeEditorKey: string
+}
+
+function getMaterializationStatusMessage(
+    rowsMaterialized: number,
+    progressPercentage: number,
+    rowsExpected: number
+): string {
+    const percentComplete = Math.round(Math.min(100, (rowsMaterialized / rowsExpected) * 100))
+    switch (true) {
+        case rowsMaterialized === 0:
+            return `Spinning up spikes — starting materialization job... ${percentComplete}% complete.`
+        case progressPercentage < 10:
+            return `Digging into SQL... executing your query now... ${percentComplete}% complete.`
+        case progressPercentage < 25:
+            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away... ${percentComplete}% complete.`
+        case progressPercentage < 50:
+            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage... ${percentComplete}% complete.`
+        case progressPercentage < 90:
+            return `Still going — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows written... ${percentComplete}% complete.`
+        case progressPercentage === 100:
+            return `Wrapping up — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows processed... ${percentComplete}% complete.`
+        default:
+            return `Almost there — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows processed... ${percentComplete}% complete.`
+    }
 }
 
 const OPTIONS = [
@@ -62,6 +92,26 @@ const OPTIONS = [
     },
 ]
 
+function getMaterializationDisabledReasons(
+    currentJobStatus: string | null,
+    startingMaterialization: boolean
+): {
+    sync: string | false
+    cancel: string | false
+    revert: string | false
+} {
+    return {
+        sync:
+            currentJobStatus === 'Running'
+                ? 'Materialization is already running'
+                : startingMaterialization
+                  ? 'Materialization is starting'
+                  : false,
+        cancel: currentJobStatus !== 'Running' ? 'Materialization is not running' : false,
+        revert: currentJobStatus === 'Running' ? 'Cannot revert while materialization is running' : false,
+    }
+}
+
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
     const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
@@ -76,16 +126,21 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
         initialDataWarehouseSavedQueryLoading,
         dataModelingJobs,
         hasMoreJobsToLoad,
+        startingMaterialization,
     } = useValues(dataWarehouseViewsLogic)
     const {
         updateDataWarehouseSavedQuery,
         loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
         revertMaterialization,
+        setStartingMaterialization,
     } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
+
+    const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
+    const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
@@ -121,29 +176,31 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 <div className="flex gap-4 mt-2">
                                     <LemonButton
                                         className="whitespace-nowrap"
-                                        loading={savedQuery?.status === 'Running'}
-                                        disabledReason={
-                                            savedQuery?.status === 'Running' && 'Materialization is already running'
-                                        }
-                                        onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
+                                        loading={startingMaterialization || currentJobStatus === 'Running'}
+                                        disabledReason={sync}
+                                        onClick={() => {
+                                            if (editingView) {
+                                                setStartingMaterialization(true)
+                                                runDataWarehouseSavedQuery(editingView.id)
+                                            }
+                                        }}
                                         type="secondary"
                                         sideAction={{
                                             icon: <IconX fontSize={16} />,
                                             tooltip: 'Cancel materialization',
                                             onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
-                                            disabledReason:
-                                                savedQuery?.status !== 'Running' && 'Materialization is not running',
+                                            disabledReason: cancel,
                                         }}
                                     >
-                                        {savedQuery?.status === 'Running' ? 'Running...' : 'Sync now'}
+                                        {startingMaterialization
+                                            ? 'Starting...'
+                                            : currentJobStatus === 'Running'
+                                              ? 'Running...'
+                                              : 'Sync now'}
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"
-                                        disabledReason={
-                                            savedQuery?.status === 'Running'
-                                                ? 'Materialization is already running'
-                                                : false
-                                        }
+                                        disabledReason={sync}
                                         value={
                                             editingView
                                                 ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency ||
@@ -168,10 +225,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             type="secondary"
                                             size="small"
                                             tooltip="Revert materialized view to view"
-                                            disabledReason={
-                                                savedQuery?.status === 'Running' &&
-                                                'Cannot revert while materialization is running'
-                                            }
+                                            disabledReason={revert}
                                             icon={<IconRevert />}
                                             onClick={() => {
                                                 LemonDialog.open({
@@ -249,7 +303,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     title: 'Status',
                                     dataIndex: 'status',
-                                    render: (_, { status, error }: DataModelingJob) => {
+                                    render: (_, job: DataModelingJob) => {
+                                        const { status, error, rows_materialized, rows_expected } = job
                                         const statusToType: Record<string, LemonTagType> = {
                                             Completed: 'success',
                                             Failed: 'danger',
@@ -257,7 +312,31 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         }
                                         const type = statusToType[status] || 'warning'
 
-                                        return error ? (
+                                        const progressPercentage =
+                                            rows_expected && rows_expected > 0
+                                                ? Math.min(100, (rows_materialized / rows_expected) * 100)
+                                                : 0
+
+                                        // Only show progress if there is > 0 progress and we have expected rows
+                                        // many small result sets will never show progress as they are written in only 1 batch
+                                        if (status === 'Running' && progressPercentage > 0 && rows_expected !== null) {
+                                            return (
+                                                <Tooltip
+                                                    placement="right"
+                                                    title={getMaterializationStatusMessage(
+                                                        rows_materialized,
+                                                        progressPercentage,
+                                                        rows_expected
+                                                    )}
+                                                >
+                                                    <div className="w-[68px]">
+                                                        <LemonProgress percent={progressPercentage} />
+                                                    </div>
+                                                </Tooltip>
+                                            )
+                                        }
+
+                                        return error && status !== 'Completed' ? (
                                             <Tooltip title={error}>
                                                 <LemonTag type={type}>{status}</LemonTag>
                                             </Tooltip>
@@ -397,12 +476,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     onChange={(mode) => setUpstreamViewMode(mode)}
                                     options={[
                                         {
-                                            value: 'table',
-                                            label: 'Table',
-                                        },
-                                        {
                                             value: 'graph',
                                             label: 'Graph',
+                                        },
+                                        {
+                                            value: 'table',
+                                            label: 'Table',
                                         },
                                     ]}
                                     size="small"
@@ -493,9 +572,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 dataSource={upstream.nodes}
                             />
                         ) : (
-                            <div className="h-96 border border-border rounded-lg overflow-hidden">
-                                <UpstreamGraph codeEditorKey={codeEditorKey} />
-                            </div>
+                            <UpstreamGraph codeEditorKey={codeEditorKey} />
                         )}
                     </>
                 )}

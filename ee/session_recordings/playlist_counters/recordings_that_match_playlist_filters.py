@@ -7,6 +7,8 @@ from django.conf import settings
 from django.db.models import Count
 from prometheus_client import Counter, Histogram, Gauge
 from pydantic import ValidationError
+
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
@@ -397,6 +399,8 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
             redis_client = get_client()
+
+            tag_queries(product=Product.REPLAY, team_id=playlist.team.pk, replay_playlist_id=playlist_id)
 
             existing_value = redis_client.getex(
                 name=f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", ex=THIRTY_SIX_HOURS_IN_SECONDS

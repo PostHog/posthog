@@ -1,4 +1,4 @@
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { runInstrumentedFunction } from '../../../main/utils'
 import { Hub, TimestampFormat } from '../../../types'
@@ -8,6 +8,7 @@ import { captureException } from '../../../utils/posthog'
 import { castTimestampOrNow } from '../../../utils/utils'
 import {
     AppMetricType,
+    CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     LogEntry,
     LogEntrySerialized,
@@ -23,10 +24,24 @@ const counterHogFunctionMetric = new Counter({
     labelNames: ['metric_kind', 'metric_name'],
 })
 
+export const hogFunctionExecutionTimeSummary = new Histogram({
+    name: 'cdp_hog_function_duration',
+    help: 'Processing time of hog function execution by kind',
+    labelNames: ['kind'],
+})
+
 export type HogFunctionMonitoringMessage = {
     topic: string
     value: LogEntrySerialized | AppMetricType
+    headers?: Record<string, string>
     key: string
+}
+
+// Check if the result is of type CyclotronJobInvocationHogFunction
+export const isHogFunctionResult = (
+    result: CyclotronJobInvocationResult
+): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+    return 'hogFunction' in result.invocation
 }
 
 export class HogFunctionMonitoringService {
@@ -46,6 +61,7 @@ export class HogFunctionMonitoringService {
                         topic: x.topic,
                         key: x.key ? Buffer.from(x.key) : null,
                         value,
+                        headers: x.headers,
                     })
                     .catch((error) => {
                         // NOTE: We don't hard fail here - this is because we don't want to disrupt the
@@ -55,6 +71,7 @@ export class HogFunctionMonitoringService {
                             messageLength: value?.length,
                             topic: x.topic,
                             key: x.key,
+                            headers: x.headers,
                         })
 
                         captureException(error)
@@ -124,6 +141,15 @@ export class HogFunctionMonitoringService {
                         }
 
                         if (result.finished || result.error) {
+                            // Process each timing entry individually instead of totaling them
+                            const timings = isHogFunctionResult(result) ? (result.invocation.state?.timings ?? []) : []
+                            for (const timing of timings) {
+                                // Record metrics for this timing entry
+                                hogFunctionExecutionTimeSummary
+                                    .labels({ kind: timing.kind })
+                                    .observe(timing.duration_ms)
+                            }
+
                             this.queueAppMetric(
                                 {
                                     team_id: result.invocation.teamId,
@@ -148,6 +174,10 @@ export class HogFunctionMonitoringService {
                                 topic: this.hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC,
                                 value: convertToCaptureEvent(event, team),
                                 key: `${team.api_token}:${event.distinct_id}`,
+                                headers: {
+                                    distinct_id: event.distinct_id,
+                                    token: team.api_token,
+                                },
                             })
                         }
                     })

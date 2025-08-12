@@ -654,6 +654,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         )
                                     }
 
+                                    const isNotANumber =
+                                        Number.isNaN(n[column.dataIndex]) ||
+                                        n[column.dataIndex] === undefined ||
+                                        n[column.dataIndex] === null
+                                    if (isNotANumber) {
+                                        return 0
+                                    }
+
                                     const isInt = Number.isInteger(n[column.dataIndex])
                                     return isInt
                                         ? parseInt(n[column.dataIndex], 10) * multiplier

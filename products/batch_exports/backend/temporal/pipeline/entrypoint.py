@@ -1,3 +1,4 @@
+import collections.abc
 import datetime as dt
 
 from django.conf import settings
@@ -5,10 +6,12 @@ from temporalio import exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
+from posthog.batch_exports.service import (
+    BatchExportInsertInputs,
+)
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 from products.batch_exports.backend.temporal.batch_exports import (
-    BatchExportActivity,
     FinishBatchExportRunInputs,
     finish_batch_export_run,
 )
@@ -20,15 +23,16 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
 LOGGER = get_logger(__name__)
 
+BatchExportInsertActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]
+
 
 async def execute_batch_export_using_internal_stage(
-    activity: BatchExportActivity,
-    inputs,
-    non_retryable_error_types: list[str],
-    finish_inputs: FinishBatchExportRunInputs,
+    activity: BatchExportInsertActivity,
+    inputs: BatchExportInsertInputs,
     interval: str,
     heartbeat_timeout_seconds: int | None = 180,
     maximum_attempts: int = 0,
@@ -51,8 +55,6 @@ async def execute_batch_export_using_internal_stage(
     Args:
         activity: The 'insert_into_*' activity function to execute.
         inputs: The inputs to the activity.
-        non_retryable_error_types: A list of errors to not retry on when executing the activity.
-        finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
         interval: The interval of the batch export used to set the start to close timeout.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
             Assuming the error that triggered the retry is not in non_retryable_error_types.
@@ -60,6 +62,15 @@ async def execute_batch_export_using_internal_stage(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     get_export_started_metric().add(1)
+
+    assert inputs.run_id is not None
+    assert inputs.batch_export_id is not None
+    finish_inputs = FinishBatchExportRunInputs(
+        id=inputs.run_id,
+        batch_export_id=inputs.batch_export_id,
+        status=BatchExportRun.Status.COMPLETED,
+        team_id=inputs.team_id,
+    )
 
     if TEST:
         maximum_attempts = 1
@@ -80,13 +91,6 @@ async def execute_batch_export_using_internal_stage(
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
-    retry_policy = RetryPolicy(
-        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
-        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
-        maximum_attempts=maximum_attempts,
-        non_retryable_error_types=non_retryable_error_types,
-    )
-
     try:
         await workflow.execute_activity(
             insert_into_internal_stage_activity,
@@ -105,25 +109,35 @@ async def execute_batch_export_using_internal_stage(
             ),
             start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
-            retry_policy=retry_policy,
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
+                maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
+                maximum_attempts=maximum_attempts,
+            ),
         )
 
-        records_completed = await workflow.execute_activity(
+        result = await workflow.execute_activity(
             activity,
             inputs,
             start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
-            retry_policy=retry_policy,
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
+                maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
+                maximum_attempts=maximum_attempts,
+            ),
         )
-        finish_inputs.records_completed = records_completed
+        finish_inputs.records_completed = result.records_completed
+        finish_inputs.bytes_exported = result.bytes_exported
+        if result.error_repr:
+            finish_inputs.latest_error = result.error_repr
+            finish_inputs.status = BatchExportRun.Status.FAILED
 
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
             finish_inputs.status = BatchExportRun.Status.CANCELLED
-        elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type not in non_retryable_error_types:
-            finish_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
         else:
-            finish_inputs.status = BatchExportRun.Status.FAILED
+            finish_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
 
         finish_inputs.latest_error = str(e.cause)
         raise

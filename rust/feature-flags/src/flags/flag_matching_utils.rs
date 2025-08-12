@@ -10,7 +10,7 @@ use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
 use tokio::time::{sleep, timeout};
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 // Add thread-local imports for test-specific counter
 #[cfg(test)]
@@ -67,6 +67,7 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns void if it succeeds.
+#[instrument(skip_all, fields(team_id = %team_id, distinct_id = %distinct_id, person_query_ms, cohort_query_ms, group_query_ms, cohort_ids = ?static_cohort_ids, group_type_indexes = ?group_type_indexes, group_keys = ?group_keys))]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
@@ -79,8 +80,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // Add the test-specific counter increment
     #[cfg(test)]
     increment_fetch_calls_count();
-
-    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
+    let labels = [
+        ("pool".to_string(), "reader".to_string()),
+        (
+            "operation".to_string(),
+            "fetch_and_locally_cache_all_relevant_properties".to_string(),
+        ),
+    ];
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
     let mut conn = reader.as_ref().get_connection().await?;
     conn_timer.fin();
 
@@ -115,6 +122,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     person_query_timer.fin();
 
     let person_query_duration = person_query_start.elapsed();
+    tracing::Span::current().record("person_query_ms", person_query_duration.as_millis());
 
     if person_query_duration.as_millis() > 500 {
         warn!(
@@ -160,6 +168,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             cohort_timer.fin();
 
             let cohort_query_duration = cohort_query_start.elapsed();
+            tracing::Span::current().record("cohort_query_ms", cohort_query_duration.as_millis());
 
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
@@ -251,6 +260,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         group_query_timer.fin();
 
         let group_query_duration = group_query_start.elapsed();
+        tracing::Span::current().record("group_query_ms", group_query_duration.as_millis());
 
         if group_query_duration.as_millis() > 300 {
             warn!(
@@ -354,11 +364,10 @@ pub fn match_flag_value_to_flag_filter(
     filter: &PropertyFilter,
     flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
 ) -> bool {
-    // If the operator is not exact, we can't match the flag value to the flag filter
-    if filter.operator != Some(OperatorType::Exact) {
-        // Should we log this?
+    // Flag dependencies must use the flag_evaluates_to operator
+    if filter.operator != Some(OperatorType::FlagEvaluatesTo) {
         tracing::error!(
-            "Flag filter operator for property type Flag is not `exact`, skipping flag value matching: {:?}",
+            "Flag filter operator for property type Flag must be `flag_evaluates_to`, skipping flag value matching: {:?}",
             filter
         );
         return false;
@@ -393,7 +402,16 @@ pub async fn get_feature_flag_hash_key_overrides(
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
+    let labels = [
+        ("pool".to_string(), "reader".to_string()),
+        (
+            "operation".to_string(),
+            "get_feature_flag_hash_key_overrides".to_string(),
+        ),
+    ];
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
     let mut conn = reader.as_ref().get_connection().await?;
+    conn_timer.fin();
 
     let person_and_distinct_id_query = r#"
             SELECT person_id, distinct_id 
@@ -573,9 +591,18 @@ pub async fn should_write_hash_key_override(
 
     for retry in 0..MAX_RETRIES {
         let result = timeout(QUERY_TIMEOUT, async {
+            let labels = [
+                ("pool".to_string(), "reader".to_string()),
+                (
+                    "operation".to_string(),
+                    "should_write_hash_key_override".to_string(),
+                ),
+            ];
+            let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
             let mut conn = reader.get_connection().await.map_err(|e| {
                 FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
             })?;
+            conn_timer.fin();
 
             let rows = sqlx::query(query)
                 .bind(team_id)
@@ -690,6 +717,7 @@ mod tests {
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
             version: flag.version,
+            evaluation_runtime: flag.evaluation_runtime,
         };
 
         // Insert the feature flag into the database
@@ -888,7 +916,7 @@ mod tests {
         let filter = PropertyFilter {
             key: filter_flag_id.to_string(),
             value: Some(filter_value),
-            operator: Some(OperatorType::Exact),
+            operator: Some(OperatorType::FlagEvaluatesTo),
             prop_type: PropertyType::Flag,
             negation: None,
             group_type_index: None,

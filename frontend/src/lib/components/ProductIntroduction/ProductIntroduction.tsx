@@ -93,10 +93,10 @@ export const ProductIntroduction = ({
                         {!isEmpty
                             ? `Welcome to ${productName}!`
                             : actionable
-                            ? titleOverride
-                                ? titleOverride
-                                : `Create your first ${thingName}`
-                            : `No ${thingName}s yet`}
+                              ? titleOverride
+                                  ? titleOverride
+                                  : `Create your first ${thingName}`
+                              : `No ${thingName}s yet`}
                     </h2>
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (

@@ -5,7 +5,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookListItemType, NotebookNodeType } from '~/types'
+import { NotebookListItemType, NotebookNodeType } from '../types'
 
 import type { notebooksTableLogicType } from './notebooksTableLogicType'
 

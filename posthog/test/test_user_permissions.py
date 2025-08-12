@@ -144,7 +144,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Make the team private
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=None,
             role=None,
@@ -170,7 +170,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Make the team private
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=None,
             role=None,
@@ -196,7 +196,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Make the team private
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=None,
             role=None,
@@ -210,7 +210,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Give the member user access to the team
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=self.organization_membership,
             access_level="member",
@@ -232,7 +232,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Make the team private
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=None,
             role=None,
@@ -256,7 +256,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Give the role access to the team
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             role=role,
             access_level="member",
