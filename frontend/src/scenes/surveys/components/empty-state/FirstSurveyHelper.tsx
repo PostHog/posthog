@@ -23,90 +23,129 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
     }
 
     return (
-        <div className="bg-bg-light border border-border rounded p-4 min-w-full">
-            <div className="flex gap-4">
-                <div className="flex items-center">
-                    <ProfessorHog width={200} height={200} className="scale-x-[-1]" />
+        <div className="bg-bg-light border border-border rounded-lg p-6">
+            <div className="flex items-center gap-6">
+                <div className="hidden sm:block flex-shrink-0">
+                    <ProfessorHog width={150} height={150} className="scale-x-[-1]" />
                 </div>
-                <div className="flex-1">
-                    <h4 className="text-lg font-semibold mb-3 text-default">Get the most out of your survey</h4>
-                    <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <IconRocket className="w-4 h-4 text-muted" />
-                                    <strong className="text-default">Launch your survey</strong>
-                                </div>
-                                <p className="text-sm text-muted mb-2">Display your survey to your users.</p>
+                <div className="flex-1 min-w-0">
+                    <div className="mb-6">
+                        <h3 className="text-xl font-semibold mb-2 text-default">Ready to launch your survey?</h3>
+                        <p className="text-sm text-muted">
+                            Your survey is set up! Here's what you can do next to maximize your results.
+                        </p>
+                    </div>
+
+                    {/* Primary Action - Most Important */}
+                    <div className="bg-primary-3000/5 border border-primary-3000/20 rounded-lg p-4 mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center justify-center w-8 h-8 bg-primary-3000 rounded-lg flex-shrink-0">
+                                <IconRocket className="w-4 h-4 text-white" />
                             </div>
-                            <LaunchSurveyButton>Launch survey</LaunchSurveyButton>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <IconTarget className="w-4 h-4 text-muted" />
-                                    <strong className="text-default">Add targeting conditions</strong>
-                                </div>
-                                <p className="text-sm text-muted mb-2">
-                                    Show your survey to specific users or on certain pages.{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/surveys/creating-surveys#display-conditions"
-                                        target="_blank"
-                                    >
-                                        Learn more
-                                    </Link>
+                            <div className="flex-1 min-w-0">
+                                <h4 className="font-semibold text-default mb-0">Launch your survey</h4>
+                                <p className="text-sm text-muted mb-0">
+                                    Start collecting feedback from your users right away.
                                 </p>
                             </div>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    editingSurvey(true)
-                                    setSelectedSection(SurveyEditSection.DisplayConditions)
-                                    setTimeout(() => {
-                                        setSurveyValue('conditions', { url: '' })
-                                    }, 100)
-                                }}
-                            >
-                                Edit survey
-                            </LemonButton>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <IconGraph className="w-4 h-4 text-muted" />
-                                    <strong className="text-default">Preview your results</strong>
-                                </div>
-                                <p className="text-sm text-muted mb-2">
-                                    See how your analytics will look before launching.{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/surveys/viewing-results#1-on-the-survey-page"
-                                        target="_blank"
-                                    >
-                                        Learn more
-                                    </Link>
-                                </p>
+                            <div className="flex-shrink-0">
+                                <LaunchSurveyButton>Launch survey</LaunchSurveyButton>
                             </div>
-                            <LemonButton type="secondary" size="small" onClick={() => onTabChange?.('results')}>
-                                View demo
-                            </LemonButton>
                         </div>
-                        <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <IconBell className="w-4 h-4 text-muted" />
-                                    <strong className="text-default">Set up notifications</strong>
+                    </div>
+
+                    {/* Secondary Actions - Grouped */}
+                    <div className="space-y-3">
+                        <h5 className="text-sm font-medium text-muted uppercase tracking-wide">
+                            Optional improvements
+                        </h5>
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="border border-border rounded-lg p-3 hover:border-border-bold transition-colors">
+                                <div className="flex items-start gap-3">
+                                    <IconTarget className="w-4 h-4 text-muted mt-1 flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <h4 className="font-medium text-default text-sm mb-1">Add targeting</h4>
+                                        <p className="text-xs text-muted mb-2 leading-relaxed">
+                                            Show to specific users.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/surveys/creating-surveys#display-conditions"
+                                                target="_blank"
+                                                className="text-primary-3000"
+                                            >
+                                                Docs
+                                            </Link>
+                                        </p>
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="xsmall"
+                                            onClick={() => {
+                                                editingSurvey(true)
+                                                setSelectedSection(SurveyEditSection.DisplayConditions)
+                                                setTimeout(() => {
+                                                    setSurveyValue('conditions', { url: '' })
+                                                }, 100)
+                                            }}
+                                        >
+                                            Configure
+                                        </LemonButton>
+                                    </div>
                                 </div>
-                                <p className="text-sm text-muted mb-2">
-                                    Get alerted instantly when responses come in.{' '}
-                                    <Link to="https://posthog.com/tutorials/slack-surveys" target="_blank">
-                                        Slack tutorial
-                                    </Link>
-                                </p>
                             </div>
-                            <LemonButton type="secondary" size="small" onClick={() => onTabChange?.('notifications')}>
-                                Set up
-                            </LemonButton>
+
+                            <div className="border border-border rounded-lg p-3 hover:border-border-bold transition-colors">
+                                <div className="flex items-start gap-3">
+                                    <IconGraph className="w-4 h-4 text-muted mt-1 flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <h4 className="font-medium text-default text-sm mb-1">Preview results</h4>
+                                        <p className="text-xs text-muted mb-2 leading-relaxed">
+                                            See sample analytics.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/surveys/viewing-results#1-on-the-survey-page"
+                                                target="_blank"
+                                                className="text-primary-3000"
+                                            >
+                                                Docs
+                                            </Link>
+                                        </p>
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="xsmall"
+                                            onClick={() => onTabChange?.('results')}
+                                        >
+                                            View demo
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="border border-border rounded-lg p-3 hover:border-border-bold transition-colors">
+                                <div className="flex items-start gap-3">
+                                    <IconBell className="w-4 h-4 text-muted mt-1 flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <h4 className="font-medium text-default text-sm mb-1">
+                                            Get notified on responses
+                                        </h4>
+                                        <p className="text-xs text-muted mb-2 leading-relaxed">
+                                            Slack notifications.{' '}
+                                            <Link
+                                                to="https://posthog.com/tutorials/slack-surveys"
+                                                target="_blank"
+                                                className="text-primary-3000"
+                                            >
+                                                Tutorial
+                                            </Link>
+                                        </p>
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="xsmall"
+                                            onClick={() => onTabChange?.('notifications')}
+                                        >
+                                            Set up
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

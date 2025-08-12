@@ -90,6 +90,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                         reportSurveyTemplateClicked={() => {}} // Not used in this context
                                         surveyAppearance={template.appearance}
                                         handleTemplateClick={() => handleCreateSurveyFromTemplate(template)}
+                                        isMostPopular={template.templateType === SurveyTemplateType.OpenFeedback}
                                     />
                                 ))}
                             </div>

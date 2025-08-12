@@ -31,15 +31,32 @@ interface TemplateCardProps {
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
     handleTemplateClick: (template: SurveyTemplate) => void
+    isMostPopular?: boolean
 }
 
-export function TemplateCard({ template, idx, handleTemplateClick, surveyAppearance }: TemplateCardProps): JSX.Element {
+export function TemplateCard({
+    template,
+    idx,
+    handleTemplateClick,
+    surveyAppearance,
+    isMostPopular,
+}: TemplateCardProps): JSX.Element {
     return (
         <button
-            className="flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
+            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
             data-attr="survey-template"
             onClick={() => handleTemplateClick(template)}
         >
+            {isMostPopular && (
+                <div className="absolute bottom-0 right-0 z-10">
+                    <div className="relative">
+                        <div className="bg-primary-3000/85 text-white text-xs font-semibold px-3 py-1 rounded-tl-lg rounded-br-lg shadow-md">
+                            Most Popular
+                        </div>
+                        <div className="absolute bottom-full right-0 w-0 h-0 border-r-[8px] border-r-transparent border-b-[6px] border-b-primary-3000 opacity-60" />
+                    </div>
+                </div>
+            )}
             <div>
                 <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">
@@ -116,6 +133,7 @@ export function SurveyTemplates(): JSX.Element {
                             setSurveyTemplateValues={setSurveyTemplateValues}
                             reportSurveyTemplateClicked={reportSurveyTemplateClicked}
                             surveyAppearance={surveyAppearance}
+                            isMostPopular={template.templateType === SurveyTemplateType.OpenFeedback}
                             handleTemplateClick={(template) => {
                                 setSurveyTemplateValues({
                                     name: template.templateType,
