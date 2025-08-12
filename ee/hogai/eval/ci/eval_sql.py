@@ -10,8 +10,14 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team.team import Team
 from posthog.schema import AssistantHogQLQuery, NodeKind
 
-from .conftest import MaxEval
-from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
+from ..conftest import MaxEval
+from ..scorers import (
+    PlanAndQueryOutput,
+    PlanCorrectness,
+    QueryAndPlanAlignment,
+    QueryKindSelection,
+    TimeRangeRelevancy,
+)
 
 QUERY_GENERATION_MAX_RETRIES = 3
 

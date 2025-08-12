@@ -12,12 +12,12 @@ We currently use [Braintrust](https://braintrust.dev) as our evaluation platform
 2. Run all evals with:
 
     ```bash
-    pytest ee/hogai/eval
+    pytest ee/hogai/eval/ci
     ```
 
-    The key bit is specifying the `ee/hogai/eval` directory – that activates our eval-specific config, `ee/hogai/eval/pytest.ini`!
+    The key bit is specifying the `ee/hogai/eval/ci` directory – that activates our eval-specific config, `ee/hogai/eval/pytest.ini`!
 
-    As always with pytest, you can also run a specific file, e.g. `pytest ee/hogai/eval/eval_root.py`.
+    As always with pytest, you can also run a specific file, e.g. `pytest ee/hogai/eval/ci/eval_root.py`. Apply the `--eval sql` argument to only run evals for test cases that contain `sql`.
 
 3. Voila! Max ran, evals executed, and results and traces uploaded to the Braintrust platform + summarized in the terminal.
 

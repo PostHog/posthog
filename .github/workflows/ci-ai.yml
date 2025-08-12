@@ -59,7 +59,7 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Run LLM evals
-              run: pytest ee/hogai/eval -vv
+              run: pytest ee/hogai/eval/ci -vv
               env:
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

@@ -9,8 +9,14 @@ from posthog.schema import (
     NodeKind,
 )
 
-from .conftest import MaxEval
-from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
+from ..conftest import MaxEval
+from ..scorers import (
+    PlanAndQueryOutput,
+    PlanCorrectness,
+    QueryAndPlanAlignment,
+    QueryKindSelection,
+    TimeRangeRelevancy,
+)
 
 
 @pytest.mark.django_db

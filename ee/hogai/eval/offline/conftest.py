@@ -1,0 +1,207 @@
+import asyncio
+import os
+from collections.abc import Generator
+from io import BytesIO
+from typing import TYPE_CHECKING, TypedDict, TypeVar
+from unittest.mock import MagicMock, patch
+
+import aioboto3
+import aioboto3.s3
+import backoff
+import pytest
+from asgiref.sync import async_to_sync, sync_to_async
+from dagster_pipes import PipesContext, open_dagster_pipes
+from fastavro import reader
+from pydantic_avro import AvroBase
+
+from ee.hogai.eval.schema import (
+    ActorsPropertyTaxonomySchema,
+    DataWarehouseTableSchema,
+    EvalsDockerImageConfig,
+    GroupTypeMappingSchema,
+    ProjectSnapshot,
+    PropertyDefinitionSchema,
+    PropertyTaxonomySchema,
+    TeamSchema,
+    TeamTaxonomyItemSchema,
+)
+from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
+from posthog.schema import TeamTaxonomyItem
+from posthog.warehouse.models.table import DataWarehouseTable
+
+from .query_patches import (
+    ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,
+    EVENT_TAXONOMY_QUERY_DATA_SOURCE,
+    TEAM_TAXONOMY_QUERY_DATA_SOURCE,
+    PatchedActorsPropertyTaxonomyQueryRunner,
+    PatchedEventTaxonomyQueryRunner,
+    PatchedTeamTaxonomyQueryRunner,
+)
+
+if TYPE_CHECKING:
+    from types_aiobotocore_s3.client import S3Client
+
+
+T = TypeVar("T", bound=AvroBase)
+
+
+class ClickhouseQuerySnapshot(TypedDict):
+    events: list[TeamTaxonomyItem]
+
+
+class SnapshotLoader:
+    def __init__(self, context: PipesContext):
+        self.context = context
+        self.config = EvalsDockerImageConfig.model_validate(context.extras)
+        self.patches: list[MagicMock] = []
+
+    async def load_snapshots(self) -> tuple[Organization, User]:
+        self.organization = await Organization.objects.acreate(name="PostHog")
+        self.user = await sync_to_async(User.objects.create_and_join)(self.organization, "test@posthog.com", "12345678")
+
+        # clickhouse_query_snapshots: dict[int, dict[str,]] = {}
+        for snapshot in self.config.project_snapshots:
+            self.context.log.info(f"Loading Postgres snapshot for team {snapshot.project}...")
+
+            project = await Project.objects.acreate(
+                id=await sync_to_async(Team.objects.increment_id_sequence)(), organization=self.organization
+            )
+
+            (
+                project_snapshot_bytes,
+                property_definitions_snapshot_bytes,
+                group_type_mappings_snapshot_bytes,
+                data_warehouse_tables_snapshot_bytes,
+                event_taxonomy_snapshot_bytes,
+                properties_taxonomy_snapshot_bytes,
+                actors_property_taxonomy_snapshot_bytes,
+            ) = await self._get_all_snapshots(snapshot)
+
+            team = await self._load_project_snapshot(project, snapshot.project, project_snapshot_bytes)
+            await asyncio.gather(
+                self._load_property_definitions(team, property_definitions_snapshot_bytes),
+                self._load_group_type_mappings(team, group_type_mappings_snapshot_bytes),
+                self._load_data_warehouse_tables(team, data_warehouse_tables_snapshot_bytes),
+            )
+            self._load_event_taxonomy(team, event_taxonomy_snapshot_bytes)
+            self._load_properties_taxonomy(team, properties_taxonomy_snapshot_bytes)
+            self._load_actors_property_taxonomy(team, actors_property_taxonomy_snapshot_bytes)
+
+        self._patch_query_runners()
+
+        return self.organization, self.user
+
+    def cleanup(self):
+        for mock in self.patches:
+            mock.stop()
+
+    @backoff.on_exception(backoff.expo, Exception, max_tries=3)
+    async def _get_all_snapshots(self, snapshot: ProjectSnapshot):
+        async with aioboto3.Session().client(
+            "s3",
+            endpoint_url=self.config.endpoint_url,
+            aws_access_key_id=os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY"),
+        ) as client:
+            loaded_snapshots = await asyncio.gather(
+                self._get_snapshot_from_s3(client, snapshot.postgres.project),
+                self._get_snapshot_from_s3(client, snapshot.postgres.property_definitions),
+                self._get_snapshot_from_s3(client, snapshot.postgres.group_type_mappings),
+                self._get_snapshot_from_s3(client, snapshot.postgres.data_warehouse_tables),
+                self._get_snapshot_from_s3(client, snapshot.clickhouse.event_taxonomy),
+                self._get_snapshot_from_s3(client, snapshot.clickhouse.properties_taxonomy),
+                self._get_snapshot_from_s3(client, snapshot.clickhouse.actors_property_taxonomy),
+            )
+            return loaded_snapshots
+
+    async def _get_snapshot_from_s3(self, client: "S3Client", file_key: str):
+        response = await client.get_object(Bucket=self.config.bucket_name, Key=file_key)
+        content = await response["Body"].read()
+        return BytesIO(content)
+
+    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T, None, None]:
+        for record in reader(buffer):
+            yield schema.model_validate(record)
+
+    async def _load_project_snapshot(self, project: Project, team_id: int, buffer: BytesIO) -> Team:
+        project_snapshot = next(self._parse_snapshot_to_schema(TeamSchema, buffer))
+        team = next(TeamSchema.deserialize_for_project(team_id, [project_snapshot]))
+        team.project = project
+        team.organization = self.organization
+        team.api_token = f"team_{team_id}"
+        await team.asave()
+        return team
+
+    async def _load_property_definitions(self, team: Team, buffer: BytesIO):
+        snapshot = list(self._parse_snapshot_to_schema(PropertyDefinitionSchema, buffer))
+        property_definitions = PropertyDefinitionSchema.deserialize_for_project(team.id, snapshot)
+        return await PropertyDefinition.objects.abulk_create(property_definitions, batch_size=500)
+
+    async def _load_group_type_mappings(self, team: Team, buffer: BytesIO):
+        snapshot = list(self._parse_snapshot_to_schema(GroupTypeMappingSchema, buffer))
+        group_type_mappings = GroupTypeMappingSchema.deserialize_for_project(team.id, snapshot)
+        return await GroupTypeMapping.objects.abulk_create(group_type_mappings, batch_size=500)
+
+    async def _load_data_warehouse_tables(self, team: Team, buffer: BytesIO):
+        snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSchema, buffer))
+        data_warehouse_tables = DataWarehouseTableSchema.deserialize_for_project(team.id, snapshot)
+        return await DataWarehouseTable.objects.abulk_create(data_warehouse_tables, batch_size=500)
+
+    def _load_event_taxonomy(self, team: Team, buffer: BytesIO):
+        snapshot = next(self._parse_snapshot_to_schema(TeamTaxonomyItemSchema, buffer))
+        TEAM_TAXONOMY_QUERY_DATA_SOURCE[team.id] = snapshot.results
+
+    def _load_properties_taxonomy(self, team: Team, buffer: BytesIO):
+        for item in self._parse_snapshot_to_schema(PropertyTaxonomySchema, buffer):
+            EVENT_TAXONOMY_QUERY_DATA_SOURCE[team.id][item.event] = item.results
+
+    def _load_actors_property_taxonomy(self, team: Team, buffer: BytesIO):
+        for item in self._parse_snapshot_to_schema(ActorsPropertyTaxonomySchema, buffer):
+            ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE[team.id][item.group_type_index or "person"] = item.results
+
+    def _patch_query_runners(self):
+        self.patches = [
+            patch(
+                "posthog.hogql_queries.ai.team_taxonomy_query_runner.TeamTaxonomyQueryRunner",
+                new=PatchedTeamTaxonomyQueryRunner,
+            ).start(),
+            patch(
+                "posthog.hogql_queries.ai.event_taxonomy_query_runner.EventTaxonomyQueryRunner",
+                new=PatchedEventTaxonomyQueryRunner,
+            ).start(),
+            patch(
+                "posthog.hogql_queries.ai.actors_property_taxonomy_query_runner.ActorsPropertyTaxonomyQueryRunner",
+                new=PatchedActorsPropertyTaxonomyQueryRunner,
+            ).start(),
+        ]
+
+
+@pytest.fixture(scope="package")
+def dagster_context() -> Generator[PipesContext, None, None]:
+    with open_dagster_pipes() as context:
+        yield context
+
+
+@pytest.fixture(scope="package", autouse=True)
+def restore_postgres_snapshot(
+    dagster_context: PipesContext, django_db_setup, django_db_blocker
+) -> Generator[tuple[Organization, User], None]:
+    """
+    Script that restores dumped Django models.
+    Creates teams with team_id=project_id for the same single user and organization,
+    keeping the original project_ids for teams.
+    """
+    with django_db_blocker.unblock():
+        dagster_context.log.info(f"Loading Postgres snapshots...")
+        loader = SnapshotLoader(dagster_context)
+        org, user = async_to_sync(loader.load_snapshots)()
+        yield org, user
+        loader.cleanup()
+
+        with open("eval_results.jsonl") as f:
+            lines = f.readlines()
+            dagster_context.report_asset_materialization(
+                {
+                    "output": "\n".join(lines),
+                }
+            )

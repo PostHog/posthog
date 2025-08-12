@@ -10,8 +10,8 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
-from .conftest import MaxEval
-from .scorers import ToolRelevance
+from ..conftest import MaxEval
+from ..scorers import ToolRelevance
 
 
 class MemoryContentRelevance(LLMClassifier):
