@@ -11,9 +11,9 @@ import { useChartColors } from '../shared/colors'
 import { MetricHeader } from '../shared/MetricHeader'
 import {
     formatDeltaPercent,
-    isSignificant,
-    isDeltaPositive,
     getNiceTickValues,
+    isDeltaPositive,
+    isSignificant,
     type ExperimentVariantResult,
 } from '../shared/utils'
 import { ChartCell } from './ChartCell'
@@ -46,7 +46,7 @@ interface MetricRowGroupProps {
     error?: any
     isLoading?: boolean
     hasMinimumExposureForResults?: boolean
-    shouldHideDetails?: boolean
+    showDetailsModal: boolean
 }
 
 export function MetricRowGroup({
@@ -64,7 +64,7 @@ export function MetricRowGroup({
     error,
     isLoading,
     hasMinimumExposureForResults = true,
-    shouldHideDetails = false,
+    showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [tooltipState, setTooltipState] = useState<{
@@ -285,7 +285,7 @@ export function MetricRowGroup({
                         maxHeight: `${CELL_HEIGHT * totalRows}px`,
                     }}
                 >
-                    {!shouldHideDetails && (
+                    {showDetailsModal && (
                         <>
                             <div className="flex justify-end">
                                 <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />

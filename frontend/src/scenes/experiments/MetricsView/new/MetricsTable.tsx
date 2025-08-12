@@ -18,6 +18,7 @@ interface MetricsTableProps {
     errors: any[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
+    showDetailsModal?: boolean
 }
 
 export function MetricsTable({
@@ -26,6 +27,7 @@ export function MetricsTable({
     errors,
     isSecondary,
     getInsightType,
+    showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const {
         experiment,
@@ -83,14 +85,6 @@ export function MetricsTable({
 
                         const isLoading = !result && !error && !!experiment.start_date
 
-                        // Hide details button/modal when ResultsBreakdown is shown for single primary funnel metrics
-                        const shouldHideDetails =
-                            !isSecondary &&
-                            metrics.length === 1 &&
-                            metric.metric_type === 'funnel' &&
-                            result &&
-                            hasMinimumExposureForResults
-
                         return (
                             <MetricRowGroup
                                 key={metricIndex}
@@ -111,7 +105,7 @@ export function MetricsTable({
                                 error={error}
                                 isLoading={isLoading}
                                 hasMinimumExposureForResults={hasMinimumExposureForResults}
-                                shouldHideDetails={shouldHideDetails}
+                                showDetailsModal={showDetailsModal}
                             />
                         )
                     })}
