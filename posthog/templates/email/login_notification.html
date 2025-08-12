@@ -1,6 +1,9 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}{% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}{{preheader}}{% endblock %}
+{% block heading %}We spotted a login from a new device{% endblock %}
+{% block section %}
 <p>
-    Someone (hopefully you) logged into your PostHog account from a new device. If this was not you, please <a href="mailto:support@posthog.com" style="color: #1d4aff; text-decoration: none;">reach out to us</a> as soon as possible.
+    Someone (hopefully you) logged into your PostHog account from a new device. 
 </p>
 <div class="mt mb">
     <div><b>Time:</b> {{ login_time }}</div>
@@ -8,6 +11,7 @@
     <div><b>Browser:</b> {{ browser|default:"Unknown" }}</div>
     <div><b>IP:</b> {{ ip_address }}</div>
 </div>
-{% endblock %} 
-{% block preheader %}{{preheader}}{% endblock %}
-{% block heading %}Review a recent login from a new device{% endblock %}
+<p>
+    If this was you though, you don't have to do anything except delete this email.
+</p>
+{% endblock %}
