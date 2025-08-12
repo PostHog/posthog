@@ -1,4 +1,5 @@
 import structlog
+from dataclasses import dataclass, field
 from typing import Any
 from django.conf import settings
 
@@ -10,6 +11,16 @@ from slack_sdk.web.async_client import AsyncWebClient
 logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
+
+
+@dataclass
+class SlackMessageData:
+    """Data structure for Slack message with thread messages."""
+
+    channel: str
+    blocks: list[dict[str, Any]]
+    title: str  # This becomes the 'text' parameter in chat_postMessage
+    thread_messages: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _block_for_asset(asset: ExportedAsset) -> dict:
@@ -51,7 +62,7 @@ def _prepare_slack_message(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
-) -> dict[str, Any]:
+) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
@@ -122,12 +133,12 @@ def _prepare_slack_message(
             }
         )
 
-    return {
-        "channel": channel,
-        "blocks": blocks,
-        "title": title,
-        "thread_messages": thread_messages,
-    }
+    return SlackMessageData(
+        channel=channel,
+        blocks=blocks,
+        title=title,
+        thread_messages=thread_messages,
+    )
 
 
 def send_slack_message_with_integration(
@@ -143,16 +154,14 @@ def send_slack_message_with_integration(
 
     # Send main message
     message_res = slack_integration.client.chat_postMessage(
-        channel=message_data["channel"], blocks=message_data["blocks"], text=message_data["title"]
+        channel=message_data.channel, blocks=message_data.blocks, text=message_data.title
     )
 
     thread_ts = message_res.get("ts")
     if thread_ts:
         # Send thread messages
-        for thread_msg in message_data["thread_messages"]:
-            slack_integration.client.chat_postMessage(
-                channel=message_data["channel"], thread_ts=thread_ts, **thread_msg
-            )
+        for thread_msg in message_data.thread_messages:
+            slack_integration.client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
 
 
 async def send_slack_message_with_integration_async(
@@ -168,11 +177,11 @@ async def send_slack_message_with_integration_async(
 
     # Send main message
     message_res = await async_client.chat_postMessage(
-        channel=message_data["channel"], blocks=message_data["blocks"], text=message_data["title"]
+        channel=message_data.channel, blocks=message_data.blocks, text=message_data.title
     )
 
     thread_ts = message_res.get("ts")
     if thread_ts:
         # Send thread messages
-        for thread_msg in message_data["thread_messages"]:
-            await async_client.chat_postMessage(channel=message_data["channel"], thread_ts=thread_ts, **thread_msg)
+        for thread_msg in message_data.thread_messages:
+            await async_client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
