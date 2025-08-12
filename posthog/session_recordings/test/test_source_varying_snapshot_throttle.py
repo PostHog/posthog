@@ -1,7 +1,8 @@
+from datetime import timedelta
 from unittest.mock import patch, MagicMock
 
 from django.http import HttpResponse
-from freezegun import freeze_time
+from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 from django.core.cache import cache
@@ -39,7 +40,6 @@ class TestSourceVaryingSnapshotThrottle(APIBaseTest):
             ("blob_v2", 120),
         ]
     )
-    @freeze_time("2024-01-01 00:00:00")
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._stream_blob_to_client",
         return_value=HttpResponse(),
@@ -89,8 +89,9 @@ class TestSourceVaryingSnapshotThrottle(APIBaseTest):
         allowed_count = 0
 
         self.client.logout()
-        for _ in range(150):  # Try up to 150 requests
-            response = self.client.get(url, headers=self.base_headers)
+        for _ in range(150):
+            with self.settings(API_V1_DEPRECATION_DATE=(now() + timedelta(days=365)).isoformat()):
+                response = self.client.get(url, headers=self.base_headers)
             if response.status_code == status.HTTP_200_OK:
                 allowed_count += 1
             elif response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
