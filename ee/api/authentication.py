@@ -37,6 +37,7 @@ VERCEL_JWKS_URL = "https://marketplace.vercel.com/.well-known/jwks.json"
 VERCEL_ISSUER = "https://marketplace.vercel.com"
 VERCEL_JWKS_CACHE_KEY = "vercel_jwks"
 VERCEL_JWKS_CACHE_TIMEOUT = 600
+VERCEL_CLIENT_INTEGRATION_ID = "oac_2v9bCSZ3OVyZh97g3EfqWWy1"
 
 
 def get_vercel_jwks() -> dict[str, Any]:
@@ -100,6 +101,8 @@ class VercelAuthentication(authentication.BaseAuthentication):
             public_key,
             algorithms=["RS256"],
             issuer=VERCEL_ISSUER,
+            options={},
+            audience=VERCEL_CLIENT_INTEGRATION_ID,
         )
 
         # Validate claims based on auth type
