@@ -200,16 +200,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         resetDashboardFilters: () => true,
         previewTemporaryFilters: true,
-        resetVariables: () => ({ variables: values.insightVariables }),
+        resetVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
         updateFiltersAndLayoutsAndVariables: true,
-        overrideVariableValue: (variableId: string, value: any, isNull: boolean, reload?: boolean) => ({
+        overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
             variableId,
             value,
             allVariables: values.variables,
             isNull,
-            reload,
         }),
 
         /**
@@ -1619,18 +1618,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Preview })
             }
         },
-        overrideVariableValue: ({ reload, value, isNull }) => {
-            if (reload) {
-                actions.loadDashboard({ action: DashboardLoadAction.Preview })
-                actions.setDashboardMode(DashboardMode.Edit, null)
-            }
-
-            if (!value && !isNull) {
-                const hasOtherVariables = Object.values(values.temporaryVariables).some((v) => v.value || v.isNull)
-                if (!hasOtherVariables) {
-                    actions.resetVariables()
-                }
-            }
+        overrideVariableValue: () => {
+            actions.loadDashboard({ action: DashboardLoadAction.Preview })
+            actions.setDashboardMode(DashboardMode.Edit, null)
         },
         [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
             // Only run this handler once on startup

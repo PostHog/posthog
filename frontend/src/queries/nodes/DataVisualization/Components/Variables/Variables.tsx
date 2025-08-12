@@ -41,7 +41,7 @@ export const VariablesForDashboard = (): JSX.Element => {
                     key={n.variable.id}
                     variable={n.variable}
                     showEditingUI={false}
-                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull, true)}
+                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull)}
                     variableOverridesAreSet={false}
                     emptyState={<i className="text-xs">No override set</i>}
                     insightsUsingVariable={n.insights}
