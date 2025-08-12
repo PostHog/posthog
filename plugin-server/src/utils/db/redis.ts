@@ -59,7 +59,7 @@ export function getRedisConnectionOptions(
         case 'cookieless':
             return serverConfig.COOKIELESS_REDIS_HOST
                 ? {
-                      url: serverConfig.COOKIELESS_REDIS_HOST ?? 'localhost',
+                      url: serverConfig.COOKIELESS_REDIS_HOST,
                       options: {
                           port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379,
                       },
