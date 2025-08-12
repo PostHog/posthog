@@ -28,8 +28,8 @@ def get_internal_logger():
     We attach the temporal context to the logger for easier debugging (for
     example, we can track things like the workflow id across log entries).
     """
-    logger = structlog.get_logger()
     temporal_context = get_temporal_context()
+    logger = structlog.get_logger()
 
     return logger.new(**temporal_context)
 
