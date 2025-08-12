@@ -8,11 +8,13 @@ import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
     PluginServerService,
     PluginsServerConfig,
+    RedisPool,
     SessionRecordingV2MetadataSwitchoverDate,
     ValueMatcher,
 } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
+import { createRedisPool } from '../../../utils/db/redis'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
@@ -51,6 +53,7 @@ export class SessionRecordingIngester {
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
     private readonly kafkaParser: KafkaMessageParser
+    private readonly redisPool: RedisPool
     private readonly teamFilter: TeamFilter
     private readonly retentionService: RetentionService
     private readonly libVersionMonitor?: LibVersionMonitor
@@ -106,6 +109,9 @@ export class SessionRecordingIngester {
         }
 
         this.kafkaParser = new KafkaMessageParser()
+
+        this.redisPool = createRedisPool(this.config, 'session-recording')
+
         this.teamFilter = new TeamFilter(new TeamService(postgres))
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
@@ -113,7 +119,8 @@ export class SessionRecordingIngester {
             }
             this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
-        this.retentionService = new RetentionService(postgres)
+
+        this.retentionService = new RetentionService(postgres, this.redisPool)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(

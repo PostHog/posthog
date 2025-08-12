@@ -1,6 +1,7 @@
+import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 
-import { TeamId } from '~/types'
+import { RedisPool, TeamId } from '~/types'
 
 import { PostgresRouter } from '../../../../utils/db/postgres'
 import { MessageWithTeam } from '../teams/types'
@@ -61,14 +62,28 @@ const createRetentionMessage = (teamId: TeamId, retentionPeriod: RetentionPeriod
     },
 })
 
-describe('TeamService', () => {
+describe('RetentionService', () => {
     let retentionService: RetentionService
     let fetchSpy: jest.SpyInstance
+    let mockRedisClient: jest.Mocked<Redis>
 
     beforeEach(() => {
         jest.useFakeTimers()
         const mockPostgres = {} as jest.Mocked<PostgresRouter>
-        retentionService = new RetentionService(mockPostgres)
+
+        mockRedisClient = {
+            exists: jest.fn(),
+            get: jest.fn(),
+            set: jest.fn(),
+            expire: jest.fn(),
+        } as unknown as jest.Mocked<Redis>
+
+        const mockRedisPool = {
+            acquire: jest.fn().mockReturnValue(mockRedisClient),
+            release: jest.fn(),
+        } as unknown as jest.Mocked<RedisPool>
+
+        retentionService = new RetentionService(mockPostgres, mockRedisPool)
 
         fetchSpy = jest.spyOn(retentionService as any, 'fetchTeamRetentionPeriods').mockResolvedValue({
             1: '30d',
@@ -91,9 +106,9 @@ describe('TeamService', () => {
             expect(retentionPeriod).toEqual('1y')
         })
 
-        it('should return null for unknown team id', async () => {
-            const retentionPeriod = await retentionService.getRetentionByTeamId(3)
-            expect(retentionPeriod).toBeNull()
+        it('should throw error for unknown team id', async () => {
+            const retentionPromise = retentionService.getRetentionByTeamId(3)
+            await expect(retentionPromise).rejects.toThrow('Error during retention period lookup: Unknown team id 3')
         })
 
         it('should cache results and not fetch again within refresh period', async () => {
@@ -182,13 +197,15 @@ describe('TeamService', () => {
             // Advance time to trigger refresh
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
-            // Wait for the new value to appear using a spinlock, don't advance time though
-            while ((await retentionService.getRetentionByTeamId(1)) !== null) {
-                await Promise.resolve() // Allow other promises to resolve
+            try {
+                // Wait for the new value to appear using a spinlock, don't advance time though
+                while (true) {
+                    await retentionService.getRetentionByTeamId(1)
+                    await Promise.resolve() // Allow other promises to resolve
+                }
+            } catch (error) {
+                expect(error.message).toMatch('Error during retention period lookup: Unknown team id 1')
             }
-
-            const retentionPeriod3 = await retentionService.getRetentionByTeamId(1)
-            expect(retentionPeriod3).toBeNull()
         })
     })
 
@@ -297,13 +314,46 @@ describe('TeamService', () => {
             // Advance time to trigger refresh
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
-            // Wait for the new value to appear using a spinlock, don't advance time though (use getRetentionByTeamId here for easier comparison)
-            while ((await retentionService.getRetentionByTeamId(1)) !== null) {
-                await Promise.resolve() // Allow other promises to resolve
+            try {
+                // Wait for the new value to appear using a spinlock, don't advance time though
+                while (true) {
+                    await retentionService.addRetentionToMessage(createTeamMessage(1))
+                    await Promise.resolve() // Allow other promises to resolve
+                }
+            } catch (error) {
+                expect(error.message).toMatch('Error during retention period lookup: Unknown team id 1')
             }
+        })
 
-            const messagePromise = retentionService.addRetentionToMessage(createTeamMessage(1))
-            await expect(messagePromise).rejects.toThrow('Error during retention period lookup: Unknown team id 1')
+        it('should load retention from Redis if key exists', async () => {
+            mockRedisClient.exists.mockReturnValue(1)
+            mockRedisClient.get.mockReturnValue('30d')
+
+            const validMessage = createTeamMessage(1)
+            const messageWithRetention = await retentionService.addRetentionToMessage(validMessage)
+            expect(messageWithRetention).toEqual(createRetentionMessage(1, '30d'))
+
+            expect(mockRedisClient.exists).toHaveBeenCalledTimes(1)
+            expect(mockRedisClient.exists).toHaveBeenCalledWith('@posthog/replay/session-retention-session_id')
+            expect(mockRedisClient.get).toHaveBeenCalledTimes(1)
+            expect(mockRedisClient.get).toHaveBeenCalledWith('@posthog/replay/session-retention-session_id')
+        })
+
+        it('should store retention in Redis if key does not exist', async () => {
+            mockRedisClient.exists.mockReturnValue(0)
+
+            const validMessage = createTeamMessage(1)
+            const messageWithRetention = await retentionService.addRetentionToMessage(validMessage)
+            expect(messageWithRetention).toEqual(createRetentionMessage(1, '30d'))
+
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(1)
+            expect(mockRedisClient.set).toHaveBeenCalledWith('@posthog/replay/session-retention-session_id', '30d')
+
+            expect(mockRedisClient.expire).toHaveBeenCalledTimes(1)
+            expect(mockRedisClient.expire).toHaveBeenCalledWith(
+                '@posthog/replay/session-retention-session_id',
+                24 * 60 * 60
+            )
         })
     })
 })

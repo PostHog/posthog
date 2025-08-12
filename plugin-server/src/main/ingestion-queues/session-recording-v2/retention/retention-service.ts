@@ -1,16 +1,25 @@
-import { Team } from '../../../../types'
+import { RedisPool, Team } from '../../../../types'
 import { TeamId } from '../../../../types'
 import { BackgroundRefresher } from '../../../../utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { logger as logger } from '../../../../utils/logger'
+import { ValidRetentionPeriods } from '../constants'
 import { MessageWithTeam } from '../teams/types'
 import { RetentionPeriod } from '../types'
 import { MessageWithRetention } from './types'
 
+function isValidRetentionPeriod(retentionPeriod: string): retentionPeriod is RetentionPeriod {
+    return ValidRetentionPeriods.includes(retentionPeriod as RetentionPeriod)
+}
+
 export class RetentionService {
     private readonly retentionRefresher: BackgroundRefresher<Record<TeamId, RetentionPeriod>>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        private redisPool: RedisPool,
+        private keyPrefix = '@posthog/replay/'
+    ) {
         this.retentionRefresher = new BackgroundRefresher(
             () => this.fetchTeamRetentionPeriods(),
             5 * 60 * 1000, // 5 minutes
@@ -25,34 +34,67 @@ export class RetentionService {
         return fetchTeamRetentionPeriods(this.postgres)
     }
 
-    public async getRetentionByTeamId(teamId: TeamId): Promise<RetentionPeriod | null> {
+    private generateRedisKey(sessionId: string): string {
+        return `${this.keyPrefix}session-retention-${sessionId}`
+    }
+
+    public async getRetentionByTeamId(teamId: TeamId): Promise<RetentionPeriod> {
         const retentionPeriods = await this.retentionRefresher.get()
 
         if (!(teamId in retentionPeriods)) {
-            return null
+            throw new Error(`Error during retention period lookup: Unknown team id ${teamId}`)
         }
 
         return retentionPeriods[teamId]
     }
 
     public async addRetentionToMessage(message: MessageWithTeam): Promise<MessageWithRetention> {
-        const retentionPeriod = await this.getRetentionByTeamId(message.team.teamId)
+        let retentionPeriod: string | null = null
 
-        if (retentionPeriod === null) {
-            throw new Error(`Error during retention period lookup: Unknown team id ${message.team.teamId}`)
+        const client = await this.redisPool.acquire()
+        const redisKey = this.generateRedisKey(message.data.session_id)
+
+        try {
+            // Check if the session already had a retention period set in Redis
+            if ((await client.exists(redisKey)) === 1) {
+                // ...if so, fetch it
+                retentionPeriod = await client.get(redisKey)
+            } else {
+                // ...otherwise, get the value from Postgres
+                retentionPeriod = await this.getRetentionByTeamId(message.team.teamId)
+
+                // ...and then set it in Redis for future batches
+                await client.set(redisKey, retentionPeriod)
+
+                // ...and set TTL to 24 hours
+                await client.expire(redisKey, 24 * 60 * 60)
+            }
+        } finally {
+            await this.redisPool.release(client)
         }
 
-        return {
-            retentionPeriod: retentionPeriod,
-            team: message.team,
-            data: message.data,
+        if (retentionPeriod !== null && isValidRetentionPeriod(retentionPeriod)) {
+            return {
+                retentionPeriod: retentionPeriod,
+                team: message.team,
+                data: message.data,
+            }
+        } else {
+            throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
         }
     }
 
     public async processBatch(messages: MessageWithTeam[]): Promise<MessageWithRetention[]> {
         // TODO: Look up session ID in Redis and add it to the messages
         // ....if not present, look it up in the backgroundrefresher and add it to Redis with 24h TTL
-        return await Promise.all(messages.map((message) => this.addRetentionToMessage(message)))
+
+        const client = await this.redisPool.acquire()
+
+        const messagesWithRetention = await Promise.all(messages.map((message) => this.addRetentionToMessage(message)))
+
+        await this.redisPool.release(client)
+
+        return messagesWithRetention
     }
 }
 
