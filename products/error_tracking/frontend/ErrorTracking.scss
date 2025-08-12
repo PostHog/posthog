@@ -1,13 +1,3 @@
-.ErrorTrackingIssue {
-    & .SessionRecordingPlayer {
-        min-height: 24rem;
-    }
-
-    & .LemonCollapsePanel > .LemonButton:hover:has(.LemonSegmentedButton:hover) {
-        background-color: inherit;
-    }
-}
-
 body[theme='light'] .ErrorTracking {
     --gray-1: var(--color-neutral-50);
     --gray-2: var(--color-neutral-100);
