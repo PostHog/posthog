@@ -25,15 +25,20 @@ export class RetentionService {
         return fetchTeamRetentionPeriods(this.postgres)
     }
 
-    private async getRetentionByTeamId(teamId: TeamId): Promise<RetentionPeriod | null> {
+    public async getRetentionByTeamId(teamId: TeamId): Promise<RetentionPeriod | null> {
         const retentionPeriods = await this.retentionRefresher.get()
+
+        if (!(teamId in retentionPeriods)) {
+            return null
+        }
+
         return retentionPeriods[teamId]
     }
 
-    private async addRetentionToMessage(message: MessageWithTeam): Promise<MessageWithRetention> {
+    public async addRetentionToMessage(message: MessageWithTeam): Promise<MessageWithRetention> {
         const retentionPeriod = await this.getRetentionByTeamId(message.team.teamId)
 
-        if (!retentionPeriod) {
+        if (retentionPeriod === null) {
             throw new Error(`Error during retention period lookup: Unknown team id ${message.team.teamId}`)
         }
 
