@@ -256,7 +256,7 @@ class TestOrgConcurrencyLimit(BaseTest):
             self.assertEqual(result, 50)
             # Verify that setex was called to cache the result
             mock_redis.return_value.setex.assert_called_once_with(
-                f"org_concurrency_limit:{self.organization.id}", 300, 50
+                f"org_concurrency_limit:{self.organization.id}", 3600, 50
             )
 
         # Second call: cache hit, should not hit database
