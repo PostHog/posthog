@@ -614,8 +614,9 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
             )
 
         # Combine the queries into a single query
-        queries = [invoice_item_query, no_invoice_charges_query]
-        queries = [query for query in queries if query is not None]
+        queries: list[ast.SelectQuery] = [
+            query for query in [invoice_item_query, no_invoice_charges_query] if query is not None
+        ]
         if len(queries) == 0:
             return []
 
