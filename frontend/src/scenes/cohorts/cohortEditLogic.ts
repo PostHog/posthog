@@ -265,7 +265,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 is_static: cohort.is_static,
                             })
                             posthog.captureException(error, {
-                                // Context explains what we were doing when error occurred
                                 cohort_operation: 'Cohort creation failed unexpectedly',
                                 // Cohort context (most valuable)
                                 cohort_name: cohort.name,
