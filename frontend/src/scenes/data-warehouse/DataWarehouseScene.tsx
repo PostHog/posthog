@@ -16,14 +16,21 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
+import { availableSourcesDataLogic } from './new/availableSourcesDataLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
 const LIST_SIZE = 5
 
-const getSourceType = (sourceType: string): 'Database' | 'API' => {
-    const dbSources = ['Postgres', 'MySQL', 'MSSQL', 'Snowflake', 'BigQuery', 'Redshift', 'MongoDB']
-    return dbSources.includes(sourceType) ? 'Database' : 'API'
+const getSourceType = (sourceType: string, availableSources?: Record<string, any> | null): 'Database' | 'API' => {
+    const fields = availableSources?.[sourceType]?.fields || []
+    if (fields.some((f: any) => f.name === 'connection_string' || ['host', 'port', 'database'].includes(f.name))) {
+        return 'Database'
+    }
+    if (fields.some((f: any) => f.type === 'oauth' || ['api_key', 'access_token'].includes(f.name))) {
+        return 'API'
+    }
+    return 'API'
 }
 
 interface DashboardDataSource {
@@ -51,6 +58,7 @@ export function DataWarehouseScene(): JSX.Element {
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
     const { billing } = useValues(billingLogic)
     const { recentJobs } = useValues(externalDataSourcesLogic)
+    const { availableSources } = useValues(availableSourcesDataLogic)
 
     const billingRowsSynced = billing?.products?.find((p) => p.type === 'rows_synced')?.current_usage || 0
 
@@ -102,7 +110,7 @@ export function DataWarehouseScene(): JSX.Element {
                 return {
                     id: source.id,
                     name: source.source_type,
-                    type: getSourceType(source.source_type),
+                    type: getSourceType(source.source_type, availableSources),
                     status: source.status,
                     lastSync,
                     rowCount: totalRows,
@@ -121,7 +129,7 @@ export function DataWarehouseScene(): JSX.Element {
                 })
             ),
         ],
-        [dataWarehouseSources?.results, selfManagedTables, recentJobs]
+        [dataWarehouseSources?.results, selfManagedTables, recentJobs, availableSources]
     )
 
     const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
