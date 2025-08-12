@@ -79,7 +79,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     return [...newJobs, ...values.jobs]
                 },
                 loadMoreJobs: async () => {
-                    const hasJobs = values.jobs.length >= 0
+                    const hasJobs = values.jobs.length > 0
                     if (hasJobs) {
                         const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
                         const oldJobs = await fetchExternalDataSourceJobs(values.sourceId, lastJobCreatedAt, null)
