@@ -105,6 +105,9 @@ jobs:
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
               run: |
                   docker --log-level debug compose up kafka redis db echo_server objectstorage --wait
+                  docker compose logs kafka --timestamps
+                  docker compose ps -a
+                  docker inspect rust-kafka-1 | grep -A 10 Health
                   docker compose up setup_test_db
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
