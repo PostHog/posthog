@@ -73,10 +73,7 @@ def check_can_edit_sharing_configuration(
     if sharing.dashboard:
         # Legacy check: remove once all users are on the new access control
         if sharing.dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
-            user_dashboard_permissions = UserPermissions(cast(User, request.user), view.team).dashboard(
-                sharing.dashboard
-            )
-            if not user_dashboard_permissions.can_edit:
+            if not view.user_permissions.dashboard(sharing.dashboard).can_edit:
                 raise PermissionDenied("You don't have edit permissions for this dashboard.")
         else:
             access_level = user_access_control.get_user_access_level(sharing.dashboard)
