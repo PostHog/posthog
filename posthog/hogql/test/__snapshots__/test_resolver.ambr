@@ -833,6 +833,7 @@
                                     "distinct_id"
                                   ],
                                   hidden: False,
+                                  join_closure_args: (),
                                   join_function: <function>,
                                   join_table: {
                                     fields: {
@@ -907,6 +908,7 @@
                             "distinct_id"
                           ],
                           hidden: False,
+                          join_closure_args: (),
                           join_function: <function>,
                           join_table: {
                             fields: {
@@ -1135,6 +1137,7 @@
                                     "fingerprint"
                                   ],
                                   hidden: False,
+                                  join_closure_args: (),
                                   join_function: <function>,
                                   join_table: {
                                     fields: {
@@ -1206,6 +1209,7 @@
                             "fingerprint"
                           ],
                           hidden: False,
+                          join_closure_args: (),
                           join_function: <function>,
                           join_table: {
                             fields: {
@@ -1648,6 +1652,7 @@
                                 "distinct_id"
                               ],
                               hidden: False,
+                              join_closure_args: (),
                               join_function: <function>,
                               join_table: {
                                 fields: {
@@ -1725,6 +1730,7 @@
                         "distinct_id"
                       ],
                       hidden: False,
+                      join_closure_args: (),
                       join_function: <function>,
                       join_table: {
                         fields: {
@@ -2048,6 +2054,7 @@
                                 "fingerprint"
                               ],
                               hidden: False,
+                              join_closure_args: (),
                               join_function: <function>,
                               join_table: {
                                 fields: {
@@ -2122,6 +2129,7 @@
                         "fingerprint"
                       ],
                       hidden: False,
+                      join_closure_args: (),
                       join_function: <function>,
                       join_table: {
                         fields: {
@@ -3966,6 +3974,7 @@
                                       "distinct_id"
                                     ],
                                     hidden: False,
+                                    join_closure_args: (),
                                     join_function: <function>,
                                     join_table: {
                                       fields: {
@@ -4040,6 +4049,7 @@
                               "distinct_id"
                             ],
                             hidden: False,
+                            join_closure_args: (),
                             join_function: <function>,
                             join_table: {
                               fields: {
@@ -4268,6 +4278,7 @@
                                       "fingerprint"
                                     ],
                                     hidden: False,
+                                    join_closure_args: (),
                                     join_function: <function>,
                                     join_table: {
                                       fields: {
@@ -4339,6 +4350,7 @@
                               "fingerprint"
                             ],
                             hidden: False,
+                            join_closure_args: (),
                             join_function: <function>,
                             join_table: {
                               fields: {
@@ -4741,6 +4753,7 @@
                                           "distinct_id"
                                         ],
                                         hidden: False,
+                                        join_closure_args: (),
                                         join_function: <function>,
                                         join_table: {
                                           fields: {
@@ -4818,6 +4831,7 @@
                                   "distinct_id"
                                 ],
                                 hidden: False,
+                                join_closure_args: (),
                                 join_function: <function>,
                                 join_table: {
                                   fields: {
@@ -5141,6 +5155,7 @@
                                           "fingerprint"
                                         ],
                                         hidden: False,
+                                        join_closure_args: (),
                                         join_function: <function>,
                                         join_table: {
                                           fields: {
@@ -5215,6 +5230,7 @@
                                   "fingerprint"
                                 ],
                                 hidden: False,
+                                join_closure_args: (),
                                 join_function: <function>,
                                 join_table: {
                                   fields: {
@@ -5929,6 +5945,7 @@
                                 "distinct_id"
                               ],
                               hidden: False,
+                              join_closure_args: (),
                               join_function: <function>,
                               join_table: {
                                 fields: {
@@ -6006,6 +6023,7 @@
                         "distinct_id"
                       ],
                       hidden: False,
+                      join_closure_args: (),
                       join_function: <function>,
                       join_table: {
                         fields: {
@@ -6329,6 +6347,7 @@
                                 "fingerprint"
                               ],
                               hidden: False,
+                              join_closure_args: (),
                               join_function: <function>,
                               join_table: {
                                 fields: {
@@ -6403,6 +6422,7 @@
                         "fingerprint"
                       ],
                       hidden: False,
+                      join_closure_args: (),
                       join_function: <function>,
                       join_table: {
                         fields: {
@@ -6861,6 +6881,7 @@
                                 "distinct_id"
                               ],
                               hidden: False,
+                              join_closure_args: (),
                               join_function: <function>,
                               join_table: {
                                 fields: {
@@ -6938,6 +6959,7 @@
                         "distinct_id"
                       ],
                       hidden: False,
+                      join_closure_args: (),
                       join_function: <function>,
                       join_table: {
                         fields: {
@@ -7261,6 +7283,7 @@
                                 "fingerprint"
                               ],
                               hidden: False,
+                              join_closure_args: (),
                               join_function: <function>,
                               join_table: {
                                 fields: {
@@ -7335,6 +7358,7 @@
                         "fingerprint"
                       ],
                       hidden: False,
+                      join_closure_args: (),
                       join_function: <function>,
                       join_table: {
                         fields: {
@@ -9309,6 +9333,7 @@
                   "person_id"
                 ],
                 hidden: False,
+                join_closure_args: (),
                 join_function: <function>,
                 join_table: "persons",
                 to_field: None
@@ -9320,6 +9345,7 @@
                     "distinct_id"
                   ],
                   hidden: False,
+                  join_closure_args: (),
                   join_function: <function>,
                   join_table: {
                     fields: {
@@ -9541,6 +9567,7 @@
                   "person_id"
                 ],
                 hidden: False,
+                join_closure_args: (),
                 join_function: <function>,
                 join_table: "persons",
                 to_field: None
@@ -9552,6 +9579,7 @@
                     "distinct_id"
                   ],
                   hidden: False,
+                  join_closure_args: (),
                   join_function: <function>,
                   join_table: {
                     fields: {
@@ -9769,6 +9797,7 @@
                   "distinct_id"
                 ],
                 hidden: False,
+                join_closure_args: (),
                 join_function: <function>,
                 join_table: {
                   fields: {
@@ -9988,6 +10017,7 @@
                   "distinct_id"
                 ],
                 hidden: False,
+                join_closure_args: (),
                 join_function: <function>,
                 join_table: {
                   fields: {
@@ -10099,6 +10129,7 @@
                   "person_id"
                 ],
                 hidden: False,
+                join_closure_args: (),
                 join_function: <function>,
                 join_table: "persons",
                 to_field: None
