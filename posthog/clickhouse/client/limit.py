@@ -76,8 +76,8 @@ def get_org_concurrency_limit(org_id: int) -> Optional[int]:
         feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
         if feature and isinstance(feature.get("limit"), int):
             limit = feature["limit"]
-            # Cache for 5 minutes
-            redis.get_client().setex(cache_key, 300, limit)
+            # Cache for 1 hour
+            redis.get_client().setex(cache_key, 3600, limit)
             return limit
     except Exception:
         # Fall back to default if anything goes wrong
