@@ -123,7 +123,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
 
     props({} as DashboardLogicProps),
