@@ -146,8 +146,8 @@ export function SharingModalContent({
                                     dashboardId
                                         ? AccessControlResourceType.Dashboard
                                         : insightShortId
-                                        ? AccessControlResourceType.Insight
-                                        : AccessControlResourceType.Project
+                                          ? AccessControlResourceType.Insight
+                                          : AccessControlResourceType.Project
                                 }
                                 minAccessLevel={AccessControlLevel.Editor}
                                 userAccessLevel={userAccessLevel}

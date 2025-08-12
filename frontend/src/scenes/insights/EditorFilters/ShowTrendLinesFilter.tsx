@@ -16,8 +16,8 @@ export function ShowTrendLinesFilter(): JSX.Element {
     const showTrendLines = isRetentionQuery(querySource)
         ? querySource.retentionFilter.showTrendLines
         : isTrendsQuery(querySource)
-        ? querySource.trendsFilter?.showTrendLines
-        : false
+          ? querySource.trendsFilter?.showTrendLines
+          : false
 
     // Determine if trend lines should be disabled based on chart type and scale
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
@@ -29,8 +29,8 @@ export function ShowTrendLinesFilter(): JSX.Element {
     const disabledReason = !isLineGraph
         ? 'Trend lines are only available for line graphs'
         : !isLinearScale
-        ? 'Trend lines are only supported for linear scale.'
-        : undefined
+          ? 'Trend lines are only supported for linear scale.'
+          : undefined
 
     const toggleShowTrendLines = (): void => {
         if (isRetentionQuery(querySource)) {

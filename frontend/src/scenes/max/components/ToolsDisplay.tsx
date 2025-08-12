@@ -175,17 +175,20 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                         !toolsInReverse.find((registeredTool) => registeredTool.name === tool.name) &&
                         (!tool.flag || featureFlags[tool.flag])
                 )
-                .reduce((acc, [_, tool]) => {
-                    if (!tool.product) {
-                        console.warn(`Unexpected: Global Max tool ${tool.name} appears not to be registered`)
+                .reduce(
+                    (acc, [_, tool]) => {
+                        if (!tool.product) {
+                            console.warn(`Unexpected: Global Max tool ${tool.name} appears not to be registered`)
+                            return acc
+                        }
+                        if (!acc[tool.product]) {
+                            acc[tool.product] = []
+                        }
+                        acc[tool.product]!.push(tool)
                         return acc
-                    }
-                    if (!acc[tool.product]) {
-                        acc[tool.product] = []
-                    }
-                    acc[tool.product]!.push(tool)
-                    return acc
-                }, {} as Partial<Record<Scene, ToolDefinition[]>>),
+                    },
+                    {} as Partial<Record<Scene, ToolDefinition[]>>
+                ),
         [toolsInReverse.map((t) => t.name).join(';'), featureFlags] // eslint-disable-line react-hooks/exhaustive-deps
     )
     /** Dynamic list of things Max can do elsewhere in PostHog, by product. */

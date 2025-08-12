@@ -500,8 +500,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           )
                                                                                           setSurveyValue('appearance', {
                                                                                               ...survey.appearance,
-                                                                                              displayThankYouMessage:
-                                                                                                  false,
+                                                                                              displayThankYouMessage: false,
                                                                                           })
                                                                                       }
 

@@ -337,8 +337,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
                     ? 'minimal'
                     : sceneConfig?.layout !== 'plain'
-                    ? 'full'
-                    : 'none'
+                      ? 'full'
+                      : 'none'
             },
         ],
         isNavShown: [

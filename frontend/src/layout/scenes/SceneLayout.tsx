@@ -169,15 +169,15 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                             !scenePanelOpen
                                                 ? 'Open info panel'
                                                 : scenePanelIsRelative
-                                                ? 'Force close info panel'
-                                                : 'Close info panel'
+                                                  ? 'Force close info panel'
+                                                  : 'Close info panel'
                                         }
                                         aria-label={
                                             !scenePanelOpen
                                                 ? 'Open info panel'
                                                 : scenePanelIsRelative
-                                                ? 'Force close info panel'
-                                                : 'Close info panel'
+                                                  ? 'Force close info panel'
+                                                  : 'Close info panel'
                                         }
                                     >
                                         <IconX className="size-4" />

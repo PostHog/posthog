@@ -156,8 +156,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 isCohortCriteriaGroup(oldCriteria)
                                     ? oldCriteria
                                     : criteriaI === criteriaIndex
-                                    ? cleanCriteria({ ...oldCriteria, ...newCriteria })
-                                    : oldCriteria
+                                      ? cleanCriteria({ ...oldCriteria, ...newCriteria })
+                                      : oldCriteria
                             ),
                         groupIndex
                     ),

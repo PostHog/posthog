@@ -28,13 +28,16 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         ...webAnalyticsDataTableQueryContext,
         insightProps,
         columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
-        columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce((acc, column) => {
-            acc[column] = {
-                title: column,
-                render: MarketingAnalyticsCell,
-            }
-            return acc
-        }, {} as Record<string, QueryContextColumn>),
+        columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
+            (acc, column) => {
+                acc[column] = {
+                    title: column,
+                    render: MarketingAnalyticsCell,
+                }
+                return acc
+            },
+            {} as Record<string, QueryContextColumn>
+        ),
     }
 
     return (

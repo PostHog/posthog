@@ -215,7 +215,7 @@ export function LemonTable<T extends Record<string, any>>({
         throw new Error('LemonTable `firstColumnSticky` prop cannot be used with `expandable`')
     }
 
-    const isRowExpansionToggleShown = expandable ? expandable?.showRowExpansionToggle ?? true : false
+    const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
 
     return (
         <div
@@ -421,7 +421,7 @@ export function LemonTable<T extends Record<string, any>>({
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
                                             ? rowKey(record, rowIndex)
-                                            : record[rowKey] ?? rowIndex
+                                            : (record[rowKey] ?? rowIndex)
                                         : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function'

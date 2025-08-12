@@ -236,11 +236,11 @@ export const sceneLogic = kea<sceneLogicType>([
                                 ? { ...t, active: true }
                                 : t
                             : t.active
-                            ? {
-                                  ...t,
-                                  active: false,
-                              }
-                            : t
+                              ? {
+                                    ...t,
+                                    active: false,
+                                }
+                              : t
                     )
                     return newState
                 },
@@ -354,10 +354,13 @@ export const sceneLogic = kea<sceneLogicType>([
         tabIds: [
             (s) => [s.tabs],
             (tabs: SceneTab[]): Record<string, boolean> => {
-                return tabs.reduce((acc, tab) => {
-                    acc[tab.id] = true
-                    return acc
-                }, {} as Record<string, boolean>)
+                return tabs.reduce(
+                    (acc, tab) => {
+                        acc[tab.id] = true
+                        return acc
+                    },
+                    {} as Record<string, boolean>
+                )
             },
         ],
         title: [
@@ -430,11 +433,11 @@ export const sceneLogic = kea<sceneLogicType>([
                     i === activeTabIndex
                         ? { ...tab, active: true, pathname, search, hash }
                         : tab.active
-                        ? {
-                              ...tab,
-                              active: false,
-                          }
-                        : tab
+                          ? {
+                                ...tab,
+                                active: false,
+                            }
+                          : tab
                 )
                 actions.setTabs(newTabs)
             } else {
@@ -458,11 +461,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         i === activeTabIndex
                             ? { ...tab, active: true, pathname, search, hash }
                             : tab.active
-                            ? {
-                                  ...tab,
-                                  active: false,
-                              }
-                            : tab
+                              ? {
+                                    ...tab,
+                                    active: false,
+                                }
+                              : tab
                     )
                 )
             } else {

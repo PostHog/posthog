@@ -464,8 +464,8 @@ function AddItemsControlsModal(props: {
                             !canEditAccessControls
                                 ? 'You cannot edit this'
                                 : !onSubmit
-                                ? 'Please choose what you want to add and at what level'
-                                : undefined
+                                  ? 'Please choose what you want to add and at what level'
+                                  : undefined
                         }
                     >
                         Add

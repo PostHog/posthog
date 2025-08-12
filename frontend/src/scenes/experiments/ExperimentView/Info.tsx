@@ -42,8 +42,8 @@ export const ExperimentLastRefresh = ({
                             ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
                                 ? 'text-danger'
                                 : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                ? 'text-warning'
-                                : ''
+                                  ? 'text-warning'
+                                  : ''
                             : ''
                     }`}
                 >

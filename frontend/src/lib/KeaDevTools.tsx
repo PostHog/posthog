@@ -593,8 +593,8 @@ function GraphTab({
 
     // hover + highlighting state
     const [hoveredId, setHoveredId] = useState<string | null>(null)
-    const outNeighbors = hoveredId ? outAdj.get(hoveredId) ?? new Set<string>() : new Set<string>()
-    const inNeighbors = hoveredId ? inAdj.get(hoveredId) ?? new Set<string>() : new Set<string>()
+    const outNeighbors = hoveredId ? (outAdj.get(hoveredId) ?? new Set<string>()) : new Set<string>()
+    const inNeighbors = hoveredId ? (inAdj.get(hoveredId) ?? new Set<string>()) : new Set<string>()
     const bothNeighbors = new Set<string>([...outNeighbors].filter((x) => inNeighbors.has(x)))
 
     // apply external highlight (from "Show on graph")

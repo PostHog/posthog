@@ -376,10 +376,10 @@ export function SummaryTable({
                             date_to: experiment?.end_date,
                             filter_test_accounts:
                                 metric.kind === NodeKind.ExperimentMetric
-                                    ? experiment.exposure_criteria?.filterTestAccounts ?? false
+                                    ? (experiment.exposure_criteria?.filterTestAccounts ?? false)
                                     : metric.kind === NodeKind.ExperimentTrendsQuery
-                                    ? metric.count_query.filterTestAccounts
-                                    : metric.funnels_query.filterTestAccounts,
+                                      ? metric.count_query.filterTestAccounts
+                                      : metric.funnels_query.filterTestAccounts,
                         }
                         router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
                         posthog.capture('viewed recordings from experiment', { variant: variantKey })

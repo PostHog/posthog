@@ -95,15 +95,15 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                                     !scenePanelOpen
                                         ? 'Open info panel'
                                         : scenePanelIsRelative
-                                        ? 'Force close info panel'
-                                        : 'Close info panel'
+                                          ? 'Force close info panel'
+                                          : 'Close info panel'
                                 }
                                 aria-label={
                                     !scenePanelOpen
                                         ? 'Open info panel'
                                         : scenePanelIsRelative
-                                        ? 'Force close info panel'
-                                        : 'Close info panel'
+                                          ? 'Force close info panel'
+                                          : 'Close info panel'
                                 }
                                 active={scenePanelOpen}
                                 size="small"
