@@ -214,7 +214,11 @@ def handle_personal_api_key_change(
     scope_changed = any(change.field in scope_fields for change in changes if change.field)
 
     if scope_changed and activity == "updated":
-        log_personal_api_key_scope_change(before_update, after_update, user, was_impersonated, changes)
+        # Filter out scope fields from changes as we dont want to present them to the user
+        filtered_changes = [
+            change for change in changes if change.field not in ["scoped_teams", "scoped_organizations"]
+        ]
+        log_personal_api_key_scope_change(before_update, after_update, user, was_impersonated, filtered_changes)
     else:
         log_personal_api_key_activity(after_update, activity, user, was_impersonated, changes)
 
