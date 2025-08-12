@@ -52,10 +52,9 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                         return []
                     }
                     const batches = await Promise.all(
-                        ids.map((id) => api.externalDataSources.jobs(id, null, null).catch(() => []))
+                        ids.map((id) => fetchExternalDataSourceJobs(id, null, null).catch(() => []))
                     )
-                    const flat: any[] = batches.flat()
-                    return flat as ExternalDataJob[]
+                    return batches.flat()
                 },
             },
         ],
@@ -88,6 +87,6 @@ export const fetchExternalDataSourceJobs = async (
     before?: string | null,
     after?: string | null
 ): Promise<ExternalDataJob[]> => {
-    const res: any = await api.externalDataSources.jobs(sourceId, before ?? null, after ?? null)
-    return (Array.isArray(res) ? res : res?.results || []) as ExternalDataJob[]
+    const res: unknown = await api.externalDataSources.jobs(sourceId, before ?? null, after ?? null)
+    return (Array.isArray(res) ? res : (res as any)?.results || []) as ExternalDataJob[]
 }
