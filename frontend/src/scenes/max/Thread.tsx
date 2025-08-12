@@ -61,7 +61,6 @@ import {
 } from './utils'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
-import { inStorybookTestRunner } from 'lib/utils'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -237,11 +236,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
                                     <img
-                                        src={
-                                            !inStorybookTestRunner() // Prevent flakiness as the gif is animated
-                                                ? 'https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif'
-                                                : undefined
-                                        }
+                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
                                         className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
                                     />
                                     <span className="font-medium">{message.content}…</span>
