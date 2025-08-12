@@ -259,10 +259,65 @@ class CohortSerializer(serializers.ModelSerializer):
         return cohort
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
-        decoded_file = file.read().decode("utf-8").splitlines()
-        reader = csv.reader(decoded_file)
-        distinct_ids = [row[0] for row in reader if len(row) > 0 and row]
-        calculate_cohort_from_list.delay(cohort.pk, distinct_ids, team_id=self.context["team_id"])
+        try:
+            decoded_file = file.read().decode("utf-8").splitlines()
+            reader = csv.reader(decoded_file)
+
+            # Get first row to check format
+            first_row = next(reader, [])
+            if not first_row:
+                raise ValidationError("CSV file is empty. Please upload a CSV file with at least one row of data.")
+
+            # Single column - use existing behavior for backwards compatibility
+            # Treat as single column if there's only one non-empty column
+            non_empty_cols = [col for col in first_row if col.strip()]
+            if len(non_empty_cols) <= 1:
+                distinct_ids = [first_row[0]] if first_row and first_row[0].strip() else []
+                for row in reader:
+                    if len(row) > 0 and row[0].strip():
+                        distinct_ids.append(row[0].strip())
+            else:
+                # Multi-column - look for distinct_id header
+                headers = [h.lower().strip() for h in first_row]
+                distinct_id_col = None
+                for i, header in enumerate(headers):
+                    if header in ["distinct_id", "distinct-id"]:
+                        distinct_id_col = i
+                        break
+
+                if distinct_id_col is None:
+                    available_headers = [h for h in first_row if h.strip()]
+                    raise ValidationError(
+                        f"Multi-column CSV must contain a 'distinct_id' or 'distinct-id' column header. "
+                        f"Found columns: {', '.join(available_headers) if available_headers else 'none'}"
+                    )
+
+                # Extract distinct IDs from the identified column
+                distinct_ids = []
+                for row in reader:
+                    if len(row) > distinct_id_col and row[distinct_id_col].strip():
+                        distinct_ids.append(row[distinct_id_col].strip())
+
+            if not distinct_ids:
+                raise ValidationError(
+                    "CSV file contains no valid distinct IDs. Please ensure your file has data rows with distinct IDs."
+                )
+
+            logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(distinct_ids)} distinct IDs")
+            calculate_cohort_from_list.delay(cohort.pk, distinct_ids, team_id=self.context["team_id"])
+
+        except UnicodeDecodeError:
+            raise ValidationError("CSV file encoding is not supported. Please save your file as UTF-8 and try again.")
+        except csv.Error as e:
+            capture_exception(e, extra={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            raise ValidationError(f"CSV file format is invalid: {str(e)}. Please check your file format and try again.")
+        except Exception as e:
+            if isinstance(e, ValidationError):
+                raise  # Re-raise ValidationErrors as-is
+            capture_exception(e, extra={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            raise ValidationError(
+                "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
+            )
 
     def validate_query(self, query: Optional[dict]) -> Optional[dict]:
         if not query:
