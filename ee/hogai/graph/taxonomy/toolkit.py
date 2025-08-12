@@ -456,9 +456,9 @@ class TaxonomyAgentToolkit:
         except NotImplementedError:
             custom_tools = []
 
-        custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel # type: ignore
+        custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel
 
-        class DynamicToolInput(TaxonomyTool[custom_tools_union]): # type: ignore
+        class DynamicToolInput(TaxonomyTool[custom_tools_union]):  # type: ignore
             pass
 
         return DynamicToolInput.model_validate({"name": action.tool, "arguments": action.tool_input})

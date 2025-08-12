@@ -1,4 +1,3 @@
-import json
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -116,9 +115,7 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
 
     async def _arun_impl(self, instructions: str) -> tuple[str, str]:
         current_query: str | None = self.context.get("current_query", "")
-
-        pretty_filters = json.dumps(current_query, indent=2)
-        user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=pretty_filters)
+        user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=current_query)
 
         graph = HogQLGeneratorGraph(team=self._team, user=self._user).compile_full_graph()
 
