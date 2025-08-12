@@ -14,6 +14,8 @@ import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework import status
+from slack_sdk.web.async_client import AsyncWebClient
+
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -563,6 +565,10 @@ class SlackIntegration:
     @property
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
+
+    @property
+    def async_client(self) -> AsyncWebClient:
+        return AsyncWebClient(self.integration.sensitive_config["access_token"])
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
