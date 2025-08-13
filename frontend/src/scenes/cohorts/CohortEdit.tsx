@@ -224,6 +224,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             onDescriptionBlur={(value) => {
                                 setCohortValue('description', value)
                             }}
+                            docsLink="https://posthog.com/docs/data/cohorts"
                         />
                     )}
 

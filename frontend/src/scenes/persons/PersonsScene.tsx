@@ -1,4 +1,4 @@
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconPeople } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -11,6 +11,9 @@ import { Query } from '~/queries/Query/Query'
 import { ProductKey, OnboardingStepKey } from '~/types'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -22,9 +25,11 @@ export function PersonsScene(): JSX.Element {
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     return (
-        <>
+        <SceneContent>
             <PersonsManagementSceneTabs
                 tabKey="persons"
                 buttons={
@@ -59,6 +64,23 @@ export function PersonsScene(): JSX.Element {
                     </LemonMenu>
                 }
             />
+
+            {newSceneLayout && (
+                <>
+                    <SceneTitleSection
+                        name="Persons"
+                        description="A catalog of users behind your events"
+                        resourceType={{
+                            type: 'person',
+                            typePlural: 'persons',
+                            forceIcon: <IconPeople />,
+                        }}
+                        docsLink="https://posthog.com/docs/data/persons"
+                    />
+                    <SceneDivider />
+                </>
+            )}
+
             <Query
                 query={query}
                 setQuery={setQuery}
@@ -84,6 +106,6 @@ export function PersonsScene(): JSX.Element {
                 }}
                 dataAttr="persons-table"
             />
-        </>
+        </SceneContent>
     )
 }

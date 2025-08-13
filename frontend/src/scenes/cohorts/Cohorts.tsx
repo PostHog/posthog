@@ -21,6 +21,11 @@ import { CohortType, ProductKey } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
+const RESOURCE_TYPE = 'cohort'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -32,6 +37,8 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState(cohortFilters.search || '')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -148,7 +155,7 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <>
+        <SceneContent>
             <PersonsManagementSceneTabs
                 tabKey="cohorts"
                 buttons={
@@ -162,6 +169,21 @@ export function Cohorts(): JSX.Element {
                 }
             />
 
+            {newSceneLayout && (
+                <>
+                    <SceneTitleSection
+                        name="Cohorts"
+                        description="A catalog of identified persons and your created cohorts."
+                        resourceType={{
+                            type: RESOURCE_TYPE,
+                            typePlural: 'cohorts',
+                        }}
+                        docsLink="https://posthog.com/docs/data/cohorts"
+                    />
+                    <SceneDivider />
+                </>
+            )}
+
             <ProductIntroduction
                 productName="Cohorts"
                 productKey={ProductKey.COHORTS}
@@ -173,7 +195,7 @@ export function Cohorts(): JSX.Element {
                 customHog={ListHog}
             />
 
-            <div className="flex justify-between items-center mb-4 gap-2">
+            <div className={cn('flex justify-between items-center mb-4 gap-2', newSceneLayout && 'mb-0')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for cohorts"
@@ -193,6 +215,6 @@ export function Cohorts(): JSX.Element {
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
             />
-        </>
+        </SceneContent>
     )
 }

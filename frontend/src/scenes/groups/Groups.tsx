@@ -20,6 +20,11 @@ import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsMan
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconPeople } from '@posthog/icons'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
@@ -30,6 +35,8 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -60,7 +67,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
     }
 
     return (
-        <>
+        <SceneContent>
             <PersonsManagementSceneTabs
                 tabKey={`groups-${groupTypeIndex}`}
                 buttons={
@@ -73,6 +80,22 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     </LemonButton>
                 }
             />
+
+            {newSceneLayout && (
+                <>
+                    <SceneTitleSection
+                        name={capitalizeFirstLetter(groupTypeNamePlural)}
+                        description={`A catalog of all ${groupTypeNamePlural} for this project`}
+                        resourceType={{
+                            type: groupTypeName,
+                            typePlural: groupTypeNamePlural,
+                            forceIcon: <IconPeople />,
+                        }}
+                    />
+                    <SceneDivider />
+                </>
+            )}
+
             <Query
                 query={{ ...query, hiddenColumns }}
                 setQuery={setQuery}
@@ -127,7 +150,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     </div>
                 </LemonModal>
             )}
-        </>
+        </SceneContent>
     )
 }
 

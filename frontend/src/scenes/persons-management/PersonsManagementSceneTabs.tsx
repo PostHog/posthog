@@ -7,8 +7,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { personsManagementSceneLogic } from './personsManagementSceneLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { SceneTitleSection } from '~/layout/scenes/SceneContent'
-const RESOURCE_TYPE = 'cohort'
+import { cn } from 'lib/utils/css-classes'
 
 export interface PersonsManagementSceneTabsProps {
     tabKey: string
@@ -33,22 +32,11 @@ export function PersonsManagementSceneTabs({ tabKey, buttons }: PersonsManagemen
                 buttons={buttons}
             />
 
-            {newSceneLayout && (
-                <SceneTitleSection
-                    name="Cohorts"
-                    description={
-                        showGroupsOptions
-                            ? 'A catalog of identified persons, groups, and your created cohorts.'
-                            : 'A catalog of identified persons and your created cohorts.'
-                    }
-                    resourceType={{
-                        type: RESOURCE_TYPE,
-                        typePlural: 'cohorts',
-                    }}
-                />
-            )}
-
-            <LemonTabs activeKey={tabKey} tabs={lemonTabs} />
+            <LemonTabs
+                activeKey={tabKey}
+                tabs={lemonTabs}
+                className={cn(newSceneLayout && '-mt-4 -mx-4 [&>ul]:px-4 [&>ul]:mb-0')}
+            />
         </>
     )
 }

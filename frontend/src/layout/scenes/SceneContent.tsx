@@ -8,11 +8,12 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 import { fileSystemTypes } from '~/products'
-import { iconForType } from '../panel-layout/ProjectTree/defaultTree'
+import { iconForType, ProductIconWrapper } from '../panel-layout/ProjectTree/defaultTree'
 import { IconDocument } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FileSystemIconColor } from '~/types'
 
 export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -24,11 +25,6 @@ export function SceneContent({ children }: { children: React.ReactNode }): JSX.E
     }
 
     return <div className="flex flex-col gap-y-4">{children}</div>
-}
-
-export interface SceneBreadcrumb {
-    name: string
-    url?: string
 }
 
 interface SceneSectionProps {
@@ -75,9 +71,11 @@ type ResourceType = {
     to?: string
     tooltip?: string
     // example: 'action'
-    type: keyof typeof fileSystemTypes
+    type: keyof typeof fileSystemTypes | string
     // example: 'actions'
     typePlural: string
+    forceIcon?: JSX.Element
+    forceIconColorOverride?: FileSystemIconColor
 }
 type SceneMainTitleProps = {
     name?: string | null
@@ -100,7 +98,13 @@ export function SceneTitleSection({
     onDescriptionBlur,
     docsLink,
 }: SceneMainTitleProps): JSX.Element {
-    const icon = iconForType(resourceType.type)
+    const icon = resourceType.forceIcon ? (
+        <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
+            {resourceType.forceIcon}
+        </ProductIconWrapper>
+    ) : (
+        iconForType(resourceType.type)
+    )
 
     return (
         <div className="w-full flex gap-0 group/colorful-product-icons colorful-product-icons-true">
