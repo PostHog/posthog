@@ -13,7 +13,6 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
-from posthog.tasks.insight_query_metadata import fill_insights_missing_query_metadata
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.email import send_hog_functions_daily_digest
@@ -26,7 +25,6 @@ from posthog.tasks.tasks import (
     clear_clickhouse_deleted_person,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
-    clickhouse_mark_all_materialized,
     clickhouse_materialize_columns,
     clickhouse_mutation_count,
     clickhouse_part_count,
@@ -294,21 +292,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 name="clickhouse materialize columns",
             )
 
-            sender.add_periodic_task(
-                crontab(hour="*/4", minute="0"),
-                clickhouse_mark_all_materialized.s(),
-                name="clickhouse mark all columns as materialized",
-            )
-
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings.s(),
             name="persist finished recordings",
         )
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings_v2.s(),
             name="persist finished recordings v2",
         )
@@ -351,10 +343,4 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
-    )
-
-    sender.add_periodic_task(
-        crontab(minute="0", hour="*/12"),
-        fill_insights_missing_query_metadata.s(),
-        name="fill insights missing query metadata",
     )

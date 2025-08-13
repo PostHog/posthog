@@ -276,9 +276,10 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             {({ onChange }) => (
                                 <>
                                     <span>
-                                        Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID. The very first row (the header) will
-                                        be skipped during import.
+                                        Upload a CSV file to add users to your cohort. For single-column files, include
+                                        one distinct ID per row (all rows will be processed as data). For multi-column
+                                        files, include a header row with a 'distinct_id' column containing the user
+                                        identifiers.
                                     </span>
                                     <LemonFileInput
                                         accept=".csv"

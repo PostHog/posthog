@@ -35,7 +35,8 @@
         "format": "pnpm format:backend && pnpm format:frontend",
         "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
         "storybook": "pnpm turbo --filter=@posthog/storybook start",
-        "start": "./bin/start"
+        "start": "./bin/start",
+        "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true"
     },
     "dependencies": {
         "concurrently": "^5.3.0",
@@ -63,7 +64,7 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.26.0"
+            "@posthog/icons": "0.27.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
