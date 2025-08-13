@@ -11,5 +11,6 @@ class SingleSessionSummaryInputs:
     user_id: int
     team_id: int
     redis_key_base: str
+    model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False

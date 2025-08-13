@@ -117,7 +117,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getPersistedStates(possibleInvocations.map((x) => x.hogFunction.id))
+            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
             const validInvocations: CyclotronJobInvocationHogFunction[] = []
 
             // Iterate over adding them to the list and updating their priority
@@ -282,7 +282,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getPersistedStates(possibleInvocations.map((x) => x.hogFlow.id))
+            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFlow.id))
             const validInvocations: CyclotronJobInvocation[] = []
 
             // Iterate over adding them to the list and updating their priority

@@ -60,8 +60,8 @@ from django.db import models
 from posthog.warehouse.models.util import get_view_or_table_by_name
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsInvoiceItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
 )
 
 
@@ -370,6 +370,13 @@ def property_to_expr(
             return ast.Or(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
     elif isinstance(property, EmptyPropertyFilter):
         return ast.Constant(value=1)
+    elif isinstance(property, FlagPropertyFilter):
+        # Flag dependencies are evaluated at the API layer, not in HogQL.
+        # They should never reach this point, but we handle them gracefully
+        # to satisfy type checking since FlagPropertyFilter is part
+        # of the AnyPropertyFilter union used throughout the codebase.
+        # Return a neutral filter that doesn't affect the query.
+        return ast.Constant(value=1)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
@@ -672,15 +679,15 @@ def map_virtual_properties(e: ast.Expr):
 
 def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
     if property.key == "amount":
-        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
+        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])
     elif property.key == "country":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
     elif property.key == "cohort":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
     elif property.key == "coupon":
-        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "coupon"])
+        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "coupon"])
     elif property.key == "coupon_id":
-        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "coupon_id"])
+        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "coupon_id"])
     elif property.key == "initial_coupon":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon"])
     elif property.key == "initial_coupon_id":
