@@ -39,17 +39,17 @@ export function ReleasesTable(): JSX.Element {
 
     const columns: LemonTableColumns<ErrorTrackingRelease> = [
         {
-            title: 'Version',
-            dataIndex: 'version',
-            key: 'version',
-            render: (_, release) => <strong>{release.version}</strong>,
-        },
-        {
             title: 'Project',
             dataIndex: 'project',
             key: 'project',
+            render: (_, release) => <strong>{release.project}</strong>,
         },
-
+        {
+            title: 'Version',
+            dataIndex: 'version',
+            key: 'version',
+            render: (_, release) => <div className="truncate w-[150px]">{release.version}</div>,
+        },
         {
             title: 'Created',
             dataIndex: 'created_at',
@@ -61,20 +61,20 @@ export function ReleasesTable(): JSX.Element {
             ),
         },
         {
-            title: 'Branch',
-            key: 'branch',
-            render: (_, release) => {
-                if (release?.metadata?.git && release.metadata.git.branch) {
-                    return <span className="text-muted-alt">{release.metadata.git.branch}</span>
-                }
-            },
-        },
-        {
             title: 'Repository',
             key: 'repository',
             render: (_, release) => {
                 if (release?.metadata?.git && release.metadata.git.repo_name) {
                     return <span className="text-muted-alt">{release.metadata.git.repo_name}</span>
+                }
+            },
+        },
+        {
+            title: 'Branch',
+            key: 'branch',
+            render: (_, release) => {
+                if (release?.metadata?.git && release.metadata.git.branch) {
+                    return <span className="text-muted-alt">{release.metadata.git.branch}</span>
                 }
             },
         },
