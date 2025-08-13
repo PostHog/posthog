@@ -309,10 +309,8 @@ describe('RecipientPreferencesService', () => {
                     template_id: 'template-twilio',
                     message_category_id: categoryId,
                     inputs: {
-                        sms: {
-                            value: { to: toNumber },
-                        },
-                    },
+                        to_number: toNumber,
+                    } as any,
                 },
                 created_at: Date.now(),
                 updated_at: Date.now(),
