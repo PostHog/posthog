@@ -43,15 +43,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -190,15 +190,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -540,15 +540,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -890,15 +890,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1143,15 +1143,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1396,15 +1396,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1670,15 +1670,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1923,15 +1923,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2273,15 +2273,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2549,15 +2549,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2824,15 +2824,15 @@
                   product_id AS product_id,
                   toString(person_id) AS customer_id,
                   NULL AS status,
-                  started_at AS started_at,
-                  ended_at AS ended_at,
+                  min_timestamp AS started_at,
+                  if(ifNull(greater(addDays(max_timestamp, 45.0), today()), 0), NULL, max_timestamp) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                     min(toTimeZone(events.timestamp, 'UTC')) AS started_at,
-                     max(toTimeZone(events.timestamp, 'UTC')) AS ended_at
+                     min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                     max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp
               FROM events
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
