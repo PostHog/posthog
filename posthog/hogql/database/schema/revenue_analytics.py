@@ -40,7 +40,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
     from products.revenue_analytics.backend.views import (
         RevenueAnalyticsBaseView,
         RevenueAnalyticsCustomerView,
-        RevenueAnalyticsInvoiceItemView,
+        RevenueAnalyticsRevenueItemView,
     )
 
     columns = ["person_id", "revenue", "revenue_last_30_days"]
@@ -48,24 +48,24 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
     if not context.database:
         return ast.SelectQuery.empty(columns=columns)
 
-    # Get all customer/invoice_item pairs from the existing views
+    # Get all customer/revenue item pairs from the existing views
     all_views: dict[str, dict[type[RevenueAnalyticsBaseView], RevenueAnalyticsBaseView]] = defaultdict(defaultdict)
     for view_name in context.database.get_views():
         view = context.database.get_table(view_name)
 
         if isinstance(view, RevenueAnalyticsCustomerView):
             all_views[view.prefix][RevenueAnalyticsCustomerView] = view
-        elif isinstance(view, RevenueAnalyticsInvoiceItemView):
-            all_views[view.prefix][RevenueAnalyticsInvoiceItemView] = view
+        elif isinstance(view, RevenueAnalyticsRevenueItemView):
+            all_views[view.prefix][RevenueAnalyticsRevenueItemView] = view
 
     # Iterate over all possible view pairs and figure out which queries we can add to the set
     queries = []
     for views in all_views.values():
         customer_view = views.get(RevenueAnalyticsCustomerView)
-        invoice_view = views.get(RevenueAnalyticsInvoiceItemView)
+        revenue_item_view = views.get(RevenueAnalyticsRevenueItemView)
 
-        # Only proceed for those where we have customer/invoice_item pairs
-        if customer_view is None or invoice_view is None:
+        # Only proceed for those where we have customer/revenue_item pairs
+        if customer_view is None or revenue_item_view is None:
             continue
 
         # If we're working with event views, we can use the person_id field directly
@@ -91,7 +91,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
                                 name="sum",
                                 args=[
                                     ast.Field(
-                                        chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"]
+                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]
                                     )
                                 ],
                             ),
@@ -102,13 +102,13 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
                                 name="sumIf",
                                 args=[
                                     ast.Field(
-                                        chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"]
+                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]
                                     ),
                                     ast.CompareOperation(
                                         op=ast.CompareOperationOp.GtEq,
                                         left=ast.Field(
                                             chain=[
-                                                RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                                                RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
                                                 "timestamp",
                                             ]
                                         ),
@@ -122,8 +122,8 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
                         alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
                         table=ast.Field(chain=[customer_view.name]),
                         next_join=ast.JoinExpr(
-                            alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                            table=ast.Field(chain=[invoice_view.name]),
+                            alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                            table=ast.Field(chain=[revenue_item_view.name]),
                             join_type="LEFT JOIN",
                             constraint=ast.JoinConstraint(
                                 constraint_type="ON",
@@ -131,7 +131,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
                                     op=ast.CompareOperationOp.Eq,
                                     left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
                                     right=ast.Field(
-                                        chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "customer_id"]
+                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]
                                     ),
                                 ),
                             ),

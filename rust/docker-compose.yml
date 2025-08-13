@@ -26,6 +26,9 @@ services:
             - --set redpanda.retention_bytes=536870912
         environment:
             ALLOW_PLAINTEXT_LISTENER: 'true'
+            KAFKA_OPTS: -XX:-UseContainerSupport
+        ports:
+            - '9092:9092'
         healthcheck:
             test: curl -f http://localhost:9644/v1/status/ready || exit 1
             interval: 3s

@@ -87,14 +87,14 @@ export function MaxTool({
                         !isMaxOpen ? (
                             <>
                                 <IconSparkles className="mr-1.5" />
-                                {name} with Max
+                                {definition.name} with Max
                             </>
                         ) : (
                             <>
                                 Max can use this tool
                                 <br />
                                 {icon || <IconWrench />}
-                                <i className="ml-1.5">{name}</i>
+                                <i className="ml-1.5">{definition.name}</i>
                             </>
                         )
                     }

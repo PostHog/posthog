@@ -30,6 +30,7 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/workflows/rust-hook-migrator-docker.yml'
@@ -37,6 +38,7 @@ jobs:
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
+                        - 'docker-compose.dev.yml'
 
     build:
         name: Build Rust services
