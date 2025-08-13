@@ -17,7 +17,7 @@ from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from .revenue_analytics_query_runner import (
     RevenueAnalyticsQueryRunner,
 )
-from products.revenue_analytics.backend.views import RevenueAnalyticsInvoiceItemView
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
 
 LOOKBACK_PERIOD_DAYS = 30
 LOOKBACK_PERIOD = timedelta(days=LOOKBACK_PERIOD_DAYS)
@@ -71,46 +71,46 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
     def _get_subquery(self) -> ast.SelectQuery | None:
-        if self.revenue_subqueries.invoice_item is None:
+        if self.revenue_subqueries.revenue_item is None:
             return None
 
         query = ast.SelectQuery(
             select=[
                 ast.Alias(
                     alias="breakdown_by",
-                    expr=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
+                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
                 ),
                 ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
                 ast.Alias(
                     alias="is_recurring",
-                    expr=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "is_recurring"]),
+                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "is_recurring"]),
                 ),
                 ast.Alias(
                     alias="day_start",
                     expr=ast.Call(
                         name=f"toStartOfDay",
-                        args=[ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])],
+                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])],
                     ),
                 ),
                 ast.Alias(
                     alias="period_start",
                     expr=ast.Call(
                         name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])],
+                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])],
                     ),
                 ),
             ],
             select_from=self._append_joins(
                 ast.JoinExpr(
-                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                    table=self.revenue_subqueries.invoice_item,
+                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    table=self.revenue_subqueries.revenue_item,
                 ),
-                self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
+                self.joins_for_properties(RevenueAnalyticsRevenueItemView),
             ),
             where=ast.And(
                 exprs=[
                     self.timestamp_where_clause(
-                        chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"],
+                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"],
                         extra_days_before=LOOKBACK_PERIOD_DAYS,  # Add extra days to ensure MRR calculations are correct
                     ),
                     *self.where_property_exprs,
@@ -122,7 +122,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
         # This is also implemented in the frontend, but let's guarantee it here too
         with self.timings.measure("append_group_by"):
             for group_by in self.query.groupBy[:2]:
-                query = self._append_group_by(query, RevenueAnalyticsInvoiceItemView, group_by)
+                query = self._append_group_by(query, RevenueAnalyticsRevenueItemView, group_by)
 
         return query
 

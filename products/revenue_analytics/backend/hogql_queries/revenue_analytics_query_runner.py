@@ -20,8 +20,8 @@ from posthog.schema import (
 from products.revenue_analytics.backend.utils import (
     REVENUE_SELECT_OUTPUT_CHARGE_KEY,
     REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
-    REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY,
     REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
+    REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY,
     REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY,
     revenue_selects_from_database,
 )
@@ -29,8 +29,8 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsInvoiceItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
 
@@ -41,14 +41,14 @@ EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 # This is used to replace the breakdown value when there's no breakdown
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
 
-AVAILABLE_JOINS = Literal["customers", "invoice_items", "products"]
+AVAILABLE_JOINS = Literal["customers", "products", "revenue_items"]
 PROPERTY_TO_JOIN_MAP: dict[str, AVAILABLE_JOINS] = {
     "source": "customers",
-    "amount": "invoice_items",
+    "amount": "revenue_items",
     "country": "customers",
     "cohort": "customers",
-    "coupon": "invoice_items",
-    "coupon_id": "invoice_items",
+    "coupon": "revenue_items",
+    "coupon_id": "revenue_items",
     "initial_coupon": "customers",
     "initial_coupon_id": "customers",
     "product": "products",
@@ -59,8 +59,8 @@ PROPERTY_TO_JOIN_MAP: dict[str, AVAILABLE_JOINS] = {
 class RevenueSubqueries:
     charge: ast.SelectSetQuery | None
     customer: ast.SelectSetQuery | None
-    invoice_item: ast.SelectSetQuery | None
     product: ast.SelectSetQuery | None
+    revenue_item: ast.SelectSetQuery | None
     subscription: ast.SelectSetQuery | None
 
 
@@ -87,9 +87,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
         return joins_set
 
-    # This assumes there's a base select coming from the `invoice_items` view
+    # This assumes there's a base select coming from the `revenue_items` view
     # and we can then join from that table with the other tables so that's
-    # why we'll never see a join for the `invoice_items` table - it's supposed to be there already
+    # why we'll never see a join for the `revenue_items` table - it's supposed to be there already
     def joins_for_properties(self, join_from: type[RevenueAnalyticsBaseView]) -> list[ast.JoinExpr]:
         joins = []
         for join in self.joins_set_for_properties:
@@ -97,9 +97,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             if join == "customers":
                 if self.revenue_subqueries.customer is not None:
                     join_to_add = self._create_customer_join(join_from, self.revenue_subqueries.customer)
-            elif join == "invoice_items":
-                if self.revenue_subqueries.invoice_item is not None:
-                    join_to_add = self._create_invoice_item_join(join_from, self.revenue_subqueries.invoice_item)
+            elif join == "revenue_items":
+                if self.revenue_subqueries.revenue_item is not None:
+                    join_to_add = self._create_revenue_item_join(join_from, self.revenue_subqueries.revenue_item)
             elif join == "products":
                 if self.revenue_subqueries.product is not None:
                     join_to_add = self._create_product_join(join_from, self.revenue_subqueries.product)
@@ -150,8 +150,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             return self._create_charge_join(join_from, subquery)
         elif join_to == RevenueAnalyticsSubscriptionView:
             return self._create_subscription_join(join_from, subquery)
-        elif join_to == RevenueAnalyticsInvoiceItemView:
-            return self._create_invoice_item_join(join_from, subquery)
+        elif join_to == RevenueAnalyticsRevenueItemView:
+            return self._create_revenue_item_join(join_from, subquery)
         else:
             raise ValueError(f"Invalid join to: {join_to}")
 
@@ -160,7 +160,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         join_from: type[RevenueAnalyticsBaseView],
         product_subquery: ast.SelectQuery | ast.SelectSetQuery,
     ) -> ast.JoinExpr | None:
-        if join_from == RevenueAnalyticsInvoiceItemView or join_from == RevenueAnalyticsSubscriptionView:
+        if join_from == RevenueAnalyticsRevenueItemView or join_from == RevenueAnalyticsSubscriptionView:
             return ast.JoinExpr(
                 alias=RevenueAnalyticsProductView.get_generic_view_alias(),
                 table=product_subquery,
@@ -181,7 +181,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         join_from: type[RevenueAnalyticsBaseView],
         customer_subquery: ast.SelectQuery | ast.SelectSetQuery,
     ) -> ast.JoinExpr | None:
-        if join_from == RevenueAnalyticsInvoiceItemView or join_from == RevenueAnalyticsSubscriptionView:
+        if join_from == RevenueAnalyticsRevenueItemView or join_from == RevenueAnalyticsSubscriptionView:
             return ast.JoinExpr(
                 alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
                 table=customer_subquery,
@@ -202,7 +202,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         join_from: type[RevenueAnalyticsBaseView],
         charge_subquery: ast.SelectQuery | ast.SelectSetQuery,
     ) -> ast.JoinExpr | None:
-        if join_from == RevenueAnalyticsInvoiceItemView:
+        if join_from == RevenueAnalyticsRevenueItemView:
             return ast.JoinExpr(
                 alias=RevenueAnalyticsChargeView.get_generic_view_alias(),
                 table=charge_subquery,
@@ -210,7 +210,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                 constraint=ast.JoinConstraint(
                     constraint_type="ON",
                     expr=ast.CompareOperation(
-                        left=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "charge_id"]),
+                        left=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "charge_id"]),
                         right=ast.Field(chain=[RevenueAnalyticsChargeView.get_generic_view_alias(), "id"]),
                         op=ast.CompareOperationOp.Eq,
                     ),
@@ -223,7 +223,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         join_from: type[RevenueAnalyticsBaseView],
         subscription_subquery: ast.SelectQuery | ast.SelectSetQuery,
     ) -> ast.JoinExpr | None:
-        if join_from == RevenueAnalyticsInvoiceItemView:
+        if join_from == RevenueAnalyticsRevenueItemView:
             return ast.JoinExpr(
                 alias=RevenueAnalyticsSubscriptionView.get_generic_view_alias(),
                 table=subscription_subquery,
@@ -233,7 +233,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     expr=ast.CompareOperation(
                         left=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
                         right=ast.Field(
-                            chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "subscription_id"]
+                            chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]
                         ),
                         op=ast.CompareOperationOp.Eq,
                     ),
@@ -241,22 +241,22 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             )
         return None
 
-    def _create_invoice_item_join(
+    def _create_revenue_item_join(
         self,
         join_from: type[RevenueAnalyticsBaseView],
-        invoice_item_subquery: ast.SelectQuery | ast.SelectSetQuery,
+        revenue_item_subquery: ast.SelectQuery | ast.SelectSetQuery,
     ) -> ast.JoinExpr | None:
         if join_from == RevenueAnalyticsSubscriptionView:
             return ast.JoinExpr(
-                alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                table=invoice_item_subquery,
+                alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                table=revenue_item_subquery,
                 join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
                     constraint_type="ON",
                     expr=ast.CompareOperation(
                         left=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
                         right=ast.Field(
-                            chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "subscription_id"]
+                            chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]
                         ),
                         op=ast.CompareOperationOp.Eq,
                     ),
@@ -282,7 +282,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         return RevenueSubqueries(
             charge=parse_selects(REVENUE_SELECT_OUTPUT_CHARGE_KEY),
             customer=parse_selects(REVENUE_SELECT_OUTPUT_CUSTOMER_KEY),
-            invoice_item=parse_selects(REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY),
+            revenue_item=parse_selects(REVENUE_SELECT_OUTPUT_REVENUE_ITEM_KEY),
             product=parse_selects(REVENUE_SELECT_OUTPUT_PRODUCT_KEY),
             subscription=parse_selects(REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY),
         )
@@ -458,9 +458,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         elif group_by == RevenueAnalyticsGroupBy.COHORT:
             return RevenueAnalyticsCustomerView, "cohort"
         elif group_by == RevenueAnalyticsGroupBy.COUPON:
-            return RevenueAnalyticsInvoiceItemView, "coupon"
+            return RevenueAnalyticsRevenueItemView, "coupon"
         elif group_by == RevenueAnalyticsGroupBy.COUPON_ID:
-            return RevenueAnalyticsInvoiceItemView, "coupon_id"
+            return RevenueAnalyticsRevenueItemView, "coupon_id"
         elif group_by == RevenueAnalyticsGroupBy.INITIAL_COUPON:
             return RevenueAnalyticsCustomerView, "initial_coupon"
         elif group_by == RevenueAnalyticsGroupBy.INITIAL_COUPON_ID:
@@ -473,8 +473,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             return self.revenue_subqueries.product
         elif view == RevenueAnalyticsCustomerView:
             return self.revenue_subqueries.customer
-        elif view == RevenueAnalyticsInvoiceItemView:
-            return self.revenue_subqueries.invoice_item
+        elif view == RevenueAnalyticsRevenueItemView:
+            return self.revenue_subqueries.revenue_item
         elif view == RevenueAnalyticsChargeView:
             return self.revenue_subqueries.charge
         elif view == RevenueAnalyticsSubscriptionView:

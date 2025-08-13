@@ -5367,7 +5367,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "both_flag"
 
-    def test_flag_is_cached_on_create_and_update(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_flag_is_cached_on_create_and_update(self, mock_on_commit):
         # Ensure empty feature flag list
         FeatureFlag.objects.all().delete()
 
@@ -6259,7 +6260,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(cache_key_cohorts))
 
-    def test_local_evaluation_with_use_cache_parameter(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_with_use_cache_parameter(self, mock_on_commit):
         """Test that use_cache parameter triggers the new cache path."""
         FeatureFlag.objects.create(
             team=self.team,
@@ -6279,7 +6281,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(data["flags"]), 1)
         self.assertEqual(data["flags"][0]["key"], "test-flag")
 
-    def test_local_evaluation_cache_vs_regular_identical_response(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_cache_vs_regular_identical_response(self, mock_on_commit):
         """Test that cached and non-cached responses are identical."""
         FeatureFlag.objects.create(
             team=self.team,
@@ -6306,7 +6309,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(regular_data["flags"][0]["key"], cached_data["flags"][0]["key"])
         self.assertEqual(regular_data["group_type_mapping"], cached_data["group_type_mapping"])
 
-    def test_local_evaluation_use_cache_with_cohorts(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_with_cohorts(self, mock_on_commit):
         """Test use_cache parameter with cohorts - verifies cohorts are properly included."""
         cohort = Cohort.objects.create(
             team=self.team,
@@ -6351,7 +6355,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    def test_local_evaluation_use_cache_basic_functionality(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_basic_functionality(self, mock_on_commit):
         """Test that use_cache parameter works without breaking existing functionality."""
         FeatureFlag.objects.create(
             team=self.team,
@@ -6371,7 +6376,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(data["flags"]), 1)
         self.assertEqual(data["flags"][0]["key"], "test-flag")
 
-    def test_local_evaluation_use_cache_transformation_with_send_cohorts_true(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_transformation_with_send_cohorts_true(self, mock_on_commit):
         """
         Test that cached responses with send_cohorts=true do NOT transform filters.
         This test should FAIL initially, exposing the bug where cache incorrectly transforms filters.
@@ -6432,7 +6438,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Filters should be identical when send_cohorts=true (no transformation should occur)",
         )
 
-    def test_local_evaluation_use_cache_transformation_with_send_cohorts_false(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_transformation_with_send_cohorts_false(self, mock_on_commit):
         """
         Test that cached responses without send_cohorts DO transform filters.
         This test should FAIL initially, exposing the bug where cache doesn't transform filters.
@@ -6503,7 +6510,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Both regular and cached should have identical transformed filters",
         )
 
-    def test_local_evaluation_use_cache_invalidation_on_group_type_mapping_change(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_invalidation_on_group_type_mapping_change(self, mock_on_commit):
         """Test that HyperCache invalidates when GroupTypeMapping changes."""
         from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
 
@@ -6577,7 +6585,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertNotEqual(data1["group_type_mapping"], updated_data1["group_type_mapping"])
         self.assertNotEqual(data2["group_type_mapping"], updated_data2["group_type_mapping"])
 
-    def test_local_evaluation_use_cache_invalidation_on_group_type_mapping_delete(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_invalidation_on_group_type_mapping_delete(self, mock_on_commit):
         """Test that HyperCache invalidates when GroupTypeMapping is deleted."""
         from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
 
@@ -6624,7 +6633,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Verify response changed from the original cached version
         self.assertNotEqual(data["group_type_mapping"], updated_data.get("group_type_mapping", {}))
 
-    def test_local_evaluation_use_cache_invalidation_on_feature_flag_delete(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_invalidation_on_feature_flag_delete(self, mock_on_commit):
         """Test that HyperCache invalidates when FeatureFlag is deleted."""
         from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
 
@@ -6701,7 +6711,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertNotEqual(len(data1["flags"]), len(updated_data1["flags"]))
         self.assertNotEqual(len(data2["flags"]), len(updated_data2["flags"]))
 
-    def test_local_evaluation_use_cache_invalidation_on_cohort_delete(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_invalidation_on_cohort_delete(self, mock_on_commit):
         """Test that HyperCache invalidates when Cohort is deleted."""
         from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
 
@@ -6931,7 +6942,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 0, response)
 
-    def test_creating_static_cohort_with_experience_continuity_flag(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_creating_static_cohort_with_experience_continuity_flag(self, mock_on_commit):
         FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -6983,7 +6995,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    def test_creating_static_cohort_iterator(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_creating_static_cohort_iterator(self, mock_on_commit):
         FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -7047,7 +7060,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 3, response)
 
-    def test_creating_static_cohort_with_default_person_properties_adjustment(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_creating_static_cohort_with_default_person_properties_adjustment(self, mock_on_commit):
         FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -7125,7 +7139,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cohort2.name, "some cohort2")
         self.assertEqual(cohort2.count, 2)
 
-    def test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too(self, mock_on_commit):
         cohort_nested = Cohort.objects.create(
             team=self.team,
             filters={
