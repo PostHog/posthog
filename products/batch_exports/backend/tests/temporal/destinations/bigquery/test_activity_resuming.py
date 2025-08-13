@@ -71,7 +71,6 @@ pytestmark = [
         ),
     ],
 )
-@pytest.mark.parametrize("use_internal_stage", [False])
 async def test_insert_into_bigquery_activity_resumes_from_heartbeat(
     clickhouse_client,
     activity_environment,
@@ -90,11 +89,6 @@ async def test_insert_into_bigquery_activity_resumes_from_heartbeat(
     After an activity runs, heartbeats, and crashes, a follow-up activity should
     pick-up from where the first one left. This capability is critical to ensure
     long-running activities that export a lot of data will eventually finish.
-
-    NOTE: Resuming from heartbeats is only supported when not using an internal
-    stage (i.e. `use_internal_stage=False`). This test can be removed once all
-    BigQuery batch exports have been moved to using
-    `insert_into_bigquery_from_stage`.
     """
     batch_export_model = BatchExportModel(name="events", schema=None)
 
@@ -187,11 +181,6 @@ async def test_insert_into_bigquery_activity_completes_range(
     This simulates the batch export resuming from a failed execution. The full range
     should be completed (with a duplicate on the cutoff event) after both activities
     are done.
-
-    NOTE: Resuming from heartbeats is only supported when not using an internal
-    stage (i.e. `use_internal_stage=False`). This test can be removed once all
-    BigQuery batch exports have been moved to using
-    `insert_into_bigquery_from_stage`.
     """
     batch_export_model = BatchExportModel(name="events", schema=None)
     now = dt.datetime.now(tz=dt.UTC)
@@ -294,11 +283,6 @@ async def test_insert_into_bigquery_activity_completes_range_when_there_is_a_fai
 
     We simulate a failure in the SPMC producer halfway through streaming records, then resume from the heartbeat.
     We're particularly interested in ensuring all records are exported into the final BigQuery table.
-
-    NOTE: Resuming from heartbeats is only supported when not using an internal
-    stage (i.e. `use_internal_stage=False`). This test can be removed once all
-    BigQuery batch exports have been moved to using
-    `insert_into_bigquery_from_stage`.
     """
 
     batch_export_model = BatchExportModel(name="events", schema=None)
