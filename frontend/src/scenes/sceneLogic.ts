@@ -503,7 +503,7 @@ export const sceneLogic = kea<sceneLogicType>([
         },
         locationChanged: ({ pathname, search, hash, routerState, method }) => {
             pathname = addProjectIdIfMissing(pathname)
-            if (routerState?.tabs && method !== 'PUSH') {
+            if (routerState?.tabs && method === 'POP') {
                 actions.setTabs(routerState.tabs)
                 return
             }

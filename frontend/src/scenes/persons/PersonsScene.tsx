@@ -18,9 +18,12 @@ export const scene: SceneExport = {
 }
 
 export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    const { query } = useValues(personsSceneLogic({ tabId }))
-    const { setQuery } = useActions(personsSceneLogic({ tabId }))
-    const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic({ tabId }))
+    if (!tabId) {
+        // TODO: why and how is this empty?????
+    }
+    const { query } = useValues(personsSceneLogic)
+    const { setQuery } = useActions(personsSceneLogic)
+    const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (

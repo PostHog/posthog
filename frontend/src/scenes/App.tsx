@@ -141,15 +141,21 @@ function AppScene(): JSX.Element | null {
     let sceneElement: JSX.Element
     if (activeLoadedScene?.component) {
         const { component: SceneComponent } = activeLoadedScene
-        sceneElement = <SceneComponent user={user} {...sceneParamsWithTabId} />
+        sceneElement = (
+            <SceneComponent key={`tab-${sceneParamsWithTabId.tabId}`} user={user} {...sceneParamsWithTabId} />
+        )
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }
 
     const wrappedSceneElement = (
-        <ErrorBoundary key={activeSceneId} exceptionProps={{ feature: activeSceneId }}>
+        <ErrorBoundary key={`error-${sceneParamsWithTabId.tabId}`} exceptionProps={{ feature: activeSceneId }}>
             {activeLoadedScene?.logic ? (
-                <BindLogic logic={activeLoadedScene.logic} props={sceneParamsWithTabId}>
+                <BindLogic
+                    key={`bind-${sceneParamsWithTabId.tabId}`}
+                    logic={activeLoadedScene.logic}
+                    props={sceneParamsWithTabId}
+                >
                     {sceneElement}
                 </BindLogic>
             ) : (
