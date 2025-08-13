@@ -6,11 +6,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sourcemap::SourceMap;
 use std::collections::BTreeMap;
+use std::str::Lines;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 use super::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE};
@@ -163,9 +164,9 @@ pub fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
         if is_javascript_file(&entry_path) {
             info!("Processing file: {}", entry_path.display());
             let source = SourceFile::load(&entry_path)?;
-            let sourcemap_path = guess_sourcemap_path(&source.path);
-            if sourcemap_path.exists() {
-                let sourcemap = SourceFile::load(&sourcemap_path)?;
+            let sourcemap_path = get_sourcemap_path(&source)?;
+            if let Some(path) = sourcemap_path {
+                let sourcemap = SourceFile::load(&path)?;
                 let chunk_id = get_chunk_id(&sourcemap);
                 pairs.push(SourcePair {
                     chunk_id,
@@ -188,6 +189,39 @@ pub fn get_chunk_id(sourcemap: &SourceFile) -> Option<String> {
     serde_json::from_str(&sourcemap.content)
         .map(|chunk_id: SourceChunkId| chunk_id.chunk_id)
         .ok()
+}
+
+pub fn get_sourcemap_reference(lines: Lines) -> Result<Option<String>> {
+    for line in lines.rev() {
+        if line.starts_with("//# sourceMappingURL=") || line.starts_with("//@ sourceMappingURL=") {
+            let url = str::from_utf8(&line.as_bytes()[21..])?.trim().to_owned();
+            return Ok(Some(url));
+        }
+    }
+    Ok(None)
+}
+
+pub fn get_sourcemap_path(source: &SourceFile) -> Result<Option<PathBuf>> {
+    match get_sourcemap_reference(source.content.lines())? {
+        Some(url) => {
+            let sourcemap_path = source
+                .path
+                .parent()
+                .map(|p| p.join(&url))
+                .unwrap_or_else(|| PathBuf::from(&url));
+            debug!("Found sourcemap path: {}", sourcemap_path.display());
+            Ok(Some(sourcemap_path))
+        }
+        None => {
+            let sourcemap_path = guess_sourcemap_path(&source.path);
+            debug!("Guessed sourcemap path: {}", sourcemap_path.display());
+            if sourcemap_path.exists() {
+                Ok(Some(sourcemap_path))
+            } else {
+                Ok(None)
+            }
+        }
+    }
 }
 
 pub fn guess_sourcemap_path(path: &Path) -> PathBuf {

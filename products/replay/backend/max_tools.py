@@ -101,6 +101,7 @@ class SearchSessionRecordingsTool(MaxTool):
     thinking_message: str = "Coming up with session recordings filters"
     root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
+    show_tool_call_message: bool = False
 
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
@@ -117,7 +118,7 @@ class SearchSessionRecordingsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
 
         if type(result["output"]) is not MaxRecordingUniversalFilters:
-            content = "❌ I need more information to proceed."
+            content = result["intermediate_steps"][-1][0].tool_input
             filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
         else:
             try:

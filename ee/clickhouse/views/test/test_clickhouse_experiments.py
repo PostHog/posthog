@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 from dateutil import parser
 from django.core.cache import cache
@@ -1715,7 +1716,8 @@ class TestExperimentCRUD(APILicensedTest):
                 [("flag_0", []), (ff_key, [created_experiment])],
             )
 
-    def test_create_experiment_updates_feature_flag_cache(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):
         cache.clear()
 
         initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
