@@ -185,7 +185,6 @@ class Database(BaseModel):
         "groups",
         "persons",
         "sessions",
-        "query_log",
     ]
 
     _warehouse_table_names: list[str] = []
