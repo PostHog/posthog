@@ -20,6 +20,7 @@ from posthog.schema import (
     HumanMessage,
     ReasoningMessage,
     VisualizationMessage,
+    NotebookUpdateMessage,
 )
 
 AIMessageUnion = Union[
@@ -29,7 +30,7 @@ AIMessageUnion = Union[
     ReasoningMessage,
     AssistantToolCallMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
@@ -184,6 +185,10 @@ class _SharedAssistantState(BaseState):
     session_summarization_query: Optional[str] = Field(default=None)
     """
     The user's query for summarizing sessions.
+    """
+    notebook_id: Optional[str] = Field(default=None)
+    """
+    The ID of the notebook being used.
     """
 
 
