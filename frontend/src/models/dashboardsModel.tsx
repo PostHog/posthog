@@ -151,9 +151,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     })
                 }
 
-                if (!discardResult) {
-                    return getQueryBasedDashboard(response)
-                }
+                return discardResult ? values.dashboard : getQueryBasedDashboard(response)
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
                 const deleted = getQueryBasedDashboard(
