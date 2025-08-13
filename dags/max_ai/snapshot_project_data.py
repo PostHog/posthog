@@ -22,9 +22,6 @@ DEFAULT_RETRY_POLICY = dagster.RetryPolicy(
 )
 
 
-SnapshotModelOutput = tuple[str, str]
-
-
 SchemaBound = TypeVar("SchemaBound", bound=BaseSnapshot)
 
 
@@ -35,7 +32,7 @@ def snapshot_postgres_model(
     s3: S3Resource,
     project_id: int,
     code_version: str | None = None,
-) -> SnapshotModelOutput:
+) -> str:
     file_key = compose_postgres_dump_path(project_id, file_name, code_version)
     if check_dump_exists(s3, file_key):
         context.log.info(f"Skipping {file_key} because it already exists")
@@ -56,7 +53,7 @@ def snapshot_postgres_project_data(
     context: dagster.OpExecutionContext, project_id: int, s3: S3Resource
 ) -> PostgresProjectDataSnapshot:
     context.log.info(f"Snapshotting Postgres project data for {project_id}")
-    snapshot_map: dict[str, type[SchemaBound]] = {
+    snapshot_map: dict[str, type[BaseSnapshot]] = {
         "project": TeamSnapshot,
         "property_definitions": PropertyDefinitionSnapshot,
         "group_type_mappings": GroupTypeMappingSnapshot,

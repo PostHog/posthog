@@ -16,7 +16,7 @@ EVALS_S3_PREFIX = "ai_evals"
 if settings.DEBUG:
     EVALS_S3_BUCKET = settings.OBJECT_STORAGE_BUCKET
 else:
-    EVALS_S3_BUCKET = settings.DAGSTER_AI_EVALS_EVALS_S3_BUCKET
+    EVALS_S3_BUCKET = settings.DAGSTER_AI_EVALS_S3_BUCKET
 
 
 def get_consistent_hash_suffix(file_name: str, date: datetime | None = None, code_version: str | None = None) -> str:
