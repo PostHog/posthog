@@ -439,12 +439,12 @@ class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
 
 class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "api_queries_burst"
-    rate = "120/minute"
+    rate = "240/minute"
 
 
 class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "api_queries_sustained"
-    rate = "1200/hour"
+    rate = "2400/hour"
 
 
 class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
