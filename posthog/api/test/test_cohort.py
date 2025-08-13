@@ -2430,7 +2430,7 @@ class TestCalculateCohortCommand(APIBaseTest):
         # Try to change base cohort to behavioral (should fail due to dependency)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{base_cohort.id}/",
-            {"cohort_type": "behavioral"},
+            data=json.dumps({"cohort_type": "behavioral"}),
             content_type="application/json",
         )
 
@@ -2464,7 +2464,7 @@ class TestCalculateCohortCommand(APIBaseTest):
         # Use bulk update endpoint
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/{base_cohort.id}/update_with_dependencies/",
-            {"cohort_type": "behavioral"},
+            data=json.dumps({"cohort_type": "behavioral"}),
             content_type="application/json",
         )
 
