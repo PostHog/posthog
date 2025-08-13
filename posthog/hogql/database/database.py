@@ -12,6 +12,7 @@ from typing import (
 )
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.conf import settings
 from django.db.models import Prefetch, Q
 from pydantic import BaseModel, ConfigDict
 
@@ -524,6 +525,8 @@ def create_hogql_database(
         try:
             revenue_views = RevenueAnalyticsBaseView.for_team(team, timings)
         except Exception as e:
+            if settings.TEST:
+                raise
             capture_exception(e)
 
         # Each view will have a name similar to stripe.prefix.table_name
