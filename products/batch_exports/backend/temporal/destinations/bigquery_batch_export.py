@@ -920,10 +920,12 @@ class BigQueryConsumerFromStage(ConsumerFromStage):
             buffer_size=buffer_size,
         )
 
-        if self.file_format == "PARQUET":
+        if self.file_format == "Parquet":
             await self.client.load_parquet_file(self.current_buffer, table=self.table, table_schema=self.table_schema)
-        else:
+        elif self.file_format == "JSONLines":
             await self.client.load_jsonl_file(self.current_buffer, table=self.table, table_schema=self.table_schema)
+        else:
+            raise ValueError(f"Unsupported file format: '{self.file_format}'")
 
         self.logger.debug(
             "Load job finished",
@@ -934,20 +936,16 @@ class BigQueryConsumerFromStage(ConsumerFromStage):
         self.current_buffer = io.BytesIO()
 
 
-class TableSettings(typing.NamedTuple):
+class TableSchemas(typing.NamedTuple):
     table_schema: collections.abc.Sequence[bigquery.SchemaField]
     stage_table_schema: collections.abc.Sequence[bigquery.SchemaField]
-    record_batch_schema: pa.Schema
     json_columns: collections.abc.Sequence[str]
 
 
-def _get_bigquery_table_settings(
+def _get_table_schemas(
     model: BatchExportModel | BatchExportSchema | None, record_batch_schema: pa.Schema, use_json_type: bool
-) -> TableSettings:
-    record_batch_schema = pa.schema(
-        [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
-    )
-
+) -> TableSchemas:
+    """Return the schemas used for main and stage tables."""
     if use_json_type is True:
         json_type = "JSON"
         json_columns = ["properties", "set", "set_once", "person_properties"]
@@ -978,7 +976,7 @@ def _get_bigquery_table_settings(
         bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in table_schema
     ]
 
-    return TableSettings(table_schema, stage_table_schema, record_batch_schema, json_columns)
+    return TableSchemas(table_schema, stage_table_schema, json_columns)
 
 
 class MergeSettings(typing.NamedTuple):
@@ -987,9 +985,10 @@ class MergeSettings(typing.NamedTuple):
     update_key: collections.abc.Sequence[str] | None
 
 
-def _get_bigquery_merge_settings(
+def _get_merge_settings(
     model: BatchExportModel | BatchExportSchema | None,
 ) -> MergeSettings:
+    """Return merge settings for models that require merging."""
     requires_merge = False
     merge_key = None
     update_key = None
@@ -1067,11 +1066,14 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
-        table_settings = _get_bigquery_table_settings(
+        record_batch_schema = pa.schema(
+            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+        )
+        table_schemas = _get_table_schemas(
             model=model, record_batch_schema=record_batch_schema, use_json_type=inputs.use_json_type
         )
 
-        merge_settings = _get_bigquery_merge_settings(model=model)
+        merge_settings = _get_merge_settings(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
@@ -1081,7 +1083,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 project_id=inputs.project_id,
                 dataset_id=inputs.dataset_id,
                 table_id=inputs.table_id,
-                table_schema=table_settings.table_schema,
+                table_schema=table_schemas.table_schema,
                 delete=False,
             ) as bigquery_table:
                 can_perform_merge = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
@@ -1098,14 +1100,16 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     project_id=inputs.project_id,
                     dataset_id=inputs.dataset_id,
                     table_id=stage_table_name if can_perform_merge else inputs.table_id,
-                    table_schema=table_settings.stage_table_schema,
+                    table_schema=table_schemas.stage_table_schema,
                     create=can_perform_merge,
                     delete=can_perform_merge,
                 ) as bigquery_stage_table:
                     consumer = BigQueryConsumerFromStage(
                         client=bq_client,
-                        table=bigquery_stage_table,
-                        table_schema=table_settings.table_schema,
+                        table=bigquery_stage_table if can_perform_merge else bigquery_table,
+                        table_schema=table_schemas.stage_table_schema
+                        if can_perform_merge
+                        else table_schemas.table_schema,
                         file_format="Parquet" if can_perform_merge else "JSONLines",
                     )
 
@@ -1115,20 +1119,20 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         producer_task=producer_task,
                         schema=record_batch_schema,
                         file_format="Parquet" if can_perform_merge else "JSONLines",
-                        compression=None,
+                        compression="zstd" if can_perform_merge else None,
                         include_inserted_at=False,
                         max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=table_settings.json_columns,
+                        json_columns=() if can_perform_merge else table_schemas.json_columns,
                     )
 
                     if can_perform_merge:
-                        await bq_client.amerge_tables(
+                        _ = await bq_client.amerge_tables(
                             final_table=bigquery_table,
                             stage_table=bigquery_stage_table,
                             mutable=merge_settings.requires_merge,
                             merge_key=merge_settings.merge_key,
                             update_key=merge_settings.update_key,
-                            stage_fields_cast_to_json=table_settings.json_columns,
+                            stage_fields_cast_to_json=table_schemas.json_columns,
                         )
 
                     return result
