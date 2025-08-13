@@ -741,6 +741,42 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             return SurveySerializer
 
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Override create method to protect SURVEYS_STYLING feature."""
+        appearance = request.data.get("appearance", {})
+        if appearance and self._has_styling_properties(appearance):
+            if not request.user.organization.is_feature_available(AvailableFeature.SURVEYS_STYLING):
+                raise exceptions.ValidationError(
+                    "You need to upgrade to PostHog Enterprise to use survey styling features"
+                )
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Override update method to protect SURVEYS_STYLING feature."""
+        appearance = request.data.get("appearance", {})
+        if appearance and self._has_styling_properties(appearance):
+            if not request.user.organization.is_feature_available(AvailableFeature.SURVEYS_STYLING):
+                raise exceptions.ValidationError(
+                    "You need to upgrade to PostHog Enterprise to use survey styling features"
+                )
+        return super().update(request, *args, **kwargs)
+
+    def _has_styling_properties(self, appearance: dict) -> bool:
+        """Check if appearance contains styling properties that require SURVEYS_STYLING feature."""
+        styling_properties = [
+            "backgroundColor",
+            "submitButtonColor", 
+            "submitButtonTextColor",
+            "ratingButtonColor",
+            "ratingButtonActiveColor",
+            "textColor",
+            "borderColor",
+            "borderRadius",
+            "shadow",
+            "customCSS"
+        ]
+        return any(prop in appearance for prop in styling_properties)
+
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
