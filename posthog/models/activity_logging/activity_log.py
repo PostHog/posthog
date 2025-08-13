@@ -43,6 +43,7 @@ ActivityScope = Literal[
     "Dashboard",
     "Replay",
     "Experiment",
+    "ExperimentHoldout",
     "ExperimentSavedMetric",
     "Survey",
     "EarlyAccessFeature",
