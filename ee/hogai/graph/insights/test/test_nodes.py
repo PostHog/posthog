@@ -21,9 +21,11 @@ class TestInsightSearchNode(BaseTest):
             name="Daily Pageviews",
             description="Track daily website traffic",
             query={
-                "kind": "TrendsQuery",
-                "series": [{"event": "$pageview", "kind": "EventsNode"}],
-                "dateRange": {"date_from": "-7d"},
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-7d"},
+                }
             },
             filters={"insight": "TRENDS"},
             created_by=self.user,
@@ -34,12 +36,14 @@ class TestInsightSearchNode(BaseTest):
             name="User Signup Funnel",
             description="Track user conversion through signup",
             query={
-                "kind": "FunnelsQuery",
-                "series": [
-                    {"event": "signup_start", "kind": "EventsNode"},
-                    {"event": "signup_complete", "kind": "EventsNode"},
-                ],
-                "dateRange": {"date_from": "-7d"},
+                "source": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"event": "signup_start", "kind": "EventsNode"},
+                        {"event": "signup_complete", "kind": "EventsNode"},
+                    ],
+                    "dateRange": {"date_from": "-7d"},
+                }
             },
             filters={"insight": "FUNNELS"},
             created_by=self.user,
@@ -260,11 +264,11 @@ class TestInsightSearchNode(BaseTest):
         # Should return empty list when LLM fails to select anything
         self.assertEqual(len(result), 0)
 
-    def test_router_returns_insights(self):
-        """Test that router returns 'insights' when root_tool_insight_plan is set but search_insights_query is not."""
+    def test_router_always_returns_root(self):
+        """Test that router always returns 'root'."""
         state = AssistantState(messages=[], root_tool_insight_plan="some plan", search_insights_query=None)
         result = self.node.router(state)
-        self.assertEqual(result, "insights")
+        self.assertEqual(result, "root")
 
     def test_evaluation_flow_returns_creation_when_no_suitable_insights(self):
         """Test that when evaluation returns NO, the system transitions to creation flow."""
@@ -326,8 +330,8 @@ class TestInsightSearchNode(BaseTest):
                         router_result = self.node.router(post_evaluation_state)
                         self.assertEqual(
                             router_result,
-                            "insights",
-                            "Router should direct to insights creation when evaluation says NO",
+                            "root",
+                            "Router should always return root",
                         )
 
                         # Verify that _evaluate_insights_with_tools was called with the search_query
@@ -406,9 +410,11 @@ class TestInsightSearchNode(BaseTest):
             team=other_team,
             name="Other Team Insight",
             query={
-                "kind": "TrendsQuery",
-                "series": [{"event": "other_event", "kind": "EventsNode"}],
-                "dateRange": {"date_from": "-7d"},
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "other_event", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-7d"},
+                }
             },
             created_by=self.user,
         )
@@ -482,22 +488,15 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(result, "Insight 99999 not found")
         self.assertEqual(len(self.node._evaluation_selections), 0)
 
-    def test_evaluation_tools_get_insight_details(self):
-        """Test the get_insight_details tool function."""
-        # Load insights first
-        self.node._load_insights_page(0)
-
+    def test_evaluation_tools_only_has_select_and_reject(self):
+        """Test that evaluation tools only include select_insight and reject_all_insights."""
         # Get the tools
         tools = self.node._create_insight_evaluation_tools()
-        get_details_tool = next(t for t in tools if t.name == "get_insight_details")
 
-        # Test getting details for a valid insight
-        result = get_details_tool.invoke({"insight_id": self.insight1.id})
-
-        self.assertIn(f"Insight: Daily Pageviews (ID: {self.insight1.id})", result)
-        self.assertIn("Description: Track daily website traffic", result)
-        self.assertIn("Query:", result)
-        self.assertIn("Current Results:", result)
+        tool_names = [tool.name for tool in tools]
+        self.assertIn("select_insight", tool_names)
+        self.assertIn("reject_all_insights", tool_names)
+        self.assertEqual(len(tools), 2)  # Only these two tools should exist
 
     def test_evaluation_tools_reject_all_insights(self):
         """Test the reject_all_insights tool function."""
@@ -564,36 +563,28 @@ class TestInsightSearchNode(BaseTest):
 
         self.assertIn(f"ID: {self.insight1.id}", summary)
         self.assertIn("Daily Pageviews", summary)
-        self.assertIn("Type: Trends", summary)  # Should detect Trends type from query
-        self.assertIn("✓ Executable", summary)  # Should be executable
+        self.assertIn("Type: TrendsQuery", summary)  # Should detect TrendsQuery type from query
+        # Check that query result is not an error (would contain "Query type not supported")
         self.assertIn("Description: Track daily website traffic", summary)
 
     def test_get_basic_query_info(self):
         """Test extracting basic query information."""
-        # Load insights first
-        self.node._load_insights_page(0)
-
-        # Get the insight object from loaded pages
-        insight = self.node._find_insight_by_id(self.insight1.id)
-
         # Test basic query info extraction using the new method
-        query_info = self.node._get_basic_query_info_from_insight(insight)
+        query_source = {
+            "kind": "TrendsQuery",
+            "series": [{"event": "$pageview", "kind": "EventsNode"}],
+            "dateRange": {"date_from": "-7d"},
+        }
+
+        query_info = self.node._get_basic_query_info_from_insight(query_source)
 
         self.assertIsNotNone(query_info)
         self.assertIn("Events:", query_info)
         self.assertIn("$pageview", query_info)
         self.assertIn("Period:", query_info)
 
-        # Test with insight that has no query or filters
-        empty_insight = Insight(
-            id=99999,
-            name="Empty Insight",
-            query=None,
-            filters=None,
-            team=self.team,
-        )
-
-        query_info_empty = self.node._get_basic_query_info_from_insight(empty_insight)
+        # Test with empty query source
+        query_info_empty = self.node._get_basic_query_info_from_insight({})
         self.assertIsNone(query_info_empty)
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")

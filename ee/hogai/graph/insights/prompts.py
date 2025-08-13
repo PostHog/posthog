@@ -15,8 +15,8 @@ Guidelines:
 2. Look for keyword matches in names and descriptions
 3. Consider semantic similarity and practical usefulness
 4. You can iterate through pages to find better matches
-5. Stop when you have found 3 highly relevant insights OR you've exhausted reasonable search options
-6. Return the 3 insight IDs in your final response
+5. If you are not satisfied with current found insight, you can replace them with ones found in next pages!
+6. Return 3 highly relevant insights IDs in your final response
 
 Available insights (Page 1):
 {first_page_insights}
@@ -46,14 +46,16 @@ Available Insights:
 
 Instructions:
 1. {selection_instruction}
-2. Use get_insight_details if you need more information about an insight before deciding
-3. If you find suitable insights, use select_insight for each one with a clear explanation of why it matches
-4. If none of the insights are suitable, use reject_all_insights with a reason
-5. Be selective - only choose insights that truly match the user's needs
+2. If you find suitable insights, use select_insight for each one with a clear explanation of why it matches
+3. If none of the insights are suitable, use reject_all_insights with a reason
+4. IMPORTANT: Focus primarily on conceptual relevance (name, description, purpose) rather than technical execution ability
+5. An insight that matches the user's intent conceptually should be selected even if it cannot be executed due to missing query data
 6. When multiple insights could work, prioritize:
    - Exact matches over partial matches
    - More specific insights over generic ones
-   - Insights with clear descriptions over vague ones"""
+   - Insights with clear descriptions over vague ones
+7. Only reject insights if they are genuinely unrelated to the user's query, not because they lack executable query data
+"""
 
 NO_INSIGHTS_FOUND_MESSAGE = (
     "No existing insights found matching your query. Creating a new insight based on your request."

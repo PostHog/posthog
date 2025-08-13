@@ -1,7 +1,7 @@
-import json
 import re
 from typing import Literal
 from uuid import uuid4
+import warnings
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -9,17 +9,12 @@ from langchain_core.tools import tool
 
 from langchain_openai import ChatOpenAI
 
-
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantToolCallMessage,
     VisualizationMessage,
-    AssistantTrendsQuery,
-    AssistantFunnelsQuery,
-    AssistantRetentionQuery,
-    AssistantHogQLQuery,
 )
 from ee.hogai.graph.base import AssistantNode
 from .prompts import (
@@ -37,6 +32,11 @@ from posthog.models import Insight
 from django.db.models import Max
 from django.utils import timezone
 from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
+# Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
+warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer.*")
 
 
 class InsightSearchNode(AssistantNode):
@@ -53,6 +53,7 @@ class InsightSearchNode(AssistantNode):
         self._evaluation_selections = {}
         self._rejection_reason = None
         self._cutoff_date_for_insights_in_days = 180
+        self._query_cache = {}
 
     def _create_read_insights_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
@@ -100,27 +101,8 @@ class InsightSearchNode(AssistantNode):
             self._evaluation_selections[insight_id] = {"insight": insight, "explanation": explanation}
 
             name = insight.name or insight.derived_name or "Unnamed"
-            return f"Selected insight {insight_id}: {name}"
-
-        @tool
-        def get_insight_details(insight_id: int) -> str:
-            """Get detailed information (with query execution)about an insight including its current results."""
-            insight = self._find_insight_by_id(insight_id)
-            if not insight:
-                return f"Insight {insight_id} not found"
-
-            insight_info = self._process_insight_for_evaluation(
-                insight, AssistantQueryExecutor(self._team, self._utc_now_datetime)
-            )
-
             insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
-            hyperlink_format = f"[{insight_info['name']}]({insight_url})"
-
-            return f"""Insight: {insight_info['name']} (ID: {insight_info['insight_id']})
-HYPERLINK FORMAT: {hyperlink_format}
-Description: {insight_info['description'] or 'No description'}
-Query: {insight_info['query']}
-Current Results: {insight_info['results']}"""
+            return f"Selected insight {insight_id}: {name} (url: {insight_url})"
 
         @tool
         def reject_all_insights(reason: str) -> str:
@@ -129,7 +111,7 @@ Current Results: {insight_info['results']}"""
             self._rejection_reason = reason
             return "All insights rejected. Will create new insight."
 
-        return [select_insight, get_insight_details, reject_all_insights]
+        return [select_insight, reject_all_insights]
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         search_query = state.search_insights_query
@@ -185,7 +167,8 @@ Current Results: {insight_info['results']}"""
                     search_insights_query=None,
                 )
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error in InsightSearchNode: {e}", exc_info=True)
             return self._create_error_response(
                 SEARCH_ERROR_INSTRUCTIONS,
                 state.root_tool_call_id,
@@ -323,6 +306,52 @@ Current Results: {insight_info['results']}"""
                     return insight
         return None
 
+    def _process_insight_query(self, insight: Insight) -> tuple[object | None, str | None]:
+        """
+        Process an insight's query and cache object and formatted results for reference
+        """
+        insight_id = insight.id
+
+        # Check cache
+        if insight_id in self._query_cache:
+            return self._query_cache[insight_id]
+
+        query_obj = None
+        formatted_results = None
+
+        if not insight.query:
+            self._query_cache[insight_id] = (None, None)
+            return None, None
+
+        try:
+            query_dict = insight.query
+            query_source = query_dict.get("source", {})
+            insight_type = query_source.get("kind", "Unknown")
+
+            if insight_type not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
+                result = (None, "Query type not supported for execution")
+                self._query_cache[insight_id] = result
+                return result
+
+            AssistantQueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[insight_type]
+            query_obj = AssistantQueryModel.model_validate(query_source, strict=False)
+
+            try:
+                query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
+                query_result_dict = query_executor._execute_query(query_obj)
+                formatted_results = query_executor._compress_results(query_obj, query_result_dict)
+            except Exception as e:
+                logger.warning(f"Failed to execute query for insight {insight_id}: {e}")
+                formatted_results = "Query execution failed"
+
+        except Exception as e:
+            logger.warning(f"Failed to process query for insight {insight_id}: {e}")
+            formatted_results = "Query processing failed"
+
+        result = (query_obj, formatted_results)
+        self._query_cache[insight_id] = result
+        return result
+
     def _parse_insight_ids(self, response_content: str) -> list[int]:
         """Parse insight IDs from LLM response, removing duplicates and preserving order."""
         numbers = re.findall(r"\b\d+\b", response_content)
@@ -353,33 +382,27 @@ Current Results: {insight_info['results']}"""
         description = insight.description or ""
 
         insight_type = "Unknown"
+        query_info = None
+
+        _, query_result = self._process_insight_query(insight)
+
         if insight.query:
             try:
-                query_dict = json.loads(insight.query) if isinstance(insight.query, str) else insight.query
-                query_kind = query_dict.get("kind", "Unknown")
-
-                if query_kind == "DataVisualizationNode":
-                    source = query_dict.get("source", {})
-                    if source.get("kind") == "HogQLQuery":
-                        insight_type = "HogQL"
-                    else:
-                        insight_type = "DataVisualization"
-                else:
-                    insight_type = query_kind.replace("Query", "")
+                query_dict = insight.query
+                query_source = query_dict.get("source", {})
+                insight_type = query_source.get("kind", "Unknown")
+                query_info = self._get_basic_query_info_from_insight(query_source)
             except Exception:
-                insight_type = "Unknown"
-
-        # Check if insight can be visualized
-        can_viz = bool(insight.query)
-        viz_status = "✓ Executable" if can_viz else "✗ Not executable"
-
-        # Get basic query info without executing
-        query_info = self._get_basic_query_info_from_insight(insight)
+                pass
 
         insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
         hyperlink_format = f"[{name}]({insight_url})"
 
-        summary_parts = [f"ID: {insight_id} | {name} | {hyperlink_format}", f"Type: {insight_type} | {viz_status}"]
+        summary_parts = [
+            f"ID: {insight_id} | {name} | {hyperlink_format}",
+            f"Type: {insight_type}",
+            f"Query result: {query_result}",
+        ]
 
         if description:
             summary_parts.append(f"Description: {description}")
@@ -389,38 +412,28 @@ Current Results: {insight_info['results']}"""
 
         return " | ".join(summary_parts)
 
-    def _get_basic_query_info_from_insight(self, insight: Insight) -> str | None:
+    def _get_basic_query_info_from_insight(self, query_source: dict) -> str | None:
         """Extract basic query information from Insight object without execution."""
         try:
-            query_dict = None
-
-            # Parse query
-            if insight.query:
-                if isinstance(insight.query, str):
-                    query_dict = json.loads(insight.query)
-                elif isinstance(insight.query, dict):
-                    query_dict = insight.query
-
-            if not query_dict:
+            if not query_source:
                 return None
 
             # Extract basic info from query
             info_parts = []
 
-            # Get events/series info
-            series = query_dict.get("series", [])
+            # Get events/series info - only process first 3 for efficiency
+            series = query_source.get("series", [])
             if series:
                 events = []
-                for s in series:
+                for s in series[:3]:
                     if isinstance(s, dict):
                         event_name = s.get("event", s.get("name", "Unknown"))
                         events.append(event_name)
                 if events:
-                    # Limit to first 3 for LLM context window
-                    info_parts.append(f"Events: {', '.join(events[:3])}")
+                    info_parts.append(f"Events: {', '.join(events)}")
 
             # Get date range info
-            date_range = query_dict.get("dateRange", {})
+            date_range = query_source.get("dateRange", {})
             if date_range:
                 date_from = date_range.get("date_from", "")
                 if date_from:
@@ -429,122 +442,19 @@ Current Results: {insight_info['results']}"""
             return " | ".join(info_parts) if info_parts else None
 
         except Exception:
-            return "Query error"
-
-    def _process_insight_for_evaluation(self, insight: Insight, query_executor: AssistantQueryExecutor) -> dict:
-        """
-        Process an insight for evaluation: convert to query, execute it, and create visualization message.
-        """
-        insight_info = {
-            "name": insight.name or insight.derived_name or "Unnamed",
-            "insight_id": insight.id,
-            "description": insight.description or "",
-            "query": "",
-            "filters": insight.filters or "",
-            "results": "",
-            "visualization_message": None,
-        }
-
-        try:
-            query_dict = None
-            query_kind = None
-
-            # If we have a query, use it directly
-            if insight.query:
-                if isinstance(insight.query, str):
-                    query_dict = json.loads(insight.query)
-                elif isinstance(insight.query, dict):
-                    query_dict = insight.query
-
-                if query_dict:
-                    query_kind = query_dict.get("kind")
-
-            if query_dict and query_kind:
-                if query_kind == "DataVisualizationNode":
-                    source = query_dict.get("source")
-                    if source and source.get("kind") == "HogQLQuery":
-                        query_dict = source
-                        query_kind = "HogQLQuery"
-
-                if query_kind in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
-                    # Execute query
-                    try:
-                        QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
-                        query_obj = QueryModel.model_validate(query_dict)
-                        results, _ = query_executor.run_and_format_query(query_obj)
-
-                        insight_info["query"] = (
-                            json.dumps(query_dict) if isinstance(query_dict, dict) else str(query_dict)
-                        )
-                        insight_info["results"] = results
-                    except Exception as e:
-                        insight_info["query"] = f"Failed to execute query: {str(e)}"
-                        insight_info["results"] = f"Execution failed: {str(e)}"
-                else:
-                    insight_info["query"] = f"Query type '{query_kind}' not supported for execution"
-                    insight_info["results"] = f"Query type '{query_kind}' not supported for execution"
-
-                viz_message = self._create_visualization_message_for_insight(insight)
-                insight_info["visualization_message"] = viz_message
-
-            else:
-                # No convertible query
-                original_query = insight.query
-                if original_query:
-                    insight_info["query"] = str(original_query)
-                    insight_info["results"] = "Could not convert or execute query"
-                else:
-                    insight_info["query"] = "No query data available"
-                    insight_info["results"] = "Cannot execute - no query or filter data"
-
-        except Exception:
-            insight_info["query"] = insight.query or ""
-            insight_info["results"] = "Failed to process insight"
-
-        return insight_info
+            return None
 
     def _create_visualization_message_for_insight(self, insight: Insight) -> VisualizationMessage | None:
         """Create a VisualizationMessage to render the insight UI."""
         try:
-            query_dict = None
-            query_kind = None
+            query_obj, _ = self._process_insight_query(insight)
 
-            # If we have a query, use it directly
-            if insight.query:
-                if isinstance(insight.query, str):
-                    query_dict = json.loads(insight.query)
-                elif isinstance(insight.query, dict):
-                    query_dict = insight.query
-
-                if query_dict:
-                    query_kind = query_dict.get("kind")
-
-            if not query_dict or not query_kind:
+            if not query_obj:
                 return None
-
-            if query_kind == "DataVisualizationNode":
-                source = query_dict.get("source")
-                if source and source.get("kind") == "HogQLQuery":
-                    query_dict = source
-                    query_kind = "HogQLQuery"
-                else:
-                    return None
-
-            assistant_query_type_map = {
-                "TrendsQuery": AssistantTrendsQuery,
-                "FunnelsQuery": AssistantFunnelsQuery,
-                "RetentionQuery": AssistantRetentionQuery,
-                "HogQLQuery": AssistantHogQLQuery,
-            }
-
-            if query_kind not in assistant_query_type_map:
-                return None
-
-            AssistantQueryModel = assistant_query_type_map[query_kind]
-            query_obj = AssistantQueryModel.model_validate(query_dict)  # type: ignore[attr-defined]
 
             insight_name = insight.name or insight.derived_name or "Unnamed Insight"
-            viz_message = VisualizationMessage(
+
+            viz_message = VisualizationMessage.model_construct(
                 query=f"Existing insight: {insight_name}",
                 plan=f"Showing existing insight: {insight_name}",
                 answer=query_obj,
@@ -553,7 +463,8 @@ Current Results: {insight_info['results']}"""
 
             return viz_message
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error creating visualization message for insight {insight.id}: {e}", exc_info=True)
             return None
 
     def _create_error_response(self, content: str, tool_call_id: str | None) -> PartialAssistantState:
@@ -621,7 +532,7 @@ Current Results: {insight_info['results']}"""
                 messages.append(response)
 
                 for tool_call in response.tool_calls:
-                    if tool_call["name"] in ["select_insight", "get_insight_details", "reject_all_insights"]:
+                    if tool_call["name"] in ["select_insight", "reject_all_insights"]:
                         tool_fn = next(t for t in tools if t.name == tool_call["name"])
                         result = tool_fn.invoke(tool_call["args"])
                         messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
@@ -634,12 +545,11 @@ Current Results: {insight_info['results']}"""
             explanations = []
 
             for _insight_id, selection in self._evaluation_selections.items():
-                viz_message = self._create_visualization_message_for_insight(selection["insight"])
+                insight = selection["insight"]
+                viz_message = self._create_visualization_message_for_insight(insight)
                 if viz_message:
                     visualization_messages.append(viz_message)
-                insight = selection["insight"]
-                if insight is None:
-                    continue
+
                 insight_name = insight.name or insight.derived_name or "Unnamed"
                 insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
                 insight_hyperlink = f"[{insight_name}]({insight_url})"
@@ -660,9 +570,7 @@ Current Results: {insight_info['results']}"""
                 "visualization_messages": [],
             }
 
-    def router(self, state: AssistantState) -> Literal["root", "insights"]:
-        if state.root_tool_insight_plan and not state.search_insights_query:
-            return "insights"
+    def router(self, state: AssistantState) -> Literal["root"]:
         return "root"
 
     @property
