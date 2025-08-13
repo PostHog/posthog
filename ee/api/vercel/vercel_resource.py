@@ -7,20 +7,13 @@ https://vercel.com/docs/integrations/create-integration/marketplace-api
 
 from typing import Any
 
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.vercel_installation import VercelInstallationPermission
-from ee.models.vercel.vercel_resource import VercelResource
 from ee.vercel.integration import VercelIntegration
-
-
-class VercelResourceSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = VercelResource
-        fields = "__all__"
 
 
 class VercelBillingPlanDetailSerializer(serializers.Serializer):
@@ -143,18 +136,17 @@ class ResourcePayloadSerializer(serializers.Serializer):
     )
 
 
-class VercelResourceViewSet(
-    mixins.RetrieveModelMixin,
-    mixins.CreateModelMixin,
-    mixins.UpdateModelMixin,
-    mixins.DestroyModelMixin,
-    viewsets.GenericViewSet,
-):
-    serializer_class = VercelResourceSerializer
-    lookup_field = "id"
-    queryset = VercelResource.objects.all()
+class VercelResourceViewSet(viewsets.GenericViewSet):
+    lookup_field = "resource_id"
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelInstallationPermission]
+
+    supported_auth_types = {
+        "update": ["User"],
+        "partial_update": ["User"],
+        "destroy": ["User", "System"],
+        "retrieve": ["System"],
+    }
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
@@ -172,7 +164,7 @@ class VercelResourceViewSet(
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#get-resource
         """
-        resource_id = self.kwargs.get("id")
+        resource_id = self.kwargs.get("resource_id")
         installation_id = self.kwargs.get("parent_lookup_installation_id")
         response_data = VercelIntegration.get_resource(resource_id, installation_id)
         return Response(response_data, status=200)
@@ -184,7 +176,7 @@ class VercelResourceViewSet(
         serializer = ResourcePayloadSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
 
-        resource_id = self.kwargs.get("id")
+        resource_id = self.kwargs.get("resource_id")
         installation_id = self.kwargs.get("parent_lookup_installation_id")
         response_data = VercelIntegration.update_resource(resource_id, installation_id, serializer.validated_data)
         return Response(response_data, status=200)
@@ -193,6 +185,6 @@ class VercelResourceViewSet(
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-resource
         """
-        resource_id = self.kwargs.get("id")
+        resource_id = self.kwargs.get("resource_id")
         VercelIntegration.delete_resource(resource_id)
         return Response(status=204)

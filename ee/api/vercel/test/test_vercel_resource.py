@@ -20,7 +20,6 @@ class TestVercelResourceAPI(VercelTestBase):
         self.resource = VercelResource.objects.create(
             team=self.test_team,
             installation=self.installation,
-            resource_id=str(self.test_team.pk),
             config={
                 "productId": "posthog",
                 "name": "Test Resource Team",
