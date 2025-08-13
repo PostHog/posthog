@@ -29,7 +29,7 @@ export const BillingProductPricingTable = ({
     usageKey?: string
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
-    const { isSessionReplayWithAddons } = useValues(billingProductLogic({ product }))
+    const { isSessionReplayWithAddons, projectedAmountExcludingAddons } = useValues(billingProductLogic({ product }))
 
     const showProjectedTotalWithLimitTooltip =
         'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
@@ -77,6 +77,7 @@ export const BillingProductPricingTable = ({
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
+
     const tableTierData: BillingTableTierRow[] | undefined =
         product.tiers && product.tiers.length > 0
             ? product.tiers
@@ -178,14 +179,14 @@ export const BillingProductPricingTable = ({
                           volume: 'Total',
                           basePrice: '',
                           usage: '',
-                          total: isSessionReplayWithAddons
-                              ? `$${
-                                    ('current_amount_usd_before_addons' in product
-                                        ? product.current_amount_usd_before_addons
-                                        : '0.00') || '0.00'
-                                }`
-                              : `$${product.current_amount_usd || '0.00'}`,
-                          projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
+                          total: `$${
+                              product.tiers
+                                  ?.reduce((sum, tier) => sum + parseFloat(tier.current_amount_usd || '0'), 0)
+                                  .toFixed(2) || '0.00'
+                          }`,
+                          projectedTotal: isSessionReplayWithAddons
+                              ? `$${projectedAmountExcludingAddons || '0.00'}`
+                              : `$${product.projected_amount_usd || '0.00'}`,
                           subrows: { rows: [], columns: [] },
                       },
                   ])
