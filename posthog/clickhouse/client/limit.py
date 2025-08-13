@@ -102,17 +102,12 @@ class RateLimit:
         task_id = self.get_task_id(*args, **kwargs)
         team_id: Optional[int] = kwargs.get("team_id", None)
 
-        # Static default
         max_concurrency: int = self.max_concurrency
 
-        # Determine max_concurrency with proper priority order
         in_beta = kwargs.get("is_api") and (team_id in settings.API_QUERIES_PER_TEAM)
-
         if in_beta:
-            # Beta teams get highest priority
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
-            # Explicit limit override
             limit_value = kwargs.get("limit")
             if limit_value is not None:
                 max_concurrency = int(limit_value)
