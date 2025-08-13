@@ -192,7 +192,7 @@ class IssueImpactQueryArgs(BaseModel):
 class ErrorTrackingIssueImpactTool(MaxTool):
     name: str = "find_error_tracking_impactful_issues"
     description: str = "Find error tracking issues that are impacting the occurrence of your events."
-    thinking_message: str = "Finding impactful issues..."
+    thinking_message: str = "Finding impactful issues"
     root_system_prompt_template: str = "The user is wants to find issues impacting the event."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
