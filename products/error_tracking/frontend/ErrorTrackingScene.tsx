@@ -70,18 +70,20 @@ export function ErrorTrackingScene(): JSX.Element {
     return (
         <ErrorTrackingSetupPrompt>
             {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
-            <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-                <Header />
-                {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                <ErrorFilters.Root>
-                    <ErrorFilters.DateRange />
-                    <ErrorFilters.FilterGroup />
-                    <ErrorFilters.InternalAccounts />
-                </ErrorFilters.Root>
-                <LemonDivider className="mt-2" />
-                <ErrorTrackingListOptions />
-                <Query query={query} context={context} />
-            </BindLogic>
+            <div className="ErrorTracking">
+                <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+                    <Header />
+                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                    <ErrorFilters.Root>
+                        <ErrorFilters.DateRange />
+                        <ErrorFilters.FilterGroup />
+                        <ErrorFilters.InternalAccounts />
+                    </ErrorFilters.Root>
+                    <LemonDivider className="mt-2" />
+                    <ErrorTrackingListOptions />
+                    <Query query={query} context={context} />
+                </BindLogic>
+            </div>
         </ErrorTrackingSetupPrompt>
     )
 }
@@ -158,9 +160,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex items-start gap-x-2 group my-1">
-            <LemonCheckbox className="h-[1.2rem]" checked={checked} onChange={onChange} />
+            <LemonCheckbox className="h-[1rem]" checked={checked} onChange={onChange} />
 
-            <div className="flex flex-col gap-[2px]">
+            <div className="flex flex-col gap-[3px]">
                 <Link
                     className="flex-1 pr-12"
                     to={urls.errorTrackingIssue(record.id, { timestamp: record.last_seen })}
@@ -170,12 +172,14 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         issueLogic.actions.setIssue(record)
                     }}
                 >
-                    <div className="flex items-center h-[1.2rem] gap-2">
-                        <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.8rem" />
-                        <span className="font-semibold text-[1.2em] line-clamp-1">{record.name || 'Unknown Type'}</span>
+                    <div className="flex items-center h-[1rem] gap-2">
+                        <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.7rem" />
+                        <span className="font-semibold text-[0.9rem] line-clamp-1">
+                            {record.name || 'Unknown Type'}
+                        </span>
                     </div>
                 </Link>
-                <div title={record.description || undefined} className="line-clamp-1 text-secondary">
+                <div title={record.description || undefined} className="font-medium line-clamp-1 text-[var(--gray-8)]">
                     {record.description}
                 </div>
                 <div className="flex items-center text-secondary">
