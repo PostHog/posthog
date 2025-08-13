@@ -361,6 +361,29 @@ pub async fn insert_person_for_team_in_pg(
     Ok(person_id)
 }
 
+pub async fn add_distinct_id_for_person_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    person_id: PersonId,
+    team_id: i32,
+    distinct_id: String,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    let res = sqlx::query(
+        r#"INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+           VALUES ($1, $2, $3, 0)
+           ON CONFLICT (distinct_id, team_id) DO NOTHING"#,
+    )
+    .bind(distinct_id)
+    .bind(person_id)
+    .bind(team_id)
+    .execute(&mut *conn)
+    .await?;
+
+    assert!(res.rows_affected() > 0, "Failed to add distinct ID to person");
+
+    Ok(())
+}
+
 pub async fn insert_cohort_for_team_in_pg(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,

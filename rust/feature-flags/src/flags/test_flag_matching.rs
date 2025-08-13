@@ -23,9 +23,10 @@ mod tests {
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
-            add_person_to_cohort, create_group_in_pg, create_test_flag,
-            get_person_id_by_distinct_id, insert_cohort_for_team_in_pg, insert_new_team_in_pg,
-            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            add_distinct_id_for_person_in_pg, add_person_to_cohort, create_group_in_pg,
+            create_test_flag, get_person_id_by_distinct_id, insert_cohort_for_team_in_pg,
+            insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
+            setup_pg_writer_client,
         },
     };
 
@@ -3602,6 +3603,154 @@ mod tests {
             legacy_response.feature_flags.get("flag_no_continuity_mix"),
             Some(&FlagValue::Boolean(true)),
             "Non-continuity flag should be evaluated based on properties"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_all_feature_flags_gives_consistent_evaluation_with_reset() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let distinct_id = "previouslyidentifieduser@example.com".to_string();
+
+        // Insert persons
+        let person_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "previouslyidentifieduser@example.com"})),
+        )
+        .await
+        .unwrap();
+
+        add_distinct_id_for_person_in_pg(
+            reader.clone(),
+            person_id,
+            team.id,
+            "anon_distinct_id_1".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        group_type_mapping_cache.init(reader.clone()).await.unwrap();
+
+        // Create flag with experience continuity
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("flag_continuity".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("previouslyidentifieduser@example.com")),
+                        operator: None,
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Set hash key override based on first anonymous distinct ID
+        set_feature_flag_hash_key_overrides(
+            writer.clone(),
+            team.id,
+            vec![distinct_id.clone()],
+            team.project_id,
+            "anon_distinct_id_1".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        // Evaluate with the new anonymous distinct ID - we don't expect a match
+        let new_anonymous_result = FeatureFlagMatcher::new(
+            "anon_distinct_id_2".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            Some(group_type_mapping_cache.clone()), // not sure about the clone call here
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags.clone(), // not sure about the clone call here
+            None,
+            None,
+            None,
+            Uuid::new_v4(),
+            None,
+        )
+        .await;
+
+        let legacy_response = LegacyFlagsResponse::from_response(new_anonymous_result);
+        assert_eq!(
+            legacy_response.feature_flags.get("flag_continuity"),
+            Some(&FlagValue::Boolean(false)),
+            "Flag should be evaluated as false for the new anonymous distinct ID"
+        );
+
+        // simulate identifying the user with the new anonymous distinct ID
+        add_distinct_id_for_person_in_pg(
+            reader.clone(),
+            person_id,
+            team.id,
+            "anon_distinct_id_2".to_string(),
+        )
+        .await
+        .unwrap();
+
+        // evaluate again using the new anonymous distinct ID as the hash key override
+        // we expect the flag to evaluate as true due to continuity
+        // rather than using the anonymous distinct ID derived from the hash key override
+        let result_for_reidentified_user = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            Some(group_type_mapping_cache),
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("anon_distinct_id_2".to_string()),
+            Uuid::new_v4(),
+            None,
+        )
+        .await;
+
+        let legacy_response = LegacyFlagsResponse::from_response(result_for_reidentified_user);
+        assert!(
+            !legacy_response.errors_while_computing_flags,
+            "No error should occur"
+        );
+        assert_eq!(
+            legacy_response.feature_flags.get("flag_continuity"),
+            Some(&FlagValue::Boolean(true)),
+            "Flag should be evaluated as true for continuity, despite using a new anonymous distinct ID"
         );
     }
 
