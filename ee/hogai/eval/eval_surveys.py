@@ -2,8 +2,8 @@ import pytest
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
-
-from products.surveys.backend.max_tools import CreateSurveyTool
+from ee.models.assistant import Conversation
+from products.surveys.backend.max_tools import CreateSurveyTool, SurveyCreatorArgs
 
 from .conftest import MaxEval
 
@@ -80,16 +80,19 @@ def call_surveys_max_tool(demo_org_team_user):
             },
         )
 
-    max_tool = CreateSurveyTool(team=team, user=user)
-    max_tool._context = {"user_id": str(user.uuid)}  # Additional context
-
     async def call_max_tool(instructions: str) -> dict:
         """
         Call the survey creation tool and return structured output.
         """
         try:
+            max_tool = CreateSurveyTool(team=team, user=user)
+            max_tool._context = {"user_id": str(user.uuid)}  # Additional context
+            conversation = await Conversation.objects.acreate(team=team, user=user)
             # Call the tool with the instructions
-            result = await max_tool._create_survey_from_instructions(instructions)
+            result = await max_tool.ainvoke(
+                SurveyCreatorArgs(instructions=instructions).model_dump(),
+                {"configurable": {"thread_id": conversation.id, "team": team, "user": user}},
+            )
 
             # Return structured output that Braintrust can understand
             return {
