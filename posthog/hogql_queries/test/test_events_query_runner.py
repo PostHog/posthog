@@ -500,6 +500,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response_regular, CachedEventsQueryResponse)
         assert isinstance(response_presorted, CachedEventsQueryResponse)
 
+        assert response_regular.hogql is not None
+        assert response_presorted.hogql is not None
         assert "cityHash" not in response_regular.hogql
         assert "cityHash" in response_presorted.hogql
 
