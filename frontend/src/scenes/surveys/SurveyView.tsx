@@ -63,6 +63,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         setIsDuplicateToProjectModalOpen,
     } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
+    const { isOnNewEmptyStateExperiment } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
@@ -350,11 +351,13 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                       key: 'results',
                                       label: 'Results',
                                   }
-                                : {
-                                      content: <SurveyResultDemo />,
-                                      key: 'results',
-                                      label: 'Results (Demo)',
-                                  },
+                                : isOnNewEmptyStateExperiment
+                                  ? {
+                                        content: <SurveyResultDemo />,
+                                        key: 'results',
+                                        label: 'Results (Demo)',
+                                    }
+                                  : null,
                             {
                                 content: <SurveyOverview onTabChange={setTabKey} />,
                                 key: 'overview',

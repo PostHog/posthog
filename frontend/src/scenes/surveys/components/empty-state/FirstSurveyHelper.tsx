@@ -26,7 +26,7 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
         <div className="bg-bg-light border border-border rounded-lg p-6">
             <div className="flex items-center gap-6">
                 <div className="hidden sm:block flex-shrink-0">
-                    <ProfessorHog width={150} height={150} className="scale-x-[-1]" />
+                    <ProfessorHog width={180} height={180} className="scale-x-[-1]" />
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="mb-6">
@@ -65,7 +65,9 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
                                 <div className="flex items-start gap-3">
                                     <IconTarget className="w-4 h-4 text-muted mt-1 flex-shrink-0" />
                                     <div className="min-w-0 flex-1">
-                                        <h4 className="font-medium text-default text-sm mb-1">Add targeting</h4>
+                                        <h4 className="font-medium text-default text-sm mb-1">
+                                            Add display conditions
+                                        </h4>
                                         <p className="text-xs text-muted mb-2 leading-relaxed">
                                             Show to specific users.{' '}
                                             <Link

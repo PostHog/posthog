@@ -102,6 +102,7 @@ export function sanitizeSurveyDisplayConditions(
         ...displayConditions,
         url: displayConditions.url?.trim(),
         selector: displayConditions.selector?.trim(),
+        linkedFlagVariant: displayConditions.linkedFlagVariant?.trim(),
     }
 }
 
@@ -354,22 +355,21 @@ export function isSurveyRunning(survey: Survey): boolean {
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
-    if (!survey.conditions) {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    if (!conditions) {
         return false
     }
 
-    const conditions = survey.conditions
-
     // check string fields
-    if (conditions.url?.trim()) {
+    if (conditions.url) {
         return true
     }
 
-    if (conditions.selector?.trim()) {
+    if (conditions.selector) {
         return true
     }
 
-    if (conditions.linkedFlagVariant?.trim()) {
+    if (conditions.linkedFlagVariant) {
         return true
     }
 

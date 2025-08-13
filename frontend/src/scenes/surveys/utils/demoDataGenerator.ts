@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { Survey, SurveyQuestion, SurveyQuestionType } from '~/types'
-import { SURVEY_RATING_SCALE } from '../constants'
+import { NewSurvey, SURVEY_RATING_SCALE } from '../constants'
 import { SurveyRawResults, SurveyResponseRow } from '../surveyLogic'
 
 // Sample user data for realistic responses
@@ -211,7 +211,7 @@ function generateTimestamp(): string {
     return dayjs().subtract(daysAgo, 'days').subtract(hoursAgo, 'hours').subtract(minutesAgo, 'minutes').toISOString()
 }
 
-export function generateDemoSurveyResults(survey: Survey, responseCount: number = 85): SurveyRawResults {
+export function generateDemoSurveyResults(survey: Survey | NewSurvey, responseCount: number = 85): SurveyRawResults {
     const results: SurveyRawResults = []
 
     // Ensure we have a good distribution of users
