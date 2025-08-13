@@ -2,13 +2,19 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
+from django.contrib.admin.sites import NotRegistered
 from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from ee.api import integration
 from ee.api.vercel import vercel_sso
+
+from ee.api.mcp.http import mcp_view
 from ee.support_sidebar_max.views import MaxChatViewSet
+from posthog.utils import opt_slash_path
 
 from .api import (
     authentication,
@@ -108,9 +114,17 @@ def extend_api_router() -> None:
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
-admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)] if settings.ADMIN_PORTAL_ENABLED else []
-)
+if settings.ADMIN_PORTAL_ENABLED:
+    # these models are auto-registered but we don't want to expose them to staff
+    for model in (StaticDevice, TOTPDevice):
+        try:
+            admin.site.unregister(model)
+        except NotRegistered:
+            pass
+
+    admin_urlpatterns = [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+else:
+    admin_urlpatterns = []
 
 
 urlpatterns: list[Any] = [
@@ -118,5 +132,6 @@ urlpatterns: list[Any] = [
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
+    opt_slash_path("mcp", csrf_exempt(mcp_view)),
     *admin_urlpatterns,
 ]

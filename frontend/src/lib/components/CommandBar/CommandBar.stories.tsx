@@ -2,11 +2,11 @@ import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import { CommandBar } from './CommandBar'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const SEARCH_RESULT = {
     results: [
@@ -536,30 +536,21 @@ export default meta
 
 export function Search(): JSX.Element {
     const { setCommandBar } = useActions(commandBarLogic)
-
-    useEffect(() => {
-        setCommandBar(BarStatus.SHOW_SEARCH)
-    }, [])
+    useDelayedOnMountEffect(() => setCommandBar(BarStatus.SHOW_SEARCH))
 
     return <CommandBar />
 }
 
 export function Actions(): JSX.Element {
     const { setCommandBar } = useActions(commandBarLogic)
-
-    useEffect(() => {
-        setCommandBar(BarStatus.SHOW_ACTIONS)
-    }, [])
+    useDelayedOnMountEffect(() => setCommandBar(BarStatus.SHOW_ACTIONS))
 
     return <CommandBar />
 }
 
 export function Shortcuts(): JSX.Element {
     const { setCommandBar } = useActions(commandBarLogic)
-
-    useEffect(() => {
-        setCommandBar(BarStatus.SHOW_SHORTCUTS)
-    }, [])
+    useDelayedOnMountEffect(() => setCommandBar(BarStatus.SHOW_SHORTCUTS))
 
     return <CommandBar />
 }

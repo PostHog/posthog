@@ -6,6 +6,7 @@ from jwt.algorithms import RSAAlgorithm
 import requests
 from requests.models import Response
 
+import posthoganalytics
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
@@ -202,6 +203,15 @@ class MultitenantSAMLAuth(SAMLAuth):
     Implements our own version of SAML auth that supports multitenancy. Instead of relying on instance-based config via env vars,
     each organization can have multiple verified domains each with its own SAML configuration.
     """
+
+    def auth_complete(self, *args, **kwargs):
+        try:
+            return super().auth_complete(*args, **kwargs)
+        except Exception:
+            import json
+
+            posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
+            raise
 
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
         try:

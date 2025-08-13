@@ -132,8 +132,8 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                                     eventOrdering === '-last_seen_at'
                                         ? 'recently seen'
                                         : eventOrdering === 'name'
-                                        ? 'name'
-                                        : 'recently seen and then name'
+                                          ? 'name'
+                                          : 'recently seen and then name'
                                 }`}
                             />
                         </LemonMenu>

@@ -49,7 +49,7 @@
         "@parcel/transformer-typescript-types": "2.13.3",
         "@types/uuid": "^10.0.0",
         "oxlint": "^1.8.0",
-        "prettier": "^2.8.8",
+        "prettier": "^3.6.2",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
@@ -63,7 +63,7 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.26.0"
+            "@posthog/icons": "0.27.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",

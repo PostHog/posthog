@@ -191,8 +191,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         const currentIndex = nextPreloadIndex
             ? nextPreloadIndex
             : currentEvent
-            ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
-            : 0
+              ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
+              : 0
 
         const eventsToPreload = canvasMutationEvents
             .slice(currentIndex, currentIndex + PRELOAD_BUFFER_SIZE)
@@ -215,7 +215,13 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
                 const el = containers.get(id) || document.createElement('img')
-                ;(node as HTMLCanvasElement).appendChild(el)
+                const canvasElement = node as HTMLCanvasElement
+                for (let i = 0; i < canvasElement.attributes.length; i++) {
+                    const attr = canvasElement.attributes[i]
+                    el.setAttribute(attr.name, attr.value)
+                }
+                const parent = node.parentNode as Node
+                parent?.replaceChild?.(el, node as Node)
                 containers.set(id, el)
             }
         },

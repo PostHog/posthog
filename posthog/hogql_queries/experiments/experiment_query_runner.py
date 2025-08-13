@@ -30,9 +30,9 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_multiple_variant_handling_from_experiment,
 )
 from posthog.hogql_queries.experiments.utils import (
-    get_bayesian_experiment_result_new_format,
+    get_bayesian_experiment_result,
     get_experiment_stats_method,
-    get_frequentist_experiment_result_new_format,
+    get_frequentist_experiment_result,
     get_new_variant_results,
     split_baseline_and_test_variants,
 )
@@ -271,7 +271,7 @@ class ExperimentQueryRunner(QueryRunner):
 
                 control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
 
-                return get_frequentist_experiment_result_new_format(
+                return get_frequentist_experiment_result(
                     metric=self.metric,
                     control_variant=control_variant,
                     test_variants=test_variants,
@@ -282,7 +282,7 @@ class ExperimentQueryRunner(QueryRunner):
 
                 control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
 
-                return get_bayesian_experiment_result_new_format(
+                return get_bayesian_experiment_result(
                     metric=self.metric,
                     control_variant=control_variant,
                     test_variants=test_variants,

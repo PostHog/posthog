@@ -12,7 +12,6 @@ import { RecordingComment } from 'scenes/session-recordings/player/inspector/pla
 import {
     parseEncodedSnapshots,
     processAllSnapshots,
-    processAllSnapshotsRaw,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,7 +34,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { ExportedSessionRecordingFileV2, ExportedSessionType } from '../file-playback/types'
+import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
@@ -56,6 +55,7 @@ export interface SessionRecordingDataLogicProps {
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
     playerKey?: string
+    accessToken?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -180,8 +180,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
-
-                const response = await api.recordings.get(props.sessionRecordingId)
+                const headers: Record<string, string> = {}
+                if (props.accessToken) {
+                    headers.Authorization = `Bearer ${props.accessToken}`
+                }
+                const response = await api.recordings.get(props.sessionRecordingId, {}, headers)
                 breakpoint()
 
                 return response
@@ -207,10 +210,24 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (breakpointLength) {
                         await breakpoint(breakpointLength)
                     }
-                    const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
-                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {
-                        blob_v2,
-                    })
+
+                    const headers: Record<string, string> = {}
+                    if (props.accessToken) {
+                        headers.Authorization = `Bearer ${props.accessToken}`
+                    }
+
+                    const blob_v2 =
+                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] || !!props.accessToken
+                    const blob_v2_lts =
+                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY] || !!props.accessToken
+                    const response = await api.recordings.listSnapshotSources(
+                        props.sessionRecordingId,
+                        {
+                            blob_v2,
+                            blob_v2_lts,
+                        },
+                        headers
+                    )
 
                     if (!response.sources) {
                         return []
@@ -263,13 +280,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     await breakpoint(1)
 
-                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
-                        if (sources[0].source === 'realtime' && e.status === 404) {
-                            // Realtime source is not always available, so a 404 is expected
-                            return []
-                        }
-                        throw e
-                    })
+                    const headers: Record<string, string> = {}
+                    if (props.accessToken) {
+                        headers.Authorization = `Bearer ${props.accessToken}`
+                    }
+                    const response = await api.recordings
+                        .getSnapshots(props.sessionRecordingId, params, headers)
+                        .catch((e) => {
+                            if (sources[0].source === 'realtime' && e.status === 404) {
+                                // Realtime source is not always available, so a 404 is expected
+                                return []
+                            }
+                            throw e
+                        })
 
                     // sorting is very cheap for already sorted lists
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
@@ -605,7 +628,7 @@ AND properties.$lib != 'web'`
             }
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
-            await breakpoint(IS_TEST_MODE ? 1 : delay ?? 3000)
+            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
             await api.recordings.update(props.sessionRecordingId, {
                 viewed: true,
                 player_metadata: values.sessionPlayerMetaData,
@@ -882,7 +905,7 @@ AND properties.$lib != 'web'`
                 sources,
                 viewportForTimestamp,
                 sessionRecordingId,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
                 if (!sources || !cache.snapshotsBySource) {
@@ -895,22 +918,6 @@ AND properties.$lib != 'web'`
                     sessionRecordingId
                 )
                 return processedSnapshots['processed'].snapshots || []
-            },
-        ],
-
-        snapshotsRaw: [
-            (s) => [s.snapshotSources, s.viewportForTimestamp],
-            (
-                sources,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCount
-            ): RecordingSnapshot[] => {
-                if (!sources || !cache.snapshotsBySource) {
-                    return []
-                }
-
-                const processedSnapshots = processAllSnapshotsRaw(sources, cache.snapshotsBySource || {})
-                return processedSnapshots || []
             },
         ],
 
@@ -1005,21 +1012,16 @@ AND properties.$lib != 'web'`
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (
-                sessionPlayerMetaData,
-                snapshots
-            ): ((type?: ExportedSessionType) => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
-                return (type?: ExportedSessionType) => {
-                    return type === 'rrweb'
-                        ? snapshots
-                        : {
-                              version: '2023-04-28',
-                              data: {
-                                  id: sessionPlayerMetaData?.id ?? '',
-                                  person: sessionPlayerMetaData?.person,
-                                  snapshots: snapshots,
-                              },
-                          }
+            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
+                return (): ExportedSessionRecordingFileV2 => {
+                    return {
+                        version: '2023-04-28',
+                        data: {
+                            id: sessionPlayerMetaData?.id ?? '',
+                            person: sessionPlayerMetaData?.person,
+                            snapshots: snapshots,
+                        },
+                    }
                 }
             },
         ],
