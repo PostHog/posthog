@@ -453,6 +453,7 @@ const HIDDEN_DESTINATIONS = [
     'segment-facebook-conversions-api',
     'segment-actions-google-enhanced-conversions',
     'segment-gleap-cloud-actions',
+    'segment-actions-acoustic-campaign',
 
     // broken destinations
     'segment-actions-apolloio',

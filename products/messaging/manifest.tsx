@@ -53,7 +53,7 @@ export const manifest: ProductManifest = {
         messaging: {
             name: 'Campaign',
             icon: <IconCursor />,
-            iconColor: ['var(--product-messaging-light)'],
+            iconColor: ['var(--color-product-messaging-light)'],
             href: (ref: string) => urls.messagingCampaign(ref),
             filterKey: 'messaging',
         },

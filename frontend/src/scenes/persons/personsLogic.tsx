@@ -305,7 +305,7 @@ export const personsLogic = kea<personsLogicType>([
                 const showPerson = person && location.pathname.match(/\/person\/.+/)
                 const breadcrumbs: Breadcrumb[] = [
                     {
-                        key: Scene.PersonsManagement,
+                        key: Scene.Persons,
                         name: 'People',
                         path: urls.persons(),
                     },

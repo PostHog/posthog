@@ -3,7 +3,7 @@ import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -15,7 +15,7 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { ExperimentStatsMethod } from '~/types'
+
 import {
     FilterLogicalOperator,
     FunnelExperimentVariant,
@@ -54,8 +54,6 @@ export function SummaryTable({
         tabularExperimentResults,
         getInsightType,
         experimentMathAggregationForTrends,
-        featureFlags,
-        statsMethod,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
     const result = isSecondary
@@ -306,57 +304,6 @@ export function SummaryTable({
                     <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
                         upperBound > 0 ? '+' : ''
                     }${upperBound.toFixed(2)}%]`}</div>
-                )
-            },
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_P_VALUE]) {
-        columns.push({
-            key: 'pValue',
-            title: statsMethod === ExperimentStatsMethod.Bayesian ? 'Chance to win' : 'P-value',
-            render: function Key(_, item): JSX.Element {
-                const variantKey = item.key
-
-                if (statsMethod === ExperimentStatsMethod.Bayesian) {
-                    // For Bayesian: show chance to win (which is the probability)
-                    const chanceToWin = result?.probability?.[variantKey]
-                    const percentage = chanceToWin != null ? chanceToWin * 100 : undefined
-
-                    return (
-                        <>
-                            {percentage != undefined ? (
-                                <span className="inline-flex items-center w-52 deprecated-space-x-4">
-                                    <span className="w-1/4 font-semibold">
-                                        {percentage >= 99.9
-                                            ? '> 99.9%'
-                                            : percentage <= 0.1
-                                              ? '< 0.1%'
-                                              : `${percentage.toFixed(1)}%`}
-                                    </span>
-                                </span>
-                            ) : (
-                                '—'
-                            )}
-                        </>
-                    )
-                }
-                // For Frequentist: show p-value (calculated as 1 - probability)
-                const pValue =
-                    result?.probability?.[variantKey] !== undefined ? 1 - result.probability[variantKey] : undefined
-
-                return (
-                    <>
-                        {pValue != undefined ? (
-                            <span className="inline-flex items-center w-52 deprecated-space-x-4">
-                                <span className="w-1/4 font-semibold">
-                                    {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
-                                </span>
-                            </span>
-                        ) : (
-                            '—'
-                        )}
-                    </>
                 )
             },
         })
