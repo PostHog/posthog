@@ -823,17 +823,9 @@ class DataColorToken(StrEnum):
     PRESET_15 = "preset-15"
 
 
-class Type(StrEnum):
+class DataTableNodeViewPropsContextType(StrEnum):
     EVENT_DEFINITION = "event_definition"
     TEAM_COLUMNS = "team_columns"
-
-
-class Context(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    eventDefinitionId: Optional[str] = None
-    type: Type
 
 
 class DataWarehouseEventsModifier(BaseModel):
@@ -885,7 +877,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type1(StrEnum):
+class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -1050,7 +1042,7 @@ class ErrorTrackingIssueAggregations(BaseModel):
     volume_buckets: list[VolumeBucket]
 
 
-class Type2(StrEnum):
+class ErrorTrackingIssueAssigneeType(StrEnum):
     USER = "user"
     ROLE = "role"
 
@@ -2304,19 +2296,6 @@ class SamplingRate(BaseModel):
     numerator: float
 
 
-class Type3(StrEnum):
-    EVENT_DEFINITION = "event_definition"
-    TEAM_COLUMNS = "team_columns"
-
-
-class Context1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    eventDefinitionId: Optional[str] = None
-    type: Type3
-
-
 class SessionAttributionGroupBy(StrEnum):
     CHANNEL_TYPE = "ChannelType"
     MEDIUM = "Medium"
@@ -2380,7 +2359,7 @@ class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     keys: Union[str, list[str]]
 
 
-class Type4(StrEnum):
+class SourceFieldInputConfigType(StrEnum):
     TEXT = "text"
     EMAIL = "email"
     SEARCH = "search"
@@ -2389,17 +2368,6 @@ class Type4(StrEnum):
     TIME = "time"
     NUMBER = "number"
     TEXTAREA = "textarea"
-
-
-class SourceFieldInputConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    label: str
-    name: str
-    placeholder: str
-    required: bool
-    type: Type4
 
 
 class SourceFieldOauthConfig(BaseModel):
@@ -2422,7 +2390,7 @@ class SourceFieldSSHTunnelConfig(BaseModel):
     type: Literal["ssh-tunnel"] = "ssh-tunnel"
 
 
-class Converter(StrEnum):
+class SourceFieldSelectConfigConverter(StrEnum):
     STR_TO_INT = "str_to_int"
     STR_TO_BOOL = "str_to_bool"
     STR_TO_OPTIONAL_INT = "str_to_optional_int"
@@ -2515,16 +2483,16 @@ class SurveyPosition(StrEnum):
     NEXT_TO_TRIGGER = "next_to_trigger"
 
 
-class SurveyQuestionDescriptionContentType(StrEnum):
-    HTML = "html"
-    TEXT = "text"
-
-
-class Type5(StrEnum):
+class SurveyQuestionBranchingType(StrEnum):
     NEXT_QUESTION = "next_question"
     END = "end"
     RESPONSE_BASED = "response_based"
     SPECIFIC_QUESTION = "specific_question"
+
+
+class SurveyQuestionDescriptionContentType(StrEnum):
+    HTML = "html"
+    TEXT = "text"
 
 
 class Branching(BaseModel):
@@ -2533,7 +2501,7 @@ class Branching(BaseModel):
     )
     index: Optional[float] = None
     responseValues: Optional[dict[str, Union[str, float]]] = None
-    type: Type5
+    type: SurveyQuestionBranchingType
 
 
 class Display1(StrEnum):
@@ -3419,6 +3387,14 @@ class CustomChannelRule(BaseModel):
     items: list[CustomChannelCondition]
 
 
+class DataTableNodeViewPropsContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventDefinitionId: Optional[str] = None
+    type: DataTableNodeViewPropsContextType
+
+
 class DataWarehousePersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3489,7 +3465,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     id: str
     name: str
     row_count: Optional[float] = None
-    type: Type1
+    type: DatabaseSchemaTableType
 
 
 class Day(RootModel[int]):
@@ -3521,7 +3497,7 @@ class ErrorTrackingIssueAssignee(BaseModel):
         extra="forbid",
     )
     id: Union[str, int]
-    type: Type2
+    type: ErrorTrackingIssueAssigneeType
 
 
 class ErrorTrackingIssueFilter(BaseModel):
@@ -4325,7 +4301,7 @@ class SavedInsightNode(BaseModel):
     allowSorting: Optional[bool] = Field(
         default=None, description="Can the user click on column headers to sort the table? (default: true)"
     )
-    context: Optional[Context1] = Field(
+    context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
@@ -4524,6 +4500,17 @@ class SourceFieldFileUploadConfig(BaseModel):
     name: str
     required: bool
     type: Literal["file-upload"] = "file-upload"
+
+
+class SourceFieldInputConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    name: str
+    placeholder: str
+    required: bool
+    type: SourceFieldInputConfigType
 
 
 class StickinessCriteria(BaseModel):
@@ -13438,7 +13425,7 @@ class DataTableNode(BaseModel):
     columns: Optional[list[str]] = Field(
         default=None, description="Columns shown in the table, unless the `source` provides them."
     )
-    context: Optional[Context] = Field(
+    context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: Optional[bool] = Field(default=None, description="Uses the embedded version of LemonTable")
@@ -14188,7 +14175,7 @@ class SourceFieldSelectConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    converter: Optional[Converter] = None
+    converter: Optional[SourceFieldSelectConfigConverter] = None
     defaultValue: str
     label: str
     name: str
