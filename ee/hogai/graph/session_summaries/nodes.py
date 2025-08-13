@@ -1,6 +1,5 @@
 import asyncio
 import time
-from datetime import datetime
 from typing import cast, Any
 from uuid import uuid4
 from langgraph.types import StreamWriter
@@ -11,9 +10,11 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, GROUP_SUMMARIES_MIN_SESSIONS
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
-from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
+from ee.hogai.session_summaries.session_group.summary_notebooks import (
+    create_empty_notebook_for_summary,
+    update_notebook_with_summary,
+)
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
-from posthog.models import Notebook
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
@@ -216,8 +217,14 @@ class SessionSummarizationNode(AssistantNode):
                 f"## Key Patterns Identified\n\n{summary.model_dump_json(exclude_none=True, indent=2)}\n\n"
             )
             self._stream_notebook_messages(final_notebook_content, state, writer)
-            await database_sync_to_async(create_summary_notebook)(
-                session_ids=session_ids, user=self._user, team=self._team, summary=summary
+            # Store the summary in the notebook
+            await update_notebook_with_summary(
+                notebook_short_id=state.notebook_id,
+                # TODO: Decide if we want two separate notebooks (remove the one with status updates) or a single one
+                session_ids=session_ids,
+                user=self._user,
+                team=self._team,
+                summary=summary,
             )
             return summary.model_dump_json(exclude_none=True)
         else:
@@ -229,14 +236,7 @@ class SessionSummarizationNode(AssistantNode):
         writer = self._get_stream_writer()
         # Check if the notebook is provided, create a notebook to fill if not
         if not state.notebook_id:
-            notebook = await Notebook.objects.acreate(
-                team=self._team,
-                # TODO: Define a proper name
-                title=f"Progress - Session Summaries Report - {self._team.name} ({datetime.now().strftime('%Y-%m-%d')})",
-                content="",
-                created_by=self._user,
-                last_modified_by=self._user,
-            )
+            notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
             state.notebook_id = notebook.short_id
         # If query was not provided for some reason
         if not state.session_summarization_query:

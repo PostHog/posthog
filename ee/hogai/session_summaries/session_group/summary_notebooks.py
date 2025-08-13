@@ -20,20 +20,49 @@ from ee.hogai.session_summaries.session_group.patterns import (
 )
 
 
-def create_summary_notebook(
+async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
+    """Create an empty notebook for a summary."""
+    notebook = await Notebook.objects.acreate(
+        team=team,
+        title=f"Session Summaries Report - {team.name} ({datetime.now().strftime('%Y-%m-%d')})",
+        content="",
+        created_by=user,
+        last_modified_by=user,
+    )
+    return notebook
+
+
+async def create_notebook_from_summary(
     session_ids: list[str], user: User, team: Team, summary: EnrichedSessionGroupSummaryPatternsList
 ) -> Notebook:
     """Create a notebook with session summary patterns."""
     notebook_content = _generate_notebook_content_from_summary(
         summary=summary, session_ids=session_ids, project_name=team.name, team_id=team.id
     )
-    notebook = Notebook.objects.create(
+    notebook = await Notebook.objects.acreate(
         team=team,
         title=f"Session Summaries Report - {team.name} ({datetime.now().strftime('%Y-%m-%d')})",
         content=notebook_content,
         created_by=user,
         last_modified_by=user,
     )
+    return notebook
+
+
+async def update_notebook_with_summary(
+    notebook_short_id: str,
+    session_ids: list[str],
+    user: User,
+    team: Team,
+    summary: EnrichedSessionGroupSummaryPatternsList,
+) -> Notebook:
+    """Update a notebook with session summary patterns."""
+    notebook = await Notebook.objects.aget(short_id=notebook_short_id)
+    notebook_content = _generate_notebook_content_from_summary(
+        summary=summary, session_ids=session_ids, project_name=team.name, team_id=team.id
+    )
+    notebook.content = notebook_content
+    await notebook.asave()
     return notebook
 
 
