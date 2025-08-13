@@ -153,11 +153,11 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                         />
                     </FlaggedFeature>
                     {noInspector ? null : (
-                        <FlaggedFeature match={true} flag={FEATURE_FLAGS.REPLAY_SCREENSHOT}>
+                        <>
                             <Screenshot />
-                        </FlaggedFeature>
+                            <InspectDOM />
+                        </>
                     )}
-                    {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>
             </div>
