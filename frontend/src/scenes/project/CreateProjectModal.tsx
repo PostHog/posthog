@@ -43,10 +43,10 @@ export function CreateProjectModal({
     }
     const handleSubmit = (): void => {
         createProject({ name })
-        reportProjectCreationSubmitted(
-            currentOrganization?.projects ? currentOrganization.projects.length : 0,
-            name.length
-        )
+        const projects = Array.isArray(currentOrganization?.projects) 
+            ? currentOrganization.projects 
+            : currentOrganization?.projects?.results || []
+        reportProjectCreationSubmitted(projects.length, name.length)
     }
 
     // Anytime the project changes close the modal as it indicates we have created a new project

@@ -43,6 +43,7 @@ export function EnvironmentSwitcherOverlay({
     onClickInside?: () => void
 }): JSX.Element {
     const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
+    const { loadMoreProjectsAndTeams } = useActions(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam, currentProject } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -254,8 +255,24 @@ export function EnvironmentSwitcherOverlay({
         return <Spinner />
     }
 
+    // Load more data when opening the dropdown if needed
+    const handleOpenChange = (newOpen: boolean) => {
+        setOpen(newOpen)
+        if (newOpen) {
+            // Check if we have paginated data structure, if so, load more
+            const teams = currentOrganization?.teams
+            const projects = currentOrganization?.projects
+            const hasTeamsPagination = teams && typeof teams === 'object' && 'next' in teams && teams.next
+            const hasProjectsPagination = projects && typeof projects === 'object' && 'next' in projects && projects.next
+            
+            if (hasTeamsPagination || hasProjectsPagination) {
+                loadMoreProjectsAndTeams()
+            }
+        }
+    }
+
     return (
-        <PopoverPrimitive open={open} onOpenChange={setOpen}>
+        <PopoverPrimitive open={open} onOpenChange={handleOpenChange}>
             <PopoverPrimitiveTrigger asChild>
                 <ButtonPrimitive
                     data-attr="environment-switcher-button"
@@ -367,8 +384,11 @@ function determineProjectSwitchUrl(pathname: string, newTeamId: number): string 
 
     // Find the target team's project ID
     let targetTeamProjectId: number | null = null
-    if (currentOrganization?.teams) {
-        const targetTeam = currentOrganization.teams.find((team) => team.id === newTeamId)
+    if (currentOrganization) {
+        const teams = Array.isArray(currentOrganization.teams) 
+            ? currentOrganization.teams 
+            : currentOrganization.teams?.results || []
+        const targetTeam = teams.find((team) => team.id === newTeamId)
         if (targetTeam) {
             targetTeamProjectId = targetTeam.project_id
         }

@@ -219,9 +219,9 @@ export const teamLogic = kea<teamLogicType>([
                 !currentTeamLoading,
         ],
         demoOnlyProject: [
-            (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
-            (currentTeam, currentOrganization): boolean =>
-                (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
+            (selectors) => [selectors.currentTeam, organizationLogic.selectors.allCurrentOrganizationTeams],
+            (currentTeam, allCurrentOrganizationTeams): boolean =>
+                (currentTeam?.is_demo && allCurrentOrganizationTeams && allCurrentOrganizationTeams.length == 1) || false,
         ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],

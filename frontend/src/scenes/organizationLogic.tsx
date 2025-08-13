@@ -10,7 +10,7 @@ import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationType } from '~/types'
+import { AvailableFeature, OrganizationType, ProjectBasicType, TeamBasicType } from '~/types'
 
 import type { organizationLogicType } from './organizationLogicType'
 import { urls } from './urls'
@@ -97,6 +97,46 @@ export const organizationLogic = kea<organizationLogicType>([
                 },
             },
         ],
+        currentOrganizationProjects: [
+            null as { count: number; next: string | null; previous: string | null; results: ProjectBasicType[] } | null,
+            {
+                loadCurrentOrganizationProjects: async ({
+                    limit = 100,
+                    offset = 0,
+                }: {
+                    limit?: number
+                    offset?: number
+                } = {}) => {
+                    if (!values.currentOrganization?.id) {
+                        throw new Error('Current organization has not been loaded yet.')
+                    }
+                    return await api.get(`api/organizations/${values.currentOrganization.id}/projects/`, {
+                        limit,
+                        offset,
+                    })
+                },
+            },
+        ],
+        currentOrganizationTeams: [
+            null as { count: number; next: string | null; previous: string | null; results: TeamBasicType[] } | null,
+            {
+                loadCurrentOrganizationTeams: async ({
+                    limit = 100,
+                    offset = 0,
+                }: {
+                    limit?: number
+                    offset?: number
+                } = {}) => {
+                    if (!values.currentOrganization?.id) {
+                        throw new Error('Current organization has not been loaded yet.')
+                    }
+                    return await api.get(`api/organizations/${values.currentOrganization.id}/teams/`, {
+                        limit,
+                        offset,
+                    })
+                },
+            },
+        ],
     })),
     selectors({
         hasTagging: [
@@ -131,6 +171,66 @@ export const organizationLogic = kea<organizationLogicType>([
             (currentOrganization): boolean => {
                 const orgCreatedAt = currentOrganization?.created_at
                 return orgCreatedAt ? dayjs().diff(dayjs(orgCreatedAt), 'month') < 3 : false
+            },
+        ],
+        allCurrentOrganizationProjects: [
+            (s) => [s.currentOrganization, s.currentOrganizationProjects],
+            (currentOrganization, currentOrganizationProjects): ProjectBasicType[] => {
+                // Combine the projects from the main organization data (first 10 from serializer)
+                // with any additional projects loaded via pagination
+                const serializedProjects = currentOrganization?.projects?.results || currentOrganization?.projects || []
+                const paginatedProjects = currentOrganizationProjects?.results || []
+                
+                // If we have paginated data, use it; otherwise fall back to serialized data
+                if (paginatedProjects.length > 0) {
+                    return paginatedProjects
+                }
+                return Array.isArray(serializedProjects) ? serializedProjects : []
+            },
+        ],
+        allCurrentOrganizationTeams: [
+            (s) => [s.currentOrganization, s.currentOrganizationTeams],
+            (currentOrganization, currentOrganizationTeams): TeamBasicType[] => {
+                // Combine the teams from the main organization data (first 10 from serializer)
+                // with any additional teams loaded via pagination
+                const serializedTeams = currentOrganization?.teams?.results || currentOrganization?.teams || []
+                const paginatedTeams = currentOrganizationTeams?.results || []
+                
+                // If we have paginated data, use it; otherwise fall back to serialized data
+                if (paginatedTeams.length > 0) {
+                    return paginatedTeams
+                }
+                return Array.isArray(serializedTeams) ? serializedTeams : []
+            },
+        ],
+        hasMoreProjects: [
+            (s) => [s.currentOrganization, s.currentOrganizationProjects],
+            (currentOrganization, currentOrganizationProjects): boolean => {
+                // Check if there are more projects to load
+                if (currentOrganizationProjects) {
+                    return !!currentOrganizationProjects.next
+                }
+                // If using serialized data, check if we hit the limit
+                const serializedProjects = currentOrganization?.projects
+                if (serializedProjects && typeof serializedProjects === 'object' && 'count' in serializedProjects) {
+                    return serializedProjects.next === true
+                }
+                return false
+            },
+        ],
+        hasMoreTeams: [
+            (s) => [s.currentOrganization, s.currentOrganizationTeams],
+            (currentOrganization, currentOrganizationTeams): boolean => {
+                // Check if there are more teams to load
+                if (currentOrganizationTeams) {
+                    return !!currentOrganizationTeams.next
+                }
+                // If using serialized data, check if we hit the limit
+                const serializedTeams = currentOrganization?.teams
+                if (serializedTeams && typeof serializedTeams === 'object' && 'count' in serializedTeams) {
+                    return serializedTeams.next === true
+                }
+                return false
             },
         ],
     }),

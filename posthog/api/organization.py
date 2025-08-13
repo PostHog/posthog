@@ -155,7 +155,7 @@ class OrganizationSerializer(
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.level if membership is not None else None
 
-    def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
+    def get_teams(self, instance: Organization) -> dict[str, Any]:
         # Support new access control system
         visible_teams = (
             self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
@@ -164,11 +164,65 @@ class OrganizationSerializer(
         )
         # Support old access control system
         visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
-        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
-    def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
+        # Get pagination parameters from context (if provided via query params)
+        request = self.context.get('request')
+        limit = 10  # Default limit for teams
+        offset = 0
+
+        if request:
+            # Handle both DRF Request and Django HttpRequest objects
+            if hasattr(request, 'query_params'):
+                # DRF Request object
+                limit = int(request.query_params.get('teams_limit', 10))
+                offset = int(request.query_params.get('teams_offset', 0))
+            elif hasattr(request, 'GET'):
+                # Django HttpRequest object
+                limit = int(request.GET.get('teams_limit', 10))
+                offset = int(request.GET.get('teams_offset', 0))
+
+        # Get total count before pagination
+        total_count = visible_teams.count()
+
+        # Apply pagination
+        paginated_teams = visible_teams[offset:offset + limit]
+
+        return {
+            'count': total_count,
+            'next': offset + limit < total_count,
+            'results': TeamBasicSerializer(paginated_teams, context=self.context, many=True).data
+        }
+
+    def get_projects(self, instance: Organization) -> dict[str, Any]:
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
-        return ProjectBasicSerializer(visible_projects, context=self.context, many=True).data  # type: ignore
+
+        # Get pagination parameters from context (if provided via query params)
+        request = self.context.get('request')
+        limit = 10  # Default limit for projects
+        offset = 0
+
+        if request:
+            # Handle both DRF Request and Django HttpRequest objects
+            if hasattr(request, 'query_params'):
+                # DRF Request object
+                limit = int(request.query_params.get('projects_limit', 10))
+                offset = int(request.query_params.get('projects_offset', 0))
+            elif hasattr(request, 'GET'):
+                # Django HttpRequest object
+                limit = int(request.GET.get('projects_limit', 10))
+                offset = int(request.GET.get('projects_offset', 0))
+
+        # Get total count before pagination
+        total_count = visible_projects.count()
+
+        # Apply pagination
+        paginated_projects = visible_projects[offset:offset + limit]
+
+        return {
+            'count': total_count,
+            'next': offset + limit < total_count,
+            'results': ProjectBasicSerializer(paginated_projects, context=self.context, many=True).data
+        }
 
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
         return {
@@ -398,3 +452,67 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"success": True, "message": "Migration started"}, status=202)
+
+    @action(detail=True, methods=["GET"])
+    def teams(self, request: Request, **kwargs) -> Response:
+        """
+        Get paginated teams for the organization.
+        """
+        organization = self.get_object()
+        user = cast(User, request.user)
+        user_permissions = UserPermissions(user)
+
+        # Support new access control system
+        from posthog.rbac.user_access_control import UserAccessControl
+        user_access_control = UserAccessControl(user)
+
+        visible_teams = (
+            user_access_control.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+            if user_access_control
+            else organization.teams.none()
+        )
+        # Support old access control system
+        visible_teams = visible_teams.filter(id__in=user_permissions.team_ids_visible_for_user)
+
+        # Apply ordering
+        visible_teams = visible_teams.order_by('id')
+
+        # Paginate
+        from rest_framework.pagination import LimitOffsetPagination
+        paginator = LimitOffsetPagination()
+        page = paginator.paginate_queryset(visible_teams, request)
+
+        if page is not None:
+            serializer = TeamBasicSerializer(page, context={'request': request}, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        # Fallback if pagination not requested
+        serializer = TeamBasicSerializer(visible_teams, context={'request': request}, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["GET"])
+    def projects(self, request: Request, **kwargs) -> Response:
+        """
+        Get paginated projects for the organization.
+        """
+        organization = self.get_object()
+        user = cast(User, request.user)
+        user_permissions = UserPermissions(user)
+
+        visible_projects = organization.projects.filter(id__in=user_permissions.project_ids_visible_for_user)
+
+        # Apply ordering
+        visible_projects = visible_projects.order_by('id')
+
+        # Paginate
+        from rest_framework.pagination import LimitOffsetPagination
+        paginator = LimitOffsetPagination()
+        page = paginator.paginate_queryset(visible_projects, request)
+
+        if page is not None:
+            serializer = ProjectBasicSerializer(page, context={'request': request}, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        # Fallback if pagination not requested
+        serializer = ProjectBasicSerializer(visible_projects, context={'request': request}, many=True)
+        return Response(serializer.data)
