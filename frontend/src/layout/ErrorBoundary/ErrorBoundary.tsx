@@ -19,11 +19,13 @@ let globalExceptionListener: (() => void) | null = null
 // Set up global listener for exception events (only once)
 if (!globalExceptionListener && typeof window !== 'undefined') {
     try {
-        globalExceptionListener = posthog.on('eventCaptured', (event) => {
-            if (event.event === EXCEPTION_EVENT_NAME) {
-                globalLastExceptionEvent = event
-            }
-        })
+        if (posthog && typeof posthog.on === 'function') {
+            globalExceptionListener = posthog.on('eventCaptured', (event) => {
+                if (event.event === EXCEPTION_EVENT_NAME) {
+                    globalLastExceptionEvent = event
+                }
+            })
+        }
     } catch (error) {
         console.warn('Failed to set up PostHog exception listener:', error)
     }
