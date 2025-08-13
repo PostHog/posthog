@@ -130,6 +130,7 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
 def get_http_client(**overrides):
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
+        "port": int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123")),
         "database": settings.CLICKHOUSE_DATABASE,
         "secure": settings.CLICKHOUSE_SECURE,
         "user": settings.CLICKHOUSE_USER,  # kwargs have user not username
@@ -242,6 +243,7 @@ def default_client(host=settings.CLICKHOUSE_HOST):
 def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrides) -> ChPool:
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
+        "port": settings.CLICKHOUSE_PORT,
         "database": settings.CLICKHOUSE_DATABASE,
         "secure": settings.CLICKHOUSE_SECURE,
         "user": settings.CLICKHOUSE_USER,
