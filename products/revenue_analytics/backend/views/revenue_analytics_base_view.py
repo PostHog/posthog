@@ -41,15 +41,15 @@ class RevenueAnalyticsBaseView(SavedQuery):
     def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
         from .revenue_analytics_charge_view import RevenueAnalyticsChargeView
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-        from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
         from .revenue_analytics_product_view import RevenueAnalyticsProductView
+        from .revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
         from .revenue_analytics_subscription_view import RevenueAnalyticsSubscriptionView
 
         return [
             *RevenueAnalyticsChargeView.for_events(team),
             *RevenueAnalyticsCustomerView.for_events(team),
-            *RevenueAnalyticsInvoiceItemView.for_events(team),
             *RevenueAnalyticsProductView.for_events(team),
+            *RevenueAnalyticsRevenueItemView.for_events(team),
             *RevenueAnalyticsSubscriptionView.for_events(team),
         ]
 
@@ -57,15 +57,15 @@ class RevenueAnalyticsBaseView(SavedQuery):
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         from .revenue_analytics_charge_view import RevenueAnalyticsChargeView
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-        from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
         from .revenue_analytics_product_view import RevenueAnalyticsProductView
+        from .revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
         from .revenue_analytics_subscription_view import RevenueAnalyticsSubscriptionView
 
         return [
             *RevenueAnalyticsChargeView.for_schema_source(source),
             *RevenueAnalyticsCustomerView.for_schema_source(source),
-            *RevenueAnalyticsInvoiceItemView.for_schema_source(source),
             *RevenueAnalyticsProductView.for_schema_source(source),
+            *RevenueAnalyticsRevenueItemView.for_schema_source(source),
             *RevenueAnalyticsSubscriptionView.for_schema_source(source),
         ]
 
