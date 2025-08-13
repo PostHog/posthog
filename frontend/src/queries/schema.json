@@ -853,7 +853,6 @@
                 "search_error_tracking_issues",
                 "experiment_results_summary",
                 "create_survey",
-                "lookup_feature_flag",
                 "search_docs"
             ],
             "type": "string"
