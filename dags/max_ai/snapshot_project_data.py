@@ -1,17 +1,17 @@
 from typing import TypeVar
 
 import dagster
-from dagster_aws.s3 import S3Resource
+from dagster_aws.s3.resources import S3Resource
 
 from dags.common import JobOwners
 from dags.max_ai.utils import check_dump_exists, compose_postgres_dump_path, dump_model
 from ee.hogai.eval.schema import (
-    BaseSchema,
-    DataWarehouseTableSchema,
-    GroupTypeMappingSchema,
+    BaseSnapshot,
+    DataWarehouseTableSnapshot,
+    GroupTypeMappingSnapshot,
     PostgresProjectDataSnapshot,
-    PropertyDefinitionSchema,
-    TeamSchema,
+    PropertyDefinitionSnapshot,
+    TeamSnapshot,
 )
 
 DEFAULT_RETRY_POLICY = dagster.RetryPolicy(
@@ -25,7 +25,7 @@ DEFAULT_RETRY_POLICY = dagster.RetryPolicy(
 SnapshotModelOutput = tuple[str, str]
 
 
-SchemaBound = TypeVar("SchemaBound", bound=BaseSchema)
+SchemaBound = TypeVar("SchemaBound", bound=BaseSnapshot)
 
 
 def snapshot_postgres_model(
@@ -40,6 +40,7 @@ def snapshot_postgres_model(
     if check_dump_exists(s3, file_key):
         context.log.info(f"Skipping {file_key} because it already exists")
         return file_key
+    context.log.info(f"Dumping {file_key}")
     with dump_model(s3=s3, schema=model_type, file_key=file_key) as dump:
         dump(model_type.serialize_for_project(project_id))
     return file_key
@@ -56,10 +57,10 @@ def snapshot_postgres_project_data(
 ) -> PostgresProjectDataSnapshot:
     context.log.info(f"Snapshotting Postgres project data for {project_id}")
     snapshot_map: dict[str, type[SchemaBound]] = {
-        "project": TeamSchema,
-        "property_definitions": PropertyDefinitionSchema,
-        "group_type_mappings": GroupTypeMappingSchema,
-        "data_warehouse_tables": DataWarehouseTableSchema,
+        "project": TeamSnapshot,
+        "property_definitions": PropertyDefinitionSnapshot,
+        "group_type_mappings": GroupTypeMappingSnapshot,
+        "data_warehouse_tables": DataWarehouseTableSnapshot,
     }
     deps = {
         file_name: snapshot_postgres_model(context, model_type, file_name, s3, project_id, context.op_def.version)
