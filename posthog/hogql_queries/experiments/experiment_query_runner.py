@@ -23,6 +23,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_exposure_query,
     get_metric_aggregation_expr,
     get_metric_events_query,
+    get_source_aggregation_expr,
     get_winsorized_metric_values_query,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import (
@@ -178,9 +179,6 @@ class ExperimentQueryRunner(QueryRunner):
         Special handling for ratio metrics to avoid Cartesian product.
         Aggregates numerator and denominator separately, then joins the aggregated results.
         """
-        from posthog.hogql_queries.experiments.base_query_utils import (
-            get_source_aggregation_expr,
-        )
 
         # Type assertion - this method is only called for ratio metrics
         assert isinstance(self.metric, ExperimentRatioMetric)
