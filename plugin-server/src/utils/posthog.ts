@@ -55,7 +55,7 @@ export function captureTeamEvent(
             groups: {
                 project: team.uuid,
                 organization: team.organization_id,
-                instance: process.env.SITE_URL ?? 'unknown',
+                instance: defaultConfig.SITE_URL,
             },
         })
     }

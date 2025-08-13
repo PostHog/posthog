@@ -1,5 +1,5 @@
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -10,7 +10,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
@@ -29,9 +29,9 @@ import {
     TileId,
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    webAnalyticsLogic,
     WebAnalyticsTile,
-} from 'scenes/web-analytics/webAnalyticsLogic'
+} from 'scenes/web-analytics/common'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -388,14 +388,47 @@ const MainContent = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    return productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS] ? (
-        <PageReports />
-    ) : (
-        <Tiles />
+    if (productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
+        return <PageReports />
+    }
+
+    if (productTab === ProductTab.MARKETING) {
+        return <MarketingDashboard />
+    }
+
+    return <Tiles />
+}
+
+const MarketingDashboard = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
+        // fallback in case the user is able to access the page but the feature flag is not enabled
+        return (
+            <LemonBanner type="info">
+                You can enable marketing analytics in the feature preview settings{' '}
+                <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <>
+            <LemonBanner
+                type="info"
+                dismissKey="marketing-analytics-beta-banner"
+                className="mb-2 mt-4"
+                action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
+            >
+                Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
+                directly to us!
+            </LemonBanner>
+            <Tiles />
+        </>
     )
 }
 
-const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
         return []
     }
@@ -410,11 +443,12 @@ const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label
                     </LemonTag>
                 </div>
             ),
+            link: '/web/page-reports',
         },
     ]
 }
 
-const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         return []
     }
@@ -429,6 +463,7 @@ const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: 
                     </LemonTag>
                 </div>
             ),
+            link: '/web/marketing',
         },
     ]
 }
@@ -458,8 +493,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             activeKey={productTab}
                             onChange={setProductTab}
                             tabs={[
-                                { key: ProductTab.ANALYTICS, label: 'Web analytics' },
-                                { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                                { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
+                                { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                                 ...pageReportsTab(featureFlags),
                                 ...marketingTab(featureFlags),
                             ]}

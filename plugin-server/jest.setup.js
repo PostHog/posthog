@@ -2,6 +2,7 @@ const { readFileSync } = require('fs')
 const { DateTime } = require('luxon')
 const { join } = require('path')
 
+// eslint-disable-next-line no-restricted-imports
 import fetch from 'node-fetch'
 
 import { logger, shutdownLogger } from './src/utils/logger'

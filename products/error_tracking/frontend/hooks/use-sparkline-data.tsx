@@ -1,31 +1,36 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { SparklineData } from '../components/SparklineChart/SparklineChart'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { ERROR_TRACKING_DETAILS_RESOLUTION, generateSparklineLabels } from '../utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../utils'
+
+type NotUndefined<T> = T extends undefined ? never : T
+
+function generateDataFromVolumeBuckets(
+    volumeBuckets: NotUndefined<ErrorTrackingIssueAggregations['volume_buckets']>
+): SparklineData {
+    return volumeBuckets.map(({ label, value }) => ({
+        value,
+        date: new Date(label),
+    }))
+}
 
 export function useSparklineData(
-    occurrences: number[] | undefined,
-    dateRange: DateRange,
+    aggregations: ErrorTrackingIssueAggregations | undefined,
     volumeResolution: number
 ): SparklineData {
     return useMemo(() => {
-        const labels = generateSparklineLabels(dateRange, volumeResolution)
-        let values = occurrences
-        if (!values) {
-            values = new Array(volumeResolution).fill(0)
+        if (aggregations?.volume_buckets) {
+            return generateDataFromVolumeBuckets(aggregations.volume_buckets)
         }
-        return values.map((value, index) => ({
-            value,
-            date: labels[index].toDate(),
-        }))
-    }, [occurrences, dateRange, volumeResolution])
+        return new Array(volumeResolution).fill({ value: 0, date: new Date() })
+    }, [aggregations, volumeResolution])
 }
 
 export function useSparklineDataIssueScene(): SparklineData {
-    const { aggregations, dateRange } = useValues(errorTrackingIssueSceneLogic)
-    return useSparklineData(aggregations?.volumeRange, dateRange, ERROR_TRACKING_DETAILS_RESOLUTION)
+    const { aggregations } = useValues(errorTrackingIssueSceneLogic)
+    return useSparklineData(aggregations, ERROR_TRACKING_DETAILS_RESOLUTION)
 }

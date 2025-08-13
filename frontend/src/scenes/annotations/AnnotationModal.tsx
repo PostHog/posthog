@@ -5,7 +5,7 @@ import {
     LemonModalProps,
     LemonSelect,
     LemonSelectOptions,
-    LemonTextArea,
+    LemonTextAreaMarkdown,
     Link,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -18,7 +18,6 @@ import { urls } from 'scenes/urls'
 import { AnnotationScope, AnnotationType } from '~/types'
 
 import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 export function NewAnnotationButton(): JSX.Element {
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
@@ -95,13 +94,6 @@ export function AnnotationModal({
             value: AnnotationScope.Organization,
             label: annotationScopeToName[AnnotationScope.Organization],
         },
-        {
-            value: AnnotationScope.Recording,
-            label: annotationScopeToName[AnnotationScope.Recording],
-            disabledReason: annotationModal.recordingId
-                ? undefined
-                : 'To select this scope, open this annotation on the target recording',
-        },
     ]
 
     return (
@@ -111,7 +103,7 @@ export function AnnotationModal({
             isOpen={isModalOpen}
             onClose={closeModal}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
-            description="Use annotations to comment on insights, dashboards, and recordings."
+            description="Use annotations to comment on insights, dashboards"
             footer={
                 <div className="flex-1 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -141,7 +133,7 @@ export function AnnotationModal({
                             loading={isAnnotationModalSubmitting}
                             data-attr="create-annotation-submit"
                         >
-                            {existingModalAnnotation ? 'Edit' : 'Create'}
+                            Save
                         </LemonButton>
                     </div>
                 </div>
@@ -176,26 +168,13 @@ export function AnnotationModal({
                     </LemonField>
                 </div>
                 <LemonField name="content" label="Content">
-                    <LemonTextArea
+                    <LemonTextAreaMarkdown
                         placeholder="What's this annotation about?"
                         onPressCmdEnter={submitAnnotationModal}
                         data-attr="create-annotation-input"
                         maxLength={400}
                     />
                 </LemonField>
-                {!!existingModalAnnotation &&
-                existingModalAnnotation.scope === AnnotationScope.Recording &&
-                !!existingModalAnnotation.recording_id &&
-                !!existingModalAnnotation.date_marker ? (
-                    <div className="flex flex-row justify-end">
-                        <ViewRecordingButton
-                            sessionId={existingModalAnnotation.recording_id}
-                            timestamp={existingModalAnnotation.date_marker}
-                            inModal={true}
-                            type="secondary"
-                        />
-                    </div>
-                ) : null}
             </Form>
         </LemonModal>
     )

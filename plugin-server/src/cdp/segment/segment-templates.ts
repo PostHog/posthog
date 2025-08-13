@@ -1,9 +1,8 @@
 import { DestinationDefinition, destinations } from '@segment/action-destinations'
 
-import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/cdp/types'
+import { HogFunctionFilterEvent, HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
 import { EXTEND_OBJECT_KEY } from '../services/hog-executor.service'
-import { HogFunctionTemplate } from '../templates/types'
 
 export type SegmentDestination = {
     template: HogFunctionTemplate
@@ -61,6 +60,9 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         }
         if (modifiedVal.includes('event.name')) {
             modifiedVal = modifiedVal.replaceAll('event.name', 'event.event')
+        }
+        if (modifiedVal.includes('event.groupId')) {
+            modifiedVal = modifiedVal.replaceAll('event.groupId', 'event.properties.$group_0')
         }
         if (modifiedVal.includes('event.context.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.context.traits', 'person.properties')
@@ -240,7 +242,7 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
             modifiedVal = modifiedVal.replaceAll('context.', 'event.properties.')
         }
 
-        if (modifiedVal.endsWith('.')) {
+        if (['event.context.group_id'].includes(modifiedVal) || modifiedVal.endsWith('.')) {
             return ''
         } else {
             return modifiedVal
@@ -451,6 +453,7 @@ const HIDDEN_DESTINATIONS = [
     'segment-facebook-conversions-api',
     'segment-actions-google-enhanced-conversions',
     'segment-gleap-cloud-actions',
+    'segment-actions-acoustic-campaign',
 
     // broken destinations
     'segment-actions-apolloio',
@@ -510,7 +513,8 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                         default: false,
                     },
                 ],
-                hog: 'return event',
+                code_language: 'javascript',
+                code: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)
                     .filter((preset) => preset.partnerAction in destination.actions)
@@ -545,7 +549,10 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
         } as SegmentDestination
     })
 
-export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce((acc, plugin) => {
-    acc[plugin.template.id] = plugin
-    return acc
-}, {} as Record<string, SegmentDestination>)
+export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce(
+    (acc, plugin) => {
+        acc[plugin.template.id] = plugin
+        return acc
+    },
+    {} as Record<string, SegmentDestination>
+)

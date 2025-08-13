@@ -84,7 +84,7 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
                     attributes["source"] = attributes.pop("children")[0]
                 new_attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
                 return klass(**new_attributes)
-        raise SyntaxError(f'Tag of kind "{expr.kind}" not found in schema.')
+        raise SyntaxError(f"Unknown tag <{expr.kind} />.")
     else:
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 

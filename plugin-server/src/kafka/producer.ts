@@ -58,6 +58,10 @@ export class KafkaProducerWrapper {
             'queue.buffering.max.messages': 100_000,
             'compression.codec': 'snappy',
             'enable.idempotence': true,
+            'metadata.max.age.ms': 30000, // Refresh metadata every 30s
+            'retry.backoff.ms': 500, // Backoff between retry attempts
+            'socket.timeout.ms': 30000, // Timeout for socket operations
+            'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
             ...getKafkaConfigFromEnv(mode),
             dr_cb: true,
         }

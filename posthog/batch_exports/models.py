@@ -118,6 +118,9 @@ class BatchExportRun(UUIDModel):
         related_name="runs",
         related_query_name="run",
     )
+    bytes_exported = models.BigIntegerField(
+        null=True, blank=True, help_text="The number of bytes that have been exported in this BatchExportRun."
+    )
 
     @property
     def workflow_id(self) -> str:

@@ -161,13 +161,14 @@ export function GolangSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`experimentFlagValue, err := client.GetFeatureFlag(
-                    FeatureFlagPayload{
-                        Key:        '${flagKey}',
-                        DistinctId: "distinct-id",
-                    })
-
-if (experimentFlagValue == '${variant}' ) {
+                {`experimentFlagValue, err := client.GetFeatureFlag(posthog.FeatureFlagPayload{
+    Key:        '${flagKey}',
+    DistinctId: "distinct-id",
+})
+if err != nil {
+    // Handle error (e.g. capture error and fallback to default behaviour)
+}
+if experimentFlagValue == '${variant}' {
     // Do something differently for this user
 } else {
     // It's a good idea to let control variant always be the default behaviour,

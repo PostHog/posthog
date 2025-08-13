@@ -183,7 +183,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 />
             )}
 
-            {projectTreeMode === 'table' && (
+            {isLayoutPanelVisible && projectTreeMode === 'table' && (
                 <div
                     onClick={() => {
                         // Return to tree mode when clicking outside the table view

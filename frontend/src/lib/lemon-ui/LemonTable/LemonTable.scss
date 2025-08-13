@@ -1,7 +1,7 @@
 .LemonTable {
     --row-base-height: auto;
-    --row-horizontal-padding: 1rem;
-    --lemon-table-background-color: var(--bg-surface-primary);
+    --row-horizontal-padding: 0.5rem;
+    --lemon-table-background-color: var(--color-bg-surface-primary);
 
     position: relative;
     flex: 1;
@@ -9,14 +9,14 @@
     overflow: hidden;
     font-size: 13px;
     background: var(--lemon-table-background-color) !important;
-    border: 1px solid var(--border-primary);
+    border: 1px solid var(--color-border-primary);
     border-radius: var(--radius);
 
     .WebAnalyticsDashboard &,
     .Insight &,
     .InsightCard__viz & {
         // Special override for scenes where the table is primarily next to insights
-        --lemon-table-background-color: var(--bg-surface-primary);
+        --lemon-table-background-color: var(--color-bg-surface-primary);
     }
 
     .WebAnalyticsDashboard &,
@@ -92,7 +92,7 @@
     .PaginationControl {
         height: var(--row-base-height);
         padding: 0.5rem;
-        border-top: 1px solid var(--border-primary);
+        border-top: 1px solid var(--color-border-primary);
     }
 
     a.Link {
@@ -125,7 +125,7 @@
 
                 // box shadow as a border supports sticky headers
                 // Also it needs to be on the th - any higher and safari will not render the shadow
-                box-shadow: inset 0 -1px var(--border-primary);
+                box-shadow: inset 0 -1px var(--color-border-primary);
 
                 .LemonButton {
                     margin: -0.5rem 0;
@@ -141,12 +141,12 @@
     > tbody {
         > tr {
             &:not(:first-child) {
-                border-top: 1px solid var(--border-primary);
+                border-top: 1px solid var(--color-border-primary);
             }
 
             &.LemonTable__expansion {
                 position: relative;
-                background: var(--bg-primary);
+                background: var(--color-bg-primary);
 
                 > td {
                     // Disable padding inside the expansion for better tailored placement of contents
@@ -159,7 +159,7 @@
                 color: var(--text-3000);
 
                 > td:not(.LemonTable__cell--sticky) {
-                    background: var(--accent-highlight-secondary);
+                    background: var(--color-accent-highlight-secondary);
                 }
             }
 
@@ -176,7 +176,7 @@
             > td {
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
-                color: var(--text-secondary);
+                color: var(--color-text-secondary);
 
                 // Cancel the vertical margin for CodeSnippet actions
                 // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
@@ -197,23 +197,24 @@
             > th,
             > td {
                 padding-right: var(--row-horizontal-padding);
+                padding-left: var(--row-horizontal-padding);
                 overflow: hidden;
                 text-overflow: ellipsis;
 
                 &:first-child {
-                    padding-left: calc(var(--row-horizontal-padding) + var(--row-ribbon-width, 0px));
+                    padding-left: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
                 }
 
-                &.LemonTable__boundary:not(:first-child) {
-                    padding-left: var(--row-horizontal-padding);
+                &:last-child {
+                    padding-right: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
                 }
 
                 &.LemonTable__boundary:not(:first-of-type) {
-                    border-left: 1px solid var(--border-primary);
+                    border-left: 1px solid var(--color-border-primary);
                 }
 
                 &.LemonTable__toggle {
-                    padding-right: 0;
+                    padding-right: var(--row-horizontal-padding);
                 }
 
                 &.LemonTable__toggle + * {
@@ -232,7 +233,7 @@
 }
 
 .LemonTable__empty-state {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
 }
 
 .LemonTable__overlay {
@@ -257,7 +258,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
     }
 
     &.LemonTable__header--actionable {
@@ -266,14 +267,14 @@
         &:hover {
             &:not(:has(.LemonTable__header--no-hover:hover)) {
                 .LemonTable__header-content {
-                    color: var(--text-primary);
+                    color: var(--color-text-primary);
                 }
             }
         }
 
         &:active {
             .LemonTable__header-content {
-                color: var(--text-primary);
+                color: var(--color-text-primary);
             }
         }
     }
@@ -292,7 +293,7 @@
 
 .LemonTable__footer {
     cursor: default;
-    border-top: 1px solid var(--border-primary);
+    border-top: 1px solid var(--color-border-primary);
 }
 
 // NOTE: this is outside of the storybook check for 3000 selective styling
@@ -300,7 +301,7 @@
     background: var(--lemon-table-background-color);
 
     .LemonTable__row--status-highlighted &::before {
-        background: var(--accent-highlight-secondary);
+        background: var(--color-accent-highlight-secondary);
     }
 }
 
@@ -308,10 +309,17 @@
     background: var(--lemon-table-background-color);
 }
 
+.LemonTable__cell--pinned,
+.LemonTable__header--pinned {
+    background: var(--lemon-table-background-color);
+}
+
 // Stickiness is disabled in snapshots due to flakiness
 body:not(.storybook-test-runner) {
     .LemonTable__header--sticky,
-    .LemonTable__cell--sticky {
+    .LemonTable__cell--sticky,
+    .LemonTable__header--pinned,
+    .LemonTable__cell--pinned {
         position: sticky !important; // Important to override .LemonTable--with-ribbon's rule, which has more specificity
         left: 0;
         z-index: 1;
@@ -331,7 +339,9 @@ body:not(.storybook-test-runner) {
 
     .ScrollableShadows--left {
         .LemonTable__cell--sticky::before,
-        .LemonTable__header--sticky::before {
+        .LemonTable__header--sticky::before,
+        .LemonTable__cell--pinned::before,
+        .LemonTable__header--pinned::before {
             box-shadow: -16px 0 16px 16px rgb(0 0 0 / 25%);
         }
     }

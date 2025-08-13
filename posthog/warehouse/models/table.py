@@ -35,7 +35,7 @@ from posthog.warehouse.models.util import (
     clean_type,
     remove_named_tuples,
 )
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables

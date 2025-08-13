@@ -10,7 +10,7 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queri
 import { ExperimentIdType, InsightType } from '~/types'
 
 import { MetricInsightId } from '../constants'
-import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../experimentCalculations'
+import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../legacyExperimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 interface ExperimentCalculatorProps {
     experimentId: ExperimentIdType

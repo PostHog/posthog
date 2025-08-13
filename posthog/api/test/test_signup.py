@@ -232,6 +232,77 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy
+    def test_signup_disallowed_on_case_insensitive_email_collision(self):
+        """Test that signup is prevented when a user exists with a case variation of the email."""
+        base_email = f"test.collision.{uuid.uuid4().hex[:8]}@example.com"
+        existing_user = User.objects.create(email=base_email.upper(), first_name="Hoggy")
+
+        test_email_variations = [
+            base_email.lower(),
+            base_email.title(),
+            base_email.upper(),
+            base_email.swapcase(),
+        ]
+
+        initial_user_count = User.objects.count()
+
+        for email_variation in test_email_variations:
+            with self.subTest(email=email_variation):
+                response = self.client.post(
+                    "/api/signup/",
+                    {
+                        "first_name": "John",
+                        "email": email_variation,
+                        "password": VALID_TEST_PASSWORD,
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(
+                    response.json(),
+                    self.validation_error_response(
+                        "There is already an account with this email address.",
+                        code="unique",
+                        attr="email",
+                    ),
+                )
+
+        self.assertEqual(User.objects.count(), initial_user_count)
+        existing_user.refresh_from_db()
+        self.assertEqual(existing_user.first_name, "Hoggy")
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_normalizes_email_to_lowercase(self):
+        """Test that new signups normalize email addresses to lowercase."""
+        unique_id = uuid.uuid4().hex[:8]
+        input_email = f"Test.{unique_id}@Example.COM"
+        expected_email = input_email.lower()
+
+        initial_user_count = User.objects.count()
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Test",
+                "last_name": "User",
+                "email": input_email,
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": f"Test Organization {unique_id}",
+                "role_at_organization": "product",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(User.objects.count(), initial_user_count + 1)
+
+        user = User.objects.get(email=expected_email)
+        self.assertEqual(user.email, expected_email)
+        self.assertEqual(user.first_name, "Test")
+        self.assertEqual(user.last_name, "User")
+
+        response_data = response.json()
+        self.assertEqual(response_data["email"], expected_email)
+
+    @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_self_hosted_by_default(self):
         with self.is_cloud(False):
             response = self.client.post(

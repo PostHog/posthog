@@ -1,6 +1,7 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
+
 from posthog.exceptions_capture import capture_exception
 import structlog
 from django.contrib.postgres.fields import ArrayField
@@ -9,6 +10,7 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 from django.db.models import QuerySet
+from django.contrib.postgres.indexes import GinIndex
 
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
@@ -44,6 +46,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     filters = models.JSONField(default=dict)
     filters_hash = models.CharField(max_length=400, null=True, blank=True)
     query = models.JSONField(null=True, blank=True)
+    query_metadata = models.JSONField(null=True, blank=True)
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     saved = models.BooleanField(default=False)
@@ -109,9 +112,39 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     class Meta:
         db_table = "posthog_dashboarditem"
         unique_together = ("team", "short_id")
+        indexes = [
+            GinIndex(
+                name="dashboarditem_query_metadata",
+                fields=["query_metadata"],
+                opclasses=["jsonb_ops"],
+            ),
+        ]
 
     def __str__(self):
         return self.name or self.derived_name or self.short_id
+
+    def save(self, *args, **kwargs) -> None:
+        # generate query metadata if needed
+        if self._state.adding or self.query != self._original_query or self.query_metadata is None:
+            try:
+                self.generate_query_metadata()
+                if "update_fields" in kwargs:
+                    kwargs["update_fields"].append("query_metadata")
+            except Exception as e:
+                # log and ignore the error, as this is not critical
+                logger.exception(
+                    "Failed to generate query metadata for insight",
+                    insight_id=self.id or "new",
+                    team_id=self.team_id,
+                    query=self.query,
+                    error=str(e),
+                )
+                capture_exception(e)
+        super().save(*args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_query = self.query
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Insight"]:
@@ -254,6 +287,16 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     @property
     def url(self):
         return absolute_uri(f"/insights/{self.short_id}")
+
+    def generate_query_metadata(self):
+        from posthog.hogql_queries.query_metadata import extract_query_metadata
+
+        query_metadata = extract_query_metadata(
+            query=self.query,
+            team=self.team,
+        )
+
+        self.query_metadata = query_metadata.model_dump(exclude_none=True, mode="json")
 
 
 class InsightViewed(models.Model):

@@ -21,14 +21,42 @@ export function stacktraceHasInAppFrames(stacktrace: ErrorTrackingException['sta
 }
 
 export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
-    switch (lib) {
+    switch (lib?.toLowerCase()) {
         case 'posthog-python':
             return 'python'
         case 'posthog-node':
+        case 'analytics-node':
+        case 'posthog-edge':
             return 'node'
         case 'posthog-js':
         case 'web':
+        case 'js':
             return 'web'
+        case 'posthog-go':
+        case 'analytics-go':
+            return 'go'
+        case 'posthog-php':
+            return 'php'
+        case 'posthog-rs':
+            return 'rust'
+        case 'posthog-dotnet':
+            return 'dotnet'
+        case 'posthog-android':
+            return 'android'
+        case 'posthog-ios':
+        case 'ios-widget':
+            return 'ios'
+        case 'posthog-react-native':
+            return 'react-native'
+        case 'posthog-dart':
+            return 'dart'
+        case 'posthog-flutter':
+            return 'flutter'
+        case 'posthog-elixir':
+            return 'elixir'
+        case 'posthog-java':
+        case 'analytics-java':
+            return 'java'
         default:
             return 'unknown'
     }
@@ -67,10 +95,16 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const url: string | undefined = properties.$current_url
     const exceptionList: ErrorTrackingException[] | undefined = getExceptionList(properties)
     if (!type) {
-        type = exceptionList?.[0]?.type
+        // we have seen in production that we managed to get `value = {}`
+        // so even though this is typed as a string
+        // it might not be!
+        type = exceptionList?.[0]?.type ? String(exceptionList?.[0]?.type) : undefined
     }
     if (!value) {
-        value = exceptionList?.[0]?.value
+        // we have seen in production that we managed to get `value = {}`
+        // so even though this is typed as a string
+        // it might not be!
+        value = exceptionList?.[0]?.value ? String(exceptionList?.[0]?.value) : undefined
     }
     if (synthetic == undefined) {
         synthetic = exceptionList?.[0]?.mechanism?.synthetic
@@ -129,4 +163,8 @@ export function getAdditionalProperties(
 
 export function getSessionId(properties: ErrorEventProperties): string | undefined {
     return properties['$session_id'] as string | undefined
+}
+
+export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
+    return properties['$recording_status'] as string | undefined
 }

@@ -114,7 +114,7 @@ export const permissionsLogic = kea<permissionsLogicType>([
                             resource: key,
                             name: ResourceDisplayMapping[key],
                             access_level: organizationResourcePermissionsMap[key]?.access_level || AccessLevel.WRITE,
-                        } as FormattedResourceLevel)
+                        }) as FormattedResourceLevel
                 )
             },
         ],

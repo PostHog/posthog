@@ -16,6 +16,7 @@ import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
 import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 type EditableBreakdownTagProps = {
     breakdown: string | number
@@ -124,6 +125,8 @@ export function BreakdownTag({
         if (group) {
             propertyName = group.name_singular || group.group_type
         }
+    } else {
+        propertyName = extractExpressionComment(propertyName as string)
     }
 
     return (

@@ -2,7 +2,10 @@ use std::num::NonZeroU32;
 use std::time::Duration as StdDuration;
 use time::Duration;
 
-use crate::common::*;
+#[path = "common/utils.rs"]
+mod utils;
+use utils::*;
+
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 use chrono::Utc;
@@ -10,7 +13,6 @@ use limiters::redis::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
-mod common;
 
 #[tokio::test]
 async fn it_captures_one_event() -> Result<()> {
@@ -999,6 +1001,45 @@ async fn it_trims_distinct_id() -> Result<()> {
             "distinct_id": trimmed_distinct_id2
         })
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_replaces_null_chars_in_distinct_id() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    // Test cases with null bytes in different positions
+    let test_cases = [
+        ("user123\0\0\0id", "user123\u{FFFD}\u{FFFD}\u{FFFD}id"), // nulls in middle
+        ("\0\0user123", "\u{FFFD}\u{FFFD}user123"),               // nulls at beginning
+        ("user123\0\0", "user123\u{FFFD}\u{FFFD}"),               // nulls at end
+        ("\0user\0id\0", "\u{FFFD}user\u{FFFD}id\u{FFFD}"),       // nulls scattered
+    ];
+
+    for (input_id, expected_id) in test_cases {
+        let event = json!({
+            "token": token,
+            "event": "testing",
+            "distinct_id": input_id
+        });
+        let res = server.capture_events(event.to_string()).await;
+        assert_eq!(StatusCode::OK, res.status());
+
+        let event = main_topic.next_event()?;
+        assert_json_include!(
+            actual: event,
+            expected: json!({
+                "token": token,
+                "distinct_id": expected_id
+            })
+        );
+    }
 
     Ok(())
 }

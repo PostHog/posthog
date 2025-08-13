@@ -13,6 +13,7 @@ import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 're
 import { urls } from 'scenes/urls'
 
 import { teamLogic } from '../../../scenes/teamLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
@@ -43,9 +44,9 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
         void copyToClipboard(dateTime.toDate().toISOString(), label)
     }
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
-    }, [])
+    })
 
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
@@ -148,7 +149,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         run()
 
         return () => clearInterval(interval)
-    }, [parsedTime, format])
+    }, [parsedTime, format, formattedContent])
 
     const innerContent = children ?? (
         <span

@@ -126,6 +126,7 @@ export class TeamManager {
                 t.person_display_name_properties,
                 t.cookieless_server_hash_mode,
                 t.timezone,
+                extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 o.available_product_features
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id

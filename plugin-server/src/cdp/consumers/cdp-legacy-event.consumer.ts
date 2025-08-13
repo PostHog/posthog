@@ -102,11 +102,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                                 }
 
                                 events.push(
-                                    convertToHogFunctionInvocationGlobals(
-                                        clickHouseEvent,
-                                        team,
-                                        this.hub.SITE_URL ?? 'http://localhost:8000'
-                                    )
+                                    convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL)
                                 )
                             } catch (e) {
                                 logger.error('Error parsing message', e)

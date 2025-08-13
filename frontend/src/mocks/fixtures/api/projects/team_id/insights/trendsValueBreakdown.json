@@ -210,7 +210,8 @@
             ],
             "trendsFilter": {
                 "display": "ActionsBarValue",
-                "resultCustomizationBy": "value"
+                "resultCustomizationBy": "value",
+                "hiddenLegendIndexes": [2]
             }
         },
         "full": true

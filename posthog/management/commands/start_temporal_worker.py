@@ -23,9 +23,7 @@ from posthog.constants import (
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-from posthog.temporal.batch_exports import ACTIVITIES as BATCH_EXPORTS_ACTIVITIES, WORKFLOWS as BATCH_EXPORTS_WORKFLOWS
 from posthog.temporal.common.logger import configure_logger_async, get_logger
 from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
@@ -43,6 +41,10 @@ from posthog.temporal.quota_limiting import (
     ACTIVITIES as QUOTA_LIMITING_ACTIVITIES,
     WORKFLOWS as QUOTA_LIMITING_WORKFLOWS,
 )
+from posthog.temporal.salesforce_enrichment import (
+    ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
+    WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
+)
 from posthog.temporal.session_recordings import (
     ACTIVITIES as SESSION_RECORDINGS_ACTIVITIES,
     WORKFLOWS as SESSION_RECORDINGS_WORKFLOWS,
@@ -50,6 +52,10 @@ from posthog.temporal.session_recordings import (
 from posthog.temporal.subscriptions import ACTIVITIES as SUBSCRIPTION_ACTIVITIES, WORKFLOWS as SUBSCRIPTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+from products.batch_exports.backend.temporal import (
+    ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
+    WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
 
 # Workflow and activity index
 WORKFLOWS_DICT = {
@@ -63,6 +69,7 @@ WORKFLOWS_DICT = {
     + USAGE_REPORTS_WORKFLOWS
     + SESSION_RECORDINGS_WORKFLOWS
     + QUOTA_LIMITING_WORKFLOWS
+    + SALESFORCE_ENRICHMENT_WORKFLOWS
     + PRODUCT_ANALYTICS_WORKFLOWS
     + SUBSCRIPTION_WORKFLOWS,
     MAX_AI_TASK_QUEUE: AI_WORKFLOWS,
@@ -79,10 +86,15 @@ ACTIVITIES_DICT = {
     + USAGE_REPORTS_ACTIVITIES
     + SESSION_RECORDINGS_ACTIVITIES
     + QUOTA_LIMITING_ACTIVITIES
+    + SALESFORCE_ENRICHMENT_ACTIVITIES
     + PRODUCT_ANALYTICS_ACTIVITIES
     + SUBSCRIPTION_ACTIVITIES,
     MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
+}
+
+TASK_QUEUE_METRIC_PREFIXES = {
+    BATCH_EXPORTS_TASK_QUEUE: "batch_exports_",
 }
 
 LOGGER = get_logger(__name__)
@@ -174,8 +186,6 @@ class Command(BaseCommand):
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
 
-        initialize_otel()
-
         metrics_port = int(options["metrics_port"])
 
         shutdown_task = None
@@ -228,6 +238,7 @@ class Command(BaseCommand):
                     else None,
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                     max_concurrent_activities=max_concurrent_activities,
+                    metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
                 )
             )
 

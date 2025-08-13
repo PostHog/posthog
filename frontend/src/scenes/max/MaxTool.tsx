@@ -10,12 +10,15 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
-import { maxGlobalLogic, ToolDefinition } from './maxGlobalLogic'
+import { maxGlobalLogic } from './maxGlobalLogic'
+import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { generateBurstPoints } from './utils'
 
-interface MaxToolProps extends ToolDefinition {
+interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     /** The child element(s) that will be wrapped by this component */
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
+    /** Whether MaxTool functionality is active. When false, just renders children without MaxTool wrapper. */
+    active?: boolean
     initialMaxPrompt?: string
     onMaxOpen?: () => void
     className?: string
@@ -23,14 +26,13 @@ interface MaxToolProps extends ToolDefinition {
 }
 
 export function MaxTool({
-    name,
-    displayName,
-    description,
+    identifier,
     icon,
     context,
     introOverride,
     callback,
     children: Children,
+    active = true,
     initialMaxPrompt,
     onMaxOpen,
     className,
@@ -41,25 +43,38 @@ export function MaxTool({
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
 
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
+    const definition = TOOL_DEFINITIONS[identifier as keyof typeof TOOL_DEFINITIONS]
+
+    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG') && active
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
-        registerTool({ name, displayName, description, icon, context, introOverride, callback })
-        return () => {
-            deregisterTool(name)
+        if (active) {
+            registerTool({
+                identifier,
+                name: definition.name,
+                description: definition.description,
+                icon,
+                context,
+                introOverride,
+                callback,
+            })
+            return (): void => {
+                deregisterTool(identifier)
+            }
         }
     }, [
-        name,
-        displayName,
-        description,
+        active,
+        identifier,
+        definition.name,
+        definition.description,
         icon,
         JSON.stringify(context),
         introOverride,
         callback,
         registerTool,
         deregisterTool,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     let content: JSX.Element
     if (!isMaxAvailable) {
@@ -72,14 +87,14 @@ export function MaxTool({
                         !isMaxOpen ? (
                             <>
                                 <IconSparkles className="mr-1.5" />
-                                {displayName} with Max
+                                {definition.name} with Max
                             </>
                         ) : (
                             <>
                                 Max can use this tool
                                 <br />
                                 {icon || <IconWrench />}
-                                <i className="ml-1.5">{displayName}</i>
+                                <i className="ml-1.5">{definition.name}</i>
                             </>
                         )
                     }

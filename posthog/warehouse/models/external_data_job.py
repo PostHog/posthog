@@ -3,9 +3,8 @@ from django.db.models import Prefetch
 from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
-from posthog.settings import TEST
 from uuid import UUID
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -43,10 +42,12 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             raise ValueError("Job does not have a schema")
 
     def url_pattern_by_schema(self, schema: str) -> str:
-        if TEST:
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
+        if settings.USE_LOCAL_SETUP:
+            return (
+                f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
+            )
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
 
 
 @database_sync_to_async

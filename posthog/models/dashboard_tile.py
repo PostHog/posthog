@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import generate_insight_filters_hash
-from posthog.models.tagged_item import build_check
+from posthog.models.utils import build_unique_relationship_check
 
 
 class Text(models.Model):
@@ -74,7 +74,7 @@ class DashboardTile(models.Model):
                 condition=Q(("text__isnull", False)),
             ),
             models.CheckConstraint(
-                check=build_check(("insight", "text")),
+                check=build_unique_relationship_check(("insight", "text")),
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
@@ -144,5 +144,5 @@ def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> lis
         .order_by("insight__order")
         .all()
     )
-    tiles.sort(key=lambda x: x.layouts.get(size, {}).get("y", 100))
+    tiles.sort(key=lambda x: (x.layouts.get(size, {}).get("y", 100), x.layouts.get(size, {}).get("x", 100)))
     return tiles

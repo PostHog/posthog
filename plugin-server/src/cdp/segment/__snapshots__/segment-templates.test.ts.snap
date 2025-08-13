@@ -3,9 +3,10 @@
 exports[`segment templates template segment-actions-absmartly matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to ABsmartly",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/absmartly.com.png",
   "id": "segment-actions-absmartly",
   "inputs_schema": [
@@ -357,9 +358,10 @@ exports[`segment templates template segment-actions-absmartly matches expected r
 exports[`segment templates template segment-actions-accoil-analytics matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Accoil Analytics",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/accoil.com.png",
   "id": "segment-actions-accoil-analytics",
   "inputs_schema": [
@@ -707,7 +709,7 @@ exports[`segment templates template segment-actions-accoil-analytics matches exp
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group id",
           "key": "groupId",
           "label": "Group ID",
@@ -803,9 +805,10 @@ exports[`segment templates template segment-actions-accoil-analytics matches exp
 exports[`segment templates template segment-actions-acoustic matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Acoustic",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/acoustic.com.png",
   "id": "segment-actions-acoustic",
   "inputs_schema": [
@@ -1093,348 +1096,13 @@ Last-Modified: 02.01.2024 10.30.43
 }
 `;
 
-exports[`segment templates template segment-actions-acoustic-campaign matches expected result 1`] = `
-{
-  "category": [],
-  "description": "Send event data to Acoustic Campaign",
-  "free": false,
-  "hog": "return event",
-  "icon_url": "/static/services/acoustic.com.png",
-  "id": "segment-actions-acoustic-campaign",
-  "inputs_schema": [
-    {
-      "default": "2",
-      "description": "Pod Number for API Endpoint",
-      "key": "pod",
-      "label": "Pod",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "choices": [
-        {
-          "label": "US",
-          "value": "US",
-        },
-        {
-          "label": "EU",
-          "value": "EU",
-        },
-        {
-          "label": "AP",
-          "value": "AP",
-        },
-        {
-          "label": "CA",
-          "value": "CA",
-        },
-      ],
-      "default": "US",
-      "description": "Region for API Endpoint, either US, EU, AP, or CA",
-      "key": "region",
-      "label": "Region",
-      "required": true,
-      "secret": false,
-      "type": "choice",
-    },
-    {
-      "default": "Segment Events Table Name",
-      "description": "The Segment Table Name in Acoustic Campaign Data dialog.",
-      "key": "tableName",
-      "label": "Acoustic Segment Table Name",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": "",
-      "description": "The Segment Table List Id from the Database-Relational Table dialog in Acoustic Campaign",
-      "key": "tableListId",
-      "label": "Acoustic Segment Table List Id",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": "",
-      "description": "The Client Id from the App definition dialog in Acoustic Campaign",
-      "key": "a_clientId",
-      "label": "Acoustic App Definition ClientId",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": "",
-      "description": "The Client Secret from the App definition dialog in Acoustic Campaign",
-      "key": "a_clientSecret",
-      "label": "Acoustic App Definition ClientSecret",
-      "required": true,
-      "secret": true,
-      "type": "string",
-    },
-    {
-      "default": "",
-      "description": "The RefreshToken provided when defining access for the App in Acoustic Campaign",
-      "key": "a_refreshToken",
-      "label": "Acoustic App Access Definition RefreshToken",
-      "required": true,
-      "secret": true,
-      "type": "string",
-    },
-    {
-      "default": "15",
-      "description": "A safety against mapping too many attributes into the Event, Event will be ignored if number of Event Attributes exceeds this maximum. Note: Before increasing the default max number, consult the Acoustic Destination documentation.",
-      "key": "attributesMax",
-      "label": "Properties Max",
-      "required": false,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": "Version 3.1   (nodeJS: v18.12.1)",
-      "description": "
-Last-Modified: 06.28.2023 16.15.37
-",
-      "key": "version",
-      "label": "Version:",
-      "required": false,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify')",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{event.properties.email ?? person.properties.email}",
-          "description": "At a minimum Email is required, see mapping presets for more info.",
-          "key": "email",
-          "label": "Email",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
-          "description": "The Event Type, will be either Track or Identify",
-          "key": "type",
-          "label": "Type",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "The Timestamp of the Event",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": {},
-          "description": "Map simple Key-Value pairs of Event data here.",
-          "key": "key_value_pairs",
-          "label": "Key-Value pairs",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": {},
-          "description": "Map Arrays of data into flattened data attributes here.",
-          "key": "array_data",
-          "label": "Arrays",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": {},
-          "description": "All properties provided via a Context Section ",
-          "key": "context",
-          "label": "Context",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": {},
-          "description": "All properties provided via a Properties Section",
-          "key": "properties",
-          "label": "Properties",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": {},
-          "description": "All properties provided via a Traits Section",
-          "key": "traits",
-          "label": "Traits",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": "receiveEvents",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Track Calls",
-    },
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event in ('$identify', '$set')",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{person.properties.email ?? person.properties.email}",
-          "description": "At a minimum Email is required, see mapping presets for more info.",
-          "key": "email",
-          "label": "Email",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
-          "description": "The Event Type, will be either Track or Identify",
-          "key": "type",
-          "label": "Type",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "The Timestamp of the Event",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": {},
-          "description": "Map simple Key-Value pairs of Event data here.",
-          "key": "key_value_pairs",
-          "label": "Key-Value pairs",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": {},
-          "description": "Map Arrays of data into flattened data attributes here.",
-          "key": "array_data",
-          "label": "Arrays",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": {},
-          "description": "All properties provided via a Context Section ",
-          "key": "context",
-          "label": "Context",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": {},
-          "description": "All properties provided via a Properties Section",
-          "key": "properties",
-          "label": "Properties",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": {},
-          "description": "All properties provided via a Traits Section",
-          "key": "traits",
-          "label": "Traits",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": "receiveEvents",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Identify Calls",
-    },
-  ],
-  "name": "Acoustic Campaign",
-  "status": "alpha",
-  "type": "destination",
-}
-`;
-
 exports[`segment templates template segment-actions-airship matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Airship",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/airship.com.png",
   "id": "segment-actions-airship",
   "inputs_schema": [
@@ -1649,9 +1317,10 @@ exports[`segment templates template segment-actions-airship matches expected res
 exports[`segment templates template segment-actions-algolia-insights matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Algolia Insights",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/algolia.com.png",
   "id": "segment-actions-algolia-insights",
   "inputs_schema": [
@@ -2380,9 +2049,10 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
 exports[`segment templates template segment-actions-amplitude matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Amplitude",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/amplitude.com.png",
   "id": "segment-actions-amplitude",
   "inputs_schema": [
@@ -4566,9 +4236,10 @@ exports[`segment templates template segment-actions-amplitude matches expected r
 exports[`segment templates template segment-actions-angler-ai matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Angler AI",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/getangler.ai.png",
   "id": "segment-actions-angler-ai",
   "inputs_schema": [
@@ -7902,9 +7573,10 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
 exports[`segment templates template segment-actions-attentive matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Attentive",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/attentive.com.png",
   "id": "segment-actions-attentive",
   "inputs_schema": [
@@ -8020,9 +7692,10 @@ exports[`segment templates template segment-actions-attentive matches expected r
 exports[`segment templates template segment-actions-blend-ai matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Blend Ai",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/blend.com.png",
   "id": "segment-actions-blend-ai",
   "inputs_schema": [
@@ -8137,9 +7810,10 @@ exports[`segment templates template segment-actions-blend-ai matches expected re
 exports[`segment templates template segment-actions-canny matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Canny",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/canny.io.png",
   "id": "segment-actions-canny",
   "inputs_schema": [
@@ -8182,7 +7856,7 @@ exports[`segment templates template segment-actions-canny matches expected resul
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group.",
           "key": "groupId",
           "label": "Group ID",
@@ -8309,9 +7983,10 @@ exports[`segment templates template segment-actions-canny matches expected resul
 exports[`segment templates template segment-actions-canvas matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Canvas",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/supernova.ai.png",
   "id": "segment-actions-canvas",
   "inputs_schema": [
@@ -8581,7 +8256,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group.",
           "key": "group_id",
           "label": "Group ID",
@@ -8924,9 +8599,10 @@ exports[`segment templates template segment-actions-canvas matches expected resu
 exports[`segment templates template segment-actions-clevertap matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to CleverTap",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/clevertap.com.png",
   "id": "segment-actions-clevertap",
   "inputs_schema": [
@@ -9102,9 +8778,10 @@ exports[`segment templates template segment-actions-clevertap matches expected r
 exports[`segment templates template segment-actions-cloud-gwen matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to GWEN",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/gwenplatform.com.png",
   "id": "segment-actions-cloud-gwen",
   "inputs_schema": [
@@ -9258,9 +8935,10 @@ exports[`segment templates template segment-actions-cloud-gwen matches expected 
 exports[`segment templates template segment-actions-drip matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Drip",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/drip.com.png",
   "id": "segment-actions-drip",
   "inputs_schema": [
@@ -9479,9 +9157,10 @@ exports[`segment templates template segment-actions-drip matches expected result
 exports[`segment templates template segment-actions-fullstory-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Fullstory Cloud Mode",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/fullstory.com.png",
   "id": "segment-actions-fullstory-cloud",
   "inputs_schema": [
@@ -9682,9 +9361,10 @@ exports[`segment templates template segment-actions-fullstory-cloud matches expe
 exports[`segment templates template segment-actions-gameball matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Gameball",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/gameball.co.png",
   "id": "segment-actions-gameball",
   "inputs_schema": [
@@ -10280,9 +9960,10 @@ exports[`segment templates template segment-actions-gameball matches expected re
 exports[`segment templates template segment-actions-hilo matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Hilo",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/hilo.com.png",
   "id": "segment-actions-hilo",
   "inputs_schema": [
@@ -10645,7 +10326,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group ID",
           "key": "groupId",
           "label": "Group ID",
@@ -10705,9 +10386,10 @@ exports[`segment templates template segment-actions-hilo matches expected result
 exports[`segment templates template segment-actions-hyperengage matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Hyperengage",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/hyperengage.io.png",
   "id": "segment-actions-hyperengage",
   "inputs_schema": [
@@ -10777,7 +10459,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -11011,7 +10693,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "string",
         },
         {
-          "default": "{event.context.group_id ?? event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -11209,7 +10891,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.context.group_id ?? event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The External ID of the account to send properties for",
           "key": "account_id",
           "label": "Account id",
@@ -11441,9 +11123,10 @@ exports[`segment templates template segment-actions-hyperengage matches expected
 exports[`segment templates template segment-actions-insider-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Insider Cloud Mode",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/insider.com.png",
   "id": "segment-actions-insider-cloud",
   "inputs_schema": [
@@ -11706,9 +11389,10 @@ exports[`segment templates template segment-actions-insider-cloud matches expect
 exports[`segment templates template segment-actions-iterable matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Iterable",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/iterable.com.png",
   "id": "segment-actions-iterable",
   "inputs_schema": [
@@ -12116,9 +11800,10 @@ exports[`segment templates template segment-actions-iterable matches expected re
 exports[`segment templates template segment-actions-kameleoon matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Kameleoon",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/kameleoon.com.png",
   "id": "segment-actions-kameleoon",
   "inputs_schema": [
@@ -12431,7 +12116,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group id",
           "key": "groupId",
           "label": "Group ID",
@@ -12598,9 +12283,10 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
 exports[`segment templates template segment-actions-koala-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Koala (Cloud)",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/koala.com.png",
   "id": "segment-actions-koala-cloud",
   "inputs_schema": [
@@ -12834,9 +12520,10 @@ exports[`segment templates template segment-actions-koala-cloud matches expected
 exports[`segment templates template segment-actions-launchdarkly matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to LaunchDarkly",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/launchdarkly.com.png",
   "id": "segment-actions-launchdarkly",
   "inputs_schema": [
@@ -13035,9 +12722,10 @@ exports[`segment templates template segment-actions-launchdarkly matches expecte
 exports[`segment templates template segment-actions-launchpad matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Launchpad",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/launchpad.com.png",
   "id": "segment-actions-launchpad",
   "inputs_schema": [
@@ -13542,7 +13230,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group. If there is a trait that matches the group key, it will override this value.",
           "key": "groupId",
           "label": "Group ID",
@@ -13602,9 +13290,10 @@ exports[`segment templates template segment-actions-launchpad matches expected r
 exports[`segment templates template segment-actions-livelike-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to LiveLike",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/livelike.com.png",
   "id": "segment-actions-livelike-cloud",
   "inputs_schema": [
@@ -13966,9 +13655,10 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
 exports[`segment templates template segment-actions-m3ter matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to m3ter",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/m3ter.com.png",
   "id": "segment-actions-m3ter",
   "inputs_schema": [
@@ -14168,9 +13858,10 @@ exports[`segment templates template segment-actions-m3ter matches expected resul
 exports[`segment templates template segment-actions-mixpanel matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Mixpanel",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/mixpanel.com.png",
   "id": "segment-actions-mixpanel",
   "inputs_schema": [
@@ -16163,7 +15854,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group. If there is a trait that matches the group key, it will override this value.",
           "key": "group_id",
           "label": "Group ID",
@@ -16205,9 +15896,10 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
 exports[`segment templates template segment-actions-moloco-rmp matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Moloco MCM",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/moloco.com.png",
   "id": "segment-actions-moloco-rmp",
   "inputs_schema": [
@@ -18116,9 +17808,10 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
 exports[`segment templates template segment-actions-optimizely-data-platform matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Optimizely Data Platform",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/optimizely.com.png",
   "id": "segment-actions-optimizely-data-platform",
   "inputs_schema": [
@@ -19055,9 +18748,10 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
 exports[`segment templates template segment-actions-pinterest-conversions-api matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Pinterest Conversions API",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/pinterest.com.png",
   "id": "segment-actions-pinterest-conversions-api",
   "inputs_schema": [
@@ -21314,9 +21008,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
 exports[`segment templates template segment-actions-pipedrive matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Pipedrive",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/pipedrive.com.png",
   "id": "segment-actions-pipedrive",
   "inputs_schema": [
@@ -21527,7 +21222,7 @@ exports[`segment templates template segment-actions-pipedrive matches expected r
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "Value to find existing organization by",
           "key": "match_value",
           "label": "Match value",
@@ -21780,9 +21475,10 @@ exports[`segment templates template segment-actions-pipedrive matches expected r
 exports[`segment templates template segment-actions-playerzero-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to PlayerZero Cloud",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/playerzero.ai.png",
   "id": "segment-actions-playerzero-cloud",
   "inputs_schema": [
@@ -21880,9 +21576,10 @@ exports[`segment templates template segment-actions-playerzero-cloud matches exp
 exports[`segment templates template segment-actions-podscribe matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Podscribe",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/podscribe.com.png",
   "id": "segment-actions-podscribe",
   "inputs_schema": [
@@ -22287,9 +21984,10 @@ exports[`segment templates template segment-actions-podscribe matches expected r
 exports[`segment templates template segment-actions-prodeology matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Prodeology",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/prodeology.com.png",
   "id": "segment-actions-prodeology",
   "inputs_schema": [
@@ -22630,7 +22328,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group id",
           "key": "groupId",
           "label": "Group ID",
@@ -22690,9 +22388,10 @@ exports[`segment templates template segment-actions-prodeology matches expected 
 exports[`segment templates template segment-actions-pushwoosh matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Pushwoosh",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/pushwoosh.com.png",
   "id": "segment-actions-pushwoosh",
   "inputs_schema": [
@@ -22995,9 +22694,10 @@ exports[`segment templates template segment-actions-pushwoosh matches expected r
 exports[`segment templates template segment-actions-recombee matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Recombee",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/recombee.com.png",
   "id": "segment-actions-recombee",
   "inputs_schema": [
@@ -24216,9 +23916,10 @@ exports[`segment templates template segment-actions-recombee matches expected re
 exports[`segment templates template segment-actions-revx matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to RevX Cloud",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/revx.io.png",
   "id": "segment-actions-revx",
   "inputs_schema": [
@@ -24516,9 +24217,10 @@ exports[`segment templates template segment-actions-revx matches expected result
 exports[`segment templates template segment-actions-ripe-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Ripe Cloud Mode",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/ripe.com.png",
   "id": "segment-actions-ripe-cloud",
   "inputs_schema": [
@@ -24588,7 +24290,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group id",
           "key": "groupId",
           "label": "Group ID",
@@ -24995,9 +24697,10 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
 exports[`segment templates template segment-actions-saleswings matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Saleswings",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/saleswingsapp.com.png",
   "id": "segment-actions-saleswings",
   "inputs_schema": [
@@ -25510,9 +25213,10 @@ exports[`segment templates template segment-actions-saleswings matches expected 
 exports[`segment templates template segment-actions-schematic matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Schematic",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/schematichq.com.png",
   "id": "segment-actions-schematic",
   "inputs_schema": [
@@ -25720,9 +25424,10 @@ exports[`segment templates template segment-actions-schematic matches expected r
 exports[`segment templates template segment-actions-sprig matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Sprig Cloud",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/sprig.com.png",
   "id": "segment-actions-sprig",
   "inputs_schema": [
@@ -25927,9 +25632,10 @@ exports[`segment templates template segment-actions-sprig matches expected resul
 exports[`segment templates template segment-actions-stackadapt-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to StackAdapt",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/stackadapt.com.png",
   "id": "segment-actions-stackadapt-cloud",
   "inputs_schema": [
@@ -26137,9 +25843,10 @@ exports[`segment templates template segment-actions-stackadapt-cloud matches exp
 exports[`segment templates template segment-actions-topsort matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Topsort",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/topsort.com.png",
   "id": "segment-actions-topsort",
   "inputs_schema": [
@@ -26560,9 +26267,10 @@ exports[`segment templates template segment-actions-topsort matches expected res
 exports[`segment templates template segment-actions-usermaven matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Usermaven",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/usermaven.com.png",
   "id": "segment-actions-usermaven",
   "inputs_schema": [
@@ -27073,7 +26781,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The company id, to uniquely identify the company",
           "key": "company_id",
           "label": "Company id",
@@ -27501,9 +27209,10 @@ exports[`segment templates template segment-actions-usermaven matches expected r
 exports[`segment templates template segment-actions-usermotion matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to UserMotion",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/usermotion.com.png",
   "id": "segment-actions-usermotion",
   "inputs_schema": [
@@ -27635,7 +27344,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "A identifier for a known company.",
           "key": "groupId",
           "label": "Group ID",
@@ -27759,9 +27468,10 @@ exports[`segment templates template segment-actions-usermotion matches expected 
 exports[`segment templates template segment-actions-userpilot-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Userpilot Cloud",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/userpilot.com.png",
   "id": "segment-actions-userpilot-cloud",
   "inputs_schema": [
@@ -27875,7 +27585,7 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The ID of the company.",
           "key": "groupId",
           "label": "Company ID",
@@ -27988,9 +27698,10 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
 exports[`segment templates template segment-actions-voyage matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Voyage",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/voyagesms.com.png",
   "id": "segment-actions-voyage",
   "inputs_schema": [
@@ -28208,9 +27919,10 @@ exports[`segment templates template segment-actions-voyage matches expected resu
 exports[`segment templates template segment-actions-vwo-cloud matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to VWO Cloud Mode",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/vwo.com.png",
   "id": "segment-actions-vwo-cloud",
   "inputs_schema": [
@@ -28623,9 +28335,10 @@ exports[`segment templates template segment-actions-vwo-cloud matches expected r
 exports[`segment templates template segment-actions-xtremepush matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Xtremepush",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/xtremepush.com.png",
   "id": "segment-actions-xtremepush",
   "inputs_schema": [
@@ -28845,9 +28558,10 @@ exports[`segment templates template segment-actions-xtremepush matches expected 
 exports[`segment templates template segment-calliper-cloud-actions matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Calliper Cloud",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/cloud.com.png",
   "id": "segment-calliper-cloud-actions",
   "inputs_schema": [
@@ -29320,7 +29034,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group.",
           "key": "group_id",
           "label": "Group ID",
@@ -29362,9 +29076,10 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
 exports[`segment templates template segment-encharge-cloud-actions matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Encharge",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/encharge.io.png",
   "id": "segment-encharge-cloud-actions",
   "inputs_schema": [
@@ -30020,7 +29735,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "An ID from your app/database that is used to uniquely identify the object in Encharge.",
           "key": "externalId",
           "label": "External Object ID",
@@ -30089,9 +29804,10 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
 exports[`segment templates template segment-inleads-ai matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Inleads AI",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/inleads.ai.png",
   "id": "segment-inleads-ai",
   "inputs_schema": [
@@ -30152,7 +29868,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -30338,7 +30054,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The External ID of the account to send properties for",
           "key": "account_id",
           "label": "Account id",
@@ -30594,7 +30310,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "string",
         },
         {
-          "default": "{event.context.group_id ?? event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -30767,9 +30483,10 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
 exports[`segment templates template segment-metronome-actions matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Metronome",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/metronome.com.png",
   "id": "segment-metronome-actions",
   "inputs_schema": [
@@ -30881,9 +30598,10 @@ exports[`segment templates template segment-metronome-actions matches expected r
 exports[`segment templates template segment-outfunnel matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Outfunnel",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/outfunnel.com.png",
   "id": "segment-outfunnel",
   "inputs_schema": [
@@ -31180,7 +30898,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "ID of the group",
           "key": "group_id",
           "label": "Group ID",
@@ -31251,9 +30969,10 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
 exports[`segment templates template segment-voucherify-actions matches expected result 1`] = `
 {
   "category": [],
+  "code": "return event",
+  "code_language": "javascript",
   "description": "Send event data to Voucherify",
   "free": false,
-  "hog": "return event",
   "icon_url": "/static/services/voucherify.io.png",
   "id": "segment-voucherify-actions",
   "inputs_schema": [
@@ -31757,7 +31476,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The ID used to uniquely identify a group to which [customer](https://docs.voucherify.io/reference/the-customer-object) belongs.",
           "key": "group_id",
           "label": "Group ID",

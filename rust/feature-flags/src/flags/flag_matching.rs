@@ -23,7 +23,10 @@ use crate::metrics::consts::{
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
-use crate::utils::graph_utils::DependencyGraph;
+use crate::utils::graph_utils::{
+    build_dependency_graph, filter_graph_by_keys, log_dependency_graph_construction_errors,
+    log_dependency_graph_operation_error, DependencyGraph,
+};
 use anyhow::Result;
 use common_database::{PostgresReader, PostgresWriter};
 use common_metrics::{inc, timing_guard};
@@ -33,7 +36,7 @@ use serde_json::Value;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, warn};
+use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -214,6 +217,7 @@ impl FeatureFlagMatcher {
     /// ## Returns
     ///
     /// * `FlagsResponse` - The result containing flag evaluations and any errors.
+    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id, flags_len = feature_flags.flags.len()))]
     pub async fn evaluate_all_feature_flags(
         &mut self,
         feature_flags: FeatureFlagList,
@@ -221,12 +225,13 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
         request_id: Uuid,
+        flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
             .iter()
-            .any(|flag| flag.ensure_experience_continuity);
+            .any(|flag| flag.ensure_experience_continuity.unwrap_or(false));
 
         // Process any hash key overrides
         let (hash_key_overrides, flag_hash_key_override_error) = self
@@ -243,6 +248,7 @@ impl FeatureFlagMatcher {
                 group_property_overrides,
                 hash_key_overrides,
                 request_id,
+                flag_keys,
             )
             .await;
 
@@ -282,6 +288,7 @@ impl FeatureFlagMatcher {
     /// Returns a tuple containing:
     /// - Option<HashMap<String, String>>: The hash key overrides if successfully retrieved, None if there was an error
     /// - bool: Whether there was an error during processing (true = error occurred)
+    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
     async fn process_hash_key_override(
         &self,
         hash_key: String,
@@ -422,6 +429,7 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
         request_id: Uuid,
+        flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
         let mut evaluated_flags_map = HashMap::new();
@@ -441,10 +449,48 @@ impl FeatureFlagMatcher {
             .await;
         errors_while_computing_flags |= db_prep_errors;
 
-        // Step 3: Build dependency graph and evaluate flags in stages
+        // Step 3: Build dependency graph
+        let (global_dependency_graph, graph_errors) =
+            match build_dependency_graph(&feature_flags, self.team_id) {
+                Some((graph, errors)) => (graph, errors),
+                None => {
+                    return FlagsResponse {
+                        errors_while_computing_flags: true,
+                        flags: evaluated_flags_map,
+                        quota_limited: None,
+                        request_id,
+                        config: ConfigResponse::default(),
+                    }
+                }
+            };
+
+        // Step 4: Filter graph by flag keys if specified
+        let dependency_graph = if let Some(keys) = flag_keys {
+            match filter_graph_by_keys(&global_dependency_graph, &keys) {
+                Some(filtered_graph) => filtered_graph,
+                None => {
+                    return FlagsResponse {
+                        errors_while_computing_flags: true,
+                        flags: evaluated_flags_map,
+                        quota_limited: None,
+                        request_id,
+                        config: ConfigResponse::default(),
+                    }
+                }
+            }
+        } else {
+            global_dependency_graph
+        };
+
+        if !graph_errors.is_empty() {
+            errors_while_computing_flags = true;
+            log_dependency_graph_construction_errors(&graph_errors, self.team_id);
+        }
+
+        // Step 5: Evaluate flags using the dependency graph
         let graph_evaluation_errors = self
             .evaluate_flags_with_dependency_graph(
-                &feature_flags,
+                dependency_graph,
                 &person_property_overrides,
                 &group_property_overrides,
                 &hash_key_overrides,
@@ -462,8 +508,47 @@ impl FeatureFlagMatcher {
         }
     }
 
+    /// Evaluates flags using the provided dependency graph.
+    /// Returns true if there were errors during evaluation.
+    async fn evaluate_flags_with_dependency_graph(
+        &mut self,
+        flag_dependency_graph: DependencyGraph<FeatureFlag>,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+    ) -> bool {
+        // Get evaluation stages for the dependency graph
+        let evaluation_stages = match flag_dependency_graph.evaluation_stages() {
+            Ok(stages) => stages,
+            Err(e) => {
+                log_dependency_graph_operation_error("get evaluation stages", &e, self.team_id);
+                return true;
+            }
+        };
+
+        // Evaluate flags in dependency order
+        let mut errors_while_computing_flags = false;
+        for stage in evaluation_stages {
+            let (level_evaluated_flags_map, level_errors) = self
+                .evaluate_flags_in_level(
+                    stage.as_slice(),
+                    evaluated_flags_map,
+                    person_property_overrides,
+                    group_property_overrides,
+                    hash_key_overrides,
+                )
+                .await;
+            errors_while_computing_flags |= level_errors;
+            evaluated_flags_map.extend(level_evaluated_flags_map);
+        }
+
+        errors_while_computing_flags
+    }
+
     /// Prepares evaluation state for flags that require database properties.
     /// Returns true if there were errors during preparation.
+    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
     async fn prepare_evaluation_state_if_needed(
         &mut self,
         feature_flags: &FeatureFlagList,
@@ -524,102 +609,14 @@ impl FeatureFlagMatcher {
         );
     }
 
-    /// Evaluates flags using dependency graph to handle flag dependencies correctly.
-    /// Returns true if there were errors during evaluation.
-    async fn evaluate_flags_with_dependency_graph(
-        &mut self,
-        feature_flags: &FeatureFlagList,
-        person_property_overrides: &Option<HashMap<String, Value>>,
-        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_overrides: &Option<HashMap<String, String>>,
-        evaluated_flags_map: &mut HashMap<String, FlagDetails>,
-    ) -> bool {
-        let (flag_dependency_graph, errors) =
-            match DependencyGraph::from_nodes(&feature_flags.flags) {
-                Ok((graph, errors)) => (graph, errors),
-                Err(e) => {
-                    self.handle_dependency_graph_error("build feature flag dependency graph", &e);
-                    return true;
-                }
-            };
-
-        let mut errors_while_computing_flags = !errors.is_empty();
-        if errors_while_computing_flags {
-            self.handle_dependency_graph_errors(&errors);
-        }
-
-        let evaluation_stages = match flag_dependency_graph.evaluation_stages() {
-            Ok(stages) => stages,
-            Err(e) => {
-                self.handle_dependency_graph_error("get evaluation stages", &e);
-                // This path should never happen. Normally I'd call unreachable here but if I'm wrong,
-                // I want the prod service to fail gracefully. But not while we're developing.
-                debug_assert!(
-                    false,
-                    "evaluation_stages() failed after dependency graph construction: {e:?}"
-                );
-                return true;
-            }
-        };
-
-        // Evaluate flags in dependency order
-        for stage in evaluation_stages {
-            let stage_flags: Vec<FeatureFlag> = stage.iter().map(|&flag| flag.clone()).collect();
-            let (level_evaluated_flags_map, level_errors) = self
-                .evaluate_flags_in_level(
-                    &stage_flags,
-                    evaluated_flags_map,
-                    person_property_overrides,
-                    group_property_overrides,
-                    hash_key_overrides,
-                )
-                .await;
-            errors_while_computing_flags |= level_errors;
-            evaluated_flags_map.extend(level_evaluated_flags_map);
-        }
-
-        errors_while_computing_flags
-    }
-
-    /// Handles errors during dependency graph operations.
-    fn handle_dependency_graph_error(&self, error_type: &str, error: &dyn std::fmt::Debug) {
-        error!(
-            "Failed to {} for team {}: {:?}",
-            error_type, self.team_id, error
-        );
-        inc(
-            FLAG_EVALUATION_ERROR_COUNTER,
-            &[(
-                "reason".to_string(),
-                format!("{}_error", error_type.replace(" ", "_")),
-            )],
-            1,
-        );
-    }
-
-    /// Handles errors found during dependency graph construction.
-    fn handle_dependency_graph_errors(
-        &self,
-        errors: &[crate::utils::graph_utils::GraphError<i32>],
-    ) {
-        inc(
-            FLAG_EVALUATION_ERROR_COUNTER,
-            &[("reason".to_string(), "dependency_graph_error".to_string())],
-            1,
-        );
-        error!(
-            "There were errors building the feature flag dependency graph for team {}. Will attempt to evaluate the rest of the flags: {:?}",
-            self.team_id, errors
-        );
-    }
-
     /// Evaluates a set of flags with a combination of property overrides and DB properties
     ///
     /// This function is designed to be used as part of a level-based evaluation strategy
     /// (e.g., Kahn's algorithm) for handling flag dependencies.
+    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
     async fn evaluate_flags_in_level(
         &mut self,
-        flags: &[FeatureFlag],
+        flags: &[&FeatureFlag],
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         person_property_overrides: &Option<HashMap<String, Value>>,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
@@ -636,6 +633,7 @@ impl FeatureFlagMatcher {
             .filter(|flag| {
                 !flag.deleted && !evaluated_flags_map.contains_key(&flag.key) && flag.active
             })
+            .copied()
             .collect::<Vec<&FeatureFlag>>();
 
         // Pre-compute property overrides for all flags upfront
@@ -1092,7 +1090,9 @@ impl FeatureFlagMatcher {
                 let rollout_percentage = condition.rollout_percentage;
 
                 if let Some(percentage) = rollout_percentage {
-                    if self.get_holdout_hash(flag, None)? > (percentage / 100.0) {
+                    if percentage < 100.0
+                        && self.get_holdout_hash(flag, None)? > (percentage / 100.0)
+                    {
                         // If hash is greater than percentage, we're OUT of holdout
                         return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
                     }
@@ -1253,8 +1253,11 @@ impl FeatureFlagMatcher {
         rollout_percentage: f64,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
+        if rollout_percentage == 100.0 {
+            return Ok((true, FeatureFlagMatchReason::ConditionMatch));
+        }
         let hash = self.get_hash(feature_flag, "", hash_key_overrides)?;
-        if rollout_percentage == 100.0 || hash <= (rollout_percentage / 100.0) {
+        if hash <= (rollout_percentage / 100.0) {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
             Ok((false, FeatureFlagMatchReason::OutOfRolloutBound))

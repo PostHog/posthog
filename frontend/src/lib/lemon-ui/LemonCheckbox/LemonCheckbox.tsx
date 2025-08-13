@@ -23,6 +23,8 @@ export interface LemonCheckboxProps {
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
     dataAttr?: string
+    /** Whether to stop propagation of events from the input */
+    stopPropagation?: boolean
 }
 
 export interface BoxCSSProperties extends React.CSSProperties {
@@ -51,6 +53,7 @@ export function LemonCheckbox({
     color,
     size,
     dataAttr,
+    stopPropagation,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
     disabled = disabled || !!disabledReason
@@ -93,6 +96,11 @@ export function LemonCheckbox({
                 )}
                 data-attr={dataAttr}
                 onMouseDownCapture={stopShiftSelection}
+                onClick={(e) => {
+                    if (stopPropagation) {
+                        e.stopPropagation()
+                    }
+                }}
             >
                 <input
                     className="LemonCheckbox__input"

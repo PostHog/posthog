@@ -1,6 +1,6 @@
 import json
 import structlog
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from django.http import HttpResponse
@@ -124,6 +124,7 @@ def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str
     return {
         "event": "$csp_violation",
         "distinct_id": distinct_id,
+        "timestamp": datetime.now(UTC).isoformat(),
         "properties": {
             "$session_id": session_id,
             "$csp_version": version,

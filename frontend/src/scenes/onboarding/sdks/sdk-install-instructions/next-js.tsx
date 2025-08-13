@@ -2,7 +2,7 @@ import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -147,7 +147,7 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
+    const showSetupWizard = !hideWizard && isCloudOrDev
 
     return (
         <>

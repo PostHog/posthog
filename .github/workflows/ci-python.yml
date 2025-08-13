@@ -27,6 +27,7 @@ jobs:
                   filters: |
                       python:
                         - 'dags/**'
+                        - 'ee/**/*.py'
                         - 'posthog/**/*'
                         - 'products/**/*.py'
                         # Make sure we run if someone is explicitly change the workflows
@@ -72,7 +73,7 @@ jobs:
               if: needs.changes.outputs.python == 'true'
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.python == 'true'
@@ -131,15 +132,3 @@ jobs:
             #   shell: bash
             #   run: |
             #       npm run taxonomy:build:json && git diff --exit-code
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && needs.changes.outputs.python == 'true'
-        needs: [code-quality] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

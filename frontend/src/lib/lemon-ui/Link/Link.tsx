@@ -218,7 +218,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             </a>
         )
 
-        if (tooltip && to) {
+        if ((tooltip && to) || tooltipDocLink) {
             element = (
                 <Tooltip title={tooltip} docLink={tooltipDocLink} placement={tooltipPlacement}>
                     {element}

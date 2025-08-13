@@ -4,7 +4,7 @@ import { v4 } from 'uuid'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { KAFKA_INGESTION_WARNINGS } from '../../../../src/config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
@@ -23,12 +23,11 @@ import { parseJSON } from '../../../../src/utils/json-parse'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
-jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
@@ -70,6 +69,7 @@ const team = {
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
     available_features: [],
+    drop_events_older_than_seconds: null,
 } as Team
 
 const pipelineEvent: PipelineEvent = {
@@ -163,8 +163,15 @@ describe('EventPipelineRunner', () => {
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
 
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+            new PostgresPersonRepository(hub.db.postgres),
+            hub.kafkaProducer
+        )
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         runner = new TestEventPipelineRunner(
             hub,
             pluginEvent,
@@ -173,8 +180,6 @@ describe('EventPipelineRunner', () => {
             personsStoreForBatch,
             groupStoreForBatch
         )
-
-        jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
 
         // @ts-expect-error this is just a mock
         jest.mocked(processPersonsStep).mockResolvedValue([
@@ -191,11 +196,11 @@ describe('EventPipelineRunner', () => {
     })
 
     describe('runEventPipeline()', () => {
-        it('runs steps starting from pluginsProcessEventStep', async () => {
+        it('runs steps', async () => {
             await runner.runEventPipeline(pluginEvent, team)
 
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -217,6 +222,15 @@ describe('EventPipelineRunner', () => {
             expect(runner.steps).toEqual([])
         })
 
+        it('drops $exception events', async () => {
+            const event = {
+                ...pluginEvent,
+                event: '$exception',
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([])
+        })
+
         it('does not drop disallowed token mismatching distinct_id events', async () => {
             const event = {
                 ...pluginEvent,
@@ -224,7 +238,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -261,30 +275,6 @@ describe('EventPipelineRunner', () => {
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
-        describe('early exits from pipeline', () => {
-            beforeEach(() => {
-                jest.mocked(pluginsProcessEventStep).mockResolvedValue(null)
-            })
-
-            it('stops processing after step', async () => {
-                await runner.runEventPipeline(pluginEvent, team)
-
-                expect(runner.steps).toEqual(['pluginsProcessEventStep'])
-            })
-
-            it('reports metrics and last step correctly', async () => {
-                const pipelineLastStepCounterSpy = jest.spyOn(metrics.pipelineLastStepCounter, 'labels')
-                const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
-                const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
-
-                await runner.runEventPipeline(pluginEvent, team)
-
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(1)
-                expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('pluginsProcessEventStep')
-                expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
-            })
-        })
-
         describe('errors during processing', () => {
             const error = new Error('testError')
 
@@ -297,7 +287,6 @@ describe('EventPipelineRunner', () => {
 
                 await runner.runEventPipeline(pluginEvent, team)
 
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('pluginsProcessEventStep')
                 expect(pipelineStepMsSummarySpy).not.toHaveBeenCalledWith('prepareEventStep')
                 expect(pipelineLastStepCounterSpy).not.toHaveBeenCalled()
                 expect(pipelineStepErrorCounterSpy).toHaveBeenCalledWith('prepareEventStep')
@@ -375,8 +364,15 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
-                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+                const personsStore = new BatchWritingPersonsStoreForBatch(
+                    new PostgresPersonRepository(hub.db.postgres),
+                    hub.kafkaProducer
+                )
+                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+                    hub.db,
+                    hub.groupRepository,
+                    hub.clickhouseGroupRepository
+                )
                 runner = new TestEventPipelineRunner(
                     hub,
                     heatmapEvent,
@@ -400,62 +396,6 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(heatmapEvent, team)
 
                 expect(runner.steps).toEqual(['normalizeEventStep', 'prepareEventStep', 'extractHeatmapDataStep'])
-            })
-        })
-
-        describe('$exception events', () => {
-            let exceptionEvent: PluginEvent
-            beforeEach(() => {
-                exceptionEvent = {
-                    ...pluginEvent,
-                    event: '$exception',
-                    properties: {
-                        ...pipelineEvent.properties,
-                        $heatmap_data: {
-                            url1: ['data'],
-                            url2: ['more data'],
-                        },
-                    },
-                    team_id: 2,
-                }
-
-                // setup just enough mocks that the right pipeline runs
-
-                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
-                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
-
-                runner = new TestEventPipelineRunner(
-                    hub,
-                    exceptionEvent,
-                    undefined,
-                    undefined,
-                    personsStore,
-                    groupStoreForBatch
-                )
-
-                const heatmapPreIngestionEvent = {
-                    ...preIngestionEvent,
-                    event: '$exception',
-                    properties: {
-                        ...exceptionEvent.properties,
-                    },
-                }
-                jest.mocked(prepareEventStep).mockResolvedValue(heatmapPreIngestionEvent)
-            })
-
-            it('runs the expected steps for exceptions', async () => {
-                await runner.runEventPipeline(exceptionEvent, team)
-
-                expect(runner.steps).toEqual([
-                    'pluginsProcessEventStep',
-                    'transformEventStep',
-                    'normalizeEventStep',
-                    'processPersonsStep',
-                    'prepareEventStep',
-                    'extractHeatmapDataStep',
-                    'createEventStep',
-                    'produceExceptionSymbolificationEventStep',
-                ])
             })
         })
 
@@ -488,7 +428,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -513,7 +453,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',

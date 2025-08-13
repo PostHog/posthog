@@ -36,6 +36,8 @@ class Feature(StrEnum):
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
+    DATA_MODELING = "data_modeling"
+    IMPORT_PIPELINE = "import_pipeline"
 
 
 class TemporalTags(BaseModel):
@@ -61,13 +63,16 @@ class DagsterTags(BaseModel):
     Check: https://docs.dagster.io/api/dagster/internals#dagster.DagsterRun
     """
 
-    job_name: str
-    run_id: str
-    tags: Optional[dict[str, str]]
-    root_run_id: Optional[str]
-    parent_run_id: Optional[str]
-    job_snapshot_id: Optional[str]
-    execution_plan_snapshot_id: Optional[str]
+    job_name: Optional[str] = None
+    run_id: Optional[str] = None
+    tags: Optional[dict[str, str]] = None
+    root_run_id: Optional[str] = None
+    parent_run_id: Optional[str] = None
+    job_snapshot_id: Optional[str] = None
+    execution_plan_snapshot_id: Optional[str] = None
+
+    op_name: Optional[str] = None
+    asset_key: Optional[str] = None
 
 
 class QueryTags(BaseModel):
@@ -76,6 +81,8 @@ class QueryTags(BaseModel):
     access_method: Optional[AccessMethod] = None
     org_id: Optional[uuid.UUID] = None
     product: Optional[Product] = None
+
+    # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
     id: Optional[str] = None
     session_id: Optional[uuid.UUID] = None
@@ -110,6 +117,10 @@ class QueryTags(BaseModel):
     cohort_id: Optional[int] = None
     entity_math: Optional[list[str]] = None
 
+    # replays
+    replay_playlist_id: Optional[int] = None
+
+    # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
     experiment_name: Optional[str] = None

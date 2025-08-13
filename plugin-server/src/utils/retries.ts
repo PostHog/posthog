@@ -19,7 +19,7 @@ export async function promiseRetry<T>(
     nonRetriableErrorTypes?: (new (...args: any[]) => Error)[]
 ): Promise<T> {
     if (retries <= 0) {
-        logger.error('🚨', `Final retry failure for ${name}`, { previousError })
+        logger.warn('🚨', `Final retry failure for ${name}`, { previousError })
         return Promise.reject(previousError)
     }
     return fn().catch(async (error) => {

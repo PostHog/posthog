@@ -1,6 +1,5 @@
 use crate::api::errors::FlagError;
 use crate::flags::flag_models::*;
-use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -20,8 +19,9 @@ impl FeatureFlag {
     pub fn get_variants(&self) -> Vec<MultivariateFlagVariant> {
         self.filters
             .multivariate
-            .clone()
-            .map_or(vec![], |m| m.variants)
+            .as_ref()
+            .map(|m| m.variants.clone())
+            .unwrap_or_default()
     }
 
     pub fn get_payload(&self, match_val: &str) -> Option<serde_json::Value> {
@@ -30,33 +30,6 @@ impl FeatureFlag {
                 .as_object()
                 .and_then(|obj| obj.get(match_val).cloned())
         })
-    }
-
-    /// Extracts dependent FeatureFlagIds from the feature flag's filters
-    ///
-    /// # Returns
-    /// * `HashSet<FeatureFlagId>` - A set of dependent feature flag IDs
-    /// * `FlagError` - If there is an error parsing the filters
-    pub fn extract_dependencies(&self) -> Result<HashSet<FeatureFlagId>, FlagError> {
-        let mut dependencies = HashSet::new();
-        for group in &self.filters.groups {
-            if let Some(properties) = &group.properties {
-                for filter in properties {
-                    if let Some(feature_flag_id) = Self::extract_feature_flag_dependency(filter) {
-                        dependencies.insert(feature_flag_id);
-                    }
-                }
-            }
-        }
-        Ok(dependencies)
-    }
-
-    fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
-        if filter.depends_on_feature_flag() {
-            filter.get_feature_flag_id()
-        } else {
-            None
-        }
     }
 
     /// Returns true if the flag requires DB preparation in order to evaluate the flag.
@@ -89,7 +62,19 @@ impl DependencyProvider for FeatureFlag {
     }
 
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
-        self.extract_dependencies()
+        let mut dependencies = HashSet::new();
+        for group in &self.filters.groups {
+            if let Some(properties) = &group.properties {
+                for filter in properties {
+                    if filter.depends_on_feature_flag() {
+                        if let Some(feature_flag_id) = filter.get_feature_flag_id() {
+                            dependencies.insert(feature_flag_id);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(dependencies)
     }
 
     fn dependency_type() -> DependencyType {
@@ -104,7 +89,7 @@ mod tests {
             flag_models::*,
             test_helpers::{create_simple_flag, create_simple_property_filter},
         },
-        properties::property_models::{OperatorType, PropertyType},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     };
     use serde_json::{json, Value};
     use std::time::Instant;
@@ -186,7 +171,8 @@ mod tests {
             },
             "deleted": false,
             "active": true,
-            "ensure_experience_continuity": false
+            "ensure_experience_continuity": false,
+            "evaluation_runtime": "all"
         }"#;
 
         let flag: FeatureFlag = serde_json::from_str(json_str).expect("Failed to deserialize");
@@ -206,11 +192,175 @@ mod tests {
         assert!(flag.filters.payloads.is_some());
         assert!(!flag.deleted);
         assert!(flag.active);
-        assert!(!flag.ensure_experience_continuity);
+        assert_eq!(flag.evaluation_runtime, Some("all".to_string()));
+        assert!(!flag.ensure_experience_continuity.unwrap_or(false));
     }
 
     // TODO: Add more tests to validate deserialization of flags.
     // TODO: Also make sure old flag data is handled, or everything is migrated to new style in production
+
+    #[test]
+    fn test_extract_dependencies() {
+        use crate::utils::graph_utils::DependencyProvider;
+        use std::collections::HashSet;
+
+        // Test flag with no dependencies
+        let flag_no_deps = FeatureFlag {
+            id: 1,
+            team_id: 1,
+            name: Some("No Dependencies".to_string()),
+            key: "no_deps".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: None,
+            evaluation_runtime: Some("all".to_string()),
+        };
+
+        let deps = flag_no_deps.extract_dependencies().unwrap();
+        assert!(deps.is_empty());
+
+        // Test flag with feature flag dependency
+        let flag_with_dep = FeatureFlag {
+            id: 2,
+            team_id: 1,
+            name: Some("With Dependency".to_string()),
+            key: "with_dep".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "100".to_string(), // Feature flag ID as string
+                        value: Some(json!("true")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Flag,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: None,
+            evaluation_runtime: Some("all".to_string()),
+        };
+
+        let deps = flag_with_dep.extract_dependencies().unwrap();
+        assert_eq!(deps, HashSet::from([100]));
+
+        // Test flag with multiple dependencies
+        let flag_with_multiple_deps = FeatureFlag {
+            id: 3,
+            team_id: 1,
+            name: Some("Multiple Dependencies".to_string()),
+            key: "multiple_deps".to_string(),
+            filters: FlagFilters {
+                groups: vec![
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "200".to_string(), // Feature flag ID as string
+                            value: Some(json!("true")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Flag,
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(50.0),
+                        variant: None,
+                    },
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "300".to_string(), // Feature flag ID as string
+                            value: Some(json!("false")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Flag,
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(50.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: None,
+            evaluation_runtime: Some("all".to_string()),
+        };
+
+        let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
+        assert_eq!(deps, HashSet::from([200, 300]));
+
+        // Test flag with mixed property types (feature flag + regular properties)
+        let flag_with_mixed_props = FeatureFlag {
+            id: 4,
+            team_id: 1,
+            name: Some("Mixed Properties".to_string()),
+            key: "mixed_props".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        PropertyFilter {
+                            key: "400".to_string(), // Feature flag ID as string
+                            value: Some(json!("true")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Flag,
+                            group_type_index: None,
+                            negation: None,
+                        },
+                        PropertyFilter {
+                            key: "regular_property".to_string(),
+                            value: Some(json!("value")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                        },
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: None,
+            evaluation_runtime: Some("all".to_string()),
+        };
+
+        let deps = flag_with_mixed_props.extract_dependencies().unwrap();
+        assert_eq!(deps, HashSet::from([400]));
+    }
 
     #[test]
     fn test_operator_type_deserialization() {
@@ -289,7 +439,8 @@ mod tests {
                 }
             },
             "active": true,
-            "deleted": false
+            "deleted": false,
+            "evaluation_runtime": "all"
         });
 
         // Insert into Redis
@@ -314,8 +465,9 @@ mod tests {
                 filters: multivariate_flag["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -332,10 +484,9 @@ mod tests {
         assert_eq!(redis_flag.get_variants().len(), 3);
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "multivariate_flag");
@@ -414,8 +565,9 @@ mod tests {
                 filters: multivariate_flag_with_payloads["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -431,10 +583,9 @@ mod tests {
         assert_eq!(redis_flag.key, "multivariate_flag_with_payloads");
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "multivariate_flag_with_payloads");
@@ -548,8 +699,9 @@ mod tests {
                 filters: flag_with_super_groups["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -567,10 +719,9 @@ mod tests {
         assert_eq!(redis_flag.filters.super_groups.as_ref().unwrap().len(), 1);
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "flag_with_super_groups");
@@ -620,7 +771,8 @@ mod tests {
                 ]
             },
             "active": true,
-            "deleted": false
+            "deleted": false,
+            "evaluation_runtime": "all"
         });
 
         // Insert into Redis
@@ -645,8 +797,9 @@ mod tests {
                 filters: flag_with_different_properties["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -667,10 +820,9 @@ mod tests {
         assert_eq!(redis_properties[2].prop_type, PropertyType::Cohort);
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "flag_with_different_properties");
@@ -732,8 +884,9 @@ mod tests {
                 filters: deleted_flag["filters"].clone(),
                 deleted: true,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -750,8 +903,9 @@ mod tests {
                 filters: inactive_flag["filters"].clone(),
                 deleted: false,
                 active: false,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -770,10 +924,9 @@ mod tests {
             .any(|f| f.key == "inactive_flag" && !f.active));
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 0);
         assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
         assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
@@ -846,8 +999,9 @@ mod tests {
                 filters: flag["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -863,7 +1017,7 @@ mod tests {
                 let redis_flags = FeatureFlagList::from_redis(redis_client, project_id)
                     .await
                     .unwrap();
-                let pg_flags = FeatureFlagList::from_pg(reader, project_id).await.unwrap();
+                let (pg_flags, _) = FeatureFlagList::from_pg(reader, project_id).await.unwrap();
                 (redis_flags, pg_flags)
             });
 
@@ -926,8 +1080,9 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -941,7 +1096,7 @@ mod tests {
         let redis_duration = start.elapsed();
 
         let start = Instant::now();
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader, team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
         let pg_duration = start.elapsed();
@@ -1017,8 +1172,9 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1029,10 +1185,9 @@ mod tests {
         let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(redis_flags.flags.len(), 3);
         assert_eq!(pg_flags.flags.len(), 3);
 
@@ -1103,8 +1258,9 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1115,7 +1271,7 @@ mod tests {
         let mut redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let mut pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (mut pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -1173,7 +1329,8 @@ mod tests {
                 "key": "zero_percent",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]},
                 "active": true,
-                "deleted": false
+                "deleted": false,
+                "evaluation_runtime": "all"
             },
             {
                 "id": 2,
@@ -1182,7 +1339,8 @@ mod tests {
                 "key": "hundred_percent",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "active": true,
-                "deleted": false
+                "deleted": false,
+                "evaluation_runtime": "all"
             },
             {
                 "id": 3,
@@ -1191,7 +1349,8 @@ mod tests {
                 "key": "fractional_percent",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 33.33}]},
                 "active": true,
-                "deleted": false
+                "deleted": false,
+                "evaluation_runtime": "all"
             }
         ]);
 
@@ -1217,8 +1376,9 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1229,7 +1389,7 @@ mod tests {
         let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -1256,7 +1416,8 @@ mod tests {
             "key": "empty_filters",
             "filters": {},
             "deleted": false,
-            "active": true
+            "active": true,
+            "evaluation_runtime": "all"
         }"#;
 
         let flag: FeatureFlag =

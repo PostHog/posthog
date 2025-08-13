@@ -53,8 +53,8 @@
         min-height: calc(2.125rem + 3px); // Medium size button height + button shadow height
         padding: 0 0.75rem;
         line-height: 1.4;
-        background: var(--bg-surface-primary);
-        border: 1px solid var(--border-primary);
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
 
         &.LemonSwitch--small {
@@ -72,7 +72,7 @@
 
     > .LemonIcon {
         font-size: 1.5rem;
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
     }
 
     &.LemonSwitch--disabled {
@@ -81,6 +81,13 @@
 
         label[for] {
             cursor: not-allowed; // A label with for=* also toggles the switch, so it shouldn't have the text select cursor
+        }
+    }
+
+    &.LemonSwitch--loading {
+        .LemonSwitch__button {
+            cursor: not-allowed;
+            opacity: 0.7;
         }
     }
 }
@@ -95,14 +102,14 @@
     height: var(--lemon-switch-height);
     padding: var(--lemon-switch-handle-gutter);
     cursor: pointer;
-    background-color: var(--bg-fill-switch);
+    background-color: var(--color-bg-fill-switch);
     border: none;
     border-radius: var(--lemon-switch-height);
-    outline: 1px solid var(--border-primary);
+    outline: 1px solid var(--color-border-primary);
     transition: background-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--accent);
+        background-color: var(--color-accent);
     }
 
     .LemonSwitch--disabled & {
@@ -117,6 +124,7 @@
         calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - 2 * var(--lemon-switch-handle-gutter))
     );
 
+    position: relative;
     width: var(--lemon-switch-handle-width);
     height: var(--lemon-switch-handle-height);
     pointer-events: none;
@@ -124,11 +132,15 @@
     background-color: #fff;
     border: none;
     border-radius: var(--lemon-switch-handle-size);
-    transition: background-color 100ms ease, transform 100ms ease, width 100ms ease, border-color 100ms ease;
+    transition:
+        background-color 100ms ease,
+        transform 100ms ease,
+        width 100ms ease,
+        border-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--bg-surface-primary);
-        border-color: var(--accent);
+        background-color: var(--color-bg-surface-primary);
+        border-color: var(--color-accent);
         transform: var(--lemon-switch-active-translate);
     }
 
@@ -141,4 +153,9 @@
     .LemonSwitch--active.LemonSwitch--checked & {
         transform: var(--lemon-switch-active-translate);
     }
+}
+
+.LemonSwitch__spinner-icon {
+    width: calc(var(--lemon-switch-handle-size) + 2px);
+    height: calc(var(--lemon-switch-handle-size) + 2px);
 }

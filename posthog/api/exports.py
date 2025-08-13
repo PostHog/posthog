@@ -16,6 +16,7 @@ from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.tasks import exporter
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
@@ -41,6 +42,24 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "exception",
         ]
         read_only_fields = ["id", "created_at", "has_content", "filename", "exception"]
+
+    def to_representation(self, instance):
+        """Override to show stuck exports as having an exception."""
+        data = super().to_representation(instance)
+
+        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
+        # has no content, and has no recorded exception)
+        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
+        if (
+            timeout_threshold
+            and instance.created_at < timeout_threshold
+            and not instance.has_content
+            and not instance.exception
+        ):
+            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
+            data["exception"] = timeout_message
+
+        return data
 
     def validate(self, data: dict) -> dict:
         if not data.get("export_format"):

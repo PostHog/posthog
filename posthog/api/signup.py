@@ -1,7 +1,9 @@
+import json
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
 import structlog
+import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -36,6 +38,7 @@ from posthog.models import (
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
+from posthog.helpers.email_utils import EmailValidationHelper
 
 logger = structlog.get_logger(__name__)
 
@@ -108,6 +111,11 @@ class SignupSerializer(serializers.Serializer):
             password_validation.validate_password(value)
         return value
 
+    def validate_email(self, value):
+        if not settings.DEMO and EmailValidationHelper.user_exists(value):
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return value
+
     def is_email_auto_verified(self):
         return self.is_social_signup
 
@@ -131,6 +139,7 @@ class SignupSerializer(serializers.Serializer):
                 **validated_data,
             )
         except IntegrityError:
+            # This should be rare now due to the check above, but kept for safety
             raise exceptions.ValidationError(
                 {"email": "There is already an account with this email address."},
                 code="unique",
@@ -536,6 +545,7 @@ def social_create_user(
     *args,
     **kwargs,
 ):
+    posthoganalytics.tag("details", json.dumps(details))
     invite_id = strategy.session_get("invite_id")
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
@@ -575,6 +585,8 @@ def social_create_user(
 
     if not email or not full_name:
         missing_attr = "email" if not email else "name"
+        posthoganalytics.tag("email", email)
+        posthoganalytics.tag("name", full_name)
         raise ValidationError(
             {missing_attr: "This field is required and was not provided by the IdP."},
             code="required",

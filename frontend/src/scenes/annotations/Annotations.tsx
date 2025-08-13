@@ -9,7 +9,6 @@ import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { shortTimeZone } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -18,16 +17,13 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
 
 import { AnnotationModal } from './AnnotationModal'
-import {
-    ANNOTATION_DAYJS_FORMAT,
-    annotationModalLogic,
-    annotationScopeToLevel,
-    annotationScopeToName,
-} from './annotationModalLogic'
+import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { TZLabel } from 'lib/components/TZLabel'
 
 export function Annotations(): JSX.Element {
-    const { currentTeam, timezone } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -45,21 +41,35 @@ export function Annotations(): JSX.Element {
             key: 'annotation',
             width: '30%',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
+                let renderedContent = <>{annotation.content ?? ''}</>
+                if ((annotation.content || '').trim().length > 30) {
+                    renderedContent = (
+                        <Tooltip
+                            title={
+                                <TextContent
+                                    text={annotation.content ?? ''}
+                                    data-attr="annotation-scene-comment-title-rendered-content"
+                                />
+                            }
+                        >
+                            {(annotation.content ?? '').slice(0, 27) + '...'}
+                        </Tooltip>
+                    )
+                }
                 return (
                     <div className="font-semibold">
                         <Link subtle to={urls.annotation(annotation.id)}>
-                            {annotation.content}
+                            {renderedContent}
                         </Link>
                     </div>
                 )
             },
         },
         {
-            title: `Date and time (${shortTimeZone(timezone)})`,
+            title: `Timestamp`,
             dataIndex: 'date_marker',
-            render: function RenderDateMarker(_, annotation: AnnotationType): string {
-                // Format marker. Minute precision is used, because that's as detailed as our graphs can be
-                return annotation.date_marker?.format(ANNOTATION_DAYJS_FORMAT) || ''
+            render: function RenderDateMarker(_, annotation: AnnotationType): JSX.Element | null {
+                return annotation.date_marker ? <TZLabel time={annotation.date_marker} /> : null
             },
             sorter: (a, b) => a.date_marker?.diff(b.date_marker) || 1,
         },
@@ -72,10 +82,10 @@ export function Annotations(): JSX.Element {
                     annotation.scope === AnnotationScope.Insight
                         ? `This annotation only applies to the "${annotation.insight_name}" insight`
                         : annotation.scope === AnnotationScope.Dashboard
-                        ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
-                        : annotation.scope === AnnotationScope.Project
-                        ? `This annotation applies to all insights in the ${currentTeam?.name} project`
-                        : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
+                          ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
+                          : annotation.scope === AnnotationScope.Project
+                            ? `This annotation applies to all insights in the ${currentTeam?.name} project`
+                            : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
                 return (
                     <Tooltip title={tooltip} placement="right">
                         <LemonTag className="uppercase">

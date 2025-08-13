@@ -2,17 +2,17 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { GroupTypeIndex, TeamId } from '../../../types'
+import { GroupTypeIndex, Hub, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
-import { PostgresUse } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { RaceConditionError } from '../../../utils/utils'
+import { FlushResult } from '../persons/persons-store-for-batch'
 import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
-import { GroupStore } from './group-store'
-import { CacheMetrics, GroupStoreForBatch } from './group-store-for-batch'
+import { GroupStore } from './group-store.interface'
+import { CacheMetrics, GroupStoreForBatch } from './group-store-for-batch.interface'
 import { calculateUpdate, fromGroup, GroupUpdate } from './group-update'
 import {
     groupCacheOperationsCounter,
@@ -21,6 +21,11 @@ import {
     groupFetchPromisesCacheOperationsCounter,
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
+import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
+import { GroupRepository } from './repositories/group-repository.interface'
+import { GroupRepositoryTransaction } from './repositories/group-repository-transaction.interface'
+
+export type GroupHub = Pick<Hub, 'db' | 'groupRepository' | 'clickhouseGroupRepository'>
 
 class GroupCache {
     private cache: Map<string, GroupUpdate | null>
@@ -114,12 +119,20 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
 export class BatchWritingGroupStore implements GroupStore {
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private groupHub: GroupHub,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
     forBatch(): GroupStoreForBatch {
-        return new BatchWritingGroupStoreForBatch(this.db, this.options)
+        return new BatchWritingGroupStoreForBatch(
+            this.groupHub.db,
+            this.groupHub.groupRepository,
+            this.groupHub.clickhouseGroupRepository,
+            this.options
+        )
     }
 }
 
@@ -135,19 +148,28 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     private databaseOperationCounts: Map<string, number>
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private db: DB,
+        private groupRepository: GroupRepository,
+        private clickhouseGroupRepository: ClickhouseGroupRepository,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()
     }
 
-    async flush(): Promise<void> {
+    getGroupCache(): GroupCache {
+        return this.groupCache
+    }
+
+    async flush(): Promise<FlushResult[]> {
         const pendingUpdates = Array.from(this.groupCache.entries()).filter((entry): entry is [string, GroupUpdate] => {
             const [_, update] = entry
             return update !== null && update.needsWrite
         })
         if (pendingUpdates.length === 0) {
-            return
+            return []
         }
 
         const limit = pLimit(this.options.maxConcurrentUpdates)
@@ -156,6 +178,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             await Promise.all(
                 pendingUpdates.map(([distinctId, update]) => limit(() => this.processGroupUpdate(update, distinctId)))
             )
+            return []
         } catch (error) {
             logger.error('Failed to flush group updates', {
                 error,
@@ -258,7 +281,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         properties: Properties,
         timestamp: DateTime
     ): Promise<void> {
-        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, null)
+        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false)
 
         if (!group) {
             await this.executeGroupUpsert(
@@ -299,8 +322,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         const operation = 'upsertGroup' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation)
 
-        const [propertiesUpdate, createdAt, actualVersion] = await this.db.postgres.transaction(
-            PostgresUse.PERSONS_WRITE,
+        const [propertiesUpdate, createdAt, actualVersion] = await this.groupRepository.inTransaction(
             operation,
             async (tx) =>
                 this.executeUpsertTransaction(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate, tx)
@@ -329,7 +351,14 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         source: string
     ): Promise<void> {
         this.incrementDatabaseOperation('upsertClickhouse' + (source ? `-${source}` : ''))
-        await this.db.upsertGroupClickhouse(teamId, groupTypeIndex, groupKey, properties, createdAt, actualVersion)
+        await this.clickhouseGroupRepository.upsertGroup(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            properties,
+            createdAt,
+            actualVersion
+        )
     }
 
     private async executeUpsertTransaction(
@@ -339,7 +368,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         properties: Properties,
         timestamp: DateTime,
         forUpdate: boolean,
-        tx: any
+        tx: GroupRepositoryTransaction
     ): Promise<[PropertiesUpdate, DateTime, number]> {
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, forUpdate, tx)
         const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
@@ -397,10 +426,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         createdAt: DateTime,
         expectedVersion: number,
         tag: string,
-        tx: any
+        tx: GroupRepositoryTransaction
     ): Promise<number> {
         this.incrementDatabaseOperation('updateGroup')
-        const updatedVersion = await this.db.updateGroup(
+        const updatedVersion = await tx.updateGroup(
             teamId,
             groupTypeIndex,
             groupKey,
@@ -408,8 +437,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             createdAt,
             {},
             {},
-            tag,
-            tx
+            tag
         )
 
         if (updatedVersion !== undefined) {
@@ -431,19 +459,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         properties: Properties,
         createdAt: DateTime,
         expectedVersion: number,
-        tx: any
+        tx: GroupRepositoryTransaction
     ): Promise<number> {
         this.incrementDatabaseOperation('insertGroup')
-        const insertedVersion = await this.db.insertGroup(
-            teamId,
-            groupTypeIndex,
-            groupKey,
-            properties,
-            createdAt,
-            {},
-            {},
-            tx
-        )
+        const insertedVersion = await tx.insertGroup(teamId, groupTypeIndex, groupKey, properties, createdAt, {}, {})
         const versionDisparity = insertedVersion - expectedVersion
         if (versionDisparity > 0) {
             logVersionMismatch(teamId, groupTypeIndex, groupKey, versionDisparity)
@@ -453,7 +472,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
 
     private async executeOptimisticUpdate(update: GroupUpdate): Promise<void> {
         this.incrementDatabaseOperation('updateGroupOptimistically')
-        const actualVersion = await this.db.updateGroupOptimistically(
+        const actualVersion = await this.groupRepository.updateGroupOptimistically(
             update.team_id,
             update.group_type_index,
             update.group_key,
@@ -479,7 +498,11 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
 
         groupOptimisticUpdateConflictsPerBatchCounter.inc()
         this.incrementDatabaseOperation('fetchGroup')
-        const latestGroup = await this.db.fetchGroup(update.team_id, update.group_type_index, update.group_key)
+        const latestGroup = await this.groupRepository.fetchGroup(
+            update.team_id,
+            update.group_type_index,
+            update.group_key
+        )
         if (latestGroup) {
             const propertiesUpdate = calculateUpdate(latestGroup.group_properties || {}, update.group_properties)
             if (propertiesUpdate.updated) {
@@ -495,7 +518,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         forUpdate: boolean,
-        tx: any
+        tx?: GroupRepositoryTransaction
     ): Promise<GroupUpdate | null> {
         if (this.groupCache.has(teamId, groupKey) && !forUpdate) {
             const cachedGroup = this.groupCache.get(teamId, groupKey)
@@ -510,7 +533,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             fetchPromise = (async () => {
                 try {
                     this.incrementDatabaseOperation('fetchGroup')
-                    const existingGroup = await this.db.fetchGroup(teamId, groupTypeIndex, groupKey, tx, { forUpdate })
+                    const repository = tx || this.groupRepository
+                    const existingGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey, { forUpdate })
                     if (existingGroup) {
                         const groupUpdate = fromGroup(existingGroup)
                         this.groupCache.set(teamId, groupKey, {
@@ -550,6 +574,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             return
         }
         if (error instanceof RaceConditionError) {
+            // Remove from cache to prevent retry, the group was already created by another thread
+            this.groupCache.delete(teamId, groupKey)
             return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error

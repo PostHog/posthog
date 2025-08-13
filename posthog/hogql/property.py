@@ -43,6 +43,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
+    FlagPropertyFilter,
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
@@ -59,8 +60,8 @@ from django.db import models
 from posthog.warehouse.models.util import get_view_or_table_by_name
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsInvoiceItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
 )
 
 
@@ -215,7 +216,7 @@ def _expr_to_compare_op(
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)]),
+                ast.Call(name="match", args=[expr, ast.Constant(value=value)]),
                 ast.Constant(value=0),
             ],
         )
@@ -304,6 +305,7 @@ def property_to_expr(
         | LogEntryPropertyFilter
         | GroupPropertyFilter
         | FeaturePropertyFilter
+        | FlagPropertyFilter
         | HogQLPropertyFilter
         | EmptyPropertyFilter
         | DataWarehousePropertyFilter
@@ -368,6 +370,13 @@ def property_to_expr(
             return ast.Or(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
     elif isinstance(property, EmptyPropertyFilter):
         return ast.Constant(value=1)
+    elif isinstance(property, FlagPropertyFilter):
+        # Flag dependencies are evaluated at the API layer, not in HogQL.
+        # They should never reach this point, but we handle them gracefully
+        # to satisfy type checking since FlagPropertyFilter is part
+        # of the AnyPropertyFilter union used throughout the codebase.
+        # Return a neutral filter that doesn't affect the query.
+        return ast.Constant(value=1)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
@@ -407,10 +416,7 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.key.startswith("$virt") and property.type == "person":
-            # we pretend virtual person properties are regular properties, but they are ExpressionFields on the Persons table
-            chain = ["person"] if scope != "person" else []
-        elif property.type == "person" and scope != "person":
+        if property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
@@ -470,7 +476,7 @@ def property_to_expr(
         else:
             field = ast.Field(chain=[*chain, property.key])
 
-        expr: ast.Expr = field
+        expr: ast.Expr = map_virtual_properties(field)
 
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
@@ -478,14 +484,14 @@ def property_to_expr(
         if property.type == "revenue_analytics":
             expr = create_expr_for_revenue_analytics_property(cast(RevenueAnalyticsPropertyFilter, property))
 
-        is_string_array_property = property.type == "event" and property.key in [
+        is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
             "$exception_values",
             "$exception_sources",
             "$exception_functions",
         ]
 
-        if is_string_array_property:
+        if is_exception_string_array_property:
             # if materialized these columns will be strings so we need to extract them
             extracted_field = ast.Call(
                 name="JSONExtract",
@@ -513,21 +519,21 @@ def property_to_expr(
                         else ast.CompareOperationOp.NotIn
                     )
 
-                    left = ast.Field(chain=["v"]) if is_string_array_property else field
-                    expr = ast.CompareOperation(
+                    left = ast.Field(chain=["v"]) if is_exception_string_array_property else expr
+                    compare_op = ast.CompareOperation(
                         op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
 
-                    if is_string_array_property:
+                    if is_exception_string_array_property:
                         return parse_expr(
-                            "arrayExists(v -> {expr}, {key})",
+                            "arrayExists(v -> {compare_op}, {field})",
                             {
-                                "expr": expr,
-                                "key": extracted_field,
+                                "compare_op": compare_op,
+                                "field": extracted_field,
                             },
                         )
                     else:
-                        return expr
+                        return compare_op
 
                 exprs = [
                     property_to_expr(
@@ -553,7 +559,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if is_string_array_property else expr,
+            expr=ast.Field(chain=["v"]) if is_exception_string_array_property else expr,
             value=value,
             operator=operator,
             team=team,
@@ -561,7 +567,7 @@ def property_to_expr(
             is_json_field=property.type != "session",
         )
 
-        if is_string_array_property:
+        if is_exception_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
                 {"expr": expr, "key": extracted_field},
@@ -658,17 +664,30 @@ def property_to_expr(
     )
 
 
+def map_virtual_properties(e: ast.Expr):
+    if (
+        isinstance(e, ast.Field)
+        and len(e.chain) >= 2
+        and e.chain[-2] == "properties"
+        and isinstance(e.chain[-1], str)
+        and e.chain[-1].startswith("$virt")
+    ):
+        # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
+        return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
+    return e
+
+
 def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
     if property.key == "amount":
-        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
+        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])
     elif property.key == "country":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
     elif property.key == "cohort":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
     elif property.key == "coupon":
-        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "coupon"])
+        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "coupon"])
     elif property.key == "coupon_id":
-        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "coupon_id"])
+        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "coupon_id"])
     elif property.key == "initial_coupon":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon"])
     elif property.key == "initial_coupon_id":

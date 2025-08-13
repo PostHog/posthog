@@ -2,9 +2,14 @@ import { HogFlowAction } from '../types'
 import { StepConditionalBranch } from './StepConditionalBranch'
 import { StepDelay } from './StepDelay'
 import { StepExit } from './StepExit'
-import { StepMessage } from './StepMessage'
+import { StepFunctionEmail } from './StepFunctionEmail'
+import { StepFunctionSlack } from './StepFunctionSlack'
+import { StepFunctionSms } from './StepFunctionSms'
+import { StepFunctionWebhook } from './StepFunctionWebhook'
+import { StepRandomCohortBranch } from './StepRandomCohortBranch'
 import { StepTrigger } from './StepTrigger'
 import { StepWaitUntilCondition } from './StepWaitUntilCondition'
+import { StepWaitUntilTimeWindow } from './StepWaitUntilTimeWindow'
 import { HogFlowStep } from './types'
 
 export const HogFlowSteps: Partial<{
@@ -15,7 +20,13 @@ export const HogFlowSteps: Partial<{
     exit: StepExit,
     delay: StepDelay,
     wait_until_condition: StepWaitUntilCondition,
-    message: StepMessage,
+    wait_until_time_window: StepWaitUntilTimeWindow,
+    random_cohort_branch: StepRandomCohortBranch,
+    function_email: StepFunctionEmail,
+    function_webhook: StepFunctionWebhook,
+    function_sms: StepFunctionSms,
+    function_slack: StepFunctionSlack,
+    // function: StepFunction,
 } as const
 
 // Type-safe accessor that preserves the key type

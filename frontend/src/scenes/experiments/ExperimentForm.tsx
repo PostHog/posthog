@@ -316,7 +316,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                 </div>
                             </div>
                         </div>
-                        <div className="mt-10 max-w-150">
+                        <div className="mt-10 pb-6 max-w-150">
                             <LemonField name="parameters.ensure_experience_continuity">
                                 {({ value, onChange }) => (
                                     <div className="border rounded p-4">

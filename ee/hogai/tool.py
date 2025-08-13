@@ -1,7 +1,7 @@
 import importlib
 import json
 import pkgutil
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Literal
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -9,38 +9,81 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 import products
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
+from posthog.models import Team, User
 from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
-
-if TYPE_CHECKING:
-    from posthog.models.team.team import Team
-    from posthog.models.user import User
-
-MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
 
 # Lower casing matters here. Do not change it.
 class create_and_query_insight(BaseModel):
     """
-    Retrieve results for a specific data question by creating a query or iterate on a previous query.
-    This tool only retrieves data for a single insight at a time.
-    The `trends` insight type is the only insight that can display multiple trends insights in one request.
-    All other insight types strictly return data for a single insight.
-    This tool is also relevant if the user asks to write SQL.
+    Retrieve results for a specific data question by creating a query (aka insight), or iterate on a previous query.
+    This tool only retrieves data for a single query at a time.
     """
 
     query_description: str = Field(
-        description="The description of the query being asked. Include all relevant details from the current conversation in the query description, as the tool cannot access the conversation history."
+        description=(
+            "A description of the query to generate, encapsulating the details of the user's request. "
+            "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
+            "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
+            "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
+        )
     )
-    query_kind: MaxSupportedQueryKind = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+
+
+class search_insights(BaseModel):
+    """
+    Search through existing insights to find matches based on the user's query.
+    Use this tool when users ask to find, search for, or look up existing insights.
+    """
+
+    search_query: str = Field(
+        description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
+    )
+
+
+class session_summarization(BaseModel):
+    """
+    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
+    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+    """
+
+    session_summarization_query: str = Field(
+        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
+    )
 
 
 class search_documentation(BaseModel):
     """
-    Search PostHog documentation to answer questions about features, concepts, and usage.
-    Use this tool when the user asks about how to use PostHog, its features, or needs help understanding concepts.
-    Don't use this tool if the necessary information is already in the conversation.
+    Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
+
+    Use the search tool when the user asks about:
+    - How to use PostHog
+    - How to use PostHog features
+    - How to contact support or other humans
+    - How to report bugs
+    - How to submit feature requests
+    and/or when the user:
+    - Needs help understanding PostHog concepts
+    - Has questions about SDK integration or instrumentation
+      - e.g. `posthog.capture('event')`, `posthog.captureException(err)`,
+        `posthog.identify(userId)`, `capture({ ... })` not working, etc.
+    - Troubleshooting missing or unexpected data
+      - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
+    - Wants to know more about PostHog the company
+    - Has questions about incidents or system status
+    - Has PostHog-related questions that don't match your other specialized tools
+    - Has disabled session replay and needs help turning it back on
+
+    Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
+    """
+
+
+class retrieve_billing_information(BaseModel):
+    """
+    Retrieve detailed billing information for the current organization.
+    Use this tool when the user asks about billing, subscription, usage, or spending related questions.
     """
 
 
@@ -66,7 +109,7 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
 
 
-class MaxTool(BaseTool):
+class MaxTool(AssistantContextMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
@@ -81,10 +124,9 @@ class MaxTool(BaseTool):
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+    show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]
-    _team: Optional["Team"]
-    _user: Optional["User"]
     _config: RunnableConfig
     _state: AssistantState
 
@@ -97,8 +139,10 @@ class MaxTool(BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def __init__(self, state: AssistantState | None = None):
-        super().__init__()
+    def __init__(self, *, team: Team, user: User, state: AssistantState | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._team = team
+        self._user = user
         self._state = state if state else AssistantState(messages=[])
 
     def __init_subclass__(cls, **kwargs):

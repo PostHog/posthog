@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 
 def start_of_minute(dt: datetime) -> datetime:
@@ -29,3 +29,7 @@ def start_of_month(dt: datetime) -> datetime:
         return datetime(dt.year, dt.month, 1)
     # For aware datetimes, avoid named arguments for faster instantiation
     return datetime(dt.year, dt.month, 1, 0, 0, 0, 0, dt.tzinfo)
+
+
+def thirty_days_ago() -> datetime:
+    return datetime.now(UTC) - timedelta(days=30)

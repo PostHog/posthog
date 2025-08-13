@@ -102,6 +102,7 @@ class TestUserAPI(APIBaseTest):
                     "slug": slugify(self.organization.name),
                     "logo_media_id": None,
                     "membership_level": 1,
+                    "members_can_use_personal_api_keys": True,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -109,6 +110,7 @@ class TestUserAPI(APIBaseTest):
                     "slug": "new-organization",
                     "logo_media_id": None,
                     "membership_level": 1,
+                    "members_can_use_personal_api_keys": True,
                 },
             ],
         )
@@ -661,9 +663,109 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/").json()
         self.assertEqual(response["team"]["id"], team2.pk)
 
+    def test_team_property_does_not_save_when_no_teams_found(self):
+        """
+        Test that the team property doesn't trigger a save when the teams query returns None
+        """
+        # Create a brand new user that belongs to no organizations or teams
+        new_user = User.objects.create_user(
+            email="newuser@posthog.com", password="testpass123", first_name="New", last_name="User"
+        )
+
+        # Clear the cached properties to force re-evaluation
+        if hasattr(new_user, "_cached_team"):
+            delattr(new_user, "_cached_team")
+        if hasattr(new_user, "_cached_organization"):
+            delattr(new_user, "_cached_organization")
+
+        # Now test the team property - this should not trigger a save since no teams exist
+        with mock.patch.object(new_user, "save") as mock_save:
+            team = new_user.team  # Property access, but it can actually perform a save
+
+            # Verify no save was called for the team property
+            mock_save.assert_not_called()
+
+            # Verify team is None
+            self.assertIsNone(team)
+            self.assertIsNone(new_user.current_team)
+
+    def test_team_property_saves_when_team_found(self):
+        """
+        Test that the team property does trigger a save when a team is found
+        """
+        # Set current organization but no current team
+        self.user.current_team = None
+        self.user.save()
+
+        # Clear the cached property to force re-evaluation
+        if hasattr(self.user, "_cached_team"):
+            delattr(self.user, "_cached_team")
+
+        # Mock the save method to track if it's called
+        with mock.patch.object(self.user, "save") as mock_save:
+            # Access the team property - this should trigger a save since a team exists
+            result_team = self.user.team
+
+            # Verify save was called with correct parameters
+            mock_save.assert_called_once_with(update_fields=["current_team"])
+
+            # Verify team is set correctly
+            self.assertEqual(result_team, self.team)
+            self.assertEqual(self.user.current_team, self.team)
+
+    def test_organization_property_does_not_save_when_no_organizations_found(self):
+        """
+        Test that the organization property doesn't trigger a save when no organizations exist
+        """
+        # Create a brand new user that belongs to no organizations or teams
+        new_user = User.objects.create_user(
+            email="newuser2@posthog.com", password="testpass123", first_name="New", last_name="User"
+        )
+
+        # Access the organization property - this should NOT trigger a save since no organizations exist
+        with mock.patch.object(new_user, "save") as mock_save:
+            organization = new_user.organization
+
+            # Verify no save was called for the organization property
+            mock_save.assert_not_called()
+
+            # Verify organization is None
+            self.assertIsNone(organization)
+            self.assertIsNone(new_user.current_organization)
+
+    def test_organization_property_saves_when_organization_found(self):
+        """
+        Test that the organization property does trigger a save when an organization is found
+        """
+        # Create a new organization and add the user to it
+        new_org = Organization.objects.create(name="Test Organization")
+        self.user.join(organization=new_org)
+
+        # Set current organization to None to simulate the property needing to find and set it
+        self.user.current_organization = None
+        self.user.save()
+
+        # Clear the cached property to force re-evaluation
+        if hasattr(self.user, "_cached_organization"):
+            delattr(self.user, "_cached_organization")
+
+        # Mock the save method to track if it's called
+        with mock.patch.object(self.user, "save") as mock_save:
+            # Access the organization property - this should trigger a save since an organization exists
+            result_organization = self.user.organization
+
+            # Verify save was called with correct parameters
+            mock_save.assert_called_once_with(update_fields=["current_organization"])
+
+            # Verify organization is set correctly (should be one of the user's organizations)
+            self.assertIsNotNone(result_organization)
+            self.assertIn(result_organization, [self.organization, new_org])
+            self.assertEqual(self.user.current_organization, result_organization)
+
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_update_password(self, mock_capture, mock_identify):
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_can_update_password(self, mock_send_password_changed_email, mock_capture, mock_identify):
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
@@ -700,9 +802,15 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post("/api/login", {"email": "bob@posthog.com", "password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # Assert password changed email was sent
+        mock_send_password_changed_email.assert_called_once_with(user.id)
+
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_with_no_password_set_can_set_password(self, mock_capture, mock_identify):
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_with_no_password_set_can_set_password(
+        self, mock_send_password_changed_email, mock_capture, mock_identify
+    ):
         user = self._create_user("no_password@posthog.com", password=None)
         self.client.force_login(user)
 
@@ -742,7 +850,11 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_user_with_unusable_password_set_can_set_password(self):
+        # Assert password changed email was sent
+        mock_send_password_changed_email.assert_called_once_with(user.id)
+
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_with_unusable_password_set_can_set_password(self, mock_send_password_changed_email):
         user = self._create_user("no_password@posthog.com", password="123456789")
         user.set_unusable_password()
         user.save()
@@ -1518,7 +1630,7 @@ class TestUserTwoFactor(APIBaseTest):
     def test_two_factor_start_setup(self, mock_totp_form):
         response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response.json(), {"success": True, "secret": ANY})
 
         # Verify session contains required keys
         self.assertIn("django_two_factor-hex", self.client.session)

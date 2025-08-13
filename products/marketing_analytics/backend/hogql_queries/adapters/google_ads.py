@@ -18,19 +18,18 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
     def validate(self) -> ValidationResult:
         """Validate Google Ads tables and required fields"""
         errors: list[str] = []
-        warnings: list[str] = []
 
         try:
             # Check for expected table name patterns
             if self.config.campaign_table.name and "campaign" not in self.config.campaign_table.name.lower():
-                warnings.append(f"Campaign table name '{self.config.campaign_table.name}' doesn't contain 'campaign'")
+                errors.append(f"Campaign table name '{self.config.campaign_table.name}' doesn't contain 'campaign'")
             if self.config.stats_table.name and "stats" not in self.config.stats_table.name.lower():
-                warnings.append(f"Stats table name '{self.config.stats_table.name}' doesn't contain 'stats'")
+                errors.append(f"Stats table name '{self.config.stats_table.name}' doesn't contain 'stats'")
 
             is_valid = len(errors) == 0
-            self._log_validation_errors(errors, warnings)
+            self._log_validation_errors(errors)
 
-            return ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings)
+            return ValidationResult(is_valid=is_valid, errors=errors)
 
         except Exception as e:
             error_msg = f"Validation error: {str(e)}"

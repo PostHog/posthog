@@ -1,9 +1,9 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { humanFriendlyDetailedTime, isNotNil } from 'lib/utils'
+import { detailedTime, humanFriendlyDetailedTime, isNotNil } from 'lib/utils'
 import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -34,7 +34,7 @@ export function DeleteUserModal({
 
     useEffect(() => {
         loadKeys()
-    }, [])
+    }, [loadKeys])
 
     return (
         <>
@@ -174,8 +174,17 @@ export function DeleteUserModal({
                                             title: 'Last Used',
                                             dataIndex: 'last_used_at',
                                             key: 'lastUsedAt',
-                                            render: (_, key) =>
-                                                humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A'),
+                                            render: (_, key) => {
+                                                return (
+                                                    <Tooltip title={detailedTime(key.last_used_at)} placement="bottom">
+                                                        {humanFriendlyDetailedTime(
+                                                            key.last_used_at,
+                                                            'MMMM DD, YYYY',
+                                                            'h A'
+                                                        )}
+                                                    </Tooltip>
+                                                )
+                                            },
                                         },
                                         {
                                             title: 'Scopes',

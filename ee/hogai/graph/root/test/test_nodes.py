@@ -1,17 +1,25 @@
+import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
+    AIMessage,
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
+    SystemMessage,
     ToolMessage as LangchainToolMessage,
 )
+from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
+from ee.hogai.graph.root.prompts import (
+    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
+)
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import CoreMemory
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -24,19 +32,34 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
-    MaxContextShape,
+    MaxBillingContextTrial,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxUIContext,
+    MaxBillingContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
 )
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.models.organization import OrganizationMembership
 
 
 class TestRootNode(ClickhouseTestMixin, BaseTest):
+    def _create_billing_context(self):
+        """Helper to create test billing context"""
+        return MaxBillingContext(
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+            has_active_subscription=True,
+            products=[],
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=0),
+            trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
+        )
+
     def test_node_handles_plain_chat_response(self):
         with patch(
             "ee.hogai.graph.root.nodes.RootNode._get_model",
@@ -269,7 +292,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         mock_with_tokens.get_num_tokens_from_messages = MagicMock(return_value=1)
 
         with patch(
-            "ee.hogai.graph.root.nodes.ChatOpenAI",
+            "ee.hogai.graph.root.nodes.MaxChatOpenAI",
             return_value=mock_with_tokens,
         ):
             node = RootNode(self.team, self.user)
@@ -433,7 +456,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
 
     def test_node_gets_contextual_tool(self):
-        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
@@ -465,7 +488,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ),
             patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()) as mock_bind_tools,
             patch(
-                "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+                "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
                 return_value=("Success", {}),
             ),
         ):
@@ -518,44 +541,64 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     def test_node_includes_project_org_user_context_in_prompt_template(self):
         with (
-            # This test mocks deeper than ideal, and really it should be spying on the actual LLM call, rather than
-            # prompt template construction. However, LangChain's chaining mechanics make it even more painful to
-            # mock the "right" thing, so going for a kludge here.
-            patch("ee.hogai.graph.root.nodes.ChatPromptTemplate.from_messages") as mock_chat_prompt_template,
-            patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai,
+            patch("os.environ", {"OPENAI_API_KEY": "foo"}),
+            patch("langchain_openai.chat_models.base.ChatOpenAI._generate") as mock_generate,
             patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
         ):
-            mock_model = MagicMock()
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
+            mock_generate.return_value = ChatResult(
+                generations=[ChatGeneration(message=AIMessage(content="Test response"))],
+                llm_output={},
+            )
 
             node = RootNode(self.team, self.user)
 
             node.run(AssistantState(messages=[HumanMessage(content="Foo?")]), {})
 
-            mock_chat_prompt_template.assert_called_once()
-            system_content = "\n\n".join(
-                content for role, content in mock_chat_prompt_template.call_args[0][0] if role == "system"
-            )
+            # Verify _generate was called
+            mock_generate.assert_called_once()
+
+            # Get the messages passed to _generate
+            call_args = mock_generate.call_args
+            messages = call_args[0][0]  # First argument is messages
+
+            # Check that the system messages contain the project/org/user context
+            system_messages = [msg for msg in messages if isinstance(msg, SystemMessage)]
+            system_content = "\n\n".join(msg.content for msg in system_messages)
+
             self.assertIn("You are currently in project ", system_content)
             self.assertIn("The user's name appears to be ", system_content)
 
-    def test_model_has_correct_max_retries(self):
-        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
+    @parameterized.expand(
+        [
+            # (membership_level, has_billing_context, should_add_billing_tool, expected_prompt)
+            [OrganizationMembership.Level.ADMIN, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.ADMIN, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
+            [OrganizationMembership.Level.OWNER, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.OWNER, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
+            [OrganizationMembership.Level.MEMBER, True, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            [OrganizationMembership.Level.MEMBER, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+        ]
+    )
+    def test_has_billing_access(self, membership_level, has_billing_context, should_add_billing_tool, expected_prompt):
+        # Set membership level
+        membership = self.user.organization_memberships.get(organization=self.team.organization)
+        membership.level = membership_level
+        membership.save()
 
-            node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="test")])
+        node = RootNode(self.team, self.user)
 
-            node._get_model(state, {})
+        # Configure billing context if needed
+        if has_billing_context:
+            billing_context = self._create_billing_context()
+            config = {"configurable": {"billing_context": billing_context.model_dump()}}
+        else:
+            config = {"configurable": {}}
 
-            # Verify ChatOpenAI was called with max_retries=3
-            mock_chat_openai.assert_called_once()
-            call_args = mock_chat_openai.call_args
-            self.assertEqual(call_args.kwargs["max_retries"], 3)
+        self.assertEqual(node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
+
+    # Note: More complex mocking tests for billing tool availability were removed
+    # as they were difficult to maintain. The core billing access logic is tested above
+    # and the routing behavior is tested in the TestRootNodeTools section.
 
 
 class TestRootNodeTools(BaseTest):
@@ -571,24 +614,11 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_1), "root")
 
-        # Test case 2: Has root tool call with query_kind - should return that query_kind
-        # If the user has not completed the onboarding, it should return memory_onboarding instead
-        state_2 = AssistantState(
-            messages=[AssistantMessage(content="Hello")],
-            root_tool_call_id="xyz",
-            root_tool_insight_plan="Foobar",
-            root_tool_insight_type="trends",
-        )
-        self.assertEqual(node.router(state_2), "memory_onboarding")
-        core_memory = CoreMemory.objects.create(team=self.team)
-        core_memory.change_status_to_skipped()
-        self.assertEqual(node.router(state_2), "insights")
-
-        # Test case 3: No tool call message or root tool call - should return "end"
+        # Test case 2: No tool call message or root tool call - should return "end"
         state_3 = AssistantState(messages=[AssistantMessage(content="Hello")])
         self.assertEqual(node.router(state_3), "end")
 
-        # Test case 4: Has contextual tool call result - should go back to root
+        # Test case 3: Has contextual tool call result - should go back to root
         state_4 = AssistantState(
             messages=[
                 AssistantMessage(content="Hello"),
@@ -624,7 +654,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(result.root_tool_call_id, "xyz")
         self.assertEqual(result.root_tool_insight_plan, "test query")
-        self.assertEqual(result.root_tool_insight_type, "trends")
+        self.assertEqual(result.root_tool_insight_type, None)  # Insight type is determined by query planner node
 
     async def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)
@@ -645,7 +675,7 @@ class TestRootNodeTools(BaseTest):
         )
 
         with patch(
-            "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+            "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
             return_value=("Success", {}),
         ):
             result = await node.arun(
@@ -663,7 +693,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_call_id, None)  # Tool was fully handled by the node
         self.assertIsNone(result.root_tool_insight_plan)  # No insight plan for contextual tools
         self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
-        self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
+        self.assertFalse(result.messages[-1].visible)  # This tool must not be visible by default
 
     async def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
@@ -745,7 +775,7 @@ class TestRootNodeTools(BaseTest):
             mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
                 content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
             )
-            mock_tools.return_value = lambda _: mock_navigate_tool
+            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
 
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
@@ -784,7 +814,7 @@ class TestRootNodeTools(BaseTest):
             mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
                 content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
             )
-            mock_tools.return_value = lambda _: mock_search_session_recordings
+            mock_tools.return_value = lambda *args, **kwargs: mock_search_session_recordings
 
             # This should not raise NodeInterrupt
             result = await node.arun(
@@ -804,6 +834,24 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(len(result.messages), 1)
             self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
+    def test_billing_tool_routing(self):
+        """Test that billing tool calls are routed correctly"""
+        node = RootNodeTools(self.team, self.user)
+
+        # Create state with billing tool call
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Let me check your billing information",
+                    tool_calls=[AssistantToolCall(id="billing-123", name="retrieve_billing_information", args={})],
+                )
+            ],
+            root_tool_call_id="billing-123",
+        )
+
+        # Should route to billing
+        self.assertEqual(node.router(state), "billing")
+
 
 class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
     def setUp(self):
@@ -822,7 +870,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: User Trends
 
 Description: Daily active users
@@ -851,7 +899,7 @@ Trend results: 100 users
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
 
         expected = """# Insight: Conversion Funnel
 
@@ -883,7 +931,7 @@ Funnel results: 50% conversion
             ),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: ID 789
 
 Query schema:
@@ -909,7 +957,7 @@ Retention: 30% Day 7
             query=HogQLQuery(query="SELECT count() FROM events"),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: Custom Query
 
 Description: HogQL analysis
@@ -931,7 +979,7 @@ Query results: 42 events
 
         insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner)
 
         self.assertEqual(result, None)
         mock_query_runner.run_and_format_query.assert_not_called()
@@ -948,7 +996,7 @@ Query results: 42 events
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner)
 
         self.assertEqual(result, None)
 
@@ -975,9 +1023,9 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=[dashboard], insights=None)
+        ui_context = MaxUIContext(dashboards=[dashboard], insights=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("Dashboard: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
@@ -991,9 +1039,9 @@ Query results: 42 events
         event2 = MaxEventContext(id="2", name="button_click")
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+        ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"page_view", "button_click"', result)
         self.assertIn("<events_context>", result)
@@ -1004,9 +1052,9 @@ Query results: 42 events
         event2 = MaxEventContext(id="2", name="button_click", description="User clicked a button")
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+        ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
         self.assertIn("<events_context>", result)
@@ -1017,9 +1065,9 @@ Query results: 42 events
         action2 = MaxActionContext(id=2.0, name="Purchase")
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+        ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"Sign Up", "Purchase"', result)
         self.assertIn("<actions_context>", result)
@@ -1030,9 +1078,9 @@ Query results: 42 events
         action2 = MaxActionContext(id=2.0, name="Purchase", description="User makes a purchase")
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+        ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
         self.assertIn("<actions_context>", result)
@@ -1051,9 +1099,9 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights=[insight])
+        ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("Insights", result)
         self.assertIn("Insight: Standalone Insight", result)
@@ -1061,12 +1109,12 @@ Query results: 42 events
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
-        result = self.mixin._format_ui_context(None)
+        result = self.mixin._format_ui_context({}, None)
         self.assertEqual(result, "")
 
         # Test with ui_context but no insights
-        ui_context = MaxContextShape(insights=None)
-        result = self.mixin._format_ui_context(ui_context)
+        ui_context = MaxUIContext(insights=None)
+        result = self.mixin._format_ui_context(ui_context, {})
         self.assertEqual(result, "")
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
@@ -1083,9 +1131,9 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights=[insight])
+        ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("# Insights", result)
         self.assertIn("Test Insight", result)
@@ -1106,9 +1154,67 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights=[insight])
+        ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         # Should return empty string since the insight failed to run
         self.assertEqual(result, "")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_session_summarization_tool_included_with_feature_flag(self, mock_feature_enabled):
+        """Test that session_summarization tool is included when feature flag is enabled"""
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
+
+            node._get_model(state, {})
+
+            # Verify feature flag was checked with correct parameters
+            mock_feature_enabled.assert_called_once_with(
+                "max-session-summarization",
+                str(self.user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+
+            # Verify bind_tools was called with session_summarization
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
+            self.assertIn("session_summarization", tool_names)
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_session_summarization_tool_excluded_without_feature_flag(self, mock_feature_enabled):
+        """Test that session_summarization tool is excluded when feature flag is disabled"""
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
+
+            node._get_model(state, {})
+
+            # Verify feature flag was checked with correct parameters
+            mock_feature_enabled.assert_called_once_with(
+                "max-session-summarization",
+                str(self.user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+
+            # Verify bind_tools was called without session_summarization
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
+            self.assertNotIn("session_summarization", tool_names)

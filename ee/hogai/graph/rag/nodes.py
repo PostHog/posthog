@@ -1,6 +1,6 @@
 import json
 import xml.etree.ElementTree as ET
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import posthoganalytics
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
@@ -15,7 +15,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
-from posthog.schema import MaxActionContext, CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
+from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
 from ..base import AssistantNode
 
@@ -33,7 +33,8 @@ class InsightRagContextNode(AssistantNode):
         distinct_id = self._get_user_distinct_id(config)
 
         plan = state.root_tool_insight_plan
-        assert plan is not None
+        if not plan:
+            return None
 
         # Kick off retrieval of the event taxonomy.
         self._prewarm_queries()
@@ -46,7 +47,9 @@ class InsightRagContextNode(AssistantNode):
             embeddings_client = get_azure_embeddings_client()
             vector = embed_search_query(embeddings_client, plan)
         except (AzureHttpResponseError, ValueError) as e:
-            posthoganalytics.capture_exception(e, distinct_id=distinct_id, properties={"tag": "max"})
+            posthoganalytics.capture_exception(
+                e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+            )
             if len(actions_in_context) == 0:
                 return None
             else:
@@ -56,12 +59,6 @@ class InsightRagContextNode(AssistantNode):
                 vector, actions_in_context=actions_in_context, trace_id=trace_id, distinct_id=distinct_id
             )
         )
-
-    def router(self, state: AssistantState) -> NextRagNode:
-        if state.root_tool_insight_type and state.root_tool_insight_type not in NEXT_RAG_NODES:
-            raise ValueError(f"Invalid insight type: {state.root_tool_insight_type}")
-        next_node = cast(NextRagNode, state.root_tool_insight_type or "end")
-        return next_node
 
     def _retrieve_actions(
         self,

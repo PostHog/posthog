@@ -12,7 +12,7 @@ from posthog.models.product_intent.product_intent import (
     ProductIntent,
     calculate_product_activation,
 )
-from ...session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.test.base import BaseTest
 from posthog.utils import get_instance_realm
 from posthog.models.dashboard import Dashboard
@@ -451,6 +451,55 @@ class TestProductIntent(BaseTest):
         self.team.save()
 
         assert self.product_intent.has_activated_product_analytics() is True
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    @patch("posthog.event_usage.report_user_action")
+    def test_register_tracks_intent_even_when_already_activated(self, mock_report_user_action):
+        # Create an insight that should trigger activation for data_warehouse
+        Insight.objects.create(
+            team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}}
+        )
+
+        # Register intent which should activate immediately
+        ProductIntent.register(
+            team=self.team,
+            product_type="data_warehouse",
+            context="initial context",
+            user=self.user,
+        )
+
+        # Verify the intent was activated
+        intent = ProductIntent.objects.get(team=self.team, product_type="data_warehouse")
+        assert intent.activated_at is not None
+
+        # Clear the mock to count only subsequent calls
+        mock_report_user_action.reset_mock()
+
+        # Register intent again with a different context
+        ProductIntent.register(
+            team=self.team,
+            product_type="data_warehouse",
+            context="another context",
+            user=self.user,
+            metadata={"source": "dashboard"},
+        )
+
+        # Verify that report_user_action was called even though the intent was already activated
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "user showed product intent",
+            {
+                "source": "dashboard",
+                "product_key": "data_warehouse",
+                "$set_once": {},
+                "intent_context": "another context",
+                "is_first_intent_for_product": False,
+                "intent_created_at": intent.created_at,
+                "intent_updated_at": intent.updated_at,
+                "realm": get_instance_realm(),
+            },
+            team=self.team,
+        )
 
     def test_has_activated_surveys_with_launched(self):
         self.product_intent.product_type = "surveys"

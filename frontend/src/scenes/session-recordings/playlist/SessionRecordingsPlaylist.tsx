@@ -70,9 +70,7 @@ export function SessionRecordingsPlaylist({
                 </div>
             ),
             items: pinnedRecordings,
-            render: ({ item, isActive }) => (
-                <SessionRecordingPreview recording={item} isActive={isActive} pinned={true} />
-            ),
+            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} />,
             initiallyOpen: true,
         })
     } else {
@@ -86,9 +84,7 @@ export function SessionRecordingsPlaylist({
             ),
             items: otherRecordings,
             initiallyOpen: !pinnedRecordings.length,
-            render: ({ item, isActive }) => (
-                <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />
-            ),
+            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} />,
             footer: (
                 <div className="p-4">
                     <div className="h-10 flex items-center justify-center gap-2 text-secondary">
@@ -115,7 +111,14 @@ export function SessionRecordingsPlaylist({
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     embedded={!!notebookNode}
                     sections={sections}
-                    headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
+                    headerActions={
+                        <SessionRecordingsPlaylistTopSettings
+                            filters={filters}
+                            setFilters={setFilters}
+                            type={type}
+                            shortId={props.logicKey}
+                        />
+                    }
                     filterActions={
                         notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
                             <RecordingsUniversalFiltersEmbedButton

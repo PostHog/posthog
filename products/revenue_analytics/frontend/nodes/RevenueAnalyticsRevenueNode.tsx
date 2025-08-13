@@ -16,9 +16,10 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { LemonButton, LemonSegmentedButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import {
+    AlphaTag,
     DISPLAY_MODE_OPTIONS,
     extractLabelAndDatasets,
     RevenueAnalyticsLineGraph,
@@ -46,24 +47,22 @@ export function RevenueAnalyticsRevenueNode(props: {
     const { response, responseLoading, queryId } = useValues(logic)
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
-                <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                    <MRRTile
-                        response={response as RevenueAnalyticsRevenueQueryResponse}
-                        responseLoading={responseLoading}
-                        queryId={queryId ?? ''}
-                        context={props.context}
-                    />
-                    <GrossRevenueTile
-                        response={response as RevenueAnalyticsRevenueQueryResponse}
-                        responseLoading={responseLoading}
-                        queryId={queryId ?? ''}
-                        context={props.context}
-                    />
-                </BindLogic>
+        <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
+            <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
+                <MRRTile
+                    response={response as RevenueAnalyticsRevenueQueryResponse}
+                    responseLoading={responseLoading}
+                    queryId={queryId ?? ''}
+                    context={props.context}
+                />
+                <GrossRevenueTile
+                    response={response as RevenueAnalyticsRevenueQueryResponse}
+                    responseLoading={responseLoading}
+                    queryId={queryId ?? ''}
+                    context={props.context}
+                />
             </BindLogic>
-        </div>
+        </BindLogic>
     )
 }
 
@@ -73,8 +72,9 @@ const GROSS_REVENUE_TOOLTIP = (
         Gross revenue is the total amount of revenue generated from all sources, including all products and services.
         <br />
         <br />
-        We're automatically calculating deferred revenue which implies you might see revenue in the future if you've
-        created an invoice item with a <code>period.start</code> and <code>period.end</code> that spans several months.
+        For Stripe sources, we're automatically calculating deferred revenue which implies you might see revenue in the
+        future if you've created an invoice item with a <code>period.start</code> and <code>period.end</code> that spans
+        several months.
     </span>
 )
 
@@ -215,15 +215,5 @@ const MRRTile = ({
                 />
             )}
         </TileWrapper>
-    )
-}
-
-const AlphaTag = (): JSX.Element => {
-    return (
-        <Tooltip title="This is a new chart type that is still in alpha. Data might not be accurate.">
-            <LemonTag type="completion" size="small">
-                ALPHA
-            </LemonTag>
-        </Tooltip>
     )
 }

@@ -13,12 +13,14 @@ from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
+from posthog.helpers.email_utils import EmailNormalizer
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_invite
 from posthog.permissions import UserCanInvitePermission, OrganizationMemberPermissions
+from posthog.rbac.user_access_control import UserAccessControl
 
 
 class OrganizationInviteManager:
@@ -54,7 +56,7 @@ class OrganizationInviteManager:
     ) -> QuerySet:
         filters: dict[str, Any] = {
             "organization_id": organization_id,
-            "target_email": target_email,
+            "target_email__iexact": target_email,
         }
 
         if not include_expired:
@@ -127,8 +129,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
     def validate_target_email(self, email: str):
-        local_part, domain = email.split("@")
-        return f"{local_part}@{domain.lower()}"
+        return EmailNormalizer.normalize(email)
 
     def validate_level(self, level: int) -> int:
         # Validate that the user can't invite someone with a higher permission level than their own
@@ -202,7 +203,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             # Check if the team has an access control row that applies to the entire resource
             team_access_controls = AccessControl.objects.filter(
                 team_id=item["id"],
-                resource="team",
+                resource="project",
                 resource_id=str(item["id"]),
                 organization_member=None,
                 role=None,
@@ -217,15 +218,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
             if private_team_access:
                 # Team is private, check if user has admin access
-                user_access = AccessControl.objects.filter(
-                    team_id=item["id"],
-                    resource="team",
-                    resource_id=str(item["id"]),
-                    organization_member__user=self.context["request"].user,
-                    access_level="admin",
-                ).exists()
-
-                if not user_access:
+                uac = UserAccessControl(user=self.context["request"].user, team=team)
+                access_level = uac.access_level_for_object(team)
+                if access_level != "admin":
                     raise exceptions.ValidationError(team_error)
 
         return private_project_access
@@ -233,7 +228,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"],
-            user__email=validated_data["target_email"],
+            user__email__iexact=validated_data["target_email"],
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
 
@@ -296,25 +291,18 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def dangerously_get_permissions(self):
-        if self.action == "create":
-            create_permissions = [
+        if self.action in ["create", "destroy"]:
+            write_permissions = [
                 permission()
                 for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
             ]
 
-            return create_permissions
+            return write_permissions
 
         raise NotImplementedError()
 
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
-
-    def lowercase_email_domain(self, email: str):
-        # According to the email RFC https://www.rfc-editor.org/rfc/rfc1035, anything before the @ can be
-        # case-sensitive but the domain should not be. There have been a small number of customers who type in their emails
-        # with a capitalized domain. We shouldn't prevent them from inviting teammates because of this.
-        local_part, domain = email.split("@")
-        return f"{local_part}@{domain.lower()}"
 
     def create(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data.copy())

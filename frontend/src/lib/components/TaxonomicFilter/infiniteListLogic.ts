@@ -23,6 +23,7 @@ import { CohortType, EventDefinition } from '~/types'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
 import type { infiniteListLogicType } from './infiniteListLogicType'
+import { getItemGroup } from './InfiniteList'
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -306,22 +307,25 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (rawLocalItems: (EventDefinition | CohortType)[]) => rawLocalItems,
         ],
         fuse: [
-            (s) => [s.rawLocalItems, s.group],
-            (rawLocalItems, group): ListFuse => {
+            (s) => [s.rawLocalItems, s.taxonomicGroups, s.group],
+            (rawLocalItems, taxonomicGroups, group): ListFuse => {
                 // maps e.g. "selector" to its display value "CSS Selector"
                 // so a search of "css" matches something
                 function asPostHogName(
-                    group: TaxonomicFilterGroup,
+                    g: TaxonomicFilterGroup,
                     item: EventDefinition | CohortType
                 ): string | undefined {
-                    return group ? getCoreFilterDefinition(group.getName?.(item), group.type)?.label : undefined
+                    return g ? getCoreFilterDefinition(g.getName?.(item), g.type)?.label : undefined
                 }
 
-                const haystack = (rawLocalItems || []).map((item) => ({
-                    name: group?.getName?.(item) || '',
-                    posthogName: asPostHogName(group, item),
-                    item: item,
-                }))
+                const haystack = (rawLocalItems || []).map((item) => {
+                    const itemGroup = getItemGroup(item, taxonomicGroups, group)
+                    return {
+                        name: itemGroup?.getName?.(item) || '',
+                        posthogName: asPostHogName(itemGroup, item),
+                        item: item,
+                    }
+                })
 
                 return new Fuse(haystack, {
                     keys: ['name', 'posthogName'],

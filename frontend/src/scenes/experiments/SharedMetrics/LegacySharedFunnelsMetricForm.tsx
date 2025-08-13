@@ -139,8 +139,8 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
                             !breakdownAttributionType
                                 ? BreakdownAttributionType.FirstTouch
                                 : breakdownAttributionType === BreakdownAttributionType.Step
-                                ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-                                : breakdownAttributionType
+                                  ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+                                  : breakdownAttributionType
 
                         return currentValue
                     })()}

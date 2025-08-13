@@ -14,7 +14,7 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
-from dags.common import ClickhouseClusterResource
+from dags.common import ClickhouseClusterResource, settings_with_log_comment
 
 
 class DateRange(dagster.Config):
@@ -196,6 +196,7 @@ def export_query_logs(
                     {
                         "current_date": current_date.strftime(DateRange.FORMAT),
                     },
+                    settings=settings_with_log_comment(context),
                 )
 
             # Move to the next date

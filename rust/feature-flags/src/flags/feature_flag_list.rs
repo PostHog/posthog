@@ -52,7 +52,7 @@ impl FeatureFlagList {
     pub async fn from_pg(
         client: PostgresReader,
         project_id: i64,
-    ) -> Result<FeatureFlagList, FlagError> {
+    ) -> Result<(FeatureFlagList, bool), FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
             tracing::error!(
                 "Failed to get database connection for project {}: {}",
@@ -71,7 +71,8 @@ impl FeatureFlagList {
                   f.deleted,
                   f.active,
                   f.ensure_experience_continuity,
-                  f.version
+                  f.version,
+                  f.evaluation_runtime
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
@@ -91,35 +92,48 @@ impl FeatureFlagList {
                 FlagError::Internal(format!("Database query error: {}", e))
             })?;
 
-        let flags_list = flags_row
+        let mut had_deserialization_errors = false;
+        let flags_list: Vec<FeatureFlag> = flags_row
             .into_iter()
-            .map(|row| {
-                let filters = serde_json::from_value(row.filters).map_err(|e| {
-                    tracing::error!(
-                        "Failed to deserialize filters for flag {} in project {} (team {}): {}",
-                        row.key,
-                        project_id,
-                        row.team_id,
-                        e
-                    );
-                    FlagError::DeserializeFiltersError
-                })?;
-
-                Ok(FeatureFlag {
-                    id: row.id,
-                    team_id: row.team_id,
-                    name: row.name,
-                    key: row.key,
-                    filters,
-                    deleted: row.deleted,
-                    active: row.active,
-                    ensure_experience_continuity: row.ensure_experience_continuity,
-                    version: row.version,
-                })
+            .filter_map(|row| {
+                match serde_json::from_value(row.filters) {
+                    Ok(filters) => Some(FeatureFlag {
+                        id: row.id,
+                        team_id: row.team_id,
+                        name: row.name,
+                        key: row.key,
+                        filters,
+                        deleted: row.deleted,
+                        active: row.active,
+                        ensure_experience_continuity: row.ensure_experience_continuity,
+                        version: row.version,
+                        evaluation_runtime: row.evaluation_runtime,
+                    }),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to deserialize filters for flag {} in project {} (team {}): {}",
+                            row.key,
+                            project_id,
+                            row.team_id,
+                            e
+                        );
+                        had_deserialization_errors = true;
+                        None // Skip this flag, continue with others
+                    }
+                }
             })
-            .collect::<Result<Vec<FeatureFlag>, FlagError>>()?;
+            .collect();
 
-        Ok(FeatureFlagList { flags: flags_list })
+        tracing::debug!(
+            "Successfully fetched {} flags from database for project {}",
+            flags_list.len(),
+            project_id
+        );
+
+        Ok((
+            FeatureFlagList { flags: flags_list },
+            had_deserialization_errors,
+        ))
     }
 
     pub async fn update_flags_in_redis(
@@ -227,7 +241,7 @@ mod tests {
             .await
             .expect("Failed to insert flag");
 
-        let flags_from_pg = FeatureFlagList::from_pg(reader.clone(), team.project_id)
+        let (flags_from_pg, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from pg");
 
@@ -243,7 +257,7 @@ mod tests {
     async fn test_fetch_empty_team_from_pg() {
         let reader = setup_pg_reader_client(None).await;
 
-        let FeatureFlagList { flags } = FeatureFlagList::from_pg(reader.clone(), 1234)
+        let (FeatureFlagList { flags }, _) = FeatureFlagList::from_pg(reader.clone(), 1234)
             .await
             .expect("Failed to fetch flags from pg");
 
@@ -255,7 +269,7 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
 
         match FeatureFlagList::from_pg(reader.clone(), -1).await {
-            Ok(flags) => assert_eq!(flags.flags.len(), 0),
+            Ok((flags, _)) => assert_eq!(flags.flags.len(), 0),
             Err(err) => panic!("Expected empty result, got error: {:?}", err),
         }
     }
@@ -292,8 +306,9 @@ mod tests {
             filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let flag2 = FeatureFlagRow {
@@ -304,8 +319,9 @@ mod tests {
             filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         // Insert multiple flags for the team
@@ -317,7 +333,7 @@ mod tests {
             .await
             .expect("Failed to insert flags");
 
-        let flags_from_pg = FeatureFlagList::from_pg(reader.clone(), team.project_id)
+        let (flags_from_pg, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from pg");
 

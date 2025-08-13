@@ -31,7 +31,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import (
+from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import (
     STRIPE_INVOICE_RESOURCE_NAME,
 )
 from products.revenue_analytics.backend.views.revenue_analytics_product_view import (
@@ -311,7 +311,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
                 RevenueAnalyticsPropertyFilter(
                     key="source",
                     operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.purchase"],
+                    value=["revenue_analytics.events.purchase"],
                 )
             ],
         ).results
@@ -351,7 +351,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
                 RevenueAnalyticsPropertyFilter(
                     key="source",
                     operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.purchase"],
+                    value=["revenue_analytics.events.purchase"],
                 )
             ],
         ).results

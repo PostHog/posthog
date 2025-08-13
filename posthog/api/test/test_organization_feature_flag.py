@@ -23,6 +23,14 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         self.team_2 = Team.objects.create(organization=self.organization)
         self.team_3 = Team.objects.create(organization=self.organization)
 
+        # Set deterministic API tokens to ensure stable query snapshots
+        self.team_1.api_token = "phc_test_token_1"
+        self.team_1.save()
+        self.team_2.api_token = "phc_test_token_2"
+        self.team_2.save()
+        self.team_3.api_token = "phc_test_token_3"
+        self.team_3.save()
+
         self.feature_flag_key = "key-1"
 
         self.feature_flag_1 = FeatureFlag.objects.create(
@@ -78,6 +86,12 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.team_1 = self.team
         self.team_2 = Team.objects.create(organization=self.organization)
 
+        # Set deterministic API tokens to ensure stable query snapshots
+        self.team_1.api_token = "phc_test_copy_token_1"
+        self.team_1.save()
+        self.team_2.api_token = "phc_test_copy_token_2"
+        self.team_2.save()
+
         self.feature_flag_key = "copied-flag-key"
         self.rollout_percentage_to_copy = 65
         self.feature_flag_to_copy = FeatureFlag.objects.create(
@@ -129,12 +143,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": [],
             "has_enriched_analytics": False,
             "tags": [],
-            "user_access_level": "editor",
+            "user_access_level": "manager",
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
 
         flag_response = response.json()["success"][0]
@@ -211,12 +226,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "surveys": ANY,
             "features": ANY,
             "analytics_dashboards": ANY,
-            "user_access_level": "editor",
+            "user_access_level": "manager",
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
             "version": 2,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
 
         flag_response = response.json()["success"][0]
@@ -257,6 +273,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_update_override_deleted(self):
         target_project = self.team_2
         target_project_2 = Team.objects.create(organization=self.organization)
+        # Set deterministic API token for newly created team
+        target_project_2.api_token = "phc_test_copy_token_3"
+        target_project_2.save()
         rollout_percentage_existing = 99
 
         existing_deleted_flag = FeatureFlag.objects.create(
@@ -337,12 +356,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "surveys": ANY,
             "features": ANY,
             "analytics_dashboards": ANY,
-            "user_access_level": "editor",
+            "user_access_level": "manager",
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "evaluation_runtime": "all",
         }
         flag_response = response.json()["success"][0]
 

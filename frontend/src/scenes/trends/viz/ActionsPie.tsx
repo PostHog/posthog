@@ -33,7 +33,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         supportsPercentStackView,
         showPercentStackView,
         pieChartVizOptions,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
@@ -81,6 +81,9 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
 
     useEffect(() => {
         if (indexedResults) {
+            // adding updateData to dependencies causes a infinite recursion,
+            // which causes legend tooltips not to show up on pie charts
+            // oxlint-disable-next-line exhaustive-deps
             updateData()
         }
     }, [indexedResults, hiddenLegendIndexes])
@@ -98,7 +101,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                 indexedResults[0]
             )
         }
-    } else if (!showPersonsModal || formula) {
+    } else if (showPersonsModal && !formula) {
         onClick = (payload: GraphPointPayload) => {
             const { points, index } = payload
             const dataset = points.referencePoint.dataset
@@ -135,7 +138,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                             showLabelOnSeries={showLabelOnSeries}
                             supportsPercentStackView={supportsPercentStackView}
                             showPercentStackView={showPercentStackView}
-                            onClick={isDataWarehouseSeries ? undefined : onClick}
+                            onClick={hasDataWarehouseSeries ? undefined : onClick}
                             disableHoverOffset={pieChartVizOptions?.disableHoverOffset}
                         />
                     </div>

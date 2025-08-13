@@ -1,5 +1,5 @@
-import { IconWarning } from '@posthog/icons'
-import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { IconAI, IconWarning } from '@posthog/icons'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -46,12 +46,8 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         fullWidth
                         inModal
                         sessionId={event.properties.$session_id}
+                        recordingStatus={event.properties.$recording_status}
                         timestamp={event.timestamp}
-                        disabledReason={
-                            mightHaveRecording(event.properties)
-                                ? undefined
-                                : 'Replay was not active when capturing this event'
-                        }
                         data-attr="events-table-usage"
                     />
                     {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
@@ -65,6 +61,19 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             )}
                         >
                             Visit issue
+                        </LemonButton>
+                    ) : null}
+                    {event.event === '$ai_trace' && '$ai_trace_id' in event.properties ? (
+                        <LemonButton
+                            fullWidth
+                            sideIcon={<IconAI />}
+                            data-attr="events-table-trace-link"
+                            to={urls.llmObservabilityTrace(event.properties.$ai_trace_id, {
+                                event: event.id,
+                                timestamp: event.timestamp,
+                            })}
+                        >
+                            View LLM Trace
                         </LemonButton>
                     ) : null}
                     {insightUrl && (

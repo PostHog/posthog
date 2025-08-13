@@ -1,6 +1,4 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -14,11 +12,13 @@ import {
 } from './__mocks__/error_tracking_query'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/ErrorTracking',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-07-09', // To stabilize relative dates
+        pageUrl: urls.errorTracking(),
     },
     decorators: [
         mswDecorator({
@@ -40,16 +40,7 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function ListPage(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.errorTracking())
-    }, [])
-    return <App />
-}
 
-export function GroupPage(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.errorTrackingIssue('id'))
-    }, [])
-    return <App />
-}
+type Story = StoryObj<typeof meta>
+export const ListPage: Story = {}
+export const GroupPage: Story = { parameters: { pageUrl: urls.errorTrackingIssue('id') } }

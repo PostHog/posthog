@@ -66,8 +66,8 @@ export const LemonTag: React.FunctionComponent<
                 disabledReason
                     ? 'cursor-not-allowed'
                     : props.onClick || (closeOnClick && icon && onClose)
-                    ? 'cursor-pointer'
-                    : undefined,
+                      ? 'cursor-pointer'
+                      : undefined,
                 `LemonTag--${type}`,
                 weight && `LemonTag--${weight}`,
                 closeOnClick && 'LemonTag--close-on-click',
@@ -111,7 +111,10 @@ export const LemonTag: React.FunctionComponent<
             {closable && !(closeOnClick && icon && onClose) && (
                 <LemonButton
                     icon={<IconX className="h-3.5 w-3.5" />}
-                    onClick={onClose}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClose?.()
+                    }}
                     size="xsmall"
                     className="LemonTag__right-button"
                 />

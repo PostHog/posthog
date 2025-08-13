@@ -12,7 +12,7 @@ from posthog.schema import (
     AssistantToolCall,
     HumanMessage,
     MaxActionContext,
-    MaxContextShape,
+    MaxUIContext,
     MaxEventContext,
 )
 
@@ -66,7 +66,7 @@ def sample_action(demo_org_team_user):
 
 
 @pytest.mark.django_db
-async def eval_ui_context_actions(call_root_with_ui_context, sample_action):
+async def eval_ui_context_actions(call_root_with_ui_context, sample_action, pytestconfig):
     """Test that actions in UI context are properly used in RAG context retrieval"""
     await MaxEval(
         experiment_name="ui_context_actions",
@@ -78,7 +78,7 @@ async def eval_ui_context_actions(call_root_with_ui_context, sample_action):
             EvalCase(
                 input={
                     "messages": "Show me trends for this action",
-                    "ui_context": MaxContextShape(
+                    "ui_context": MaxUIContext(
                         actions=[
                             MaxActionContext(
                                 id=sample_action.id,
@@ -101,7 +101,7 @@ async def eval_ui_context_actions(call_root_with_ui_context, sample_action):
             EvalCase(
                 input={
                     "messages": "Create a funnel using these actions",
-                    "ui_context": MaxContextShape(
+                    "ui_context": MaxUIContext(
                         actions=[
                             MaxActionContext(
                                 id=sample_action.id,
@@ -126,11 +126,12 @@ async def eval_ui_context_actions(call_root_with_ui_context, sample_action):
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )
 
 
 @pytest.mark.django_db
-async def eval_ui_context_events(call_root_with_ui_context):
+async def eval_ui_context_events(call_root_with_ui_context, pytestconfig):
     """Test that events in UI context are properly used in taxonomy agent"""
     await MaxEval(
         experiment_name="ui_context_events",
@@ -142,7 +143,7 @@ async def eval_ui_context_events(call_root_with_ui_context):
             EvalCase(
                 input={
                     "messages": "Show me trends for this event",
-                    "ui_context": MaxContextShape(
+                    "ui_context": MaxUIContext(
                         events=[
                             MaxEventContext(
                                 id="1",
@@ -164,7 +165,7 @@ async def eval_ui_context_events(call_root_with_ui_context):
             EvalCase(
                 input={
                     "messages": "How many users have triggered these events",
-                    "ui_context": MaxContextShape(
+                    "ui_context": MaxUIContext(
                         events=[
                             MaxEventContext(
                                 id="1",
@@ -192,7 +193,7 @@ async def eval_ui_context_events(call_root_with_ui_context):
             EvalCase(
                 input={
                     "messages": "Create a funnel using these event and action",
-                    "ui_context": MaxContextShape(
+                    "ui_context": MaxUIContext(
                         events=[
                             MaxEventContext(
                                 id="1",
@@ -219,4 +220,5 @@ async def eval_ui_context_events(call_root_with_ui_context):
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )

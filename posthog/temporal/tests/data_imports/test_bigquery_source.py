@@ -345,7 +345,7 @@ def test_bigquery_source_full_refresh_table(
         AIRBYTE_BUCKET_REGION="us-east-1",
         AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         BUCKET_URL=f"s3://{bucket_name}",
-        BUCKET=bucket_name,
+        BUCKET_PATH=bucket_name,
     ):
         activity_environment.run(import_data_activity_sync, inputs)
 
@@ -410,7 +410,7 @@ def test_bigquery_source_full_refresh_view(
         AIRBYTE_BUCKET_REGION="us-east-1",
         AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         BUCKET_URL=f"s3://{bucket_name}",
-        BUCKET=bucket_name,
+        BUCKET_PATH=bucket_name,
     ):
         activity_environment.run(import_data_activity_sync, inputs)
 
@@ -478,7 +478,7 @@ def test_bigquery_source_incremental_integer(
         AIRBYTE_BUCKET_REGION="us-east-1",
         AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         BUCKET_URL=f"s3://{bucket_name}",
-        BUCKET=bucket_name,
+        BUCKET_PATH=bucket_name,
     ):
         activity_environment.run(import_data_activity_sync, inputs)
 
@@ -525,7 +525,7 @@ def test_bigquery_source_incremental_integer(
         AIRBYTE_BUCKET_REGION="us-east-1",
         AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         BUCKET_URL=f"s3://{bucket_name}",
-        BUCKET=bucket_name,
+        BUCKET_PATH=bucket_name,
     ):
         activity_environment.run(import_data_activity_sync, inputs)
 
@@ -596,7 +596,7 @@ def test_bigquery_source_incremental_timestamp(
         AIRBYTE_BUCKET_REGION="us-east-1",
         AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         BUCKET_URL=f"s3://{bucket_name}",
-        BUCKET=bucket_name,
+        BUCKET_PATH=bucket_name,
     ):
         activity_environment.run(import_data_activity_sync, inputs)
 
@@ -644,7 +644,7 @@ def test_bigquery_source_incremental_timestamp(
         AIRBYTE_BUCKET_REGION="us-east-1",
         AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         BUCKET_URL=f"s3://{bucket_name}",
-        BUCKET=bucket_name,
+        BUCKET_PATH=bucket_name,
     ):
         activity_environment.run(import_data_activity_sync, inputs)
 
@@ -719,7 +719,7 @@ def test_bigquery_source_incremental_custom_primary_key(
         AIRBYTE_BUCKET_REGION="us-east-1",
         AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         BUCKET_URL=f"s3://{bucket_name}",
-        BUCKET=bucket_name,
+        BUCKET_PATH=bucket_name,
     ):
         activity_environment.run(import_data_activity_sync, inputs)
 
@@ -767,7 +767,7 @@ def test_bigquery_source_incremental_custom_primary_key(
         AIRBYTE_BUCKET_REGION="us-east-1",
         AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         BUCKET_URL=f"s3://{bucket_name}",
-        BUCKET=bucket_name,
+        BUCKET_PATH=bucket_name,
     ):
         activity_environment.run(import_data_activity_sync, inputs)
 

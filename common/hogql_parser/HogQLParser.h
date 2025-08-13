@@ -35,14 +35,16 @@ public:
     BACKSLASH = 117, COLON = 118, COMMA = 119, CONCAT = 120, DASH = 121, 
     DOLLAR = 122, DOT = 123, EQ_DOUBLE = 124, EQ_SINGLE = 125, GT_EQ = 126, 
     GT = 127, HASH = 128, IREGEX_SINGLE = 129, IREGEX_DOUBLE = 130, LBRACE = 131, 
-    LBRACKET = 132, LPAREN = 133, LT_EQ = 134, LT = 135, NOT_EQ = 136, NOT_IREGEX = 137, 
-    NOT_REGEX = 138, NULL_PROPERTY = 139, NULLISH = 140, PERCENT = 141, 
-    PLUS = 142, QUERY = 143, QUOTE_DOUBLE = 144, QUOTE_SINGLE_TEMPLATE = 145, 
-    QUOTE_SINGLE_TEMPLATE_FULL = 146, QUOTE_SINGLE = 147, REGEX_SINGLE = 148, 
-    REGEX_DOUBLE = 149, RBRACE = 150, RBRACKET = 151, RPAREN = 152, SEMICOLON = 153, 
-    SLASH = 154, UNDERSCORE = 155, MULTI_LINE_COMMENT = 156, SINGLE_LINE_COMMENT = 157, 
-    WHITESPACE = 158, STRING_TEXT = 159, STRING_ESCAPE_TRIGGER = 160, FULL_STRING_TEXT = 161, 
-    FULL_STRING_ESCAPE_TRIGGER = 162
+    LBRACKET = 132, LPAREN = 133, LT_EQ = 134, LT = 135, LT_SLASH = 136, 
+    NOT_EQ = 137, NOT_IREGEX = 138, NOT_REGEX = 139, NULL_PROPERTY = 140, 
+    NULLISH = 141, PERCENT = 142, PLUS = 143, QUERY = 144, QUOTE_DOUBLE = 145, 
+    QUOTE_SINGLE_TEMPLATE = 146, QUOTE_SINGLE_TEMPLATE_FULL = 147, QUOTE_SINGLE = 148, 
+    REGEX_SINGLE = 149, REGEX_DOUBLE = 150, RBRACE = 151, RBRACKET = 152, 
+    RPAREN = 153, SEMICOLON = 154, SLASH = 155, SLASH_GT = 156, UNDERSCORE = 157, 
+    MULTI_LINE_COMMENT = 158, SINGLE_LINE_COMMENT = 159, WHITESPACE = 160, 
+    STRING_TEXT = 161, STRING_ESCAPE_TRIGGER = 162, FULL_STRING_TEXT = 163, 
+    FULL_STRING_ESCAPE_TRIGGER = 164, TAG_WS = 165, TAGC_WS = 166, HOGQLX_TEXT_TEXT = 167, 
+    HOGQLX_TEXT_WS = 168
   };
 
   enum {
@@ -64,15 +66,15 @@ public:
     RuleWindowExpr = 52, RuleWinPartitionByClause = 53, RuleWinOrderByClause = 54, 
     RuleWinFrameClause = 55, RuleWinFrameExtend = 56, RuleWinFrameBound = 57, 
     RuleExpr = 58, RuleColumnTypeExpr = 59, RuleColumnExprList = 60, RuleColumnExpr = 61, 
-    RuleColumnLambdaExpr = 62, RuleHogqlxChildElement = 63, RuleHogqlxTagElement = 64, 
-    RuleHogqlxTagAttribute = 65, RuleWithExprList = 66, RuleWithExpr = 67, 
-    RuleColumnIdentifier = 68, RuleNestedIdentifier = 69, RuleTableExpr = 70, 
-    RuleTableFunctionExpr = 71, RuleTableIdentifier = 72, RuleTableArgList = 73, 
-    RuleDatabaseIdentifier = 74, RuleFloatingLiteral = 75, RuleNumberLiteral = 76, 
-    RuleLiteral = 77, RuleInterval = 78, RuleKeyword = 79, RuleKeywordForAlias = 80, 
-    RuleAlias = 81, RuleIdentifier = 82, RuleEnumValue = 83, RulePlaceholder = 84, 
-    RuleString = 85, RuleTemplateString = 86, RuleStringContents = 87, RuleFullTemplateString = 88, 
-    RuleStringContentsFull = 89
+    RuleColumnLambdaExpr = 62, RuleHogqlxChildElement = 63, RuleHogqlxText = 64, 
+    RuleHogqlxTagElement = 65, RuleHogqlxTagAttribute = 66, RuleWithExprList = 67, 
+    RuleWithExpr = 68, RuleColumnIdentifier = 69, RuleNestedIdentifier = 70, 
+    RuleTableExpr = 71, RuleTableFunctionExpr = 72, RuleTableIdentifier = 73, 
+    RuleTableArgList = 74, RuleDatabaseIdentifier = 75, RuleFloatingLiteral = 76, 
+    RuleNumberLiteral = 77, RuleLiteral = 78, RuleInterval = 79, RuleKeyword = 80, 
+    RuleKeywordForAlias = 81, RuleAlias = 82, RuleIdentifier = 83, RuleEnumValue = 84, 
+    RulePlaceholder = 85, RuleString = 86, RuleTemplateString = 87, RuleStringContents = 88, 
+    RuleFullTemplateString = 89, RuleStringContentsFull = 90
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -156,6 +158,7 @@ public:
   class ColumnExprContext;
   class ColumnLambdaExprContext;
   class HogqlxChildElementContext;
+  class HogqlxTextContext;
   class HogqlxTagElementContext;
   class HogqlxTagAttributeContext;
   class WithExprListContext;
@@ -1964,6 +1967,7 @@ public:
     HogqlxChildElementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     HogqlxTagElementContext *hogqlxTagElement();
+    HogqlxTextContext *hogqlxText();
     antlr4::tree::TerminalNode *LBRACE();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RBRACE();
@@ -1974,6 +1978,19 @@ public:
   };
 
   HogqlxChildElementContext* hogqlxChildElement();
+
+  class  HogqlxTextContext : public antlr4::ParserRuleContext {
+  public:
+    HogqlxTextContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *HOGQLX_TEXT_TEXT();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  HogqlxTextContext* hogqlxText();
 
   class  HogqlxTagElementContext : public antlr4::ParserRuleContext {
   public:
@@ -1994,8 +2011,7 @@ public:
 
     antlr4::tree::TerminalNode *LT();
     IdentifierContext *identifier();
-    antlr4::tree::TerminalNode *SLASH();
-    antlr4::tree::TerminalNode *GT();
+    antlr4::tree::TerminalNode *SLASH_GT();
     std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
     HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
 
@@ -2006,13 +2022,12 @@ public:
   public:
     HogqlxTagElementNestedContext(HogqlxTagElementContext *ctx);
 
-    std::vector<antlr4::tree::TerminalNode *> LT();
-    antlr4::tree::TerminalNode* LT(size_t i);
+    antlr4::tree::TerminalNode *LT();
     std::vector<IdentifierContext *> identifier();
     IdentifierContext* identifier(size_t i);
     std::vector<antlr4::tree::TerminalNode *> GT();
     antlr4::tree::TerminalNode* GT(size_t i);
-    antlr4::tree::TerminalNode *SLASH();
+    antlr4::tree::TerminalNode *LT_SLASH();
     std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
     HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
     std::vector<HogqlxChildElementContext *> hogqlxChildElement();

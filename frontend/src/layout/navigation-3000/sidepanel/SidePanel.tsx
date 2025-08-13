@@ -9,6 +9,7 @@ import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerL
 import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { userLogic } from 'scenes/userLogic'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
@@ -18,12 +19,12 @@ import {
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelDocs } from './panels/SidePanelDocs'
-import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
@@ -79,12 +80,6 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelSettings,
     },
 
-    [SidePanelTab.FeaturePreviews]: {
-        label: 'Feature previews',
-        Icon: IconFeatures,
-        Content: SidePanelFeaturePreviews,
-    },
-
     [SidePanelTab.Activity]: {
         label: 'Team activity',
         Icon: SidePanelActivityIcon,
@@ -120,6 +115,8 @@ export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
+    const { openAccountPopover } = useActions(navigationLogic)
+    const { featurePreviewChangeAcknowledged } = useValues(navigationLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -139,6 +136,8 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
+    const { setSceneContainerRect } = useActions(sceneLayoutLogic)
+    const { sceneContainerRef } = useValues(sceneLayoutLogic)
 
     useEffect(() => {
         setSidePanelAvailable(true)
@@ -146,6 +145,13 @@ export function SidePanel(): JSX.Element | null {
             setSidePanelAvailable(false)
         }
     }, [setSidePanelAvailable])
+
+    // Trigger scene width recalculation when SidePanel size changes
+    useEffect(() => {
+        if (sceneContainerRef?.current) {
+            setSceneContainerRect(sceneContainerRef.current.getBoundingClientRect())
+        }
+    }, [desiredSize, sidePanelOpen, setSceneContainerRect, sceneContainerRef])
 
     if (!visibleTabs.length) {
         return null
@@ -157,15 +163,39 @@ export function SidePanel(): JSX.Element | null {
         ? [
               {
                   title: 'Open in side panel',
-                  items: extraTabs.map((tab) => {
-                      const { Icon, label } = SIDE_PANEL_TABS[tab]
+                  items: [
+                      ...extraTabs.map((tab) => {
+                          const { Icon, label } = SIDE_PANEL_TABS[tab]
 
-                      return {
-                          label: label,
-                          icon: <Icon />,
-                          onClick: () => openSidePanel(tab),
-                      }
-                  }),
+                          return {
+                              label: label,
+                              icon: <Icon />,
+                              onClick: () => openSidePanel(tab),
+                          }
+                      }),
+                      // This is a off ramp for the feature previews moving from the side panel to the settings page,
+                      // TODO: Remove this in a while so all users have acknowledged the change.
+                      !featurePreviewChangeAcknowledged
+                          ? {
+                                label: 'Feature previews',
+                                icon: <IconFeatures />,
+                                onClick: () => {
+                                    openAccountPopover()
+                                },
+                                tooltip: (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <IconInfo className="size-4 shrink-0" />
+                                            <span>
+                                                <span className="font-bold">Feature previews</span> has moved, click
+                                                here to learn where to access it.
+                                            </span>
+                                        </div>
+                                    </>
+                                ),
+                            }
+                          : null,
+                  ],
               },
           ]
         : undefined
@@ -195,9 +225,10 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
+                width: sidePanelOpenAndAvailable ? (desiredSize ?? DEFAULT_WIDTH) : undefined,
                 ...theme?.sidebarStyle,
             }}
+            id="side-panel"
         >
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">

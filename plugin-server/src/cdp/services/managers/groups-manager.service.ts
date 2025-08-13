@@ -1,5 +1,8 @@
 import LRUCache from 'lru-cache'
 
+import { sanitizeString } from '~/utils/db/utils'
+import { logger } from '~/utils/logger'
+
 import { Hub, Team } from '../../../types'
 import { PostgresUse } from '../../../utils/db/postgres'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'
@@ -106,16 +109,26 @@ export class GroupsManagerService {
             [[], [], []] as [number[], number[], string[]]
         )
 
-        return (
-            await this.hub.postgres.query(
-                PostgresUse.PERSONS_READ,
-                `SELECT team_id, group_type_index, group_key, group_properties
+        try {
+            return (
+                await this.hub.postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    `SELECT team_id, group_type_index, group_key, group_properties
             FROM posthog_group
             WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)`,
-                [teamIds, groupIndexes, groupKeys],
-                'fetchGroups'
-            )
-        ).rows
+                    [teamIds, groupIndexes, groupKeys],
+                    'fetchGroups'
+                )
+            ).rows
+        } catch (e) {
+            logger.error('[GroupsManagerService] Error fetching group properties', {
+                error: e,
+                teamIds,
+                groupIndexes,
+                groupKeys,
+            })
+            throw e
+        }
     }
 
     /**
@@ -140,7 +153,7 @@ export class GroupsManagerService {
             if (typeof groupsProperty === 'object' && groupsProperty !== null) {
                 Object.entries(groupsProperty).forEach(([groupType, groupKey]) => {
                     if (typeof groupType === 'string' && typeof groupKey === 'string') {
-                        validGroupsProperty[groupType] = groupKey
+                        validGroupsProperty[sanitizeString(groupType)] = sanitizeString(groupKey)
                     }
                 })
             }

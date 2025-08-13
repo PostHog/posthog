@@ -2,6 +2,7 @@ import { JSONContent } from '@tiptap/core'
 import api from 'lib/api'
 import { isEmptyObject } from 'lib/utils'
 import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { NotebookNodeType, NotebookType } from 'scenes/notebooks/types'
 import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import {
@@ -36,7 +37,7 @@ import {
     TrendsFilterLegacy,
 } from '~/queries/schema/schema-general'
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
-import { FunnelExclusionLegacy, LegacyRecordingFilters, NotebookNodeType, NotebookType } from '~/types'
+import { FunnelExclusionLegacy, LegacyRecordingFilters } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
 // It will bust the cache on the localContent in the notebookLogic

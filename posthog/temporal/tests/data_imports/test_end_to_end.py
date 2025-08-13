@@ -42,6 +42,7 @@ from posthog.schema import (
 )
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -55,7 +56,7 @@ from posthog.warehouse.models import (
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
@@ -117,7 +118,7 @@ def mock_stripe_client(
     stripe_subscription,
     stripe_credit_note,
 ):
-    with mock.patch("posthog.temporal.data_imports.pipelines.stripe.StripeClient") as MockStripeClient:
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()
@@ -301,8 +302,10 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
@@ -501,9 +504,9 @@ async def test_zendesk_brands(team, zendesk_brands):
         table_name="zendesk_brands",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_brands["brands"],
     )
@@ -518,9 +521,9 @@ async def test_zendesk_organizations(team, zendesk_organizations):
         table_name="zendesk_organizations",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_organizations["organizations"],
     )
@@ -535,9 +538,9 @@ async def test_zendesk_groups(team, zendesk_groups):
         table_name="zendesk_groups",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_groups["groups"],
     )
@@ -552,9 +555,9 @@ async def test_zendesk_sla_policies(team, zendesk_sla_policies):
         table_name="zendesk_sla_policies",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_sla_policies["sla_policies"],
     )
@@ -569,9 +572,9 @@ async def test_zendesk_users(team, zendesk_users):
         table_name="zendesk_users",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_users["users"],
     )
@@ -586,9 +589,9 @@ async def test_zendesk_ticket_fields(team, zendesk_ticket_fields):
         table_name="zendesk_ticket_fields",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_fields["ticket_fields"],
     )
@@ -603,9 +606,9 @@ async def test_zendesk_ticket_events(team, zendesk_ticket_events):
         table_name="zendesk_ticket_events",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_events["ticket_events"],
     )
@@ -620,9 +623,9 @@ async def test_zendesk_tickets(team, zendesk_tickets):
         table_name="zendesk_tickets",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_tickets["tickets"],
     )
@@ -637,9 +640,9 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
         table_name="zendesk_ticket_metric_events",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
     )
@@ -1079,9 +1082,9 @@ async def test_non_retryable_error(team, zendesk_brands):
         status="running",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
     )
 
@@ -1187,9 +1190,9 @@ async def test_inconsistent_types_in_data(team):
         status="running",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
     )
 
@@ -1446,7 +1449,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1535,7 +1538,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -2032,7 +2035,7 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -2226,7 +2229,9 @@ async def test_append_only_table(team, mock_stripe_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_triggers_schedule_buffer_one(team, stripe_price, mock_stripe_client):
+async def test_worker_shutdown_desc_sort_order(team, stripe_price, mock_stripe_client):
+    """Testing that a descending sort ordered source will not trigger the rescheduling"""
+
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
@@ -2249,12 +2254,54 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, stripe_price, 
             ignore_assertions=True,
         )
 
+    # assert that the running job was completed successfully and that the new workflow was NOT triggered
+    mock_trigger_schedule_buffer_one.assert_not_called()
+
+    run: ExternalDataJob | None = await get_latest_run_if_exists(
+        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
+    )
+
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands):
+    def mock_raise_if_is_worker_shutdown(self):
+        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    with (
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+        ) as mock_trigger_schedule_buffer_one,
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "subdomain": "test",
+                "api_key": "test_api_key",
+                "email_address": "test@posthog.com",
+            },
+            mock_data_response=zendesk_brands["brands"],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
+            ignore_assertions=True,
+        )
+
     # assert that the running job was completed successfully and that the new workflow was triggered
     mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
 
-    run: ExternalDataJob = await get_latest_run_if_exists(
+    run: ExternalDataJob | None = await get_latest_run_if_exists(
         team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
     )
+
+    assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
 
 
@@ -2407,3 +2454,155 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pipeline_mb_chunk_size(team, zendesk_brands):
+    with (
+        mock.patch.object(PipelineNonDLT, "_chunk_size_bytes", 1),
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 5000),  # Explicitly make this big
+        mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
+    ):
+        await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "subdomain": "test",
+                "api_key": "test_api_key",
+                "email_address": "test@posthog.com",
+            },
+            mock_data_response=[*zendesk_brands["brands"], *zendesk_brands["brands"]],  # Return two items
+            ignore_assertions=True,
+        )
+
+    # Returning two items should cause the pipeline to process each item individually
+
+    assert mock_process_pa_table.call_count == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_deleting_schemas(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_1 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_1 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_2 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    _, inputs = await _run(
+        team=team,
+        schema_name="table_1",
+        table_name="postgres_table_1",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    @sync_to_async
+    def get_schemas():
+        schemas = ExternalDataSchema.objects.filter(source_id=inputs.external_data_source_id, deleted=False)
+
+        return list(schemas)
+
+    schemas = await get_schemas()
+    assert len(schemas) == 2
+
+    # Drop the table we've not synced yet
+    await postgres_connection.execute("DROP TABLE {schema}.table_2".format(schema=postgres_config["schema"]))
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    schemas = await get_schemas()
+
+    # It should have soft deleted the unsynced table
+    assert len(schemas) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_1 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_1 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_2 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_2 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    # Sync both tables
+    _, inputs = await _run(
+        team=team,
+        schema_name="table_1",
+        table_name="postgres_table_1",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    @sync_to_async
+    def get_schemas():
+        schemas = ExternalDataSchema.objects.filter(source_id=inputs.external_data_source_id, deleted=False)
+
+        return list(schemas)
+
+    schemas = await get_schemas()
+    assert len(schemas) == 2
+
+    # Drop the table that we've already synced
+    await postgres_connection.execute("DROP TABLE {schema}.table_1".format(schema=postgres_config["schema"]))
+    await postgres_connection.commit()
+
+    # Sync the second table - this will trigger `sync_new_schemas_activity`
+    unsynced_schema_ids = [s.id for s in schemas if s.id != inputs.external_data_schema_id]
+    assert len(unsynced_schema_ids) == 1
+    unsynced_schema_id = unsynced_schema_ids[0]
+    await _execute_run(
+        str(uuid.uuid4()),
+        ExternalDataWorkflowInputs(
+            team_id=inputs.team_id,
+            external_data_source_id=inputs.external_data_source_id,
+            external_data_schema_id=unsynced_schema_id,  # the schema id of the second table
+            billable=inputs.billable,
+        ),
+        [],
+    )
+
+    schemas = await get_schemas()
+    # Because table_1 has already been synced and we hold data for it, we dont delete the schema
+    assert len(schemas) == 2
+
+    # The schema with the deleted upstream table should now have "should_sync" updated to False and status set to completed
+    synced_schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert synced_schema.should_sync is False
+    assert synced_schema.status == ExternalDataSchema.Status.COMPLETED

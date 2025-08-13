@@ -44,6 +44,7 @@ import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
+import { INTEGRATION_KINDS } from '~/types'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
@@ -74,6 +75,7 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
+import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
@@ -89,6 +91,7 @@ import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
+import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -225,6 +228,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
+                flag: '!CRM_ITERATION_ONE',
             },
             {
                 id: 'persons-join-mode',
@@ -334,6 +338,19 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-crm',
+        title: 'CRM',
+        flag: 'CRM_ITERATION_ONE',
+        settings: [
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-replay',
         title: 'Session replay',
         settings: [
@@ -343,25 +360,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
-                id: 'replay-network',
-                title: 'Network capture',
-                component: <NetworkCaptureSettings />,
+                id: 'replay-triggers',
+                title: 'Recording conditions',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-masking',
-                title: 'Masking',
+                title: 'Privacy and masking',
                 component: <ReplayMaskingSettings />,
+            },
+            {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
                 allowForTeam: (t) => !!t?.recording_domains?.length,
-            },
-            {
-                id: 'replay-triggers',
-                title: 'Replay triggers',
-                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-ai-config',
@@ -424,7 +441,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
-                flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -488,12 +504,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-error-tracking',
                 title: 'Error tracking integrations',
                 component: <ErrorTrackingIntegrations />,
-                flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <OtherIntegrations />,
+                component: (
+                    <OtherIntegrations
+                        integrationKinds={INTEGRATION_KINDS.filter((kind) => !['slack', 'linear'].includes(kind))}
+                    />
+                ),
             },
             {
                 id: 'integration-ip-allowlist',
@@ -677,6 +696,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-security',
+        title: 'Security settings',
+        settings: [
+            {
+                id: 'organization-security',
+                title: 'Security settings',
+                component: <OrganizationSecuritySettings />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -738,6 +769,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'personal-api-keys',
                 title: 'Personal API keys',
                 component: <PersonalAPIKeys />,
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-feature-previews',
+        title: 'Feature previews',
+        settings: [
+            {
+                id: 'feature-previews',
+                title: 'Feature previews',
+                component: <FeaturePreviewsSettings />,
             },
         ],
     },

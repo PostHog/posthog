@@ -11,7 +11,7 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
@@ -27,9 +27,6 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, ReplayTabs, SidePanelTab, UniversalFiltersGroup } from '~/types'
 
-import { ReplayActiveHoursHeatMap } from '../components/ReplayActiveHoursHeatMap'
-import { ReplayActiveScreensTable } from '../components/ReplayActiveScreensTable'
-import { ReplayActiveUsersTable } from '../components/ReplayActiveUsersTable'
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
@@ -38,6 +35,7 @@ import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSes
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
@@ -93,14 +91,12 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
-    const { isZenMode } = useValues(playerSettingsLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     return (
         <>
             <MaxTool
-                name="search_session_recordings"
-                displayName="Search recordings"
-                description="Max can set up filters for the recordings list"
+                identifier="search_session_recordings"
                 context={{
                     current_filters: filters,
                 }}
@@ -134,7 +130,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
-            {!isZenMode && (
+            {!isCinemaMode && (
                 <div className="flex gap-2 mt-2 justify-between">
                     <HideRecordingsMenu />
                     <SettingsMenu
@@ -510,20 +506,6 @@ export const RecordingsUniversalFiltersEmbed = ({
             content: <SavedFilters setFilters={setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
-        {
-            key: 'explore',
-            label: <div className="px-2">Explore</div>,
-            content: (
-                <div className="flex flex-col gap-2 w-full pb-2">
-                    <div className="flex flex-row gap-2 w-full">
-                        <ReplayActiveUsersTable />
-                        <ReplayActiveScreensTable />
-                    </div>
-                    <ReplayActiveHoursHeatMap />
-                </div>
-            ),
-            'data-attr': 'session-recordings-explore-tab',
-        },
     ]
 
     return (
@@ -546,9 +528,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
     const [isPopoverVisible, setIsPopoverVisible] = useState(false)
-    useEffect(() => {
-        setAllowInitiallyOpen(true)
-    }, [])
+    useOnMountEffect(() => setAllowInitiallyOpen(true))
 
     return (
         <>

@@ -1,4 +1,8 @@
-import type { MaxContextShape } from 'scenes/max/maxTypes'
+import type { MaxUIContext } from 'scenes/max/maxTypes'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+
+// re-export MaxBillingContext to make it available in the schema
+export type { MaxBillingContext }
 
 import {
     AssistantFunnelsQuery,
@@ -7,6 +11,22 @@ import {
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 
+// Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
+// which leads to improper type naming
+// This matches the TipTap/Prosemirror JSONContent structure
+export interface ProsemirrorJSONContent {
+    type?: string
+    attrs?: Record<string, any>
+    content?: ProsemirrorJSONContent[]
+    marks?: {
+        type: string
+        attrs?: Record<string, any>
+        [key: string]: any
+    }[]
+    text?: string
+    [key: string]: any
+}
+
 export enum AssistantMessageType {
     Human = 'human',
     ToolCall = 'tool',
@@ -14,6 +34,7 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
+    Notebook = 'ai/notebook',
 }
 
 export interface BaseAssistantMessage {
@@ -23,7 +44,7 @@ export interface BaseAssistantMessage {
 export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
-    ui_context?: MaxContextShape
+    ui_context?: MaxUIContext
 }
 
 export interface AssistantFormOption {
@@ -77,18 +98,27 @@ export interface FailureMessage extends BaseAssistantMessage {
     content?: string
 }
 
+export interface NotebookUpdateMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Notebook
+    notebook_id: string
+    content: ProsemirrorJSONContent
+    tool_calls?: AssistantToolCall[]
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
+    | NotebookUpdateMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
     Conversation = 'conversation',
+    Notebook = 'notebook',
 }
 
 export enum AssistantGenerationStatusType {
@@ -122,6 +152,10 @@ export type AssistantContextualTool =
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'navigate'
+    | 'search_error_tracking_issues'
+    | 'experiment_results_summary'
+    | 'create_survey'
+    | 'search_docs'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
