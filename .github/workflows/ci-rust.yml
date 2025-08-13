@@ -104,9 +104,16 @@ jobs:
             - name: Setup dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
               run: |
-                  docker compose up kafka redis db echo_server objectstorage -d --wait
+                  docker compose up kafka redis db echo_server objectstorage -d --wait --wait-timeout 180
                   docker compose up setup_test_db
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Dump Kafka logs on failure
+              if: failure()
+              run: |
+                  docker ps -a || true
+                  docker logs --tail=500 rust-kafka-1 || true
+                  docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
