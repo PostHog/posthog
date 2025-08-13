@@ -81,7 +81,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                {!cohort.is_static && (
+                                                {cohort.cohort_type !== CohortTypeEnum.Static && (
                                                     <>
                                                         <LemonButton
                                                             onClick={() => duplicateCohort(false)}
@@ -166,7 +166,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         onClick={() => duplicateCohort(false)}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
-                            'Cohort must be static to duplicate': !cohort.is_static,
                             'Cohort is still calculating': cohort.is_calculating ?? false,
                         }}
                         menuItem
@@ -178,7 +177,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         onClick={() => duplicateCohort(true)}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
-                            'Cohort must be static to duplicate': !cohort.is_static,
                             'Cohort is still calculating': cohort.is_calculating ?? false,
                         }}
                         menuItem
@@ -210,7 +208,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             </LemonField>
                         </div>
                         <div className="flex-1">
-                            <LemonField name="is_static" label="Type">
+                            <LemonField name="cohort_type" label="Type">
                                 {({ value, onChange }) => (
                                     <LemonSelect
                                         disabledReason={
@@ -219,17 +217,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 : 'Create a new cohort to use a different type of cohort.'
                                         }
                                         options={COHORT_TYPE_OPTIONS}
-                                        value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                        onChange={(cohortType) => {
-                                            onChange(cohortType === CohortTypeEnum.Static)
-                                        }}
+                                        value={value || CohortTypeEnum.PersonProperty}
+                                        onChange={onChange}
                                         fullWidth
                                         data-attr="cohort-type"
                                     />
                                 )}
                             </LemonField>
                         </div>
-                        {!isNewCohort && !cohort?.is_static && (
+                        {!isNewCohort && cohort?.cohort_type !== CohortTypeEnum.Static && (
                             <div className="max-w-70 w-fit">
                                 <div className="flex gap-1 flex-col">
                                     <LemonLabel>Last calculated</LemonLabel>
@@ -266,7 +262,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </LemonField>
                     </div>
                 </div>
-                {cohort.is_static ? (
+                {cohort.cohort_type === CohortTypeEnum.Static ? (
                     <div className="mt-4 ph-ignore-input">
                         <LemonField
                             name="csv"
@@ -370,7 +366,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
                                     <Spinner className="mr-4" />
-                                    {cohort.is_static
+                                    {cohort.cohort_type === CohortTypeEnum.Static
                                         ? "We're creating this cohort. This could take up to a couple of minutes."
                                         : "We're recalculating who belongs to this cohort. This could take up to a couple of minutes."}
                                 </div>

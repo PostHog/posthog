@@ -95,10 +95,10 @@ export function createCohortFormData(cohort: CohortType): FormData {
         ...(cohort.name ? { name: cohort.name } : {}),
         description: cohort.description ?? '',
         ...(cohort.csv ? { csv: cohort.csv } : {}),
-        ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
+        ...(cohort.cohort_type ? { cohort_type: cohort.cohort_type } : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
         filters: JSON.stringify(
-            cohort.is_static
+            cohort.cohort_type === CohortTypeEnum.Static
                 ? {
                       properties: {},
                   }

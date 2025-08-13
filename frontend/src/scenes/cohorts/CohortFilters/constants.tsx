@@ -1002,6 +1002,7 @@ export const NEW_CRITERIA_GROUP: CohortCriteriaGroupFilter = {
 
 export const NEW_COHORT: CohortType = {
     id: 'new',
+    cohort_type: CohortTypeEnum.PersonProperty,
     groups: [
         {
             id: Math.random().toString().substr(2, 5),

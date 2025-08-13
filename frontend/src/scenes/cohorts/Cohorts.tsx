@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { ListHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { CohortTypeEnum } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -67,7 +68,7 @@ export function Cohorts(): JSX.Element {
             tooltip:
                 'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 24 hours, or whenever a cohort is updated',
             render: function RenderCalculation(_: any, cohort: CohortType) {
-                if (cohort.is_static) {
+                if (cohort.cohort_type === CohortTypeEnum.Static) {
                     return <>N/A</>
                 }
                 return cohort.is_calculating ? (
