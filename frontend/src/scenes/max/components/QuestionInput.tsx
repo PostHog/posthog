@@ -1,6 +1,6 @@
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
-import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowRight, IconStopFilled } from '@posthog/icons'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useState, useEffect } from 'react'
@@ -16,6 +16,10 @@ import { ContextDisplay } from '../Context'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import posthog from 'posthog-js'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+
+import './QuestionInput.scss'
+
+import { ToolsDisplay } from './ToolsDisplay'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -47,7 +51,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
-    const { tools, dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
@@ -187,29 +191,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <div className="flex items-center w-full gap-1 justify-center">
-                    {tools.length > 0 && (
-                        <div
-                            className={clsx(
-                                'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
-                                !isFloating
-                                    ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                                    : `w-full pb-1`
-                            )}
-                        >
-                            <span>Tools here:</span>
-                            {tools.map((tool) => (
-                                <Tooltip key={tool.name} title={tool.description}>
-                                    <i className="flex items-center gap-1 cursor-help">
-                                        {tool.icon || <IconWrench />}
-                                        {tool.displayName}
-                                    </i>
-                                </Tooltip>
-                            ))}
-                        </div>
-                    )}
-                    {bottomActions && <div className="ml-auto">{bottomActions}</div>}
-                </div>
+                <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
             </div>
         </div>
     )

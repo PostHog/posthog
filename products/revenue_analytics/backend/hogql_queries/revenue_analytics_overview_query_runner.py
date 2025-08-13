@@ -11,7 +11,7 @@ from posthog.schema import (
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
 
 
 CONSTANT_ZERO = ast.Constant(value=0)
@@ -23,8 +23,8 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
-        # If there are no invoice item revenue views, we return a query that returns 0 for all values
-        if self.revenue_subqueries.invoice_item is None:
+        # If there is no revenue item view, we return a query that returns 0 for all values
+        if self.revenue_subqueries.revenue_item is None:
             return ast.SelectQuery(
                 select=[
                     ast.Alias(alias="revenue", expr=CONSTANT_ZERO),
@@ -89,15 +89,15 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
             ],
             select_from=self._append_joins(
                 ast.JoinExpr(
-                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                    table=self.revenue_subqueries.invoice_item,
+                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    table=self.revenue_subqueries.revenue_item,
                 ),
-                self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
+                self.joins_for_properties(RevenueAnalyticsRevenueItemView),
             ),
             where=ast.And(
                 exprs=[
                     self.timestamp_where_clause(
-                        [RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"],
+                        [RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"],
                     ),
                     *self.where_property_exprs,
                 ]
