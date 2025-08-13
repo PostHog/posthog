@@ -6,16 +6,16 @@ import { ErrorTrackingIssueImpactToolOutput } from '~/queries/schema/schema-gene
 import { errorTrackingImpactSceneLogic } from '../impact/errorTrackingImpactSceneLogic'
 
 export function ErrorTrackingIssueImpactTool(): JSX.Element {
-    const { setEvent } = useActions(errorTrackingImpactSceneLogic)
+    const { setEvents } = useActions(errorTrackingImpactSceneLogic)
 
     const callback = (toolOutput: ErrorTrackingIssueImpactToolOutput): void => {
-        setEvent(toolOutput.issues[0])
+        setEvents(toolOutput.events)
         router.actions.push(urls.errorTrackingImpact())
     }
 
     return (
         <MaxTool
-            identifier="find_error_tracking_impactful_issues"
+            identifier="find_error_tracking_event_list"
             context={{}}
             callback={callback}
             suggestions={[]}

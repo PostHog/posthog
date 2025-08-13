@@ -10,10 +10,6 @@ from ee.hogai.graph.taxonomy.tools import TaxonomyTool, base_final_answer, ask_u
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.tool import MaxTool
-from posthog.schema import ErrorTrackingIssueCorrelationQuery
-from posthog.hogql_queries.error_tracking_issue_correlation_query_runner import (
-    ErrorTrackingIssueCorrelationQueryRunner,
-)
 from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
 from .prompts import (
@@ -113,35 +109,15 @@ class final_answer(base_final_answer[ErrorTrackingIssueImpactToolOutput]):
     __doc__ = base_final_answer.__doc__  # Inherit from the base final answer or create your own.
 
 
-class issue_impact_query_runner_tool(BaseModel):
-    """Tool for finding events that are impacted by issues in the error tracking product."""
-
-    events: list[str] = Field(description="The list of event names that will be used to find impactful issues.")
-
-
 class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def issue_impact_query_runner(self, events: list[str]) -> ErrorTrackingIssueImpactToolOutput:
-        result = ErrorTrackingIssueCorrelationQueryRunner(
-            query=ErrorTrackingIssueCorrelationQuery(kind="ErrorTrackingIssueCorrelationQuery", events=events),
-            team=self._team,
-            # timings=timings,
-            # modifiers=modifiers,
-            # limit_context=limit_context,
-        ).run()
-
-        return ErrorTrackingIssueImpactToolOutput(issues=result)
-
     def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
-        if tool_name == "issue_impact_query_runner_tool":
-            result = self.issue_impact_query_runner(tool_input.arguments.events)  # type: ignore
-            return tool_name, result
         return super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
-        return [final_answer, issue_impact_query_runner_tool]
+        return [final_answer]
 
     def get_tools(self) -> list:
         """Returns the list of tools available in this toolkit."""
@@ -190,19 +166,17 @@ class IssueImpactQueryArgs(BaseModel):
 
 
 class ErrorTrackingIssueImpactTool(MaxTool):
-    name: str = "find_error_tracking_impactful_issues"
-    description: str = "Find error tracking issues that are impacting the occurrence of your events."
-    thinking_message: str = "Finding impactful issues..."
-    root_system_prompt_template: str = "The user is wants to find issues impacting the event."
+    name: str = "find_error_tracking_event_list"
+    description: str = "Find events that relate a user query about impactful issues."
+    thinking_message: str = "Finding related issues"
+    root_system_prompt_template: str = "The user wants to find a list of events that impacted by issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
     async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
         graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
 
-        change = f"""Goal: {instructions}"""
-
         graph_context = {
-            "change": change,
+            "change": f"Goal: {instructions}",
             "output": None,
             "tool_progress_messages": [],
             **self.context,
@@ -212,11 +186,11 @@ class ErrorTrackingIssueImpactTool(MaxTool):
 
         if type(result["output"]) is not ErrorTrackingIssueImpactToolOutput:
             content = "❌ I need to know what events you are looking to understand the impact for."
-            issues = []
+            events = []
         else:
             try:
                 content = "✅ Impacted issues found."
-                issues = ErrorTrackingIssueImpactToolOutput.model_validate(result["output"])
+                events = ErrorTrackingIssueImpactToolOutput.model_validate(result["output"])
             except Exception as e:
                 raise ValueError(f"Failed to generate ErrorTrackingIssueImpactToolOutput: {e}")
-        return content, issues
+        return content, events

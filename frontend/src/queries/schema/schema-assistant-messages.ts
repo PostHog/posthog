@@ -127,7 +127,7 @@ export type AssistantContextualTool =
     | 'create_hog_function_inputs'
     | 'navigate'
     | 'search_error_tracking_issues'
-    | 'find_error_tracking_impactful_issues'
+    | 'find_error_tracking_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'search_docs'

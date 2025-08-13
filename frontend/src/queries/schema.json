@@ -868,7 +868,7 @@
                 "create_hog_function_inputs",
                 "navigate",
                 "search_error_tracking_issues",
-                "find_error_tracking_impactful_issues",
+                "find_error_tracking_event_list",
                 "experiment_results_summary",
                 "create_survey",
                 "search_docs"
@@ -10009,14 +10009,14 @@
         "ErrorTrackingIssueImpactToolOutput": {
             "additionalProperties": false,
             "properties": {
-                "issues": {
+                "events": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingIssue"
+                        "type": "string"
                     },
                     "type": "array"
                 }
             },
-            "required": ["issues"],
+            "required": ["events"],
             "type": "object"
         },
         "ErrorTrackingQuery": {

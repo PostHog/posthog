@@ -245,34 +245,47 @@ Again, always, always strongly prefer filterGroup over searchQuery.
 
 ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT = """
 PostHog (posthog.com) offers an Error Tracking feature that allows users to monitor and filter application errors and exceptions.
+
 ## Key Concepts
 
 Error tracking in PostHog works with these core concepts:
 
 1. **Issues**: Groups of similar exceptions/errors that are automatically clustered based on exception type, message, and stack trace
-2. **Exceptions**: Individual `$exception` events that get grouped into issues
 
-We can asses the impact of certain issues on events using an odds ratio calculation, which compares the odds of an event occurring in the presence of an issue versus the odds of it occurring without the issue.
+We can asses the impact of certain issues on analytics events using an odds ratio calculation, which compares the odds of an event occurring in the presence of an issue versus the odds of it occurring without the issue.
 """.strip()
 
 ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT = """
 <events>
 In order to perform the task you are given, you need to know the list of events available to the user. Here is a non-exhaustive list of known event names:
+
 {{{events}}}
-If you find the event name the user is asking for in the list, use it to retrieve the impacted issues.
+
+## Rules
+1. Include ALL the events the user is asking for in the list.
+2. If no exact match exists then use close variations of the event names. For example if the user asks for "user signed up" and the event name is "sign_up_started", you can return "sign_up_started" as a close variation.
+3. If a broader flow is mentioned, include event names likely occurring in that flow.
+4. Do not exclude events if they are in the list above and the user asks for them.
+
+If you find the event names the user is asking for return them in a list. If you cannot find the event names in the list, ask the user for clarification.
 </events>
 """.strip()
 
 
 ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT = """
 <tool_usage>
+You should use this tool when the user is looking to understand a relationship between analytics events and issues.
+The user might describe the connection between issues and events using words like “impacting,” “blocking,” “affecting,” “relating to,” or any other reasonable linking phrase.
+
 ## Tool Usage Rules
 
-1. Infer the list of event names from the user query
-2. Use the `issue_impact_query_runner_tool` to get the impacted issues for a list of events
-3. If `issue_impact_query_runner_tool` returns an empty list of issues, then respond with "No issues found for the given events."
-4. Use `ask_user_for_help` when you need clarification or it is not clear what event the user is referring to
-5. Use `final_answer` to return the final answer to the user
+1. Identify the events mentioned in the users query
+2. Where no exact matches exist use close variations
+3. If a broader flow is mentioned include event names likely occurring in that flow
+4. Return a list of relevant event names
+5. Use `ask_user_for_help` when you need clarification or it is not clear what events / flow the user is referring to
+6. Use `ask_user_for_help` if you cannot find any related events
+7. Use `final_answer` to return the final answer to the user
 
 </tool_usage>
 """.strip()
@@ -282,16 +295,25 @@ ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES = """
 
 ## Single event example
 
-1. User asks: "Show me events that are stopping users from watching session recordings"
+1. User asks: "Show me issues that are stopping users from watching session recordings"
 2. You infer the event name "session recording viewed" from the user query. Use the list of event names provided in the context.
-3. This is a single event, you need to pass it as a list in the `issue_impact_query_runner_tool` to get the impacted issues for the "session recording viewed" event
-4. You call the `issue_impact_query_runner_tool` with the list containing the event name: ["session recording viewed"]
-5. Return the final answer to the user using the `final_answer` tool with the list of issues returned by the `issue_impact_query_runner_tool`
+3. There is only one relevant event but you still convert it to a list: ["session recording viewed"]
+4. Return the final answer to the user using the `final_answer` tool with the list of issues returned by the `issue_impact_query_runner_tool`
 
 ## Multiple events example
-1. User asks: "Show me events that are impacting users from making a purchase"
-2. You infer from the user query that the event names "credit_card_entered", "payment_complete", "Added to cart" all relate to a user making a purchase. Use the list of event names provided in the context.
-3. You need to pass these event names as a list in the `issue_impact_query_runner_tool` to get the impacted issues for these events
-4. You call the `issue_impact_query_runner_tool` with the list containing the event names: ["credit_card_entered", "payment_complete", "Added to cart"]
-5. Return the final answer to the user using the `final_answer` tool with the list of issues returned by the `issue_impact_query_runner_tool`
+1. User asks: "Show me issues that are blocking signup"
+2. From the event names provided as context you infer that the event names "sign_up_started" and "signup complete" both relate to a user signing up.
+3. Return the final answer using the `final_answer` tool with both events as a list: ["sign_up_started", "signup complete"]
+
+## Events in a flow example
+1. User asks: "Show me issues that are impacting users from making a purchase"
+2. You infer from the user query that the event names "credit_card_entered", "payment_complete", "Added to cart" are all very likely to happen when a user is making a purchase.
+3. Return the final answer using the `final_answer` tool with the events as a list
+
+## Unclear intention
+1. User asks: "Show me impactful issues"
+2. It is not clear what the user is referring to, so you use the `ask_user_for_help` tool to clarify what event or flow the user is interested in
+3. The user provides additional context
+4. You find a relevant event in the list of event names provided in the context
+5. You return the event as a list using the `final_answer` tool
 """.strip()
