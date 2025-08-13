@@ -27,7 +27,7 @@ from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.hogql.timings import HogQLTimings, NoOpHogQLTimings, HogQLTimingsBase
+from posthog.hogql.timings import HogQLTimings, HogQLTimingsImpl
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.metrics import LABEL_TEAM_ID
@@ -173,7 +173,7 @@ RunnableQueryNode = Union[
 def get_query_runner(
     query: dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
-    timings: Optional[HogQLTimingsBase] = None,
+    timings: Optional[HogQLTimings] = None,
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
 ) -> "QueryRunner":
@@ -660,7 +660,7 @@ def get_query_runner(
 def get_query_runner_or_none(
     query: dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
-    timings: Optional[HogQLTimingsBase] = None,
+    timings: Optional[HogQLTimings] = None,
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
 ) -> Optional["QueryRunner"]:
@@ -690,7 +690,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     query_id: Optional[str]
 
     team: Team
-    timings: HogQLTimingsBase
+    timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     # query service means programmatic access and /query endpoint
@@ -701,7 +701,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self,
         query: Q | BaseModel | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimingsBase] = None,
+        timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
@@ -735,9 +735,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if timings is not None:
             self.timings = timings
         elif self.modifiers and self.modifiers.debug:
-            self.timings = HogQLTimings()
+            self.timings = HogQLTimingsImpl()
         else:
-            self.timings = NoOpHogQLTimings()
+            self.timings = HogQLTimings()
 
         self.__post_init__()
 
