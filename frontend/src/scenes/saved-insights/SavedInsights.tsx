@@ -384,6 +384,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconWarning,
         inMenu: false,
     },
+    [NodeKind.ErrorTrackingIssueCorrelationQuery]: {
+        name: 'Error Tracking Correlation',
+        description: 'Explore issues affecting other events.',
+        icon: IconCorrelationAnalysis,
+        inMenu: false,
+    },
     [NodeKind.RecordingsQuery]: {
         name: 'Session Recordings',
         description: 'View available recordings.',

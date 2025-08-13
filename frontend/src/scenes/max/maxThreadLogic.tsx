@@ -20,6 +20,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import {
     AssistantEventType,
@@ -36,12 +37,24 @@ import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
+import {
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isNotebookUpdateMessage,
+    isReasoningMessage,
+} from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
+import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
+import { NotebookTarget } from 'scenes/notebooks/types'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { openNotebook } from '~/models/notebooksModel'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -136,6 +149,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
+        selectCommand: (command: SlashCommand) => ({ command }),
+        activateCommand: (command: SlashCommand) => ({ command }),
+        processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
     }),
 
     reducers(({ props }) => ({
@@ -218,7 +234,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.streamConversation(
                 {
                     content: prompt,
-                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
                     ui_context: values.compiledContext || undefined,
                     conversation: values.conversation?.id || values.conversationId,
                 },
@@ -300,7 +316,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     // Empty message in askMax effectively means "just resume generation with current context"
-                                    await values.toolMap[toolName]?.callback(toolResult)
+                                    await values.toolMap[toolName]?.callback?.(toolResult)
                                     // The `navigate` tool is the only one doing client-side formatting currently
                                     if (toolName === 'navigate') {
                                         actions.askMax(null) // Continue generation
@@ -314,19 +330,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
-                            } else if (
-                                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                                values.threadRaw.length === 0
-                            ) {
-                                actions.addMessage({
-                                    ...parsedResponse,
-                                    status: !parsedResponse.id ? 'loading' : 'completed',
-                                })
-                            } else if (parsedResponse) {
-                                actions.replaceMessage(values.threadRaw.length - 1, {
-                                    ...parsedResponse,
-                                    status: !parsedResponse.id ? 'loading' : 'completed',
-                                })
+                            } else {
+                                if (isNotebookUpdateMessage(parsedResponse)) {
+                                    actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
+                                    if (!parsedResponse.id) {
+                                        // we do not want to show partial notebook update messages
+                                        return
+                                    }
+                                }
+                                if (
+                                    values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
+                                    values.threadRaw.length === 0
+                                ) {
+                                    actions.addMessage({
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                } else if (parsedResponse) {
+                                    actions.replaceMessage(values.threadRaw.length - 1, {
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                }
                             }
                         } else if (event === AssistantEventType.Status) {
                             const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
@@ -467,6 +492,41 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }, 0)
             }
         },
+        selectCommand: ({ command }) => {
+            if (command.arg) {
+                actions.setQuestion(command.name + ' ')
+            } else {
+                actions.setQuestion(command.name)
+            }
+        },
+        activateCommand: ({ command }) => {
+            if (command.arg) {
+                actions.setQuestion(command.name + ' ') // Rest must be filled in by the user
+            } else {
+                actions.askMax(command.name)
+            }
+        },
+        processNotebookUpdate: async ({ notebookId, notebookContent }) => {
+            try {
+                const currentPath = router.values.location.pathname
+                const notebookPath = urls.notebook(notebookId)
+
+                if (currentPath.includes(notebookPath)) {
+                    // We're already on the notebook page, refresh it
+                    let logic = notebookLogic.findMounted({ shortId: notebookId })
+                    if (logic) {
+                        logic.actions.setLocalContent(notebookContent, true, true)
+                    }
+                } else {
+                    // Navigate to the notebook
+                    await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
+                        logic.actions.setLocalContent(notebookContent, true, true)
+                    })
+                }
+            } catch (error) {
+                console.error('Failed to navigate to notebook:', error)
+            }
+        },
     })),
 
     selectors({
@@ -592,6 +652,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 return undefined
             },
+        ],
+
+        filteredCommands: [
+            (s) => [s.question],
+            (question): SlashCommand[] =>
+                MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
         ],
     }),
 

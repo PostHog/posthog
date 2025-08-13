@@ -37,9 +37,10 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # Check that it contains the full conditional logic pattern
-        self.assertIn("if(less(toTimeZone(events.timestamp,", sql)
-        self.assertIn("), %(hogql_val_1)s), %(hogql_val_2)s, events.`$group_0`) AS `$group_0`", sql)
+        self.assertIn(
+            "SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s), %(hogql_val_2)s, events.`$group_0`) AS `$group_0` FROM events WHERE equals(events.team_id,",
+            sql,
+        )
 
     def test_group_field_without_mapping(self):
         """Test that $group_0 returns empty string when no GroupTypeMapping exists"""
@@ -53,27 +54,6 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         # Should return an empty string constant (parameterized)
         self.assertIn("SELECT %(hogql_val_0)s AS `$group_0` FROM events WHERE equals(events.team_id,", sql)
-
-    def test_group_field_with_mapping_auto_created_at(self):
-        """Test that $group_0 gets filtering when GroupTypeMapping is created (auto_now_add=True)"""
-        GroupTypeMapping.objects.create(
-            team=self.team,
-            project=self.team.project,
-            group_type="company",
-            group_type_index=0,
-            # created_at will be automatically set due to auto_now_add=True
-        )
-        self.database = create_hogql_database(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
-
-        query = "SELECT $group_0 FROM events"
-        parsed = parse_select(query)
-
-        sql = print_ast(parsed, context=self.context, dialect="clickhouse")
-
-        # Should apply filtering since created_at is automatically set
-        self.assertIn("SELECT if(less(toTimeZone(events.timestamp,", sql)
-        self.assertIn("), %(hogql_val_1)s), %(hogql_val_2)s, events.`$group_0`) AS `$group_0`", sql)
 
     def test_multiple_group_fields(self):
         """Test filtering with multiple group type mappings"""
@@ -105,7 +85,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         self.assertIn("if(less(toTimeZone(events.timestamp,", sql)
         self.assertIn("events.`$group_0`) AS `$group_0`", sql)
         self.assertIn("events.`$group_1`) AS `$group_1`", sql)
-        self.assertIn("%(hogql_val_", sql)  # Group 2 should be parameterized empty string
+        self.assertIn("%(hogql_val_6)s AS `$group_2`", sql)  # Group 2 should be parameterized empty string
 
     def test_group_field_in_where_clause(self):
         """Test that group filtering works in WHERE clauses"""

@@ -449,20 +449,24 @@ class RetentionQueryRunner(QueryRunner):
             )
 
         if self.query.breakdownFilter:
+            breakdown_expr = None
+
             if self.query.breakdownFilter.breakdowns:
                 # supporting only single breakdowns for now
                 breakdown = self.query.breakdownFilter.breakdowns[0]
                 breakdown_expr = self.breakdown_extract_expr(
                     breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
                 )
+            elif self.query.breakdownFilter.breakdown is not None:
+                breakdown_expr = self.breakdown_extract_expr(
+                    cast(str, self.query.breakdownFilter.breakdown),
+                    cast(str, self.query.breakdownFilter.breakdown_type),
+                    self.query.breakdownFilter.breakdown_group_type_index,
+                )
 
-                # update both select and group by
+            if breakdown_expr:
                 inner_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
                 cast(list[ast.Expr], inner_query.group_by).append(ast.Field(chain=["breakdown_value"]))
-            elif self.query.breakdownFilter.breakdown is not None:
-                raise ValueError(
-                    "Single breakdowns are deprecated, make sure multiple-breakdowns feature flag is enabled"
-                )
 
         return inner_query
 

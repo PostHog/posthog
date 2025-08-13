@@ -14,7 +14,6 @@ import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { SCALE_LABELS } from '../../constants'
 import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
-import { SingleChoiceQuestionViz } from './SingleChoiceQuestionViz'
 
 interface Props {
     question: SurveyQuestion
@@ -98,38 +97,22 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                 </>
             )
         case SurveyQuestionType.SingleChoice:
-            return (
-                <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
-                    <div className="relative h-full w-80 flex items-center justify-center">
-                        <LemonSkeleton className="w-64 h-64 rounded-full" />
-                    </div>
-                    <div className="flex-1 flex flex-col justify-center space-y-3 px-6">
-                        {question.choices.map((choice, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                                <LemonSkeleton className="w-3 h-3 rounded-full flex-shrink-0" />
-                                <span className="text-sm text-secondary font-semibold">{choice}</span>
-                                <LemonSkeleton className="w-8 h-4 flex-shrink-0" />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )
         case SurveyQuestionType.MultipleChoice:
             return (
                 <div className="border rounded py-4 max-h-[600px] overflow-y-auto">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-3">
                         {question.choices.map((choice, i) => {
                             // Use decreasing widths to match typical survey result ordering
                             const barWidths = ['w-11/12', 'w-3/4', 'w-3/5', 'w-1/2', 'w-2/5']
                             const width = barWidths[i] || 'w-1/4'
                             return (
-                                <div key={i} className="flex items-center gap-4">
-                                    <div className="w-48 text-right text-xs text-secondary flex-shrink-0 truncate">
+                                <div key={i} className="flex items-center gap-6">
+                                    <div className="w-48 text-right text-sm text-secondary flex-shrink-0 truncate">
                                         {choice}
                                     </div>
                                     <div className="flex-1 flex items-center gap-2">
-                                        <LemonSkeleton className={`h-4 ${width}`} />
-                                        <LemonSkeleton className="w-6 h-4 flex-shrink-0" />
+                                        <LemonSkeleton className={`h-6 ${width}`} />
+                                        <LemonSkeleton className="w-6 h-6 flex-shrink-0" />
                                     </div>
                                 </div>
                             )
@@ -214,12 +197,10 @@ export function SurveyQuestionVisualization({ question, questionIndex }: Props):
                                 processedData={processedData}
                             />
                         )}
-                    {question.type === SurveyQuestionType.SingleChoice &&
-                        processedData.type === SurveyQuestionType.SingleChoice && (
-                            <SingleChoiceQuestionViz question={question} processedData={processedData} />
-                        )}
-                    {question.type === SurveyQuestionType.MultipleChoice &&
-                        processedData.type === SurveyQuestionType.MultipleChoice && (
+                    {(question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice) &&
+                        (processedData.type === SurveyQuestionType.SingleChoice ||
+                            processedData.type === SurveyQuestionType.MultipleChoice) && (
                             <MultipleChoiceQuestionViz responseData={processedData.data} />
                         )}
                     {question.type === SurveyQuestionType.Open && processedData.type === SurveyQuestionType.Open && (

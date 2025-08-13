@@ -32,6 +32,7 @@ export interface ActivityLogDetail {
     short_id?: InsightShortId | null
     /** e.g. for property definition carries event, person, or group */
     type?: string
+    context?: Record<string, any> | null
 }
 
 export type ActivityLogItem = {
@@ -130,7 +131,17 @@ const NO_PLURAL_SCOPES: ActivityScope[] = [
     ActivityScope.PROPERTY_DEFINITION,
 ]
 
+const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
+    [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
+}
+
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
+    const customName = SCOPE_DISPLAY_NAMES[scope as ActivityScope]
+    if (customName) {
+        return singular ? customName.singular : customName.plural
+    }
+
+    // Default behavior: split camelCase and add plural 's'
     let output = scope.split(/(?=[A-Z])/).join(' ')
 
     if (!singular && !NO_PLURAL_SCOPES.includes(scope as ActivityScope)) {

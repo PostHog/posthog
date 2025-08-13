@@ -20,6 +20,7 @@ from posthog.schema import (
     HumanMessage,
     ReasoningMessage,
     VisualizationMessage,
+    NotebookUpdateMessage,
 )
 
 AIMessageUnion = Union[
@@ -29,7 +30,7 @@ AIMessageUnion = Union[
     ReasoningMessage,
     AssistantToolCallMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
@@ -106,31 +107,16 @@ PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
-    @staticmethod
-    def _get_ignored_reset_fields() -> set[str]:
-        """
-        Fields to ignore during state resets due to race conditions.
-        """
-        return set()
-
     @classmethod
     def get_reset_state(cls) -> Self:
         """Returns a new instance with all fields reset to their default values."""
-        ignored_fields = cls._get_ignored_reset_fields()
-        return cls(**{k: v.default for k, v in cls.model_fields.items() if k not in ignored_fields})
+        return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
 
 class _SharedAssistantState(BaseState):
     """
     The state of the root node.
     """
-
-    @staticmethod
-    def _get_ignored_reset_fields() -> set[str]:
-        """
-        Fields to ignore during state resets due to race conditions.
-        """
-        return {"memory_collection_messages"}
 
     start_id: Optional[str] = Field(default=None)
     """
@@ -196,6 +182,14 @@ class _SharedAssistantState(BaseState):
     """
     The user's search query for finding existing insights.
     """
+    session_summarization_query: Optional[str] = Field(default=None)
+    """
+    The user's query for summarizing sessions.
+    """
+    notebook_id: Optional[str] = Field(default=None)
+    """
+    The ID of the notebook being used.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -242,6 +236,7 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
+    SESSION_SUMMARIZATION = "session_summarization"
 
 
 class AssistantMode(StrEnum):

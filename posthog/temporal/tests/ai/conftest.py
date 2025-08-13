@@ -1,5 +1,9 @@
 from collections.abc import AsyncGenerator, Callable
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+from ee.hogai.session_summaries.constants import (
+    SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
+    SESSION_SUMMARIES_STREAMING_MODEL,
+    SESSION_SUMMARIES_SYNC_MODEL,
+)
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tests.conftest import *
 from posthog.redis import TEST_clear_clients
@@ -28,6 +32,7 @@ def mock_single_session_summary_inputs(
             user_id=mock_user.id,
             team_id=mock_team.id,
             redis_key_base=redis_key_base,
+            model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
         )
 
     return _create_inputs
@@ -57,6 +62,7 @@ def mock_single_session_summary_llm_inputs(
             window_mapping_reversed=mock_window_mapping_reversed,
             session_start_time_str="2025-03-31T18:40:32.302000Z",
             session_duration=5323,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
     return _create_inputs
@@ -77,6 +83,7 @@ def mock_session_group_summary_inputs(
             redis_key_base=redis_key_base,
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
     return _create_inputs
@@ -96,6 +103,7 @@ def mock_session_group_summary_of_summaries_inputs(
             single_session_summaries_inputs=single_session_summaries_inputs,
             user_id=mock_user.id,
             redis_key_base=redis_key_base,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
     return _create_inputs

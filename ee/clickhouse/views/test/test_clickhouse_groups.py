@@ -29,7 +29,7 @@ from unittest.mock import patch
 PATH = "ee.clickhouse.views.groups"
 
 
-class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
+class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     @freeze_time("2021-05-02")
@@ -217,6 +217,14 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
+
+        # Test default notebook content structure
+        notebook = relationships.first().notebook
+        self.assertIsNotNone(notebook.content)
+        self.assertEqual(notebook.content[0]["type"], "heading")
+        self.assertEqual(notebook.content[0]["attrs"]["level"], 1)
+        self.assertEqual(notebook.content[0]["content"][0]["text"], "Mr. Krabs Notes")
+        self.assertEqual(notebook.content[1]["type"], "text")
 
     @freeze_time("2021-05-02")
     def test_retrieve_group_with_notebook(self):
@@ -1447,3 +1455,29 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
         return uuid
+
+
+class GroupsTypesViewSetTestCase(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/groups_types"
+
+    def test_delete(self):
+        group_type_data = {
+            "team": self.team,
+            "project": self.project,
+            "group_type": "organization",
+            "group_type_index": 0,
+        }
+        group_type = GroupTypeMapping.objects.create(**group_type_data)
+        delete_url = self.url + f"/{group_type.group_type_index}"
+
+        delete_response = self.client.delete(delete_url)
+
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(GroupTypeMapping.objects.filter(**group_type_data).exists())
+
+        list_response = self.client.get(self.url)
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.json()), 0)
