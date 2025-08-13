@@ -42,6 +42,7 @@ class InsightSearchNode(AssistantNode):
     MAX_INSIGHTS_TO_RETURN = 3
     MAX_EVALUATION_ITERATIONS = 3
     INSIGHTS_CUTOFF_DAYS = 180
+    MAX_SERIES_TO_PROCESS = 3
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -51,14 +52,14 @@ class InsightSearchNode(AssistantNode):
         self._current_iteration = 0
         self._loaded_pages = {}
         self._total_insights_count = None
-        self._max_insights = self.MAX_INSIGHTS_TO_RETURN
+        self._max_insights_to_select = self.MAX_INSIGHTS_TO_RETURN
         self._max_insights_evaluation_iterations = self.MAX_EVALUATION_ITERATIONS
         self._evaluation_selections = {}
         self._rejection_reason = None
         self._cutoff_date_for_insights_in_days = self.INSIGHTS_CUTOFF_DAYS
         self._query_cache = {}
 
-    def _create_read_insights_tool(self):
+    def _create_page_reader_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
 
         @tool
@@ -76,17 +77,7 @@ class InsightSearchNode(AssistantNode):
             if not page_insights:
                 return "No more insights available."
 
-            formatted_insights = []
-            for insight in page_insights:
-                name = insight.name or insight.derived_name or "Unnamed"
-                description = insight.description or ""
-                insight_id = insight.id
-
-                if description:
-                    formatted_insights.append(f"ID: {insight_id} | {name} - {description}")
-                else:
-                    formatted_insights.append(f"ID: {insight_id} | {name}")
-
+            formatted_insights = [self._format_insight_for_display(insight) for insight in page_insights]
             return f"Page {page_number + 1} insights:\n" + "\n".join(formatted_insights)
 
         return read_insights_page
@@ -104,7 +95,7 @@ class InsightSearchNode(AssistantNode):
             self._evaluation_selections[insight_id] = {"insight": insight, "explanation": explanation}
 
             name = insight.name or insight.derived_name or "Unnamed"
-            insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
+            insight_url = self._build_insight_url(insight)
             return f"Selected insight {insight_id}: {name} (url: {insight_url})"
 
         @tool
@@ -122,61 +113,18 @@ class InsightSearchNode(AssistantNode):
         try:
             self._current_iteration = 0
 
-            # Check if we have any insights at all
             if self._get_total_insights_count() == 0:
-                return self._create_error_response(EMPTY_DATABASE_ERROR_MESSAGE, state.root_tool_call_id)
+                return self._handle_empty_database(state)
 
             selected_insights = self._search_insights_iteratively(search_query or "")
-
             evaluation_result = self._evaluate_insights_with_tools(
                 selected_insights, search_query or "", max_selections=1
             )
 
-            if evaluation_result["should_use_existing"]:
-                # Create visualization messages for the insights to show actual charts
-                messages_to_return = []
-
-                formatted_content = f"**Evaluation Result**: {evaluation_result['explanation']}"
-
-                formatted_content += HYPERLINK_USAGE_INSTRUCTIONS
-
-                messages_to_return.append(
-                    AssistantToolCallMessage(
-                        content=formatted_content,
-                        tool_call_id=state.root_tool_call_id or "unknown",
-                        id=str(uuid4()),
-                    )
-                )
-
-                # Add visualization messages returned from evaluation
-                messages_to_return.extend(evaluation_result["visualization_messages"])
-
-                return PartialAssistantState(
-                    messages=messages_to_return,
-                    search_insights_query=None,
-                    root_tool_call_id=None,
-                    root_tool_insight_plan=None,
-                )
-            else:
-                # No suitable insights found, triggering creation of a new insight
-                no_insights_message = AssistantToolCallMessage(
-                    content=NO_INSIGHTS_FOUND_MESSAGE,
-                    tool_call_id=state.root_tool_call_id or "unknown",
-                    id=str(uuid4()),
-                )
-                return PartialAssistantState(
-                    messages=[no_insights_message],
-                    root_tool_insight_plan=search_query,
-                    search_insights_query=None,
-                )
+            return self._handle_evaluation_result(evaluation_result, state)
 
         except Exception as e:
-            capture_exception(e)
-            logger.error(f"Error in InsightSearchNode: {e}", exc_info=True)
-            return self._create_error_response(
-                SEARCH_ERROR_INSTRUCTIONS,
-                state.root_tool_call_id,
-            )
+            return self._handle_search_error(e, state)
 
     def _get_insights_queryset(self):
         """Get Insight objects with latest view time annotated and cutoff date."""
@@ -196,6 +144,76 @@ class InsightSearchNode(AssistantNode):
             self._total_insights_count = self._get_insights_queryset().count()
         return self._total_insights_count
 
+    def _handle_empty_database(self, state: AssistantState) -> PartialAssistantState:
+        """Handle the case when no insights exist in the database. (Rare edge-case but still possible)"""
+        return self._create_error_response(EMPTY_DATABASE_ERROR_MESSAGE, state.root_tool_call_id)
+
+    def _handle_evaluation_result(self, evaluation_result: dict, state: AssistantState) -> PartialAssistantState:
+        """Process the evaluation result and return appropriate response."""
+        if evaluation_result["should_use_existing"]:
+            return self._create_existing_insights_response(evaluation_result, state)
+        else:
+            return self._create_new_insight_response(state.search_insights_query, state)
+
+    def _create_existing_insights_response(
+        self, evaluation_result: dict, state: AssistantState
+    ) -> PartialAssistantState:
+        """Create response for when existing insights are found."""
+        messages_to_return = []
+
+        formatted_content = f"**Evaluation Result**: {evaluation_result['explanation']}"
+        formatted_content += HYPERLINK_USAGE_INSTRUCTIONS
+
+        messages_to_return.append(
+            AssistantToolCallMessage(
+                content=formatted_content,
+                tool_call_id=state.root_tool_call_id or "unknown",
+                id=str(uuid4()),
+            )
+        )
+
+        messages_to_return.extend(evaluation_result["visualization_messages"])
+
+        return PartialAssistantState(
+            messages=messages_to_return,
+            search_insights_query=None,
+            root_tool_call_id=None,
+            root_tool_insight_plan=None,
+        )
+
+    def _create_new_insight_response(self, search_query: str | None, state: AssistantState) -> PartialAssistantState:
+        """Create response for when no suitable insights are found."""
+        no_insights_message = AssistantToolCallMessage(
+            content=NO_INSIGHTS_FOUND_MESSAGE,
+            tool_call_id=state.root_tool_call_id or "unknown",
+            id=str(uuid4()),
+        )
+        return PartialAssistantState(
+            messages=[no_insights_message],
+            root_tool_insight_plan=search_query,
+            search_insights_query=None,
+        )
+
+    def _handle_search_error(self, e: Exception, state: AssistantState) -> PartialAssistantState:
+        """Handle exceptions during search process."""
+        capture_exception(e)
+        logger.error(f"Error in InsightSearchNode: {e}", exc_info=True)
+        return self._create_error_response(
+            SEARCH_ERROR_INSTRUCTIONS,
+            state.root_tool_call_id,
+        )
+
+    def _format_insight_for_display(self, insight: Insight) -> str:
+        """Format a single insight for display."""
+        name = insight.name or insight.derived_name or "Unnamed"
+        description = insight.description or ""
+        base = f"ID: {insight.id} | {name}"
+        return f"{base} - {description}" if description else base
+
+    def _build_insight_url(self, insight: Insight) -> str:
+        """Build the URL for an insight."""
+        return f"/project/{self._team.id}/insights/{insight.short_id}"
+
     def _load_insights_page(self, page_number: int) -> list[Insight]:
         """Load a specific page of insights from database."""
         if page_number in self._loaded_pages:
@@ -212,32 +230,49 @@ class InsightSearchNode(AssistantNode):
 
     def _search_insights_iteratively(self, search_query: str) -> list[int]:
         """Execute iterative insight search with LLM and tool calling."""
+        messages = self._build_search_messages(search_query)
+        llm_with_tools = self._prepare_llm_with_tools()
+
+        selected_insights = self._perform_iterative_search(messages, llm_with_tools)
+
+        if not selected_insights:
+            return []
+
+        return selected_insights[: self._max_insights_to_select]
+
+    def _build_search_messages(self, search_query: str) -> list[BaseMessage]:
+        """Build the initial messages for the search."""
         first_page = self._format_insights_page(0)
-
-        total_insights = self._get_total_insights_count()
-        total_pages = (total_insights + self._page_size - 1) // self._page_size
-        has_pagination = total_pages > 1
-
-        pagination_instructions = (
-            PAGINATION_INSTRUCTIONS_TEMPLATE.format(total_pages=total_pages)
-            if has_pagination
-            else "This is the only page of insights available."
-        )
+        pagination_instructions = self._get_pagination_instructions()
 
         system_prompt = ITERATIVE_SEARCH_SYSTEM_PROMPT.format(
             first_page_insights=first_page, pagination_instructions=pagination_instructions
         )
-
         user_prompt = ITERATIVE_SEARCH_USER_PROMPT.format(query=search_query)
 
-        messages: list[BaseMessage] = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+        return [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
 
-        if has_pagination:
-            read_tool = self._create_read_insights_tool()
-            llm_with_tools = self._model.bind_tools([read_tool])
-        else:
-            llm_with_tools = self._model
+    def _get_pagination_instructions(self) -> str:
+        """Get pagination instructions based on available insights."""
+        total_insights = self._get_total_insights_count()
+        total_pages = self._calculate_total_pages(total_insights)
 
+        if total_pages > 1:
+            return PAGINATION_INSTRUCTIONS_TEMPLATE.format(total_pages=total_pages)
+        return "This is the only page of insights available."
+
+    def _prepare_llm_with_tools(self):
+        """Prepare LLM with pagination tools if needed."""
+        total_insights = self._get_total_insights_count()
+        total_pages = self._calculate_total_pages(total_insights)
+
+        if total_pages > 1:
+            read_tool = self._create_page_reader_tool()
+            return self._model.bind_tools([read_tool])
+        return self._model
+
+    def _perform_iterative_search(self, messages: list[BaseMessage], llm_with_tools) -> list[int]:
+        """Perform the iterative search with the LLM."""
         selected_insights = []
 
         while self._current_iteration < self._max_iterations:
@@ -246,22 +281,9 @@ class InsightSearchNode(AssistantNode):
             try:
                 response = llm_with_tools.invoke(messages)
 
-                if hasattr(response, "tool_calls") and getattr(response, "tool_calls", None):
-                    messages.append(response)
-
-                    for tool_call in response.tool_calls:
-                        if tool_call["name"] == "read_insights_page":
-                            page_number = tool_call["args"]["page_number"]
-
-                            if page_number == 0:
-                                tool_content = "Page 0 data is already provided in the initial context above."
-                            else:
-                                page_content = self._format_insights_page(page_number)
-                                tool_content = f"Page {page_number + 1} results:\n{page_content}"
-
-                            messages.append(ToolMessage(content=tool_content, tool_call_id=tool_call["id"]))
+                if getattr(response, "tool_calls", None):
+                    self._process_tool_response(response, messages)
                 else:
-                    # Parse final response for insight IDs
                     content = response.content if isinstance(response.content, str) else str(response.content)
                     selected_insights = self._parse_insight_ids(content)
                     break
@@ -270,10 +292,29 @@ class InsightSearchNode(AssistantNode):
                 capture_exception(e)
                 break
 
-        if not selected_insights:
-            return []
+        return selected_insights
 
-        return selected_insights[: self._max_insights]
+    def _process_tool_response(self, response, messages: list[BaseMessage]) -> None:
+        """Process tool calls from the LLM response."""
+        messages.append(response)
+
+        for tool_call in response.tool_calls:
+            if tool_call["name"] == "read_insights_page":
+                page_number = tool_call["args"]["page_number"]
+                tool_content = self._get_page_content_for_tool(page_number)
+                messages.append(ToolMessage(content=tool_content, tool_call_id=tool_call["id"]))
+
+    def _get_page_content_for_tool(self, page_number: int) -> str:
+        """Get page content for tool response."""
+        if page_number == 0:
+            return "Page 0 data is already provided in the initial context above."
+        else:
+            page_content = self._format_insights_page(page_number)
+            return f"Page {page_number + 1} results:\n{page_content}"
+
+    def _calculate_total_pages(self, total_insights: int) -> int:
+        """Calculate total number of pages for insights."""
+        return (total_insights + self._page_size - 1) // self._page_size
 
     def _format_insights_page(self, page_number: int) -> str:
         """Format a page of insights for display."""
@@ -282,17 +323,7 @@ class InsightSearchNode(AssistantNode):
         if not page_insights:
             return "No insights available on this page."
 
-        formatted_insights = []
-        for insight in page_insights:
-            name = insight.name or insight.derived_name or "Unnamed"
-            description = insight.description or ""
-            insight_id = insight.id
-
-            if description:
-                formatted_insights.append(f"ID: {insight_id} | {name} - {description}")
-            else:
-                formatted_insights.append(f"ID: {insight_id} | {name}")
-
+        formatted_insights = [self._format_insight_for_display(insight) for insight in page_insights]
         return "\n".join(formatted_insights)
 
     def _get_all_loaded_insight_ids(self) -> set[int]:
@@ -317,47 +348,64 @@ class InsightSearchNode(AssistantNode):
         """
         insight_id = insight.id
 
-        # Check cache
-        if insight_id in self._query_cache:
-            return self._query_cache[insight_id]
-
-        query_obj = None
-        formatted_results = None
+        cached_result = self._get_cached_query(insight_id)
+        if cached_result is not None:
+            return cached_result
 
         if not insight.query:
-            self._query_cache[insight_id] = (None, None)
-            return None, None
+            return self._cache_and_return(insight_id, None, None)
 
+        query_obj, formatted_results = self._extract_and_execute_query(insight)
+
+        return self._cache_and_return(insight_id, query_obj, formatted_results)
+
+    def _get_cached_query(self, insight_id: int) -> tuple[object | None, str | None] | None:
+        """Get cached query result if available."""
+        if insight_id in self._query_cache:
+            return self._query_cache[insight_id]
+        return None
+
+    def _cache_and_return(self, insight_id: int, query_obj: object | None, formatted_results: str | None) -> tuple:
+        """Cache and return query result."""
+        result = (query_obj, formatted_results)
+        self._query_cache[insight_id] = result
+        return result
+
+    def _extract_and_execute_query(self, insight: Insight) -> tuple[object | None, str | None]:
+        """Extract query object and execute it."""
         try:
             query_dict = insight.query
             query_source = query_dict.get("source", {})
             insight_type = query_source.get("kind", "Unknown")
 
-            if insight_type not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
-                result = (None, "Query type not supported for execution")
-                self._query_cache[insight_id] = result
-                return result
+            query_obj = self._validate_and_create_query_object(insight_type, query_source)
+            if query_obj is None:
+                return None, "Query type not supported for execution"
 
-            AssistantQueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[insight_type]
-            query_obj = AssistantQueryModel.model_validate(query_source, strict=False)
-
-            try:
-                query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
-                query_result_dict = query_executor._execute_query(query_obj)
-                formatted_results = query_executor._compress_results(query_obj, query_result_dict)
-            except Exception as e:
-                capture_exception(e)
-                logger.warning(f"Failed to execute query for insight {insight_id}: {e}")
-                formatted_results = "Query execution failed"
+            formatted_results = self._execute_and_format_query(query_obj)
+            return query_obj, formatted_results
 
         except Exception as e:
             capture_exception(e)
-            logger.warning(f"Failed to process query for insight {insight_id}: {e}")
-            formatted_results = "Query processing failed"
+            return None, "Query processing failed"
 
-        result = (query_obj, formatted_results)
-        self._query_cache[insight_id] = result
-        return result
+    def _validate_and_create_query_object(self, insight_type: str, query_source: dict) -> object | None:
+        """Validate query type and create query object."""
+        if insight_type not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
+            return None
+
+        AssistantQueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[insight_type]
+        return AssistantQueryModel.model_validate(query_source, strict=False)
+
+    def _execute_and_format_query(self, query_obj: object) -> str:
+        """Execute query and format results."""
+        try:
+            query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
+            query_result_dict = query_executor._execute_query(query_obj)
+            return query_executor._compress_results(query_obj, query_result_dict)
+        except Exception as e:
+            capture_exception(e)
+            return "Query execution failed"
 
     def _parse_insight_ids(self, response_content: str) -> list[int]:
         """Parse insight IDs from LLM response, removing duplicates and preserving order."""
@@ -375,7 +423,7 @@ class InsightSearchNode(AssistantNode):
                     valid_ids.append(insight_id)
                     seen_ids.add(insight_id)
                     # Stop if we've found enough unique insights
-                    if len(valid_ids) >= self._max_insights:
+                    if len(valid_ids) >= self._max_insights_to_select:
                         break
             except ValueError:
                 continue
@@ -398,12 +446,11 @@ class InsightSearchNode(AssistantNode):
                 query_dict = insight.query
                 query_source = query_dict.get("source", {})
                 insight_type = query_source.get("kind", "Unknown")
-                query_info = self._get_basic_query_info_from_insight(query_source)
+                query_info = self._extract_query_metadata(query_source)
             except Exception as e:
                 capture_exception(e)
-                pass
 
-        insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
+        insight_url = self._build_insight_url(insight)
         hyperlink_format = f"[{name}]({insight_url})"
 
         summary_parts = [
@@ -420,7 +467,7 @@ class InsightSearchNode(AssistantNode):
 
         return " | ".join(summary_parts)
 
-    def _get_basic_query_info_from_insight(self, query_source: dict) -> str | None:
+    def _extract_query_metadata(self, query_source: dict) -> str | None:
         """Extract basic query information from Insight object without execution."""
         try:
             if not query_source:
@@ -433,9 +480,9 @@ class InsightSearchNode(AssistantNode):
             series = query_source.get("series", [])
             if series:
                 events = []
-                for s in series[:3]:
-                    if isinstance(s, dict):
-                        event_name = s.get("event", s.get("name", "Unknown"))
+                for series_item in series[: self.MAX_SERIES_TO_PROCESS]:
+                    if isinstance(series_item, dict):
+                        event_name = series_item.get("event", series_item.get("name", "Unknown"))
                         events.append(event_name)
                 if events:
                     info_parts.append(f"Events: {', '.join(events)}")
@@ -463,18 +510,17 @@ class InsightSearchNode(AssistantNode):
 
             insight_name = insight.name or insight.derived_name or "Unnamed Insight"
 
-            viz_message = VisualizationMessage.model_construct(
+            visualization_message = VisualizationMessage.model_construct(
                 query=f"Existing insight: {insight_name}",
                 plan=f"Showing existing insight: {insight_name}",
                 answer=query_obj,
                 id=str(uuid4()),
             )
 
-            return viz_message
+            return visualization_message
 
         except Exception as e:
             capture_exception(e)
-            logger.error(f"Error creating visualization message for insight {insight.id}: {e}", exc_info=True)
             return None
 
     def _create_error_response(self, content: str, tool_call_id: str | None) -> PartialAssistantState:
@@ -501,12 +547,27 @@ class InsightSearchNode(AssistantNode):
             user_query: The user's search query
             max_selections: Maximum number of insights to select (default: 1, best possible match)
         """
+        self._reset_evaluation_state()
+
+        insights_summary, final_selected_insights = self._prepare_insights_for_evaluation(selected_insights)
+
+        if not final_selected_insights:
+            return self._no_insights_found_result()
+
+        self._run_evaluation_loop(user_query, insights_summary, max_selections)
+
+        if self._evaluation_selections:
+            return self._create_successful_evaluation_result()
+        else:
+            return self._create_rejection_result()
+
+    def _reset_evaluation_state(self) -> None:
+        """Reset evaluation state for new evaluation."""
         self._evaluation_selections = {}
         self._rejection_reason = None
 
-        tools = self._create_insight_evaluation_tools()
-        llm_with_tools = self._model.bind_tools(tools)
-
+    def _prepare_insights_for_evaluation(self, selected_insights: list[int]) -> tuple[list[str], list[int]]:
+        """Prepare insights for evaluation."""
         insights_summary = []
         final_selected_insights = []
 
@@ -517,68 +578,94 @@ class InsightSearchNode(AssistantNode):
                 insights_summary.append(enhanced_summary)
                 final_selected_insights.append(insight_id)
 
-        if not final_selected_insights:
-            return {
-                "should_use_existing": False,
-                "selected_insights": [],
-                "explanation": "No insights found matching the user's query.",
-                "visualization_messages": [],
-            }
+        return insights_summary, final_selected_insights
 
-        selection_instruction = f"Select ONLY the {max_selections} BEST insight{'s' if max_selections > 1 else ''} that match{'es' if max_selections == 1 else ''} the user's query."
+    def _no_insights_found_result(self) -> dict:
+        """Return result when no insights are found."""
+        return {
+            "should_use_existing": False,
+            "selected_insights": [],
+            "explanation": "No insights found matching the user's query.",
+            "visualization_messages": [],
+        }
 
+    def _run_evaluation_loop(self, user_query: str, insights_summary: list[str], max_selections: int) -> None:
+        """Run the evaluation loop with LLM."""
+        tools = self._create_insight_evaluation_tools()
+        llm_with_tools = self._model.bind_tools(tools)
+
+        selection_instruction = self._build_selection_instruction(max_selections)
+        messages = self._build_evaluation_messages(user_query, insights_summary, selection_instruction)
+
+        for _ in range(self._max_insights_evaluation_iterations):
+            response = llm_with_tools.invoke(messages)
+
+            if getattr(response, "tool_calls", None):
+                self._process_evaluation_tool_calls(response, messages, tools)
+            else:
+                break
+
+    def _build_selection_instruction(self, max_selections: int) -> str:
+        """Build instruction for insight selection."""
+        insight_word = "insight" if max_selections == 1 else "insights"
+        verb = "matches" if max_selections == 1 else "match"
+        return f"Select ONLY the {max_selections} BEST {insight_word} that {verb} the user's query."
+
+    def _build_evaluation_messages(
+        self, user_query: str, insights_summary: list[str], selection_instruction: str
+    ) -> list[BaseMessage]:
+        """Build messages for evaluation."""
         system_prompt = TOOL_BASED_EVALUATION_SYSTEM_PROMPT.format(
             user_query=user_query,
             insights_summary=chr(10).join(insights_summary),
             selection_instruction=selection_instruction,
         )
+        return [SystemMessage(content=system_prompt)]
 
-        messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
+    def _process_evaluation_tool_calls(self, response, messages: list[BaseMessage], tools: list) -> None:
+        """Process tool calls during evaluation."""
+        messages.append(response)
 
-        for _ in range(self._max_insights_evaluation_iterations):
-            response = llm_with_tools.invoke(messages)
+        for tool_call in response.tool_calls:
+            if tool_call["name"] in ["select_insight", "reject_all_insights"]:
+                tool_fn = next(t for t in tools if t.name == tool_call["name"])
+                result = tool_fn.invoke(tool_call["args"])
+                messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
 
-            if hasattr(response, "tool_calls") and response.tool_calls:
-                messages.append(response)
+    def _create_successful_evaluation_result(self) -> dict:
+        """Create result for successful evaluation."""
+        visualization_messages = []
+        explanations = []
 
-                for tool_call in response.tool_calls:
-                    if tool_call["name"] in ["select_insight", "reject_all_insights"]:
-                        tool_fn = next(t for t in tools if t.name == tool_call["name"])
-                        result = tool_fn.invoke(tool_call["args"])
-                        messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
-            else:
-                break
+        for _insight_id, selection in self._evaluation_selections.items():
+            insight = selection["insight"]
+            visualization_message = self._create_visualization_message_for_insight(insight)
+            if visualization_message:
+                visualization_messages.append(visualization_message)
 
-        if self._evaluation_selections:
-            # Create visualization messages for selected insights
-            visualization_messages = []
-            explanations = []
+            insight_name = insight.name or insight.derived_name or "Unnamed"
+            insight_url = self._build_insight_url(insight)
+            insight_hyperlink = f"[{insight_name}]({insight_url})"
+            explanations.append(f"- {insight_hyperlink}: {selection['explanation']}")
 
-            for _insight_id, selection in self._evaluation_selections.items():
-                insight = selection["insight"]
-                viz_message = self._create_visualization_message_for_insight(insight)
-                if viz_message:
-                    visualization_messages.append(viz_message)
+        num_insights = len(self._evaluation_selections)
+        insight_word = "insight" if num_insights == 1 else "insights"
 
-                insight_name = insight.name or insight.derived_name or "Unnamed"
-                insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
-                insight_hyperlink = f"[{insight_name}]({insight_url})"
-                explanations.append(f"- {insight_hyperlink}: {selection['explanation']}")
+        return {
+            "should_use_existing": True,
+            "selected_insights": list(self._evaluation_selections.keys()),
+            "explanation": f"Found {num_insights} relevant {insight_word}:\n" + "\n".join(explanations),
+            "visualization_messages": visualization_messages,
+        }
 
-            return {
-                "should_use_existing": True,
-                "selected_insights": list(self._evaluation_selections.keys()),
-                "explanation": f"Found {len(self._evaluation_selections)} relevant insight{'s' if len(self._evaluation_selections) != 1 else ''}:\n"
-                + "\n".join(explanations),
-                "visualization_messages": visualization_messages,
-            }
-        else:
-            return {
-                "should_use_existing": False,
-                "selected_insights": [],
-                "explanation": self._rejection_reason or "No suitable insights found.",
-                "visualization_messages": [],
-            }
+    def _create_rejection_result(self) -> dict:
+        """Create result for when all insights are rejected."""
+        return {
+            "should_use_existing": False,
+            "selected_insights": [],
+            "explanation": self._rejection_reason or "No suitable insights found.",
+            "visualization_messages": [],
+        }
 
     def router(self, state: AssistantState) -> Literal["root"]:
         return "root"

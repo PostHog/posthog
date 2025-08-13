@@ -437,7 +437,7 @@ class TestInsightSearchNode(BaseTest):
     def test_create_read_insights_tool(self):
         """Test creating the read insights tool."""
         # The tool will load pages on demand, no need to pre-load
-        tool = self.node._create_read_insights_tool()
+        tool = self.node._create_page_reader_tool()
 
         # Test the tool function
         result = tool.invoke({"page_number": 0})
@@ -449,7 +449,7 @@ class TestInsightSearchNode(BaseTest):
     def test_read_insights_tool_empty_page(self):
         """Test read insights tool with empty page."""
         # The tool will load pages on demand, no need to pre-load
-        tool = self.node._create_read_insights_tool()
+        tool = self.node._create_page_reader_tool()
 
         # Test beyond available pages
         result = tool.invoke({"page_number": 10})
@@ -576,7 +576,7 @@ class TestInsightSearchNode(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        query_info = self.node._get_basic_query_info_from_insight(query_source)
+        query_info = self.node._extract_query_metadata(query_source)
 
         self.assertIsNotNone(query_info)
         self.assertIn("Events:", query_info)
@@ -584,7 +584,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn("Period:", query_info)
 
         # Test with empty query source
-        query_info_empty = self.node._get_basic_query_info_from_insight({})
+        query_info_empty = self.node._extract_query_metadata({})
         self.assertIsNone(query_info_empty)
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
