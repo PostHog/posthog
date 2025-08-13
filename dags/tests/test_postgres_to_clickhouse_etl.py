@@ -151,28 +151,30 @@ class TestDatabaseOperations:
         assert len(teams) == 1
         assert teams[0]["name"] == "Team 1"
 
-    def test_create_clickhouse_tables(self):
+    @patch("dags.postgres_to_clickhouse_etl.run_sql_with_exceptions")
+    def test_create_clickhouse_tables(self, mock_run_sql):
         """Test ClickHouse table creation."""
-        mock_client = MagicMock()
+        create_clickhouse_tables()
 
-        create_clickhouse_tables(mock_client)
+        # Verify both tables were created with correct node role
+        assert mock_run_sql.call_count == 2
 
-        # Verify both tables were created
-        assert mock_client.execute.call_count == 2
-        calls = mock_client.execute.call_args_list
+        # Check that NodeRole.ALL was used for both calls
+        from posthog.clickhouse.client.connection import NodeRole
 
-        # Check organization table creation
+        calls = mock_run_sql.call_args_list
+
+        # First call should be for organization table
         assert "CREATE TABLE IF NOT EXISTS models.posthog_organization" in calls[0][0][0]
-        assert "ReplacingMergeTree" in calls[0][0][0]
+        assert calls[0][1]["node_role"] == NodeRole.ALL
 
-        # Check team table creation
+        # Second call should be for team table
         assert "CREATE TABLE IF NOT EXISTS models.posthog_team" in calls[1][0][0]
-        assert "ReplacingMergeTree" in calls[1][0][0]
+        assert calls[1][1]["node_role"] == NodeRole.ALL
 
-    def test_insert_organizations_to_clickhouse(self):
+    @patch("dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_insert_organizations_to_clickhouse(self, mock_sync_execute):
         """Test inserting organizations into ClickHouse."""
-        mock_client = MagicMock()
-
         organizations = [
             {
                 "id": 1,
@@ -202,19 +204,18 @@ class TestDatabaseOperations:
             },
         ]
 
-        rows_inserted = insert_organizations_to_clickhouse(mock_client, organizations, batch_size=10)
+        rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=10)
 
         assert rows_inserted == 2
-        assert mock_client.execute.call_count == 1
+        assert mock_sync_execute.call_count == 1
 
         # Verify INSERT statement
-        call_args = mock_client.execute.call_args[0]
+        call_args = mock_sync_execute.call_args[0]
         assert "INSERT INTO models.posthog_organization" in call_args[0]
 
-    def test_insert_teams_to_clickhouse(self):
+    @patch("dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_insert_teams_to_clickhouse(self, mock_sync_execute):
         """Test inserting teams into ClickHouse."""
-        mock_client = MagicMock()
-
         teams = [
             {
                 "id": 1,
@@ -230,26 +231,22 @@ class TestDatabaseOperations:
             }
         ]
 
-        rows_inserted = insert_teams_to_clickhouse(mock_client, teams, batch_size=10)
+        rows_inserted = insert_teams_to_clickhouse(teams, batch_size=10)
 
         assert rows_inserted == 1
-        assert mock_client.execute.call_count == 1
+        assert mock_sync_execute.call_count == 1
 
 
 class TestOps:
     """Test Dagster ops."""
 
+    @patch("dags.postgres_to_clickhouse_etl.sync_execute")
     @patch("dags.postgres_to_clickhouse_etl.get_postgres_connection")
     @patch("dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_sync_organizations_op(self, mock_create_tables, mock_get_pg_conn):
+    def test_sync_organizations_op(self, mock_create_tables, mock_get_pg_conn, mock_sync_execute):
         """Test the sync_organizations op."""
-        # Setup mocks
-        mock_cluster = MagicMock()
-        mock_ch_client = MagicMock()
-        mock_cluster.get_client.return_value = mock_ch_client
-
         # Mock ClickHouse last sync query
-        mock_ch_client.execute.return_value = [[datetime(2024, 1, 1)]]
+        mock_sync_execute.return_value = [[datetime(2024, 1, 1)]]
 
         # Mock Postgres connection and data
         mock_pg_conn = MagicMock()
@@ -271,7 +268,7 @@ class TestOps:
                 }
             )
 
-            result = sync_organizations(context, mock_cluster)
+            result = sync_organizations(context)
 
             assert isinstance(result, ETLState)
             assert result.rows_synced == 1
@@ -279,21 +276,17 @@ class TestOps:
             assert len(result.errors) == 0
 
             # Verify calls
-            mock_create_tables.assert_called_once_with(mock_ch_client)
+            mock_create_tables.assert_called_once()
             mock_fetch.assert_called_once()
             mock_insert.assert_called_once()
 
+    @patch("dags.postgres_to_clickhouse_etl.sync_execute")
     @patch("dags.postgres_to_clickhouse_etl.get_postgres_connection")
     @patch("dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_sync_teams_op(self, mock_create_tables, mock_get_pg_conn):
+    def test_sync_teams_op(self, mock_create_tables, mock_get_pg_conn, mock_sync_execute):
         """Test the sync_teams op."""
-        # Setup mocks
-        mock_cluster = MagicMock()
-        mock_ch_client = MagicMock()
-        mock_cluster.get_client.return_value = mock_ch_client
-
         # Mock ClickHouse last sync query
-        mock_ch_client.execute.return_value = [[None]]
+        mock_sync_execute.return_value = [[None]]
 
         # Mock Postgres connection
         mock_pg_conn = MagicMock()
@@ -317,21 +310,18 @@ class TestOps:
                 }
             )
 
-            result = sync_teams(context, mock_cluster)
+            result = sync_teams(context)
 
             assert isinstance(result, ETLState)
             assert result.rows_synced == 1
             assert result.last_sync_timestamp == datetime(2024, 1, 2)
             assert len(result.errors) == 0
 
-    def test_verify_sync_op(self):
+    @patch("dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_verify_sync_op(self, mock_sync_execute):
         """Test the verify_sync op."""
-        mock_cluster = MagicMock()
-        mock_ch_client = MagicMock()
-        mock_cluster.get_client.return_value = mock_ch_client
-
         # Mock ClickHouse counts
-        mock_ch_client.execute.side_effect = [
+        mock_sync_execute.side_effect = [
             [[100]],  # organization count
             [[150]],  # team count
         ]
@@ -341,7 +331,7 @@ class TestOps:
         team_state = ETLState(rows_synced=15, last_sync_timestamp=datetime.now())
 
         context = build_op_context()
-        result = verify_sync(context, mock_cluster, org_state, team_state)
+        result = verify_sync(context, org_state, team_state)
 
         assert result["success"] is True
         assert result["organizations"]["clickhouse_count"] == 100
@@ -349,13 +339,11 @@ class TestOps:
         assert result["organizations"]["rows_synced"] == 10
         assert result["teams"]["rows_synced"] == 15
 
+    @patch("dags.postgres_to_clickhouse_etl.sync_execute")
     @patch("dags.postgres_to_clickhouse_etl.get_postgres_connection")
     @patch("dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_sync_organizations_full_refresh(self, mock_create_tables, mock_get_pg_conn):
+    def test_sync_organizations_full_refresh(self, mock_create_tables, mock_get_pg_conn, mock_sync_execute):
         """Test sync_organizations with full refresh."""
-        mock_cluster = MagicMock()
-        mock_ch_client = MagicMock()
-        mock_cluster.get_client.return_value = mock_ch_client
 
         mock_pg_conn = MagicMock()
         mock_get_pg_conn.return_value = mock_pg_conn
@@ -375,10 +363,10 @@ class TestOps:
                 }
             )
 
-            result = sync_organizations(context, mock_cluster)
+            result = sync_organizations(context)
 
             # Verify truncate was called for full refresh
-            mock_ch_client.execute.assert_any_call("TRUNCATE TABLE models.posthog_organization")
+            mock_sync_execute.assert_any_call("TRUNCATE TABLE models.posthog_organization")
 
             assert result.rows_synced == 0
             assert len(result.errors) == 0
@@ -391,9 +379,6 @@ class TestErrorHandling:
     @patch("dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
     def test_sync_organizations_handles_errors(self, mock_create_tables, mock_get_pg_conn):
         """Test that sync_organizations handles errors properly."""
-        mock_cluster = MagicMock()
-        mock_ch_client = MagicMock()
-        mock_cluster.get_client.return_value = mock_ch_client
 
         mock_pg_conn = MagicMock()
         mock_get_pg_conn.return_value = mock_pg_conn
@@ -410,7 +395,7 @@ class TestErrorHandling:
             )
 
             with pytest.raises(Exception, match="Database connection failed"):
-                sync_organizations(context, mock_cluster)
+                sync_organizations(context)
 
             # Verify connection was closed even on error
             mock_pg_conn.close.assert_called_once()
@@ -467,10 +452,6 @@ class TestPartitioning:
         """Test that assets process correct hourly time windows."""
         from dagster import build_asset_context
 
-        mock_cluster = MagicMock()
-        mock_ch_client = MagicMock()
-        mock_cluster.get_client.return_value = mock_ch_client
-
         mock_pg_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = []
@@ -482,7 +463,7 @@ class TestPartitioning:
         context = build_asset_context(partition_key=partition_key)
 
         # Run the asset
-        organizations_in_clickhouse(context, mock_cluster)
+        organizations_in_clickhouse(context)
 
         # Verify the query was for the correct time window
         mock_cursor.execute.assert_called_once()

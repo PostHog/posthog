@@ -8,7 +8,6 @@ from dataclasses import dataclass
 import json
 
 import dagster
-from clickhouse_driver.client import Client
 from django.conf import settings
 from dagster import (
     AssetExecutionContext,
@@ -24,7 +23,10 @@ from dagster import (
 )
 from dagster._core.definitions.backfill_policy import BackfillPolicy
 
-from dags.common import ClickhouseClusterResource, JobOwners
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from dags.common import JobOwners
 
 
 class PostgresToClickHouseETLConfig(Config):
@@ -72,11 +74,9 @@ def get_postgres_connection():
     )
 
 
-def create_clickhouse_tables(client: Client) -> None:
-    """Create the organization and team tables in ClickHouse if they don't exist."""
-
-    # Create posthog_organization table
-    client.execute("""
+def get_organization_table_sql() -> str:
+    """Get SQL for creating the organization table."""
+    return """
         CREATE TABLE IF NOT EXISTS models.posthog_organization (
             id Int64,
             uuid UUID,
@@ -110,10 +110,12 @@ def create_clickhouse_tables(client: Client) -> None:
         ENGINE = ReplacingMergeTree(_inserted_at)
         ORDER BY (id, updated_at)
         SETTINGS index_granularity = 8192
-    """)
+    """
 
-    # Create posthog_team table
-    client.execute("""
+
+def get_team_table_sql() -> str:
+    """Get SQL for creating the team table."""
+    return """
         CREATE TABLE IF NOT EXISTS models.posthog_team (
             id Int64,
             uuid UUID,
@@ -199,7 +201,14 @@ def create_clickhouse_tables(client: Client) -> None:
         ENGINE = ReplacingMergeTree(_inserted_at)
         ORDER BY (organization_id, id, updated_at)
         SETTINGS index_granularity = 8192
-    """)
+    """
+
+
+def create_clickhouse_tables() -> None:
+    """Create the organization and team tables in ClickHouse on all nodes."""
+    # Create tables on all nodes
+    run_sql_with_exceptions(get_organization_table_sql(), node_role=NodeRole.ALL)
+    run_sql_with_exceptions(get_team_table_sql(), node_role=NodeRole.ALL)
 
 
 def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
@@ -474,7 +483,7 @@ def transform_team_row(row: dict) -> dict:
     return row
 
 
-def insert_organizations_to_clickhouse(client: Client, organizations: list[dict], batch_size: int = 10000) -> int:
+def insert_organizations_to_clickhouse(organizations: list[dict], batch_size: int = 10000) -> int:
     """Insert organizations into ClickHouse."""
     if not organizations:
         return 0
@@ -489,15 +498,24 @@ def insert_organizations_to_clickhouse(client: Client, organizations: list[dict]
     total_inserted = 0
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
-        values = [[row.get(col) for col in columns] for row in batch]
 
-        client.execute(f"INSERT INTO models.posthog_organization ({', '.join(columns)}) VALUES", values)
+        # Build parameterized query
+        placeholders = ", ".join([f"({', '.join(['%s'] * len(columns))})" for _ in batch])
+        query = f"INSERT INTO models.posthog_organization ({', '.join(columns)}) VALUES {placeholders}"
+
+        # Flatten values for parameterized query
+        values = []
+        for row in batch:
+            for col in columns:
+                values.append(row.get(col))
+
+        sync_execute(query, values)
         total_inserted += len(batch)
 
     return total_inserted
 
 
-def insert_teams_to_clickhouse(client: Client, teams: list[dict], batch_size: int = 10000) -> int:
+def insert_teams_to_clickhouse(teams: list[dict], batch_size: int = 10000) -> int:
     """Insert teams into ClickHouse."""
     if not teams:
         return 0
@@ -512,9 +530,18 @@ def insert_teams_to_clickhouse(client: Client, teams: list[dict], batch_size: in
     total_inserted = 0
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
-        values = [[row.get(col) for col in columns] for row in batch]
 
-        client.execute(f"INSERT INTO models.posthog_team ({', '.join(columns)}) VALUES", values)
+        # Build parameterized query
+        placeholders = ", ".join([f"({', '.join(['%s'] * len(columns))})" for _ in batch])
+        query = f"INSERT INTO models.posthog_team ({', '.join(columns)}) VALUES {placeholders}"
+
+        # Flatten values for parameterized query
+        values = []
+        for row in batch:
+            for col in columns:
+                values.append(row.get(col))
+
+        sync_execute(query, values)
         total_inserted += len(batch)
 
     return total_inserted
@@ -524,28 +551,24 @@ def insert_teams_to_clickhouse(client: Client, teams: list[dict], batch_size: in
 def sync_organizations(
     context: OpExecutionContext,
     config: PostgresToClickHouseETLConfig,
-    cluster: dagster.ResourceParam[ClickhouseClusterResource],
 ) -> ETLState:
     """Sync organizations from Postgres to ClickHouse."""
     state = ETLState()
 
-    # Get ClickHouse client
-    ch_client = cluster.get_client()
-
     # Create tables if they don't exist
-    create_clickhouse_tables(ch_client)
+    create_clickhouse_tables()
 
     # Get last sync timestamp from ClickHouse (if incremental)
     last_sync = None
     if not config.full_refresh:
-        result = ch_client.execute("SELECT max(updated_at) FROM models.posthog_organization")
+        result = sync_execute("SELECT max(updated_at) FROM models.posthog_organization")
         if result and result[0][0]:
             last_sync = result[0][0]
             context.log.info(f"Last sync timestamp for organizations: {last_sync}")
 
     # If full refresh, truncate the table
     if config.full_refresh:
-        ch_client.execute("TRUNCATE TABLE models.posthog_organization")
+        sync_execute("TRUNCATE TABLE models.posthog_organization")
         context.log.info("Truncated posthog_organization table for full refresh")
 
     # Connect to Postgres and fetch data
@@ -556,7 +579,7 @@ def sync_organizations(
 
         # Insert into ClickHouse
         if organizations:
-            rows_inserted = insert_organizations_to_clickhouse(ch_client, organizations, batch_size=config.batch_size)
+            rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=config.batch_size)
             state.rows_synced = rows_inserted
             state.last_sync_timestamp = max(org["updated_at"] for org in organizations)
             context.log.info(f"Inserted {rows_inserted} organizations into ClickHouse")
@@ -586,28 +609,24 @@ def sync_organizations(
 def sync_teams(
     context: OpExecutionContext,
     config: PostgresToClickHouseETLConfig,
-    cluster: dagster.ResourceParam[ClickhouseClusterResource],
 ) -> ETLState:
     """Sync teams from Postgres to ClickHouse."""
     state = ETLState()
 
-    # Get ClickHouse client
-    ch_client = cluster.get_client()
-
     # Create tables if they don't exist
-    create_clickhouse_tables(ch_client)
+    create_clickhouse_tables()
 
     # Get last sync timestamp from ClickHouse (if incremental)
     last_sync = None
     if not config.full_refresh:
-        result = ch_client.execute("SELECT max(updated_at) FROM models.posthog_team")
+        result = sync_execute("SELECT max(updated_at) FROM models.posthog_team")
         if result and result[0][0]:
             last_sync = result[0][0]
             context.log.info(f"Last sync timestamp for teams: {last_sync}")
 
     # If full refresh, truncate the table
     if config.full_refresh:
-        ch_client.execute("TRUNCATE TABLE models.posthog_team")
+        sync_execute("TRUNCATE TABLE models.posthog_team")
         context.log.info("Truncated posthog_team table for full refresh")
 
     # Connect to Postgres and fetch data
@@ -618,7 +637,7 @@ def sync_teams(
 
         # Insert into ClickHouse
         if teams:
-            rows_inserted = insert_teams_to_clickhouse(ch_client, teams, batch_size=config.batch_size)
+            rows_inserted = insert_teams_to_clickhouse(teams, batch_size=config.batch_size)
             state.rows_synced = rows_inserted
             state.last_sync_timestamp = max(team["updated_at"] for team in teams)
             context.log.info(f"Inserted {rows_inserted} teams into ClickHouse")
@@ -647,16 +666,13 @@ def sync_teams(
 @op
 def verify_sync(
     context: OpExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseClusterResource],
     org_state: ETLState,
     team_state: ETLState,
 ) -> dict[str, Any]:
     """Verify the sync was successful by checking row counts."""
-    ch_client = cluster.get_client()
-
     # Get counts from ClickHouse
-    org_count_result = ch_client.execute("SELECT count(*) FROM models.posthog_organization")
-    team_count_result = ch_client.execute("SELECT count(*) FROM models.posthog_team")
+    org_count_result = sync_execute("SELECT count(*) FROM models.posthog_organization")
+    team_count_result = sync_execute("SELECT count(*) FROM models.posthog_team")
 
     org_count = org_count_result[0][0] if org_count_result else 0
     team_count = team_count_result[0][0] if team_count_result else 0
@@ -715,16 +731,12 @@ def postgres_to_clickhouse_etl_job():
 )
 def organizations_in_clickhouse(
     context: AssetExecutionContext,
-    cluster: ClickhouseClusterResource,
 ) -> None:
     """Asset representing organizations data in ClickHouse."""
     config = PostgresToClickHouseETLConfig(full_refresh=False)
 
-    # Get ClickHouse client
-    ch_client = cluster.get_client()
-
     # Create tables if they don't exist
-    create_clickhouse_tables(ch_client)
+    create_clickhouse_tables()
 
     # Determine the time window for this partition
     partition_key = context.partition_key
@@ -751,7 +763,7 @@ def organizations_in_clickhouse(
 
         # Insert into ClickHouse
         if organizations:
-            rows_inserted = insert_organizations_to_clickhouse(ch_client, organizations, batch_size=config.batch_size)
+            rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=config.batch_size)
             context.log.info(f"Inserted {rows_inserted} organizations into ClickHouse")
 
         cursor.close()
@@ -767,16 +779,12 @@ def organizations_in_clickhouse(
 )
 def teams_in_clickhouse(
     context: AssetExecutionContext,
-    cluster: ClickhouseClusterResource,
 ) -> None:
     """Asset representing teams data in ClickHouse."""
     config = PostgresToClickHouseETLConfig(full_refresh=False)
 
-    # Get ClickHouse client
-    ch_client = cluster.get_client()
-
     # Create tables if they don't exist
-    create_clickhouse_tables(ch_client)
+    create_clickhouse_tables()
 
     # Determine the time window for this partition
     partition_key = context.partition_key
@@ -803,7 +811,7 @@ def teams_in_clickhouse(
 
         # Insert into ClickHouse
         if teams:
-            rows_inserted = insert_teams_to_clickhouse(ch_client, teams, batch_size=config.batch_size)
+            rows_inserted = insert_teams_to_clickhouse(teams, batch_size=config.batch_size)
             context.log.info(f"Inserted {rows_inserted} teams into ClickHouse")
 
         cursor.close()
