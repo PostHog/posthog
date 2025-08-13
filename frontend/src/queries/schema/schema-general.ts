@@ -331,6 +331,7 @@ export interface HogQLQueryModifiers {
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     optimizeJoinedFilters?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
+    /** Include debug information (error details, timings, and HogQL) in responses. Defaults to false. */
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
