@@ -158,6 +158,7 @@ import {
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
+    ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -961,6 +962,14 @@ export class ApiRequest {
 
     public errorTrackingReorderRules(rule: ErrorTrackingRuleType): ApiRequest {
         return this.errorTrackingRules(rule).addPathComponent('reorder')
+    }
+
+    public errorTrackingReleases(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('releases')
+    }
+
+    public errorTrackingRelease(id: ErrorTrackingRelease['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingReleases(teamId).addPathComponent(id)
     }
 
     // # Warehouse
@@ -2685,6 +2694,35 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingExternalReference()
                 .create({ data: { integration_id: integrationId, issue: issueId, config } })
+        },
+
+        releases: {
+            async list(params?: {
+                offset?: number
+                limit?: number
+            }): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
+                const queryParams = { order_by: '-created_at', ...params }
+                return await new ApiRequest().errorTrackingReleases().withQueryString(toParams(queryParams)).get()
+            },
+
+            async get(id: ErrorTrackingRelease['id']): Promise<ErrorTrackingRelease> {
+                return await new ApiRequest().errorTrackingRelease(id).get()
+            },
+
+            async create(data: Partial<ErrorTrackingRelease>): Promise<ErrorTrackingRelease> {
+                return await new ApiRequest().errorTrackingReleases().create({ data })
+            },
+
+            async update(
+                id: ErrorTrackingRelease['id'],
+                data: Partial<ErrorTrackingRelease>
+            ): Promise<ErrorTrackingRelease> {
+                return await new ApiRequest().errorTrackingRelease(id).update({ data })
+            },
+
+            async delete(id: ErrorTrackingRelease['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingRelease(id).delete()
+            },
         },
     },
 

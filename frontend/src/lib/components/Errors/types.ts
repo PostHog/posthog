@@ -127,3 +127,13 @@ export type ErrorEventType = {
     properties: ErrorEventProperties
     person: PersonType
 }
+
+export interface ErrorTrackingRelease {
+    id: string
+    hash_id: string
+    team_id: number
+    created_at: string
+    metadata: Record<string, any> | null
+    version: string
+    project: string
+}
