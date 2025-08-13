@@ -3,7 +3,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
-use kafka_deduplicator::event::EventData;
+use common_types::RawEvent;
 use kafka_deduplicator::rocksdb::deduplication_store::{
     DeduplicationStore, DeduplicationStoreConfig,
 };
@@ -193,17 +193,18 @@ fn create_test_dedup_store() -> (DeduplicationStore, TempDir) {
     (store, temp_dir)
 }
 
-fn create_test_event(distinct_id: &str, token: &str, event_name: &str) -> EventData {
-    EventData {
-        timestamp: std::time::SystemTime::now()
+fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
+    RawEvent {
+        uuid: None,
+        event: event_name.to_string(),
+        distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
+        token: Some(token.to_string()),
+        properties: std::collections::HashMap::new(),
+        timestamp: Some(std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs(),
-        distinct_id: distinct_id.to_string(),
-        token: token.to_string(),
-        event_name: event_name.to_string(),
-        source: 1,
-        team_id: 100,
+            .as_secs().to_string()),
+        ..Default::default()
     }
 }
 
@@ -235,8 +236,8 @@ async fn test_manual_checkpoint() {
 
     // Add some test data
     let events = vec![
-        create_test_event("user1", "token1", "event1"),
-        create_test_event("user2", "token1", "event2"),
+        create_test_raw_event("user1", "token1", "event1"),
+        create_test_raw_event("user2", "token1", "event2"),
     ];
     store.handle_event_batch(events).unwrap();
 
@@ -344,8 +345,8 @@ async fn test_checkpoint_with_mock_uploader() {
 
     // Add some test data
     let events = vec![
-        create_test_event("user1", "token1", "event1"),
-        create_test_event("user2", "token1", "event2"),
+        create_test_raw_event("user1", "token1", "event1"),
+        create_test_raw_event("user2", "token1", "event2"),
     ];
     store.handle_event_batch(events).unwrap();
 
@@ -383,7 +384,7 @@ async fn test_incremental_vs_full_upload() {
     let temp_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
 
-    let events = vec![create_test_event("user1", "token1", "event1")];
+    let events = vec![create_test_raw_event("user1", "token1", "event1")];
     store.handle_event_batch(events).unwrap();
 
     let config = CheckpointConfig {
@@ -444,7 +445,7 @@ async fn test_unavailable_uploader() {
     let temp_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
 
-    let events = vec![create_test_event("user1", "token1", "event1")];
+    let events = vec![create_test_raw_event("user1", "token1", "event1")];
     store.handle_event_batch(events).unwrap();
 
     let config = CheckpointConfig {

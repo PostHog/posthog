@@ -7,16 +7,16 @@ use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use super::generic_context::GenericConsumerContext;
+use super::stateful_context::StatefulConsumerContext;
 use super::message::{AckableMessage, MessageProcessor};
 use super::rebalance_handler::RebalanceHandler;
 use super::tracker::{InFlightTracker, TrackerStats};
 
-/// Generic Kafka consumer that works with any ConsumerContext
-/// This consumer handles the basic consumption loop and message processing patterns
-pub struct GenericKafkaConsumer<P: MessageProcessor> {
-    /// Kafka consumer instance with generic context
-    consumer: StreamConsumer<GenericConsumerContext>,
+/// Stateful Kafka consumer that coordinates with external state systems
+/// This consumer ensures sequential offset commits and coordinated partition revocation
+pub struct StatefulKafkaConsumer<P: MessageProcessor> {
+    /// Kafka consumer instance with stateful context
+    consumer: StreamConsumer<StatefulConsumerContext>,
 
     /// Message processor for handling business logic
     message_processor: Arc<P>,
@@ -31,10 +31,10 @@ pub struct GenericKafkaConsumer<P: MessageProcessor> {
     commit_interval: Duration,
 }
 
-impl<P: MessageProcessor> GenericKafkaConsumer<P> {
-    /// Create a new generic Kafka consumer
+impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
+    /// Create a new stateful Kafka consumer
     pub fn new(
-        consumer: StreamConsumer<GenericConsumerContext>,
+        consumer: StreamConsumer<StatefulConsumerContext>,
         message_processor: P,
         max_in_flight_messages: usize,
     ) -> Self {
@@ -46,7 +46,7 @@ impl<P: MessageProcessor> GenericKafkaConsumer<P> {
         )
     }
 
-    /// Create a new generic Kafka consumer with integrated tracker and context
+    /// Create a new stateful Kafka consumer with integrated tracker and context
     /// This is the recommended way to create consumers for production use
     pub fn from_config(
         config: &rdkafka::ClientConfig,
@@ -63,7 +63,7 @@ impl<P: MessageProcessor> GenericKafkaConsumer<P> {
         )
     }
 
-    /// Create a new generic Kafka consumer with integrated tracker, context, and custom commit interval
+    /// Create a new stateful Kafka consumer with integrated tracker, context, and custom commit interval
     pub fn from_config_with_commit_interval(
         config: &rdkafka::ClientConfig,
         rebalance_handler: Arc<dyn RebalanceHandler>,
@@ -72,9 +72,9 @@ impl<P: MessageProcessor> GenericKafkaConsumer<P> {
         commit_interval: Duration,
     ) -> Result<Self> {
         let tracker = Arc::new(InFlightTracker::new());
-        let context = GenericConsumerContext::with_tracker(rebalance_handler, tracker.clone());
+        let context = StatefulConsumerContext::with_tracker(rebalance_handler, tracker.clone());
 
-        let consumer: StreamConsumer<GenericConsumerContext> =
+        let consumer: StreamConsumer<StatefulConsumerContext> =
             config.create_with_context(context)?;
 
         let global_semaphore = Arc::new(Semaphore::new(max_in_flight_messages));
@@ -88,9 +88,9 @@ impl<P: MessageProcessor> GenericKafkaConsumer<P> {
         })
     }
 
-    /// Create a new generic Kafka consumer with custom commit interval
+    /// Create a new stateful Kafka consumer with custom commit interval
     pub fn with_commit_interval(
-        consumer: StreamConsumer<GenericConsumerContext>,
+        consumer: StreamConsumer<StatefulConsumerContext>,
         message_processor: P,
         max_in_flight_messages: usize,
         commit_interval: Duration,
@@ -109,7 +109,7 @@ impl<P: MessageProcessor> GenericKafkaConsumer<P> {
 
     /// Start consuming messages in a loop
     pub async fn start_consumption(self) -> Result<()> {
-        info!("Starting generic Kafka message consumption");
+        info!("Starting stateful Kafka message consumption");
 
         let mut commit_interval = tokio::time::interval(self.commit_interval);
 
@@ -222,7 +222,7 @@ impl<P: MessageProcessor> GenericKafkaConsumer<P> {
     }
 
     /// Get the underlying consumer (for advanced usage)
-    pub fn inner_consumer(&self) -> &StreamConsumer<GenericConsumerContext> {
+    pub fn inner_consumer(&self) -> &StreamConsumer<StatefulConsumerContext> {
         &self.consumer
     }
 }

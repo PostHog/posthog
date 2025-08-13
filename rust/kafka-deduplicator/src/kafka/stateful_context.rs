@@ -17,9 +17,9 @@ enum RebalanceEvent {
     Assign(Vec<(String, i32)>),
 }
 
-/// Generic Kafka consumer context that delegates rebalance events to user-provided handlers
-/// This handles all the rdkafka ConsumerContext complexity internally
-pub struct GenericConsumerContext {
+/// Stateful Kafka consumer context that coordinates with external state systems
+/// This handles rebalance events and message tracking for sequential offset commits
+pub struct StatefulConsumerContext {
     rebalance_handler: Arc<dyn RebalanceHandler>,
     /// Optional tracker for coordinating partition revocation with in-flight messages
     tracker: Option<Arc<InFlightTracker>>,
@@ -29,7 +29,7 @@ pub struct GenericConsumerContext {
     rebalance_tx: Option<mpsc::UnboundedSender<RebalanceEvent>>,
 }
 
-impl GenericConsumerContext {
+impl StatefulConsumerContext {
     pub fn new(rebalance_handler: Arc<dyn RebalanceHandler>) -> Self {
         Self {
             rebalance_handler,
@@ -117,9 +117,9 @@ impl GenericConsumerContext {
     }
 }
 
-impl ClientContext for GenericConsumerContext {}
+impl ClientContext for StatefulConsumerContext {}
 
-impl ConsumerContext for GenericConsumerContext {
+impl ConsumerContext for StatefulConsumerContext {
     fn pre_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         info!("Pre-rebalance event: {:?}", rebalance);
 
@@ -329,7 +329,7 @@ mod tests {
     #[tokio::test]
     async fn test_partition_assignment_callback() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = GenericConsumerContext::new(handler.clone());
+        let context = StatefulConsumerContext::new(handler.clone());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
         let partitions = create_test_partition_list();
 
@@ -353,7 +353,7 @@ mod tests {
     #[tokio::test]
     async fn test_partition_revocation_callback() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = GenericConsumerContext::new(handler.clone());
+        let context = StatefulConsumerContext::new(handler.clone());
         let partitions = create_test_partition_list();
 
         // Simulate pre_rebalance with revocation
@@ -377,7 +377,7 @@ mod tests {
     #[tokio::test]
     async fn test_rebalance_error_handling() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = GenericConsumerContext::new(handler.clone());
+        let context = StatefulConsumerContext::new(handler.clone());
 
         // Simulate rebalance error
         let error = rdkafka::error::KafkaError::ConsumerCommit(
@@ -401,7 +401,7 @@ mod tests {
     #[tokio::test]
     async fn test_commit_callback_success() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = GenericConsumerContext::new(handler);
+        let context = StatefulConsumerContext::new(handler);
         let partitions = create_test_partition_list();
 
         // Test successful commit - should not panic
@@ -411,7 +411,7 @@ mod tests {
     #[tokio::test]
     async fn test_commit_callback_failure() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = GenericConsumerContext::new(handler);
+        let context = StatefulConsumerContext::new(handler);
         let partitions = create_test_partition_list();
 
         // Test failed commit - should not panic
@@ -425,7 +425,7 @@ mod tests {
     async fn test_context_with_tracker_partition_revocation() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = GenericConsumerContext::with_tracker(handler.clone(), tracker.clone());
+        let context = StatefulConsumerContext::with_tracker(handler.clone(), tracker.clone());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
         
         // Track some messages in different partitions
@@ -491,7 +491,7 @@ mod tests {
     async fn test_context_with_tracker_partition_assignment() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = GenericConsumerContext::with_tracker(handler.clone(), tracker.clone());
+        let context = StatefulConsumerContext::with_tracker(handler.clone(), tracker.clone());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
         
         // Initially fence some partitions
@@ -528,7 +528,7 @@ mod tests {
     async fn test_context_without_tracker_compatibility() {
         // Test that context without tracker still works (backward compatibility)
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = GenericConsumerContext::new(handler.clone());
+        let context = StatefulConsumerContext::new(handler.clone());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
         
         let partitions = create_test_partition_list();
