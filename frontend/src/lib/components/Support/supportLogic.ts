@@ -411,7 +411,7 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
-    exception_event?: any
+    exception_event?: { uuid: string; event: string; properties?: any } | null
     isEmailFormOpen?: boolean | 'true' | 'false'
 }
 

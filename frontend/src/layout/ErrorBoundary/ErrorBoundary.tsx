@@ -2,6 +2,7 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
@@ -9,7 +10,7 @@ import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 // Global variable to store the most recent exception event
-let globalLastExceptionEvent: any = null
+let globalLastExceptionEvent: { uuid: string; event: string; properties?: any } | null = null
 let globalExceptionListener: (() => void) | null = null
 
 // Set up global listener for exception events (only once)
@@ -48,8 +49,16 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
                 const { stack, name, message } = normalizedError
 
-                // Use the globally captured exception event
-                const exceptionEvent = globalLastExceptionEvent
+                // Capture the exception that was current when this ErrorBoundary first triggered
+                // Use useRef to ensure we only capture it once per error boundary instance
+                const capturedExceptionRef = useRef<{ uuid: string; event: string; properties?: any } | null>(null)
+
+                // Only capture once - when this fallback first renders for this error
+                if (capturedExceptionRef.current === null) {
+                    capturedExceptionRef.current = globalLastExceptionEvent
+                }
+
+                const exceptionEvent = capturedExceptionRef.current
 
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
