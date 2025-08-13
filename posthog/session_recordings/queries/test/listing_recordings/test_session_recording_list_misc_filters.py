@@ -485,7 +485,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
         )
         create_event(
             team=self.team,
-            distinct_id=user,
+            distinct_id=second_user,
             timestamp=self.an_hour_ago + relativedelta(seconds=10),
             event_name="custom_event",
             properties={"$session_id": session_id_two},
@@ -544,36 +544,36 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
 
     @parameterized.expand(
         [
-            # Case 1: Neither has WARN and message "random"
             (
+                "Neither has WARN and message 'random'",
                 '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
                 "AND",
                 0,
                 [],
             ),
-            # Case 2: AND only matches one recording
             (
+                "AND only matches one recording",
                 '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
                 "AND",
                 1,
                 ["both_log_filters"],
             ),
-            # Case 3: Only one is WARN level
             (
+                "Only one is WARN level",
                 '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}]',
                 "AND",
                 1,
                 ["one_log_filter"],
             ),
-            # Case 4: Only one has message "random"
             (
+                "Only one has message 'random'",
                 '[{"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
                 "AND",
                 1,
                 ["both_log_filters"],
             ),
-            # Case 5: OR matches both
             (
+                "OR matches both",
                 '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
                 "OR",
                 2,
@@ -584,6 +584,7 @@ class TestSessionRecordingsListMiscFilters(BaseTestSessionRecordingsList):
     @snapshot_clickhouse_queries
     def test_operand_or_filters(
         self,
+        _name: str,
         console_log_filters: str,
         operand: Literal["AND", "OR"],
         expected_count: int,
