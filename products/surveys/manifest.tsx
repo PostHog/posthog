@@ -17,7 +17,7 @@ export const manifest: ProductManifest = {
             name: 'Survey',
             icon: <IconMessage />,
             href: (ref: string) => urls.survey(ref),
-            iconColor: ['var(--product-surveys-light)'],
+            iconColor: ['var(--color-product-surveys-light)'],
             filterKey: 'survey',
         },
     },

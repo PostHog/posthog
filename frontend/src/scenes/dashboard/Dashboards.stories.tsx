@@ -10,7 +10,7 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const dashboardRaw = require('./__mocks__/dashboard1.json')
 
@@ -113,7 +113,7 @@ export const List: Story = {}
 
 export const New = (): JSX.Element => {
     useAvailableFeatures([])
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
         dashboardTemplatesLogic.mount()
@@ -124,7 +124,7 @@ export const New = (): JSX.Element => {
 
 export const NewSelectVariables = (): JSX.Element => {
     useAvailableFeatures([])
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
         newDashboardLogic.actions.setActiveDashboardTemplate({
@@ -187,7 +187,7 @@ export const Show: Story = {
 }
 
 export const Edit = (): JSX.Element => {
-    useOnMountEffect(() => {
+    useDelayedOnMountEffect(() => {
         dashboardLogic({ id: BASE_DASHBOARD_ID }).mount()
         dashboardLogic({ id: BASE_DASHBOARD_ID }).actions.setDashboardMode(
             DashboardMode.Edit,

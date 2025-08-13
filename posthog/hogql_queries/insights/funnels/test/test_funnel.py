@@ -4918,6 +4918,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @snapshot_clickhouse_queries
         def test_funnel_aggregation_with_groups(self):
+            """Basic test for aggregation by groups."""
             self._create_groups()
 
             events_by_person = {
@@ -4928,13 +4929,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "properties": {"$group_0": "org:5"},
                     },
                     {
-                        "event": "user signed up",  # same person, different group, so should count as different step 1 in funnel
+                        "event": "user signed up",  # different group, so should count as a different step 1 in funnel
                         "timestamp": datetime(2020, 1, 10, 14),
                         "properties": {"$group_0": "org:6"},
                     },
                 ],
                 "user_2": [
-                    {  # different person, same group, so should count as step two in funnel
+                    {  # step two in funnel
                         "event": "paid",
                         "timestamp": datetime(2020, 1, 3, 14),
                         "properties": {"$group_0": "org:5"},
@@ -4962,6 +4963,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @snapshot_clickhouse_queries
         def test_funnel_aggregation_with_groups_across_persons(self):
+            """Test that aggregation by groups works across different persons."""
             self._create_groups()
 
             events_by_person = {
@@ -5013,6 +5015,64 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         operator=PropertyOperator.EXACT,
                     )
                 ],
+            )
+            result = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
+
+        def test_funnel_aggregation_with_groups_and_ungrouped_events(self):
+            """Test that ungrouped events don't get lumped together, and are filtered out instead."""
+            self._create_groups()
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                ],
+                "user_2": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                    },
+                ],
+                "user_3": [
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                    },
+                ],
+                "user_4": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="user signed up"),
+                    EventsNode(event="paid"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-14",
+                ),
+                aggregation_group_type_index=0,
             )
             result = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 

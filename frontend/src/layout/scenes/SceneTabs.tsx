@@ -4,21 +4,22 @@ import { cn } from 'lib/utils/css-classes'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { SceneTab, sceneTabsLogic } from '~/layout/scenes/sceneTabsLogic'
+import { SceneTab, sceneLogic } from '~/scenes/sceneLogic'
 
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
+import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 
 export interface SceneTabsProps {
     className?: string
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs } = useValues(sceneTabsLogic)
-    const { newTab, reorderTabs } = useActions(sceneTabsLogic)
+    const { tabs } = useValues(sceneLogic)
+    const { newTab, reorderTabs } = useActions(sceneLogic)
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -75,7 +76,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
 
 function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
     const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: tab.id })
-
     const style: React.CSSProperties = {
         transform: CSS.Translate.toString(transform),
         transition,
@@ -84,7 +84,9 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
 
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            <SceneTabComponent tab={tab} isDragging={isDragging} />
+            <SceneTabContextMenu tab={tab}>
+                <SceneTabComponent tab={tab} isDragging={isDragging} />
+            </SceneTabContextMenu>
         </div>
     )
 }
@@ -97,7 +99,7 @@ interface SceneTabProps {
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const canRemoveTab = true
-    const { clickOnTab, removeTab } = useActions(sceneTabsLogic)
+    const { clickOnTab, removeTab } = useActions(sceneLogic)
     return (
         <Link
             onClick={(e) => {

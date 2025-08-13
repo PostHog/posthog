@@ -44,15 +44,7 @@ export function UserInterviews(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <MaxTool
-                name="analyze_user_interviews"
-                displayName="Analyze user interviews"
-                description="Max can summarize user interviews and extract learnings"
-                context={{}}
-                callback={() => {
-                    // No need to handle structured output for this tool
-                }}
-            >
+            <MaxTool identifier="analyze_user_interviews" context={{}}>
                 <LemonTable
                     loading={userInterviewsLoading}
                     columns={[

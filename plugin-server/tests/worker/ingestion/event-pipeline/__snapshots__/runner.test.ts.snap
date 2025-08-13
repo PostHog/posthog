@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
 [
@@ -111,6 +111,8 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         "personRepository": {
           "options": {
             "calculatePropertiesSize": 0,
+            "personPropertiesDbConstraintLimitBytes": 655360,
+            "personPropertiesTrimTargetBytes": 524288,
           },
         },
         "personUpdateCache": {},
