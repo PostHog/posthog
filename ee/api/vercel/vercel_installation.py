@@ -14,9 +14,33 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.permissions import BasePermission
 from rest_framework import decorators
+from rest_framework.views import exception_handler
 
 from ee.api.authentication import VercelAuthentication
 from ee.vercel.integration import VercelIntegration
+
+
+class VercelErrorResponseMixin:
+    """
+    Mixin that provides custom error response formatting for Vercel API endpoints.
+    Transforms standard DRF exceptions into Vercel's error schema format.
+    """
+
+    def handle_exception(self, exc):
+        """Override DRF's exception handling to return custom Vercel error format"""
+        response = exception_handler(exc, self.get_exception_handler_context())
+
+        if response is not None:
+            custom_data = self._format_vercel_error(exc, response)
+            response.data = custom_data
+
+        return response
+
+    def _format_vercel_error(self, exc, response: Response) -> dict[str, Any]:
+        """Format exception into Vercel's custom error schema"""
+        message = str(exc.detail) if hasattr(exc, "detail") else str(exc)
+
+        return {"error": {"code": "request_failed", "message": message, "user": {"message": message, "url": None}}}
 
 
 class VercelInstallationPermission(BasePermission):
@@ -109,7 +133,7 @@ class UpsertInstallationPayloadSerializer(serializers.Serializer):
 INSTALLATION_ID_PATTERN = re.compile(r"^inst_[A-Za-z0-9]{9,}$")
 
 
-class VercelInstallationViewSet(viewsets.GenericViewSet):
+class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
     lookup_field = "installation_id"
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelInstallationPermission]
@@ -193,7 +217,7 @@ class VercelInstallationViewSet(viewsets.GenericViewSet):
         return Response({"plans": VercelIntegration.get_vercel_plans()})
 
 
-class VercelProductViewSet(viewsets.GenericViewSet):
+class VercelProductViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
     """
     ViewSet for Vercel product endpoints (/v1/products/{productSlug}/...)
     """

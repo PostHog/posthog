@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.viewsets import ViewSet
 
 from ee.api.authentication import VercelAuthentication
+from ee.api.vercel.vercel_installation import VercelErrorResponseMixin
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.integration import Integration
 from ee.vercel.client import VercelAPIClient
@@ -25,7 +26,7 @@ class VercelSSORedirectSerializer(serializers.Serializer):
         return value
 
 
-class VercelSSOViewSet(ViewSet):
+class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
     permission_classes = (permissions.AllowAny,)
 
     @action(detail=False, methods=["get"], url_path="redirect")

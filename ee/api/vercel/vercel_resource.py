@@ -12,7 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.api.authentication import VercelAuthentication
-from ee.api.vercel.vercel_installation import VercelInstallationPermission
+from ee.api.vercel.vercel_installation import VercelInstallationPermission, VercelErrorResponseMixin
 from ee.vercel.integration import VercelIntegration
 
 
@@ -136,7 +136,7 @@ class ResourcePayloadSerializer(serializers.Serializer):
     )
 
 
-class VercelResourceViewSet(viewsets.GenericViewSet):
+class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
     lookup_field = "resource_id"
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelInstallationPermission]
