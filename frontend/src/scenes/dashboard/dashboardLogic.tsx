@@ -889,7 +889,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // determine effective variable state
                         const resultVar: Variable = {
                             ...variable,
-                            value: dashboard.variables?.[v.variableId]?.value || variable.default_value,
+                            value: dashboard.variables?.[v.variableId]?.value || v.value || variable.default_value,
                             isNull: dashboard.variables?.[v.variableId]?.isNull || variable.isNull,
                         }
 
