@@ -5,6 +5,7 @@ import { IconTrending } from '@posthog/icons'
 
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
+
 import { ExperimentMetric, ExperimentMetricType, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 

@@ -15,10 +15,10 @@ import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
+    NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
-    NodeKind,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType, FilterType } from '~/types'
 
@@ -26,15 +26,9 @@ import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConver
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
-import { getFilter } from './metricQueryUtils'
-import {
-    filterToMetricConfig,
-    filterToMetricSource,
-    getAllowedMathTypes,
-    getDefaultExperimentMetric,
-    getEventCountQuery,
-    getMathAvailability,
-} from './utils'
+import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
+import { createFilterForSource, getFilter } from './metricQueryUtils'
+import { getAllowedMathTypes, getDefaultExperimentMetric, getEventCountQuery, getMathAvailability } from './utils'
 
 const loadEventCount = async (
     metric: ExperimentMetric,
@@ -253,7 +247,7 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">Numerator (what you're measuring)</LemonLabel>
                             <ActionFilter
                                 bordered
-                                filters={metricFilter}
+                                filters={isExperimentRatioMetric(metric) ? createFilterForSource(metric.numerator) : {}}
                                 setFilters={(filters) => {
                                     if (isExperimentRatioMetric(metric)) {
                                         const source = filterToMetricSource(
@@ -285,7 +279,9 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">Denominator (what you're dividing by)</LemonLabel>
                             <ActionFilter
                                 bordered
-                                filters={metricFilter}
+                                filters={
+                                    isExperimentRatioMetric(metric) ? createFilterForSource(metric.denominator) : {}
+                                }
                                 setFilters={(filters) => {
                                     if (isExperimentRatioMetric(metric)) {
                                         const source = filterToMetricSource(

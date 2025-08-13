@@ -5,18 +5,14 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
-    ActionsNode,
     AnyEntityNode,
     EventsNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetricStep,
-    ExperimentFunnelMetricTypeProps,
     ExperimentFunnelsQuery,
-    ExperimentMeanMetricTypeProps,
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricType,
-    ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
     NodeKind,
     TrendsQuery,
@@ -545,75 +541,6 @@ export function filterToExposureConfig(
 }
 
 /**
- * TODO: review for refactor.
- */
-export function filterToMetricConfig(
-    metricType: ExperimentMetricType,
-    actions: Record<string, any>[] | undefined,
-    events: Record<string, any>[] | undefined,
-    data_warehouse: Record<string, any>[] | undefined
-): ExperimentMetricTypeProps | undefined {
-    const getFunnelMetricConfig = (): ExperimentFunnelMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.FUNNEL) {
-            return undefined
-        }
-
-        // Combine events and actions and sort by order
-        const eventSteps =
-            events?.map(
-                (event) =>
-                    ({
-                        kind: NodeKind.EventsNode,
-                        event: event.id,
-                        properties: event.properties,
-                        order: event.order,
-                    }) as EventsNode & { order: number }
-            ) || []
-
-        const actionSteps =
-            actions?.map(
-                (action) =>
-                    ({
-                        kind: NodeKind.ActionsNode,
-                        id: action.id,
-                        name: action.name,
-                        properties: action.properties,
-                        order: action.order,
-                    }) as ActionsNode & { order: number }
-            ) || []
-
-        const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
-
-        // Remove the temporary order field
-        const series = combinedSteps.map(({ order, ...step }) => step as ExperimentFunnelMetricStep)
-
-        return {
-            metric_type: ExperimentMetricType.FUNNEL,
-            series,
-        }
-    }
-
-    const getMeanMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.MEAN) {
-            return undefined
-        }
-
-        const source = filterToMetricSource(actions, events, data_warehouse)
-        if (!source) {
-            return undefined
-        }
-
-        return {
-            metric_type: ExperimentMetricType.MEAN,
-            source,
-        }
-    }
-
-    // Return the first non-undefined configuration
-    return getFunnelMetricConfig() || getMeanMetricConfig()
-}
-
-/**
  * returns the math availability for a metric type
  */
 export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
@@ -652,57 +579,6 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
         default:
             return [ExperimentMetricMathType.TotalCount]
     }
-}
-
-/**
- * Converts filter data to a metric source (EventsNode, ActionsNode, or ExperimentDataWarehouseNode)
- * Used for ratio metrics to support all source types
- */
-export function filterToMetricSource(
-    actions: Record<string, any>[] | undefined,
-    events: Record<string, any>[] | undefined,
-    data_warehouse: Record<string, any>[] | undefined
-): ExperimentMetricSource | null {
-    if (events?.[0]) {
-        return {
-            kind: NodeKind.EventsNode,
-            event: events[0].id,
-            name: events[0].name,
-            math: events[0].math || ExperimentMetricMathType.TotalCount,
-            math_property: events[0].math_property,
-            math_hogql: events[0].math_hogql,
-            properties: events[0].properties,
-        }
-    }
-
-    if (actions?.[0]) {
-        return {
-            kind: NodeKind.ActionsNode,
-            id: actions[0].id,
-            name: actions[0].name,
-            math: actions[0].math || ExperimentMetricMathType.TotalCount,
-            math_property: actions[0].math_property,
-            math_hogql: actions[0].math_hogql,
-            properties: actions[0].properties,
-        }
-    }
-
-    if (data_warehouse?.[0]) {
-        return {
-            kind: NodeKind.ExperimentDataWarehouseNode,
-            name: data_warehouse[0].name,
-            table_name: data_warehouse[0].id,
-            timestamp_field: data_warehouse[0].timestamp_field,
-            events_join_key: data_warehouse[0].events_join_key,
-            data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
-            math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
-            math_property: data_warehouse[0].math_property,
-            math_hogql: data_warehouse[0].math_hogql,
-            properties: data_warehouse[0].properties,
-        }
-    }
-
-    return null
 }
 
 /**
