@@ -1,6 +1,10 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AIEventType": {
+            "enum": ["$ai_generation", "$ai_embedding", "$ai_span", "$ai_trace", "$ai_metric", "$ai_feedback"],
+            "type": "string"
+        },
         "AccessControlLevel": {
             "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
             "type": "string"
@@ -14501,7 +14505,14 @@
                     "type": "string"
                 },
                 "event": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AIEventType"
+                        },
+                        {
+                            "type": "string"
+                        }
+                    ]
                 },
                 "id": {
                     "type": "string"
