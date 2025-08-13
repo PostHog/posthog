@@ -16,7 +16,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
-import { summarizeUsage, calculateProjectedAmountExcludingAddons } from './billing-utils'
+import { summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
@@ -58,6 +58,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         visibleAddons,
         variantExpandedStates,
         customLimitUsd,
+        projectedAmountExcludingAddons,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
@@ -302,7 +303,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="flex flex-col items-end">
                                             <span className="text-secondary">
                                                 {humanFriendlyCurrency(
-                                                    parseFloat(calculateProjectedAmountExcludingAddons(product)) *
+                                                    parseFloat(projectedAmountExcludingAddons) *
                                                         (1 -
                                                             (billing?.discount_percent
                                                                 ? billing.discount_percent / 100

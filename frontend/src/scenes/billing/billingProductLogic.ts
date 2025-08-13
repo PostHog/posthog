@@ -382,6 +382,27 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (product): boolean =>
                 product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0,
         ],
+        projectedAmountExcludingAddons: [
+            (s, p) => [s.isSessionReplayWithAddons, p.product],
+            (isVariantMode, product): string => {
+                if (!isVariantMode) {
+                    return product.projected_amount_usd || '0'
+                }
+
+                const totalProjected = parseFloat(product.projected_amount_usd || '0')
+
+                if (!product.addons?.length) {
+                    return totalProjected.toFixed(2)
+                }
+
+                const addonProjected = product.addons.reduce(
+                    (sum, addon) => sum + parseFloat(addon.projected_amount_usd || '0'),
+                    0
+                )
+
+                return Math.max(0, totalProjected - addonProjected).toFixed(2)
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         updateBillingLimitsSuccess: () => {
