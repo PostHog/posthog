@@ -791,7 +791,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
         )
 
-        # Static cohorts should not be expanded (no properties to expand)
+        # Static cohorts should not be expanded (no properties to expand, but that's by design)
         self.assertEqual(flag.transform_cohort_filters_for_easy_evaluation(), flag.conditions)
 
     def test_cohort_expansion_backward_compatibility_behavioral_filters(self):

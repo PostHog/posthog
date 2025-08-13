@@ -350,6 +350,42 @@ pub fn evaluate_dynamic_cohorts(
     })
 }
 
+/// Optimized version of evaluate_dynamic_cohorts that uses a HashMap for fast cohort lookups
+/// instead of linear search. This is more efficient when evaluating multiple cohort filters.
+pub fn evaluate_dynamic_cohorts_with_map(
+    initial_cohort_id: CohortId,
+    target_properties: &HashMap<String, Value>,
+    cohort_map: &HashMap<i32, &Cohort>,
+) -> Result<bool, FlagError> {
+    // First check if this is a static cohort
+    let initial_cohort = cohort_map.get(&initial_cohort_id).ok_or_else(|| {
+        FlagError::DependencyNotFound(DependencyType::Cohort, initial_cohort_id.into())
+    })?;
+
+    // If it's static, we don't need to evaluate dependencies
+    if initial_cohort.is_static {
+        return Ok(false); // Static cohorts are handled by evaluate_static_cohorts
+    }
+
+    // For the dependency graph, we need to convert back to a Vec since DependencyGraph expects that
+    // This is still more efficient overall since the main optimization happens in the caller
+    let cohorts: Vec<Cohort> = cohort_map.values().map(|&c| c.clone()).collect();
+
+    // Build the dependency graph
+    let graph = DependencyGraph::new((*initial_cohort).clone(), &cohorts)?;
+
+    // Use for_each_dependencies_first to evaluate each cohort in the correct order
+    let results = graph.for_each_dependencies_first(|cohort, results, result| {
+        *result = evaluate_single_cohort(cohort, target_properties, results)?;
+        Ok(())
+    })?;
+
+    // Return the evaluation result for the initial cohort
+    results.get(&initial_cohort_id).copied().ok_or_else(|| {
+        FlagError::DependencyNotFound(DependencyType::Cohort, initial_cohort_id.into())
+    })
+}
+
 /// Applies cohort membership logic for a set of cohort filters.
 ///
 /// This function evaluates whether a person matches a set of cohort filters by:
