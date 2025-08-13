@@ -11,12 +11,14 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.base import 
     ExperimentQueryRunnerBaseTest,
 )
 from posthog.schema import (
+    ActionsNode,
     EventsNode,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
 )
+from posthog.models.action.action import Action
 from posthog.test.base import (
     _create_event,
     _create_person,
@@ -592,6 +594,130 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 190)  # 50 + 60 + 80
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 19)  # 5 + 6 + 8
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_ratio_metric_action_and_event_sources(self):
+        """Test ratio metric with action source numerator and event source denominator"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create an action for purchase events
+        purchase_action = Action.objects.create(
+            name="Purchase Action", team=self.team, steps_json=[{"event": "purchase"}]
+        )
+        purchase_action.save()
+
+        # Create a ratio metric: action-based purchase revenue / event-based page views
+        # This demonstrates using ActionsNode vs EventsNode as different source types
+        metric = ExperimentRatioMetric(
+            numerator=ActionsNode(
+                id=purchase_action.id,
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            denominator=EventsNode(
+                event="pageview",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        def _create_events_for_user(
+            variant: str, user_id: str, purchase_amount: int, pageview_count: int
+        ) -> list[dict]:
+            events = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+            ]
+
+            # Add pageview events
+            for i in range(pageview_count):
+                events.append(
+                    {
+                        "event": "pageview",
+                        "timestamp": f"2024-01-02T12:0{i+1}:00",
+                        "properties": {
+                            ff_property: variant,
+                            "page": f"/page{i}",
+                        },
+                    }
+                )
+
+            # Add purchase event if amount > 0
+            if purchase_amount > 0:
+                events.append(
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:05:00",
+                        "properties": {
+                            ff_property: variant,
+                            "amount": purchase_amount,
+                        },
+                    }
+                )
+
+            return events
+
+        journeys_for(
+            {
+                # Control: mixed behavior - some users purchase, all users view pages
+                "control_1": _create_events_for_user("control", "user_control_1", 50, 2),  # $50, 2 pageviews
+                "control_2": _create_events_for_user("control", "user_control_2", 0, 3),  # $0, 3 pageviews
+                "control_3": _create_events_for_user("control", "user_control_3", 75, 1),  # $75, 1 pageview
+                # Test: higher conversion and engagement
+                "test_1": _create_events_for_user("test", "user_test_1", 100, 4),  # $100, 4 pageviews
+                "test_2": _create_events_for_user("test", "user_test_2", 150, 2),  # $150, 2 pageviews
+                "test_3": _create_events_for_user("test", "user_test_3", 0, 5),  # $0, 5 pageviews
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Numerator: total purchase revenue (via Action)
+        self.assertEqual(control_variant.sum, 125)  # $50 + $0 + $75 = $125
+        self.assertEqual(test_variant.sum, 250)  # $100 + $150 + $0 = $250
+        self.assertEqual(control_variant.number_of_samples, 3)
+        self.assertEqual(test_variant.number_of_samples, 3)
+
+        # Denominator: total pageviews (via EventsNode)
+        self.assertEqual(control_variant.denominator_sum, 6)  # 2 + 3 + 1 = 6 pageviews
+        self.assertEqual(test_variant.denominator_sum, 11)  # 4 + 2 + 5 = 11 pageviews
+
+        # Check that ratio-specific fields exist
+        self.assertIsNotNone(control_variant.denominator_sum_squares)
+        self.assertIsNotNone(test_variant.denominator_sum_squares)
+        self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
+        self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
 
     @pytest.mark.skip
     @freeze_time("2020-01-01T12:00:00Z")
