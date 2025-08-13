@@ -861,13 +861,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return isDateFromUpdated || isDateToUpdated || isPropertiesUpdated || isBreakdownUpdated
             },
         ],
-        dashboardVariables: [
-            (s) => [s.dashboard, s.variables, s.temporaryVariables],
-            (
-                dashboard: DashboardType,
-                allVariables: Variable[],
-                temporaryVariables: Record<string, HogQLVariable>
-            ): { variable: Variable; insights: string[] }[] => {
+        effectiveVariablesAndAssociatedInsights: [
+            (s) => [s.dashboard, s.variables],
+            (dashboard: DashboardType, variables: Variable[]): { variable: Variable; insights: string[] }[] => {
                 const dataVizNodes = (dashboard?.tiles ?? [])
                     .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
                     .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
@@ -876,29 +872,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             Boolean(n.query) && Boolean(n.title)
                     )
 
-                const hogQLVariables = dataVizNodes
+                const usedVariables = dataVizNodes
                     .map((n) => n.query.source.variables)
                     .filter((n): n is Record<string, HogQLVariable> => Boolean(n))
                     .flatMap((n) => Object.values(n))
+                const uniqueVariables = uniqBy(usedVariables, (n) => n.variableId)
 
-                const uniqueVars = uniqBy(hogQLVariables, (n) => n.variableId)
-                return uniqueVars
+                const effectiveVariables = uniqueVariables
                     .map((v) => {
-                        const foundVar = allVariables.find((n) => n.id === v.variableId)
+                        const variable = variables.find((n) => n.id === v.variableId)
 
-                        if (!foundVar) {
+                        if (!variable) {
                             return null
                         }
 
-                        const overridenValue = temporaryVariables[v.variableId]?.value
-                        const overridenIsNull = temporaryVariables[v.variableId]?.isNull
-                        // Overwrite the variable `value` from the insight
+                        // determine effective variable state
                         const resultVar: Variable = {
-                            ...foundVar,
-                            value: overridenValue,
-                            isNull: overridenIsNull,
+                            ...variable,
+                            value: dashboard.variables?.[v.variableId]?.value || variable.default_value,
+                            isNull: dashboard.variables?.[v.variableId]?.isNull || variable.isNull,
                         }
 
+                        // get insights using variable
                         const insightsUsingVariable = dataVizNodes
                             .filter((n) => {
                                 const vars = n.query.source.variables
@@ -913,6 +908,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return { variable: resultVar, insights: insightsUsingVariable }
                     })
                     .filter((n): n is { variable: Variable; insights: string[] } => Boolean(n?.variable))
+
+                return effectiveVariables
             },
         ],
         temporaryVariables: [
@@ -943,8 +940,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         hasVariables: [
-            (s) => [s.dashboardVariables],
-            (dashboardVariables) => Object.keys(dashboardVariables).length > 0,
+            (s) => [s.effectiveVariablesAndAssociatedInsights],
+            (effectiveVariablesAndAssociatedInsights) =>
+                Object.keys(effectiveVariablesAndAssociatedInsights).length > 0,
         ],
         asDashboardTemplate: [
             (s) => [s.dashboard],

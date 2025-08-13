@@ -27,16 +27,16 @@ import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const VariablesForDashboard = (): JSX.Element => {
-    const { dashboardVariables } = useValues(dashboardLogic)
+    const { effectiveVariablesAndAssociatedInsights } = useValues(dashboardLogic)
     const { overrideVariableValue } = useActions(dashboardLogic)
 
-    if (!dashboardVariables.length) {
+    if (!effectiveVariablesAndAssociatedInsights.length) {
         return <></>
     }
 
     return (
         <>
-            {dashboardVariables.map((n) => (
+            {effectiveVariablesAndAssociatedInsights.map((n) => (
                 <VariableComponent
                     key={n.variable.id}
                     variable={n.variable}
