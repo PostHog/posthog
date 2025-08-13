@@ -107,7 +107,7 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         product: Scene.ErrorTracking,
         flag: 'error-tracking-scene-max-tool',
     },
-    find_error_tracking_impactful_issues: {
+    find_error_tracking_event_list: {
         name: 'Find impactful issues',
         description: 'Find issues affecting your conversion, activation, or any other events',
         product: Scene.ErrorTracking,

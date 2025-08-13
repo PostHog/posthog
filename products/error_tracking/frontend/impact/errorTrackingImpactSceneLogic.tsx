@@ -13,14 +13,14 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
     path(['scenes', 'error-tracking', 'configuration', 'errorTrackingImpactSceneLogic']),
 
     actions({
-        setEvent: (event: string | null) => ({ event }),
+        setEvents: (events: string[]) => ({ events }),
     }),
 
     reducers({
-        event: [
-            null as string | null,
+        events: [
+            null as string[] | null,
             {
-                setEvent: (_, { event }) => event,
+                setEvents: (_, { events }) => events,
             },
         ],
     }),
@@ -31,7 +31,7 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
             {
                 loadIssues: async () => {
                     if (values.event) {
-                        const issues = await api.query(errorTrackingIssueCorrelationQuery({ events: [values.event] }), {
+                        const issues = await api.query(errorTrackingIssueCorrelationQuery({ events: values.events }), {
                             refresh: 'force_blocking',
                         })
                         return issues.results

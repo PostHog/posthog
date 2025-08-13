@@ -261,7 +261,11 @@ In order to perform the task you are given, you need to know the list of events 
 
 {{{events}}}
 
-IMPORTANT: Include ALL the events the user is asking for in the list. Do not exclude events if they are in the list above and the user asks for them.
+## Rules
+1. Include ALL the events the user is asking for in the list.
+2. If no exact match exists then use close variations of the event names. For example if the user asks for "user signed up" and the event name is "sign_up_started", you can return "sign_up_started" as a close variation.
+3. If a broader flow is mentioned, include event names likely occurring in that flow.
+4. Do not exclude events if they are in the list above and the user asks for them.
 
 If you find the event names the user is asking for return them in a list. If you cannot find the event names in the list, ask the user for clarification.
 </events>

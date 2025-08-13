@@ -81,7 +81,7 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     NAVIGATE = "navigate"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
-    FIND_ERROR_TRACKING_IMPACTFUL_ISSUES = "find_error_tracking_impactful_issues"
+    find_error_tracking_event_list = "find_error_tracking_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     SEARCH_DOCS = "search_docs"

@@ -176,7 +176,7 @@ class ErrorTrackingIssueImpactTool(MaxTool):
         graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
 
         graph_context = {
-            "instructions": f"Goal: {instructions}",
+            "change": f"Goal: {instructions}",
             "output": None,
             "tool_progress_messages": [],
             **self.context,
