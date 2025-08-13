@@ -141,6 +141,11 @@ const ExperimentsTable = ({
                         title={
                             <>
                                 {stringWithWBR(experiment.name, 17)}
+                                {experiment.type === 'web' && (
+                                    <LemonTag type="default" className="ml-1">
+                                        No-code
+                                    </LemonTag>
+                                )}
                                 {isLegacyExperiment(experiment) && (
                                     <Tooltip
                                         title="This experiment uses the legacy engine, so some features and improvements may be missing."

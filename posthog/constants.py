@@ -43,6 +43,7 @@ class AvailableFeature(StrEnum):
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
+    ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

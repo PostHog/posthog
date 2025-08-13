@@ -29,7 +29,8 @@
                                 "operator": "exact"
                             }
                         ],
-                        "rollout_percentage": null
+                        "rollout_percentage": null,
+                        "description": "PostHog team member"
                     }
                 ],
                 "multivariate": null
@@ -62,7 +63,8 @@
                                 "operator": "exact"
                             }
                         ],
-                        "rollout_percentage": null
+                        "rollout_percentage": null,
+                        "description": "Users from Croatia"
                     }
                 ],
                 "multivariate": null
