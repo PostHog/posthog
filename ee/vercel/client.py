@@ -14,7 +14,7 @@ class VercelAPIClient:
 
         Args:
             bearer_token: The access token provided in the credentials field of the request body
-                         of the Upsert Installation call. It is stored in the VercelInstallation model.
+                         of the Upsert Installation call. It is stored in the OrganizationIntegration model.
         """
         if not bearer_token:
             raise ValueError("Bearer token is required")

@@ -7,7 +7,8 @@ from rest_framework.decorators import action
 from rest_framework.viewsets import ViewSet
 
 from ee.api.authentication import VercelAuthentication
-from ee.models.vercel.vercel_installation import VercelInstallation
+from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.integration import Integration
 from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
@@ -31,7 +32,7 @@ class VercelSSOViewSet(ViewSet):
     def sso_redirect(self, request: HttpRequest) -> HttpResponse:
         serializer = VercelSSORedirectSerializer(data=request.GET)
         if not serializer.is_valid():
-            logger.error("vercel_sso_invalid_parameters", errors=serializer.errors)
+            logger.exception("vercel_sso_invalid_parameters", errors=serializer.errors)
             return JsonResponse({"error": "Invalid parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         code = serializer.validated_data["code"]
@@ -47,7 +48,7 @@ class VercelSSOViewSet(ViewSet):
 
         id_token = token_response.get("id_token")
         if not id_token:
-            logger.error("vercel_sso_missing_id_token")
+            logger.exception("vercel_sso_missing_id_token")
             return JsonResponse({"error": "Missing id_token"}, status=status.HTTP_400_BAD_REQUEST)
 
         jwt_payload = self._decode_jwt(id_token)
@@ -56,7 +57,7 @@ class VercelSSOViewSet(ViewSet):
 
         installation_id = jwt_payload.get("installation_id")
         if not installation_id:
-            logger.error("vercel_sso_missing_installation_id")
+            logger.exception("vercel_sso_missing_installation_id")
             return JsonResponse({"error": "Missing installation_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         user = self._find_user(installation_id)
@@ -86,10 +87,11 @@ class VercelSSOViewSet(ViewSet):
             return None
 
     def _find_user(self, installation_id):
-        # TODO: This should be an email lookup based on the JWT payload, but we don't have that yet.
         try:
-            vercel_installation = VercelInstallation.objects.get(installation_id=installation_id)
-            return vercel_installation.organization.members.filter(is_active=True).first()
-        except VercelInstallation.DoesNotExist:
+            installation = OrganizationIntegration.objects.get(
+                kind=Integration.IntegrationKind.VERCEL, integration_id=installation_id
+            )
+            return installation.organization.members.filter(is_active=True).first()
+        except OrganizationIntegration.DoesNotExist:
             logger.exception("vercel_sso_installation_not_found", installation_id=installation_id)
             return None

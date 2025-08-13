@@ -1,7 +1,8 @@
 from unittest.mock import patch
 import json
 from rest_framework import status
-from ee.models.vercel.vercel_installation import VercelInstallation
+from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.integration import Integration
 from ee.api.vercel.test.base import VercelTestBase
 
 
@@ -71,7 +72,11 @@ class TestVercelInstallationAPI(VercelTestBase):
         data = response.json()
         self.assertIn("finalized", data)
         self.assertFalse(data["finalized"])
-        self.assertFalse(VercelInstallation.objects.filter(installation_id=self.installation_id).exists())
+        self.assertFalse(
+            OrganizationIntegration.objects.filter(
+                kind=Integration.IntegrationKind.VERCEL, integration_id=self.installation_id
+            ).exists()
+        )
 
     def test_system_auth_retrieve_installation(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks

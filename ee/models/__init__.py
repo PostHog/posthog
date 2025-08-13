@@ -14,8 +14,6 @@ from .license import License
 from .property_definition import EnterprisePropertyDefinition
 from .rbac.access_control import AccessControl
 from .rbac.role import Role, RoleMembership
-from .vercel.vercel_installation import VercelInstallation
-from .vercel.vercel_resource import VercelResource
 
 __all__ = [
     "AccessControl",
@@ -33,6 +31,4 @@ __all__ = [
     "License",
     "Role",
     "RoleMembership",
-    "VercelInstallation",
-    "VercelResource",
 ]

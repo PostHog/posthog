@@ -123,7 +123,8 @@ class VercelInstallationViewSet(viewsets.GenericViewSet):
     }
 
     def get_object(self):
-        from ee.models.vercel.vercel_installation import VercelInstallation
+        from posthog.models.organization_integration import OrganizationIntegration
+        from posthog.models.integration import Integration
 
         installation_id = self.kwargs.get("installation_id")
 
@@ -134,9 +135,11 @@ class VercelInstallationViewSet(viewsets.GenericViewSet):
             raise exceptions.ValidationError({"installation_id": "Invalid installation_id format."})
 
         try:
-            installation = VercelInstallation.objects.get(installation_id=installation_id)
+            installation = OrganizationIntegration.objects.get(
+                kind=Integration.IntegrationKind.VERCEL, integration_id=installation_id
+            )
             return installation
-        except VercelInstallation.DoesNotExist:
+        except OrganizationIntegration.DoesNotExist:
             raise exceptions.NotFound("Installation not found")
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
