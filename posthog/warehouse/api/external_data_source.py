@@ -617,47 +617,51 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def dwh_scene_stats(self, request: Request, *arg: Any, **kwargs: Any):
         """
-        Endpoint that returns total rows processed in a single call.
-        Will be used to grab other data as needed for the data warehouse scene.
+        Returns aggregated statistics for the data warehouse scene including total rows processed.
+        Used by the frontend data warehouse scene to display usage information.
         """
+        try:
+            billing_manager = BillingManager(get_cached_instance_license())
+            org_billing = billing_manager.get_billing(organization=self.team.organization)
 
-        billing_manager = BillingManager(get_cached_instance_license())
-        org_billing = billing_manager.get_billing(organization=self.team.organization)
-        type_of_rows = "MONTHLY"
-        if org_billing and org_billing.get("billing_period"):
-            billing_period = org_billing["billing_period"]
-            billing_period_start = parser.parse(billing_period["current_period_start"])
-            billing_period_end = parser.parse(billing_period["current_period_end"])
-        elif org_billing and not org_billing.get("billing_period"):
-            type_of_rows = "ALL_TIME"
-        else:
-            raise ValidationError("No billing period available")
+            if org_billing and org_billing.get("billing_period"):
+                billing_period = org_billing["billing_period"]
+                billing_period_start = parser.parse(billing_period["current_period_start"])
+                billing_period_end = parser.parse(billing_period["current_period_end"])
+                billing_period_type = "monthly"
+            else:
+                billing_period_start = billing_period_end = None
+                billing_period_type = "all_time"
+        except Exception as e:
+            logger.exception("Could not retrieve billing information", exc_info=e)
+            billing_period_start = billing_period_end = None
+            billing_period_type = "all_time"
 
-        # calculate total rows processed in billing period
-        if type_of_rows == "MONTHLY":
-            external_data_jobs = ExternalDataJob.objects.filter(
-                team_id=self.team_id,
-                billable=True,
-                created_at__gte=billing_period_start,
-                created_at__lt=billing_period_end,
-            )
-            # TODO: double check if this is needed (do materialized views count towards billing limit?)
-            materialized_jobs = DataModelingJob.objects.filter(
-                team_id=self.team_id, created_at__gte=billing_period_start, created_at__lt=billing_period_end
-            )
+        external_data_job_filters = {"team_id": self.team_id, "billable": True}
+        data_modeling_job_filters = {"team_id": self.team_id}
 
-        elif type_of_rows == "ALL_TIME":
-            external_data_jobs = ExternalDataJob.objects.filter(team_id=self.team_id, billable=True)
-            materialized_jobs = DataModelingJob.objects.filter(team_id=self.team_id)
+        if billing_period_start and billing_period_end:
+            date_filter = {"created_at__gte": billing_period_start, "created_at__lt": billing_period_end}
+            external_data_job_filters.update(date_filter)
+            data_modeling_job_filters.update(date_filter)
 
-        external_rows = external_data_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
-        materialized_rows = materialized_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
-        billing_period_rows_processed = external_rows + materialized_rows
+        external_data_rows = (
+            ExternalDataJob.objects.filter(**external_data_job_filters).aggregate(total=Sum("rows_synced"))["total"]
+            or 0
+        )
+
+        data_modeling_rows = (
+            DataModelingJob.objects.filter(**data_modeling_job_filters).aggregate(total=Sum("rows_materialized"))[
+                "total"
+            ]
+            or 0
+        )
 
         return Response(
             status=status.HTTP_200_OK,
             data={
-                "billingPeriodRowsProcessed": billing_period_rows_processed,
-                "typeOfBillingPeriod": type_of_rows,
+                "billingPeriodRowsProcessed": external_data_rows,
+                "dataModelingRowsProcessed": data_modeling_rows,
+                "typeOfBillingPeriod": billing_period_type,
             },
         )
