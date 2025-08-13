@@ -101,17 +101,6 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
                 directly to us!
             </LemonBanner>
 
-            <LemonBanner type="warning" dismissKey="revenue-analytics-deferred-revenue-banner" className="mb-2">
-                <b>We've made some updates!</b>
-                <br />
-                We've recently introduced deferred revenue recognition for data warehouse sources. This means you will
-                see revenue in the future if you've created an invoice item with a <code>period.start</code> and{' '}
-                <code>period.end</code> that spans several months.
-                <br />
-                More information on{' '}
-                <Link to="https://posthog.com/docs/web-analytics/revenue-analytics#deferred-revenue">our docs</Link>.
-            </LemonBanner>
-
             {sourceRunningForTheFirstTime && (
                 <LemonBanner
                     type="success"
