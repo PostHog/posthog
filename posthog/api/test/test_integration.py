@@ -1,6 +1,8 @@
 from unittest.mock import patch, MagicMock
 
 import pytest
+from django.test import override_settings
+
 from posthog.api.test.test_team import create_team
 from posthog.models.integration import Integration
 from posthog.models.integration import EmailIntegration, SlackIntegration, PRIVATE_CHANNEL_WITHOUT_ACCESS
@@ -323,6 +325,7 @@ class TestEmailIntegration:
             "aws_ses_verified": False,
         }
 
+    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_email_verify_updates_all_other_integrations_with_same_domain(self):
         integration1 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         integration2 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
