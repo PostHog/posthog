@@ -1,4 +1,4 @@
-import { IconExternal, IconTrash } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
@@ -20,7 +20,9 @@ export function ReleasesTable(): JSX.Element {
                         Are you sure you want to delete release <strong>{release.version}</strong> for project{' '}
                         <strong>{release.project}</strong>?
                     </p>
-                    <p className="text-muted mt-2">This action cannot be undone.</p>
+                    <p className="text-muted mt-2">
+                        This will delete all sourcemaps associated with this release and cannot be undone.
+                    </p>
                 </div>
             ),
             primaryButton: {
@@ -34,7 +36,6 @@ export function ReleasesTable(): JSX.Element {
             },
         })
     }
-    console.log(releases)
 
     const columns: LemonTableColumns<ErrorTrackingRelease> = [
         {
@@ -48,16 +49,7 @@ export function ReleasesTable(): JSX.Element {
             dataIndex: 'project',
             key: 'project',
         },
-        {
-            title: 'Hash ID',
-            dataIndex: 'hash_id',
-            key: 'hash_id',
-            render: (_, release) => (
-                <span title={release.hash_id} className="font-mono text-xs">
-                    {release.hash_id.substring(0, 12)}...
-                </span>
-            ),
-        },
+
         {
             title: 'Created',
             dataIndex: 'created_at',
@@ -69,49 +61,33 @@ export function ReleasesTable(): JSX.Element {
             ),
         },
         {
-            title: 'Metadata',
-            dataIndex: 'metadata',
-            key: 'metadata',
-            render: (_, release) =>
-                release.metadata && Object.keys(release.metadata).length > 0 ? (
-                    <span className="text-muted-alt">
-                        {Object.keys(release.metadata).length} field
-                        {Object.keys(release.metadata).length !== 1 ? 's' : ''}
-                    </span>
-                ) : (
-                    <span className="text-muted">None</span>
-                ),
+            title: 'Branch',
+            key: 'branch',
+            render: (_, release) => {
+                if (release?.metadata?.git && release.metadata.git.branch) {
+                    return <span className="text-muted-alt">{release.metadata.git.branch}</span>
+                }
+            },
         },
         {
-            title: 'GitHub',
-            key: 'github_commit',
-            width: 0,
+            title: 'Repository',
+            key: 'repository',
             render: (_, release) => {
-                const repoUrl = release.metadata?.repository_url || release.metadata?.github_url
-                if (repoUrl && release.hash_id) {
-                    const commitUrl = `${repoUrl}/commit/${release.hash_id}`
-                    return (
-                        <LemonButton
-                            icon={<IconExternal />}
-                            tooltip="View commit on GitHub"
-                            onClick={() => window.open(commitUrl, '_blank')}
-                            size="small"
-                            type="secondary"
-                        />
-                    )
+                if (release?.metadata?.git && release.metadata.git.repo_name) {
+                    return <span className="text-muted-alt">{release.metadata.git.repo_name}</span>
                 }
-                return null
             },
         },
         {
             width: 0,
             render: (_, release) => (
                 <LemonButton
-                    icon={<IconTrash />}
-                    tooltip="Delete release"
-                    onClick={() => confirmDeleteRelease(release)}
-                    size="small"
+                    type="tertiary"
+                    size="xsmall"
                     status="danger"
+                    tooltip="Delete release"
+                    icon={<IconTrash />}
+                    onClick={() => confirmDeleteRelease(release)}
                 />
             ),
         },

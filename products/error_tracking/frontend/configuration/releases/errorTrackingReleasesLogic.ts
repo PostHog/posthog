@@ -1,4 +1,16 @@
-import { actions, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    actions,
+    AnyFunction,
+    defaults,
+    kea,
+    listeners,
+    LogicBuilder,
+    LogicWrapper,
+    MakeLogicType,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
@@ -7,13 +19,34 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { errorTrackingReleasesLogicType } from './errorTrackingReleasesLogicType'
+import { PaginationManual } from '@posthog/lemon-ui'
 
-export const RESULTS_PER_PAGE = 20
+interface Values {
+    page: number
+    releaseResponse: ErrorTrackingReleaseResponse | null
+    releases: ErrorTrackingRelease[]
+    pagination: PaginationManual
+    releaseResponseLoading: boolean
+}
 
-export type ErrorTrackingReleaseResponse = CountedPaginatedResponse<ErrorTrackingRelease>
+interface Actions extends Record<string, AnyFunction> {
+    loadReleases: () => void
+    deleteRelease: (id: string) => { id: string }
+    setPage: (page: number) => { page: number }
+}
 
-export const errorTrackingReleasesLogic = kea<errorTrackingReleasesLogicType>([
+export const RESULTS_PER_PAGE = 15
+
+export interface ErrorTrackingReleaseResponse extends CountedPaginatedResponse<ErrorTrackingRelease> {}
+
+// typegen does not work here, creates a wrapper to avoid typegen from overriding types here.
+function createKea<V extends Record<string, any>, A extends Record<string, AnyFunction>, P extends Record<string, any>>(
+    inputs: LogicBuilder<MakeLogicType<V, A, P>>[]
+): LogicWrapper<MakeLogicType<V, A, P>> {
+    return kea<MakeLogicType<V, A, P>>(inputs)
+}
+
+export const errorTrackingReleasesLogic = createKea<Values, Actions, {}>([
     path(['scenes', 'error-tracking', 'errorTrackingReleasesLogic']),
 
     actions({
@@ -30,7 +63,6 @@ export const errorTrackingReleasesLogic = kea<errorTrackingReleasesLogicType>([
     reducers({
         page: {
             setPage: (_, { page }) => page,
-            loadReleases: () => 1,
         },
     }),
 
@@ -41,18 +73,11 @@ export const errorTrackingReleasesLogic = kea<errorTrackingReleasesLogicType>([
                 const res = await api.errorTracking.releases.list({
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
+                    orderBy: '-created_at',
                 })
-                return res
+                return res as ErrorTrackingReleaseResponse
             },
         },
-    })),
-
-    listeners(({ actions }) => ({
-        deleteRelease: async ({ id }: { id: ErrorTrackingRelease['id'] }) => {
-            await api.errorTracking.releases.delete(id)
-            actions.loadReleases()
-        },
-        setPage: () => actions.loadReleases(),
     })),
 
     selectors(({ actions }) => ({
@@ -78,7 +103,7 @@ export const errorTrackingReleasesLogic = kea<errorTrackingReleasesLogicType>([
         ],
         pagination: [
             (s) => [s.page, s.releaseResponse],
-            (page: number, releaseResponse: ErrorTrackingReleaseResponse) => {
+            (page: number, releaseResponse: ErrorTrackingReleaseResponse): PaginationManual => {
                 return {
                     controlled: true,
                     pageSize: RESULTS_PER_PAGE,
@@ -86,8 +111,16 @@ export const errorTrackingReleasesLogic = kea<errorTrackingReleasesLogicType>([
                     entryCount: releaseResponse?.count ?? 0,
                     onBackward: () => actions.setPage(page - 1),
                     onForward: () => actions.setPage(page + 1),
-                }
+                } as PaginationManual
             },
         ],
+    })),
+
+    listeners(({ actions }) => ({
+        deleteRelease: async ({ id }: { id: ErrorTrackingRelease['id'] }) => {
+            await api.errorTracking.releases.delete(id)
+            actions.loadReleases()
+        },
+        setPage: () => actions.loadReleases(),
     })),
 ])

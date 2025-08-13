@@ -2700,9 +2700,12 @@ const api = {
             async list(params?: {
                 offset?: number
                 limit?: number
+                orderBy?: string
             }): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
-                const queryParams = { order_by: '-created_at', ...params }
-                return await new ApiRequest().errorTrackingReleases().withQueryString(toParams(queryParams)).get()
+                return await new ApiRequest()
+                    .errorTrackingReleases()
+                    .withQueryString(toParams(params || { orderBy: 'created_at' }))
+                    .get()
             },
 
             async get(id: ErrorTrackingRelease['id']): Promise<ErrorTrackingRelease> {
