@@ -51,6 +51,7 @@ import {
     SurveyQuestionBase,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
+    SurveyRates,
     SurveyRawResults,
     SurveyResponseRow,
     SurveySchedule,
@@ -73,6 +74,7 @@ import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
     buildPartialResponsesFilter,
+    calculateSurveyRates,
     createAnswerFilterHogQLExpression,
     DATE_FORMAT,
     getResponseFieldWithId,
@@ -1729,6 +1731,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 )
 
                 return stats
+            },
+        ],
+        surveyRates: [
+            (s) => [s.processedSurveyStats],
+            (processedSurveyStats: SurveyStats | null): SurveyRates | null => {
+                return calculateSurveyRates(processedSurveyStats)
             },
         ],
         surveyDemoData: [
