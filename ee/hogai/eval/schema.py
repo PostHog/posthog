@@ -22,7 +22,7 @@ from posthog.schema import (
 T = TypeVar("T", bound=Model)
 
 
-class BaseSchema(AvroBase, ABC, Generic[T]):
+class BaseSnapshot(AvroBase, ABC, Generic[T]):
     @classmethod
     @abstractmethod
     def serialize_for_project(cls, project_id: int) -> Generator[Self, None, None]:
@@ -36,14 +36,15 @@ class BaseSchema(AvroBase, ABC, Generic[T]):
         raise NotImplementedError
 
 
-class TeamSchema(BaseSchema[Team]):
+# posthog/models/team.py
+class TeamSnapshot(BaseSnapshot[Team]):
     name: str
     test_account_filters: str
 
     @classmethod
     def serialize_for_project(cls, project_id: int):
         team = Team.objects.get(pk=project_id)
-        yield TeamSchema(name=team.name, test_account_filters=json.dumps(team.test_account_filters))
+        yield TeamSnapshot(name=team.name, test_account_filters=json.dumps(team.test_account_filters))
 
     @classmethod
     def deserialize_for_project(cls, project_id: int, models: Sequence[Self], **kwargs) -> Generator[Team, None, None]:
@@ -52,7 +53,7 @@ class TeamSchema(BaseSchema[Team]):
 
 
 # posthog/models/property_definition.py
-class PropertyDefinitionSchema(BaseSchema[PropertyDefinition]):
+class PropertyDefinitionSnapshot(BaseSnapshot[PropertyDefinition]):
     name: str
     is_numerical: bool
     property_type: str | None
@@ -62,7 +63,7 @@ class PropertyDefinitionSchema(BaseSchema[PropertyDefinition]):
     @classmethod
     def serialize_for_project(cls, project_id: int):
         for prop in PropertyDefinition.objects.filter(project_id=project_id).iterator(500):
-            yield PropertyDefinitionSchema(
+            yield PropertyDefinitionSnapshot(
                 name=prop.name,
                 is_numerical=prop.is_numerical,
                 property_type=prop.property_type,
@@ -83,7 +84,8 @@ class PropertyDefinitionSchema(BaseSchema[PropertyDefinition]):
             )
 
 
-class GroupTypeMappingSchema(BaseSchema[GroupTypeMapping]):
+# posthog/models/group_type_mapping.py
+class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
     group_type: str
     group_type_index: int
     name_singular: str | None
@@ -92,7 +94,7 @@ class GroupTypeMappingSchema(BaseSchema[GroupTypeMapping]):
     @classmethod
     def serialize_for_project(cls, project_id: int):
         for mapping in GroupTypeMapping.objects.filter(project_id=project_id).iterator(500):
-            yield GroupTypeMappingSchema(
+            yield GroupTypeMappingSnapshot(
                 group_type=mapping.group_type,
                 group_type_index=mapping.group_type_index,
                 name_singular=mapping.name_singular,
@@ -113,7 +115,7 @@ class GroupTypeMappingSchema(BaseSchema[GroupTypeMapping]):
 
 
 # posthog/models/warehouse/table.py
-class DataWarehouseTableSchema(BaseSchema[DataWarehouseTable]):
+class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
     name: str
     format: str
     columns: list[str]
@@ -121,7 +123,7 @@ class DataWarehouseTableSchema(BaseSchema[DataWarehouseTable]):
     @classmethod
     def serialize_for_project(cls, project_id: int):
         for table in DataWarehouseTable.objects.filter(team_id=project_id).iterator(500):
-            yield DataWarehouseTableSchema(
+            yield DataWarehouseTableSnapshot(
                 name=table.name,
                 format=table.format,
                 columns=table.columns,
@@ -134,7 +136,7 @@ class DataWarehouseTableSchema(BaseSchema[DataWarehouseTable]):
                 name=model.name,
                 format=model.format,
                 columns=model.columns,
-                url_pattern="http://localhost",
+                url_pattern="http://localhost",  # Hardcoded. It's not important for evaluations what the value is.
                 team_id=project_id,
             )
 

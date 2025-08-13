@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.11.*"
 
 [[package]]
@@ -4036,6 +4036,7 @@ dependencies = [
     { name = "drf-spectacular" },
     { name = "elevenlabs" },
     { name = "emoji" },
+    { name = "fastavro" },
     { name = "geoip2" },
     { name = "google-ads" },
     { name = "google-cloud-bigquery" },
@@ -4084,6 +4085,7 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "pyarrow" },
     { name = "pydantic" },
+    { name = "pydantic-avro" },
     { name = "pyjwt" },
     { name = "pymongo" },
     { name = "pympler" },
@@ -4259,6 +4261,7 @@ requires-dist = [
     { name = "drf-spectacular", specifier = "==0.27.2" },
     { name = "elevenlabs", specifier = ">=1.58.1" },
     { name = "emoji", specifier = "==2.14.1" },
+    { name = "fastavro", specifier = ">=1.12.0" },
     { name = "geoip2", specifier = "==4.6.0" },
     { name = "google-ads", specifier = "==26.1.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
@@ -4307,6 +4310,7 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = "==2.9.7" },
     { name = "pyarrow", specifier = "==18.1.0" },
     { name = "pydantic", specifier = "==2.10.3" },
+    { name = "pydantic-avro", specifier = ">=0.9.0" },
     { name = "pyjwt", specifier = "==2.4.0" },
     { name = "pymongo", specifier = "==4.13.2" },
     { name = "pympler", specifier = "==1.1" },

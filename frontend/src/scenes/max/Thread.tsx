@@ -143,7 +143,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
     const { tools } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
-    const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
+    const isEditingInsight = tools?.some((tool) => tool.identifier === 'create_and_query_insight')
 
     return (
         <MessageGroupContainer groupType={groupType}>
