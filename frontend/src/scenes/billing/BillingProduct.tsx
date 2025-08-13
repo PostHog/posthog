@@ -57,8 +57,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         isSessionReplayWithAddons,
         visibleAddons,
         variantExpandedStates,
-        customLimitUsd,
-        projectedAmountExcludingAddons,
+        productVariants,
+        variantMonetaryDisplay,
+        variantGaugeItems,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
@@ -193,57 +194,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="mt-6 mb-4 ml-2">
                             <div className="flex items-center gap-x-8">
                                 <div className="grow">
-                                    <BillingGauge
-                                        items={
-                                            [
-                                                customLimitUsd && {
-                                                    type: BillingGaugeItemKind.BillingLimit,
-                                                    text: 'Billing limit',
-                                                    value: parseFloat(customLimitUsd.toFixed(2)),
-                                                    prefix: '$',
-                                                },
-                                                {
-                                                    type: BillingGaugeItemKind.ProjectedUsage,
-                                                    text: 'Projected',
-                                                    value: parseFloat(
-                                                        (
-                                                            parseFloat(product.projected_amount_usd_with_limit || '0') *
-                                                            (1 -
-                                                                (billing?.discount_percent
-                                                                    ? billing.discount_percent / 100
-                                                                    : 0))
-                                                        ).toFixed(2)
-                                                    ),
-                                                    prefix: '$',
-                                                },
-                                                {
-                                                    type: BillingGaugeItemKind.CurrentUsage,
-                                                    text: 'Current',
-                                                    value: parseFloat(
-                                                        (
-                                                            parseFloat(product.current_amount_usd || '0') *
-                                                            (1 -
-                                                                (billing?.discount_percent
-                                                                    ? billing.discount_percent / 100
-                                                                    : 0))
-                                                        ).toFixed(2)
-                                                    ),
-                                                    prefix: '$',
-                                                },
-                                            ].filter(Boolean) as BillingGaugeItemType[]
-                                        }
-                                        product={{ ...product, unit: '$' }}
-                                    />
+                                    <BillingGauge items={variantGaugeItems} product={{ ...product, unit: '$' }} />
                                 </div>
                                 <div className="flex gap-8 flex-wrap items-end shrink-0">
                                     <div className="flex flex-col items-center">
                                         <div className="font-bold text-3xl leading-7">
                                             {humanFriendlyCurrency(
-                                                parseFloat(product.current_amount_usd || '0') *
-                                                    (1 -
-                                                        (billing?.discount_percent
-                                                            ? billing.discount_percent / 100
-                                                            : 0))
+                                                parseFloat(variantMonetaryDisplay.currentTotal) *
+                                                    (1 - variantMonetaryDisplay.discountPercent / 100)
                                             )}
                                         </div>
                                         <span className="text-xs text-secondary">Month-to-date</span>
@@ -251,11 +209,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <div className="flex flex-col items-center">
                                         <div className="font-bold text-secondary text-lg leading-5">
                                             {humanFriendlyCurrency(
-                                                parseFloat(product.projected_amount_usd_with_limit || '0') *
-                                                    (1 -
-                                                        (billing?.discount_percent
-                                                            ? billing.discount_percent / 100
-                                                            : 0))
+                                                parseFloat(variantMonetaryDisplay.projectedTotal) *
+                                                    (1 - variantMonetaryDisplay.discountPercent / 100)
                                             )}
                                         </div>
                                         <span className="text-xs text-secondary">Projected</span>
@@ -266,161 +221,90 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
 
                     {/* Product variants display (session replay + mobile replay) */}
-                    {isSessionReplayWithAddons && product.subscribed && !isUnlicensedDebug ? (
+                    {productVariants && product.subscribed && !isUnlicensedDebug ? (
                         <div className="space-y-4 mt-6">
-                            {/* Session Replay Variant */}
-                            <div>
-                                <div
-                                    className="flex items-center justify-between cursor-pointer"
-                                    onClick={() => toggleVariantExpanded('session_replay')}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <LemonButton
-                                            icon={
-                                                variantExpandedStates?.['session_replay'] ? (
-                                                    <IconChevronDown />
-                                                ) : (
-                                                    <IconChevronRight />
-                                                )
-                                            }
-                                            size="small"
-                                        />
-                                        <h4 className="mb-0 font-bold">Session Replay (Web)</h4>
-                                    </div>
-                                    <div className="flex gap-8 items-end">
-                                        <div className="flex flex-col items-end">
-                                            <span className="font-bold text-lg">
-                                                {humanFriendlyCurrency(
-                                                    parseFloat(product.current_amount_usd_before_addons || '0') *
-                                                        (1 -
-                                                            (billing?.discount_percent
-                                                                ? billing.discount_percent / 100
-                                                                : 0))
-                                                )}
-                                            </span>
-                                            <span className="text-xs text-secondary">Month-to-date</span>
-                                        </div>
-                                        <div className="flex flex-col items-end">
-                                            <span className="text-secondary">
-                                                {humanFriendlyCurrency(
-                                                    parseFloat(projectedAmountExcludingAddons) *
-                                                        (1 -
-                                                            (billing?.discount_percent
-                                                                ? billing.discount_percent / 100
-                                                                : 0))
-                                                )}
-                                            </span>
-                                            <span className="text-xs text-secondary">Projected</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                {variantExpandedStates?.['session_replay'] && (
-                                    <div className="mt-4">
-                                        <div className="ml-16">
-                                            <BillingGauge
-                                                items={billingGaugeItems.filter(
-                                                    (item) => item.type !== BillingGaugeItemKind.BillingLimit
-                                                )}
-                                                product={product}
+                            {productVariants.map((variant) => (
+                                <div key={variant.key}>
+                                    <div
+                                        className="flex items-center justify-between cursor-pointer"
+                                        onClick={() => toggleVariantExpanded(variant.key)}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <LemonButton
+                                                icon={
+                                                    variantExpandedStates?.[variant.key] ? (
+                                                        <IconChevronDown />
+                                                    ) : (
+                                                        <IconChevronRight />
+                                                    )
+                                                }
+                                                size="small"
                                             />
+                                            <h4 className="mb-0 font-bold">{variant.name}</h4>
                                         </div>
-                                        <BillingProductPricingTable product={product} />
+                                        <div className="flex gap-8 items-end">
+                                            <div className="flex flex-col items-end">
+                                                <span className="font-bold text-lg">
+                                                    {humanFriendlyCurrency(
+                                                        parseFloat(variant.currentAmount) *
+                                                            (1 - variantMonetaryDisplay.discountPercent / 100)
+                                                    )}
+                                                </span>
+                                                <span className="text-xs text-secondary">Month-to-date</span>
+                                            </div>
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-secondary">
+                                                    {humanFriendlyCurrency(
+                                                        parseFloat(variant.projectedAmount) *
+                                                            (1 - variantMonetaryDisplay.discountPercent / 100)
+                                                    )}
+                                                </span>
+                                                <span className="text-xs text-secondary">Projected</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-
-                            {/* Mobile Replay Variant */}
-                            {(() => {
-                                const mobileReplay = product.addons?.find((a) => a.type === 'mobile_replay')
-                                if (!mobileReplay) {
-                                    return null
-                                }
-
-                                return (
-                                    <div>
-                                        <div
-                                            className="flex items-center justify-between cursor-pointer"
-                                            onClick={() => toggleVariantExpanded('mobile_replay')}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <LemonButton
-                                                    icon={
-                                                        variantExpandedStates?.['mobile_replay'] ? (
-                                                            <IconChevronDown />
-                                                        ) : (
-                                                            <IconChevronRight />
-                                                        )
+                                    {variantExpandedStates?.[variant.key] && (
+                                        <div className="mt-4">
+                                            <div className="ml-16">
+                                                <BillingGauge
+                                                    items={
+                                                        variant.key === 'session_replay'
+                                                            ? billingGaugeItems.filter(
+                                                                  (item) =>
+                                                                      item.type !== BillingGaugeItemKind.BillingLimit
+                                                              )
+                                                            : ([
+                                                                  ((variant.tiers?.[0]?.unit_amount_usd === '0'
+                                                                      ? variant.tiers?.[0]?.up_to
+                                                                      : 0) || 0) > 0 && {
+                                                                      type: BillingGaugeItemKind.FreeTier,
+                                                                      text: 'Free tier limit',
+                                                                      value:
+                                                                          variant.tiers?.[0]?.unit_amount_usd === '0'
+                                                                              ? variant.tiers?.[0]?.up_to || 0
+                                                                              : 0,
+                                                                  },
+                                                                  variant.projectedUsage &&
+                                                                      variant.projectedUsage > variant.usage && {
+                                                                          type: BillingGaugeItemKind.ProjectedUsage,
+                                                                          text: 'Projected',
+                                                                          value: variant.projectedUsage || 0,
+                                                                      },
+                                                                  {
+                                                                      type: BillingGaugeItemKind.CurrentUsage,
+                                                                      text: 'Current',
+                                                                      value: variant.usage,
+                                                                  },
+                                                              ].filter(Boolean) as BillingGaugeItemType[])
                                                     }
-                                                    size="small"
+                                                    product={variant.product}
                                                 />
-                                                <h4 className="mb-0 font-bold">Mobile Replay</h4>
                                             </div>
-                                            <div className="flex gap-8 items-end">
-                                                <div className="flex flex-col items-end">
-                                                    <span className="font-bold text-lg">
-                                                        {humanFriendlyCurrency(
-                                                            parseFloat(mobileReplay.current_amount_usd || '0') *
-                                                                (1 -
-                                                                    (billing?.discount_percent
-                                                                        ? billing.discount_percent / 100
-                                                                        : 0))
-                                                        )}
-                                                    </span>
-                                                    <span className="text-xs text-secondary">Month-to-date</span>
-                                                </div>
-                                                <div className="flex flex-col items-end">
-                                                    <span className="text-secondary">
-                                                        {humanFriendlyCurrency(
-                                                            parseFloat(mobileReplay.projected_amount_usd || '0') *
-                                                                (1 -
-                                                                    (billing?.discount_percent
-                                                                        ? billing.discount_percent / 100
-                                                                        : 0))
-                                                        )}
-                                                    </span>
-                                                    <span className="text-xs text-secondary">Projected</span>
-                                                </div>
-                                            </div>
+                                            <BillingProductPricingTable product={variant.product} />
                                         </div>
-                                        {variantExpandedStates?.['mobile_replay'] && (
-                                            <div className="mt-4">
-                                                <div className="ml-16">
-                                                    <BillingGauge
-                                                        items={
-                                                            [
-                                                                ((mobileReplay.tiers?.[0]?.unit_amount_usd === '0'
-                                                                    ? mobileReplay.tiers?.[0]?.up_to
-                                                                    : 0) || 0) > 0 && {
-                                                                    type: BillingGaugeItemKind.FreeTier,
-                                                                    text: 'Free tier limit',
-                                                                    value:
-                                                                        mobileReplay.tiers?.[0]?.unit_amount_usd === '0'
-                                                                            ? mobileReplay.tiers?.[0]?.up_to || 0
-                                                                            : 0,
-                                                                },
-                                                                mobileReplay.projected_usage &&
-                                                                    mobileReplay.projected_usage >
-                                                                        (mobileReplay.current_usage || 0) && {
-                                                                        type: BillingGaugeItemKind.ProjectedUsage,
-                                                                        text: 'Projected',
-                                                                        value: mobileReplay.projected_usage || 0,
-                                                                    },
-                                                                {
-                                                                    type: BillingGaugeItemKind.CurrentUsage,
-                                                                    text: 'Current',
-                                                                    value: mobileReplay.current_usage || 0,
-                                                                },
-                                                            ].filter(Boolean) as BillingGaugeItemType[]
-                                                        }
-                                                        product={mobileReplay}
-                                                    />
-                                                </div>
-                                                <BillingProductPricingTable product={mobileReplay} />
-                                            </div>
-                                        )}
-                                    </div>
-                                )
-                            })()}
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     ) : (
                         /* Standard product display (non-variants) */
