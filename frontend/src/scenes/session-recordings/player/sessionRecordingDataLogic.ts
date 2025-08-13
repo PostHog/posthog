@@ -55,6 +55,7 @@ export interface SessionRecordingDataLogicProps {
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
     playerKey?: string
+    accessToken?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -179,8 +180,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
-
-                const response = await api.recordings.get(props.sessionRecordingId)
+                const headers: Record<string, string> = {}
+                if (props.accessToken) {
+                    headers.Authorization = `Bearer ${props.accessToken}`
+                }
+                const response = await api.recordings.get(props.sessionRecordingId, {}, headers)
                 breakpoint()
 
                 return response
@@ -206,12 +210,24 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (breakpointLength) {
                         await breakpoint(breakpointLength)
                     }
-                    const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
-                    const blob_v2_lts = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY]
-                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {
-                        blob_v2,
-                        blob_v2_lts,
-                    })
+
+                    const headers: Record<string, string> = {}
+                    if (props.accessToken) {
+                        headers.Authorization = `Bearer ${props.accessToken}`
+                    }
+
+                    const blob_v2 =
+                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] || !!props.accessToken
+                    const blob_v2_lts =
+                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY] || !!props.accessToken
+                    const response = await api.recordings.listSnapshotSources(
+                        props.sessionRecordingId,
+                        {
+                            blob_v2,
+                            blob_v2_lts,
+                        },
+                        headers
+                    )
 
                     if (!response.sources) {
                         return []
@@ -264,13 +280,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     await breakpoint(1)
 
-                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
-                        if (sources[0].source === 'realtime' && e.status === 404) {
-                            // Realtime source is not always available, so a 404 is expected
-                            return []
-                        }
-                        throw e
-                    })
+                    const headers: Record<string, string> = {}
+                    if (props.accessToken) {
+                        headers.Authorization = `Bearer ${props.accessToken}`
+                    }
+                    const response = await api.recordings
+                        .getSnapshots(props.sessionRecordingId, params, headers)
+                        .catch((e) => {
+                            if (sources[0].source === 'realtime' && e.status === 404) {
+                                // Realtime source is not always available, so a 404 is expected
+                                return []
+                            }
+                            throw e
+                        })
 
                     // sorting is very cheap for already sorted lists
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
