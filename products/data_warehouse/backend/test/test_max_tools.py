@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantToolCall
@@ -16,10 +16,24 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             },
         }
 
-        with patch(
-            "products.data_warehouse.backend.max_tools.HogQLGeneratorTool._model",
-            return_value={"query": "SELECT AVG(properties.$session_length) FROM events"},
+        mock_result = {
+            "output": {"query": "SELECT AVG(properties.$session_length) FROM events"},
+            "intermediate_steps": None,
+        }
+
+        with (
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
+            patch.object(
+                HogQLGeneratorTool,
+                "_parse_output",
+                new_callable=AsyncMock,
+                return_value="SELECT AVG(properties.$session_length) FROM events",
+            ),
         ):
+            mock_graph = AsyncMock()
+            mock_graph.ainvoke.return_value = mock_result
+            mock_compile.return_value = mock_graph
+
             tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
@@ -39,10 +53,24 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             },
         }
 
-        with patch(
-            "products.data_warehouse.backend.max_tools.HogQLGeneratorTool._model",
-            return_value={"query": "SELECT properties FROM events WHERE {filters} AND {custom_filter}"},
+        mock_result = {
+            "output": {"query": "SELECT properties FROM events WHERE {filters} AND {custom_filter}"},
+            "intermediate_steps": None,
+        }
+
+        with (
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
+            patch.object(
+                HogQLGeneratorTool,
+                "_parse_output",
+                new_callable=AsyncMock,
+                return_value="SELECT properties FROM events WHERE {filters} AND {custom_filter}",
+            ),
         ):
+            mock_graph = AsyncMock()
+            mock_graph.ainvoke.return_value = mock_result
+            mock_compile.return_value = mock_graph
+
             tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
