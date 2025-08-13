@@ -81,12 +81,17 @@ class RetentionQueryRunner(QueryRunner):
     def convert_single_breakdown_to_multiple_breakdowns(self):
         if self.query.breakdownFilter and self.query.breakdownFilter.breakdown:
             if self.query.breakdownFilter.breakdown_type == "cohort":
+                # Ensure breakdown is always a list for cohorts
+                breakdown_values = self.query.breakdownFilter.breakdown
+                if not isinstance(breakdown_values, list):
+                    breakdown_values = [breakdown_values]
+
                 self.query.breakdownFilter.breakdowns = [
                     Breakdown(
                         type="cohort",
                         property=cohort_id,
                     )
-                    for cohort_id in self.query.breakdownFilter.breakdown
+                    for cohort_id in breakdown_values
                 ]
             else:
                 self.query.breakdownFilter.breakdowns = [
@@ -519,18 +524,19 @@ class RetentionQueryRunner(QueryRunner):
                     temp_runner = RetentionQueryRunner(
                         query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
                     )
-                    actor_queries.append(temp_runner.actor_query(cumulative=self.query.retentionFilter.cumulative))
+                    actor_queries.append(temp_runner.actor_query(cumulative=False))
 
                 if len(actor_queries) == 1:
                     actor_query = actor_queries[0]
                 else:
                     actor_query = ast.SelectSetQuery.create_from_queries(actor_queries, "UNION ALL")
             else:
-                actor_query = self.actor_query(cumulative=self.query.retentionFilter.cumulative)
+                actor_query = self.actor_query(cumulative=False)
 
             if self.query.retentionFilter.cumulative:
                 # For cumulative, we need to calculate the max interval and then explode it
-                actor_query = self._explode_cumulative_actors(actor_query)
+                cumulative_actors_query = self._build_cumulative_actors_query(actor_query)
+                actor_query = self._explode_cumulative_actors(cumulative_actors_query)
 
             # Add breakdown if needed
             if self.breakdowns_in_query:
@@ -584,33 +590,58 @@ class RetentionQueryRunner(QueryRunner):
     def _build_cumulative_actors_query(self, actor_query_base: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         # We need to calculate the max interval from the base query
         # Note: we can't use actor_query(cumulative=True) anymore because it doesn't work with UNION ALL
-        return parse_select(
-            """
-            SELECT
-                actor_id,
-                max(intervals_from_base) as max_interval,
-                start_interval_index,
-                any(breakdown_value) as breakdown_value
-            FROM {actor_query}
-            GROUP BY actor_id, start_interval_index, breakdown_value
-            """,
-            {"actor_query": actor_query_base},
-        )
+        if self.breakdowns_in_query:
+            return parse_select(
+                """
+                SELECT
+                    actor_id,
+                    max(intervals_from_base) as max_interval,
+                    start_interval_index,
+                    any(breakdown_value) as breakdown_value
+                FROM {actor_query}
+                GROUP BY actor_id, start_interval_index, breakdown_value
+                """,
+                {"actor_query": actor_query_base},
+            )
+        else:
+            return parse_select(
+                """
+                SELECT
+                    actor_id,
+                    max(intervals_from_base) as max_interval,
+                    start_interval_index
+                FROM {actor_query}
+                GROUP BY actor_id, start_interval_index
+                """,
+                {"actor_query": actor_query_base},
+            )
 
     def _explode_cumulative_actors(
         self, cumulative_actors_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery:
-        return parse_select(
-            """
-            SELECT
-                actor_id,
-                arrayJoin(range(0, max_interval + 1)) as intervals_from_base,
-                start_interval_index,
-                breakdown_value
-            FROM {cumulative_actors_query}
-            """,
-            {"cumulative_actors_query": cumulative_actors_query},
-        )
+        if self.breakdowns_in_query:
+            return parse_select(
+                """
+                SELECT
+                    actor_id,
+                    arrayJoin(range(0, max_interval + 1)) as intervals_from_base,
+                    start_interval_index,
+                    breakdown_value
+                FROM {cumulative_actors_query}
+                """,
+                {"cumulative_actors_query": cumulative_actors_query},
+            )
+        else:
+            return parse_select(
+                """
+                SELECT
+                    actor_id,
+                    arrayJoin(range(0, max_interval + 1)) as intervals_from_base,
+                    start_interval_index
+                FROM {cumulative_actors_query}
+                """,
+                {"cumulative_actors_query": cumulative_actors_query},
+            )
 
     def get_date(self, interval: int):
         date = self.query_date_range.date_from() + self.query_date_range.determine_time_delta(

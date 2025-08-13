@@ -3966,7 +3966,8 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                 ("person2", _date(0)),  # Day 0, in cohort
                 ("person3", _date(0)),  # Day 0, not in cohort
                 ("person1", _date(1)),  # Day 1, in cohort
-                ("person2", _date(2)),  # Day 2, in cohort
+                ("person2", _date(1)),  # Day 1, in cohort
+                ("person1", _date(2)),  # Day 2, in cohort (needed for Day 1 cohort retention)
                 ("person3", _date(3)),  # Day 3, not in cohort
             ],
         )
@@ -3997,9 +3998,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(breakdown_values, {str(cohort.pk)})
 
         cohort_results = pluck([c for c in result if c.get("breakdown_value") == str(cohort.pk)], "values", "count")
+        # Expected pattern based on our event data:
+        # - person1: events on days 0, 1, 2 (in cohort)
+        # - person2: events on days 0, 1 (in cohort)
+        # - person3: events on days 0, 3 (not in cohort, so filtered out)
+        #
+        # Day 0 cohort: 2 people start, 2 retained on day 1, 1 retained on day 2
+        # Day 1 cohort: 2 people start, 1 retained on day 1 (day 2)
+        # Day 2 cohort: 1 person starts
         self.assertEqual(
             cohort_results,
-            pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [1, 0, 0], [0, 0], [0]]),
+            pad([[2, 2, 1, 0, 0], [2, 1, 0, 0], [1, 0, 0], [0, 0], [0]]),
         )
 
     def test_retention_with_multiple_cohort_breakdowns(self):
