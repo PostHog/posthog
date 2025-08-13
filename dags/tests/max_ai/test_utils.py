@@ -1,8 +1,20 @@
 from datetime import datetime
 
+import pytest
+from dagster_aws.s3 import S3Resource
+from django.conf import settings
 from django.test import override_settings
+from fastavro import reader
+from pydantic_avro import AvroBase
 
-from dags.max_ai.utils import compose_postgres_dump_path, get_consistent_hash_suffix
+from dags.max_ai.utils import (
+    EVALS_S3_BUCKET,
+    EVALS_S3_PREFIX,
+    check_dump_exists,
+    compose_postgres_dump_path,
+    dump_model,
+    get_consistent_hash_suffix,
+)
 
 
 def test_consistent_hash_suffix_same_period():
@@ -81,14 +93,14 @@ def test_compose_postgres_dump_path():
     file_name = "test_dump"
     code_version = "v1.0"
 
-    with override_settings(OBJECT_STORAGE_MAX_AI_EVALS_FOLDER="test-bucket"):
+    with override_settings(DAGSTER_AI_EVALS_S3_BUCKET="test-bucket"):
         result = compose_postgres_dump_path(project_id, file_name, code_version)
 
         # Should contain the project ID in path
         assert f"/{project_id}/" in result
 
         # Should start with the mocked folder path
-        assert result.startswith("test-bucket/models/")
+        assert result.startswith(f"{EVALS_S3_PREFIX}/postgres_models/")
 
         # Should end with .avro extension
         assert result.endswith(".avro")
@@ -103,3 +115,55 @@ def test_compose_postgres_dump_path():
         # Different code version should produce different path
         result_different_version = compose_postgres_dump_path(project_id, file_name, "v2.0")
         assert result != result_different_version
+
+
+# Test schema for dump_model tests
+class DummySchema(AvroBase):
+    name: str
+    value: int
+
+
+@pytest.fixture
+def s3_resource():
+    return S3Resource(
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    )
+
+
+def test_dump_model_creates_avro_file(s3_resource):
+    """Test that dump_model creates an Avro file with correct data in S3."""
+    file_key = "test/path/data.avro"
+
+    test_models = [DummySchema(name="test1", value=1), DummySchema(name="test2", value=2)]
+
+    with dump_model(s3=s3_resource, schema=DummySchema, file_key=file_key) as dump:
+        dump(test_models)
+
+    uploaded_file = s3_resource.get_client().get_object(Bucket=EVALS_S3_BUCKET, Key=file_key)["Body"]
+
+    # Verify the uploaded file contains valid Avro data
+    records = list(reader(uploaded_file))
+    assert len(records) == 2
+    assert records[0]["name"] == "test1"
+    assert records[0]["value"] == 1
+    assert records[1]["name"] == "test2"
+    assert records[1]["value"] == 2
+
+
+def test_check_dump_exists(s3_resource):
+    """Test that check_dump_exists correctly identifies existing and non-existing files."""
+    existing_file_key = "test/path/existing_file.avro"
+    non_existing_file_key = "test/path/non_existing_file.avro"
+
+    # First create a file
+    test_models = [DummySchema(name="test", value=42)]
+    with dump_model(s3=s3_resource, schema=DummySchema, file_key=existing_file_key) as dump:
+        dump(test_models)
+
+    # Test that existing file is found
+    assert check_dump_exists(s3_resource, existing_file_key) is True
+
+    # Test that non-existing file returns False
+    assert check_dump_exists(s3_resource, non_existing_file_key) is False
