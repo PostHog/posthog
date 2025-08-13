@@ -305,13 +305,15 @@ class RootNode(RootNodeUIContextMixin):
         """
         Check if the user has the session summarization feature flag enabled.
         """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
+        return True
+        # TODO: Revert after tests
+        # return posthoganalytics.feature_enabled(
+        #     "max-session-summarization",
+        #     str(self._user.distinct_id),
+        #     groups={"organization": str(self._team.organization_id)},
+        #     group_properties={"organization": {"id": str(self._team.organization_id)}},
+        #     send_feature_flag_events=False,
+        # )
 
     """
     Determines the maximum number of tokens allowed in the conversation window.
