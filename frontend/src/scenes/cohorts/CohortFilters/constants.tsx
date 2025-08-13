@@ -853,12 +853,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortSelectorField
                 {...p}
-                fieldOptionGroupTypes={[
-                    FieldOptionsType.EventBehavioral,
-                    FieldOptionsType.PersonPropertyBehavioral,
-                    FieldOptionsType.CohortBehavioral,
-                    FieldOptionsType.LifecycleBehavioral,
-                ]}
+                fieldOptionGroupTypes={getFieldOptionsForCohortType(p.cohort?.cohort_type || 'analytical')}
             />
         )
     },
@@ -982,7 +977,9 @@ export const CRITERIA_VALIDATIONS: Record<
 
 export const COHORT_TYPE_OPTIONS: LemonSelectOptions<CohortTypeEnum> = [
     { value: CohortTypeEnum.Static, label: 'Static · Updated manually' },
-    { value: CohortTypeEnum.Dynamic, label: 'Dynamic · Updates automatically' },
+    { value: CohortTypeEnum.PersonProperty, label: 'Person Property · Based on person properties' },
+    { value: CohortTypeEnum.Behavioral, label: 'Behavioral · Based on user behavior' },
+    { value: CohortTypeEnum.Analytical, label: 'Analytical · Complex multi-condition' },
 ]
 
 export const NEW_CRITERIA = {
@@ -1023,4 +1020,30 @@ export const BEHAVIORAL_TYPE_TO_LABEL: Partial<Record<BehavioralFilterType, { la
     ...FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
     ...SCALE_FIELD_VALUES[FieldOptionsType.EventBehavioral].values,
     ...SCALE_FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
+}
+
+export const getFieldOptionsForCohortType = (cohortType?: string): FieldOptionsType[] => {
+    if (!cohortType || cohortType === 'static') {
+        return []
+    }
+
+    if (cohortType === 'person_property') {
+        return [FieldOptionsType.PersonPropertyBehavioral, FieldOptionsType.CohortBehavioral]
+    }
+
+    if (cohortType === 'behavioral') {
+        return [
+            FieldOptionsType.EventBehavioral,
+            FieldOptionsType.PersonPropertyBehavioral,
+            FieldOptionsType.CohortBehavioral,
+        ]
+    }
+
+    // analytical - all options
+    return [
+        FieldOptionsType.EventBehavioral,
+        FieldOptionsType.PersonPropertyBehavioral,
+        FieldOptionsType.CohortBehavioral,
+        FieldOptionsType.LifecycleBehavioral,
+    ]
 }

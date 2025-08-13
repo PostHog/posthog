@@ -87,6 +87,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 criteria={criteria}
                                                 type={criteriaToBehavioralFilterType(criteria)}
                                                 hideDeleteIcon={group.values.length <= 1}
+                                                cohort={cohort}
                                             />
                                             {criteriaIndex === group.values.length - 1 && (
                                                 <div className="m-3">

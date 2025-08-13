@@ -210,7 +210,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             </LemonField>
                         </div>
                         <div className="flex-1">
-                            <LemonField name="is_static" label="Type">
+                            <LemonField name="cohort_type" label="Type">
                                 {({ value, onChange }) => (
                                     <LemonSelect
                                         disabledReason={
@@ -219,9 +219,12 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 : 'Create a new cohort to use a different type of cohort.'
                                         }
                                         options={COHORT_TYPE_OPTIONS}
-                                        value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
+                                        value={
+                                            value ||
+                                            (cohort.is_static ? CohortTypeEnum.Static : CohortTypeEnum.PersonProperty)
+                                        }
                                         onChange={(cohortType) => {
-                                            onChange(cohortType === CohortTypeEnum.Static)
+                                            onChange(cohortType)
                                         }}
                                         fullWidth
                                         data-attr="cohort-type"
@@ -266,7 +269,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </LemonField>
                     </div>
                 </div>
-                {cohort.is_static ? (
+                {cohort.cohort_type === CohortTypeEnum.Static || (!cohort.cohort_type && cohort.is_static) ? (
                     <div className="mt-4 ph-ignore-input">
                         <LemonField
                             name="csv"

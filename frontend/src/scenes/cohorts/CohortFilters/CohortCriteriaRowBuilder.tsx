@@ -12,7 +12,7 @@ import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, CohortType, FilterLogicalOperator } from '~/types'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -23,6 +23,7 @@ export interface CohortCriteriaRowBuilderProps {
     logicalOperator: FilterLogicalOperator
     hideDeleteIcon?: boolean
     onChangeType?: (nextType: BehavioralFilterType) => void
+    cohort?: CohortType
 }
 
 export function CohortCriteriaRowBuilder({
@@ -34,6 +35,7 @@ export function CohortCriteriaRowBuilder({
     criteria,
     hideDeleteIcon = false,
     onChangeType,
+    cohort,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
     const rowShape = ROWS[type]
@@ -44,6 +46,7 @@ export function CohortCriteriaRowBuilder({
                 {renderField[_field.type]({
                     fieldKey: _field.fieldKey,
                     criteria,
+                    cohort,
                     ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
                     ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
@@ -103,6 +106,7 @@ export function CohortCriteriaRowBuilder({
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
+                                        cohort,
                                         onChange: (newCriteria) => {
                                             setCriteria(cleanCriteria(newCriteria, true), groupIndex, index)
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
