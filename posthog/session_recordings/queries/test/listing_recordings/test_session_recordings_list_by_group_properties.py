@@ -3,11 +3,12 @@ from freezegun import freeze_time
 
 from posthog.models import Person, GroupTypeMapping
 from posthog.models.group.util import create_group
+from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.queries.test.listing_recordings.base_test_session_recordings_list import (
     BaseTestSessionRecordingsList,
 )
-from posthog.test.base import snapshot_clickhouse_queries, _create_event
+from posthog.test.base import snapshot_clickhouse_queries, _create_event, flush_persons_and_events
 
 
 @freeze_time("2020-01-01T13:46:23")
@@ -38,28 +39,30 @@ class TestSessionRecordingsListByGroupProperties(BaseTestSessionRecordingsList):
             properties={"another": "value"},
         )
         # there are events in session 1 matching org5
+        session_id_one = str(uuid7())
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="p1",
-            session_id="session_1",
+            session_id=session_id_one,
             timestamp="2019-12-30T12:00:00Z",
-            properties={"$group_0": "org:5", "$group_1": "company:12", "$session_id": "session_1"},
+            properties={"$group_0": "org:5", "$group_1": "company:12", "$session_id": session_id_one},
         )
         # there are events in session 2 matching company:1
+        session_id_two = str(uuid7())
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="p1",
-            session_id="session_2",
+            session_id=session_id_two,
             timestamp="2019-12-30T12:00:00Z",
             # without events
-            properties={"$group_0": "org:40", "$group_1": "company:1", "$session_id": "session_2"},
+            properties={"$group_0": "org:40", "$group_1": "company:1", "$session_id": session_id_two},
         )
 
         produce_replay_summary(
             distinct_id="p1",
-            session_id="session_1",
+            session_id=session_id_one,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             ensure_analytics_event_in_session=False,
@@ -67,11 +70,12 @@ class TestSessionRecordingsListByGroupProperties(BaseTestSessionRecordingsList):
 
         produce_replay_summary(
             distinct_id="p1",
-            session_id="session_2",
+            session_id=session_id_two,
             first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
             ensure_analytics_event_in_session=False,
         )
+        flush_persons_and_events()
 
         self._assert_query_matches_session_ids(
             {
@@ -82,7 +86,7 @@ class TestSessionRecordingsListByGroupProperties(BaseTestSessionRecordingsList):
                     {"key": "another", "value": ["value"], "operator": "exact", "type": "group", "group_type_index": 1}
                 ]
             },
-            ["session_2"],
+            [session_id_two],
         )
 
         self._assert_query_matches_session_ids(
@@ -136,7 +140,7 @@ class TestSessionRecordingsListByGroupProperties(BaseTestSessionRecordingsList):
                     }
                 ]
             },
-            ["session_1"],
+            [session_id_one],
         )
 
         self._assert_query_matches_session_ids(
