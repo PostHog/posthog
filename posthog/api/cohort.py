@@ -206,12 +206,14 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "cohort_type",
             "experiment_set",
             "_create_in_folder",
         ]
         read_only_fields = [
             "id",
             "is_calculating",
+            "cohort_type",
             "created_by",
             "created_at",
             "last_calculation",
@@ -247,6 +249,10 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
+
+        # Determine and set the cohort type for new cohorts
+        cohort.cohort_type = cohort.determine_cohort_type()
+        cohort.save(update_fields=["cohort_type"])
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data)
@@ -365,6 +371,11 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
+
+        # Recalculate cohort type when filters change
+        if "filters" in validated_data or "is_static" in validated_data or "query" in validated_data:
+            cohort.cohort_type = cohort.determine_cohort_type()
+
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state

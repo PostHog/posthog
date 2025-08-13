@@ -1,5 +1,6 @@
 import time
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Literal, Optional, Union, cast, TYPE_CHECKING
 
 import structlog
@@ -25,6 +26,13 @@ from posthog.models.person import PersonDistinctId
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+class CohortType(StrEnum):
+    STATIC = "static"
+    PERSON_PROPERTY = "person_property"
+    BEHAVIORAL = "behavioral"
+    ANALYTICAL = "analytical"
 
 
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
@@ -164,6 +172,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     is_static = models.BooleanField(default=False)
 
+    cohort_type = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        choices=[(cohort_type.value, cohort_type.value) for cohort_type in CohortType],
+        help_text="Type of cohort based on filter complexity",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
@@ -257,7 +273,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
     @property
-    def has_complex_behavioral_filter(self) -> bool:
+    def has_analytical_filters(self) -> bool:
+        """Check if cohort contains analytical filters (lifecycle or sequence events)"""
         for prop in self.properties.flat:
             if prop.type == "behavioral" and prop.value in [
                 BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
@@ -268,6 +285,90 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             ]:
                 return True
         return False
+
+    def determine_cohort_type(self, visited: Optional[set] = None) -> CohortType:
+        """Determine cohort type based on filters, including recursive cohort dependencies"""
+        if self.is_static:
+            return CohortType.STATIC
+
+        # Query-based cohorts are analytical
+        if self.query:
+            return CohortType.ANALYTICAL
+
+        # Analyze direct filters
+        has_person_filters = False
+        has_behavioral_filters = False
+        referenced_cohort_ids = []
+
+        for prop in self.properties.flat:
+            if prop.type == "cohort":
+                if prop.value:
+                    referenced_cohort_ids.append(prop.value)
+            elif prop.type == "person":
+                has_person_filters = True
+            elif prop.type == "behavioral":
+                has_behavioral_filters = True
+            else:
+                # Unknown property type
+                raise ValueError(f"Unknown property type '{prop.type}' in cohort {self.id}")
+
+        # Check for analytical filters (most complex)
+        if self.has_analytical_filters:
+            return CohortType.ANALYTICAL
+
+        # Check direct behavioral filters
+        if has_behavioral_filters:
+            return CohortType.BEHAVIORAL
+
+        # Recursively check referenced cohorts for their complexity
+        if referenced_cohort_ids:
+            if visited is None:
+                visited = set()
+            max_referenced_type = self._get_max_referenced_cohort_type(referenced_cohort_ids, visited)
+            if max_referenced_type == CohortType.ANALYTICAL:
+                return CohortType.ANALYTICAL
+            elif max_referenced_type == CohortType.BEHAVIORAL:
+                return CohortType.BEHAVIORAL
+
+        # Has person filters or any cohort references that are not behavioral or analytical
+        if has_person_filters or referenced_cohort_ids:
+            return CohortType.PERSON_PROPERTY
+
+        # If we get here, the cohort either has no filters, or filters that are invalid.  let's throw here.
+        raise ValueError(f"Cannot determine type for cohort {self.id}: no valid filters found")
+
+    def _get_max_referenced_cohort_type(self, cohort_ids: list, visited: set) -> CohortType:
+        """Recursively determine the maximum complexity type from referenced cohorts"""
+        # Prevent infinite loops in circular references
+        if self.id in visited:
+            raise ValueError(f"Circular cohort reference detected involving cohort {self.id}")
+
+        visited.add(self.id)
+        max_type = CohortType.PERSON_PROPERTY
+
+        referenced_cohorts = Cohort.objects.filter(id__in=cohort_ids, team_id=self.team_id).only(
+            "id", "is_static", "cohort_type"
+        )
+
+        missing_cohorts = set(cohort_ids) - {cohort.id for cohort in referenced_cohorts}
+        if missing_cohorts:
+            raise ValueError(f"Referenced cohorts not found or not accessible: {missing_cohorts}")
+
+        for cohort in referenced_cohorts:
+            if cohort.cohort_type:
+                # Use cached type if available
+                cohort_type = cohort.cohort_type
+            else:
+                # Recursively determine type
+                cohort_type = cohort.determine_cohort_type(visited)
+
+            # Update max_type based on hierarchy: ANALYTICAL > BEHAVIORAL > PERSON_PROPERTY > STATIC
+            if cohort_type == CohortType.ANALYTICAL:
+                return CohortType.ANALYTICAL  # Short-circuit, can't get higher
+            elif cohort_type == CohortType.BEHAVIORAL and max_type != CohortType.ANALYTICAL:
+                max_type = CohortType.BEHAVIORAL
+
+        return max_type
 
     def get_analytics_metadata(self):
         return {
@@ -510,6 +611,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "query": self.query,
             "groups": self.groups,
             "is_static": self.is_static,
+            "cohort_type": self.cohort_type,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,

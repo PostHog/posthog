@@ -2,7 +2,9 @@ import pytest
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, Person, Team
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.property import Property, PropertyGroup, PropertyOperatorType, BehavioralPropertyType
 from posthog.test.base import BaseTest
 
 
@@ -370,3 +372,214 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    def test_determine_cohort_type_static(self):
+        """Static cohorts should always return STATIC type"""
+
+        cohort = Cohort.objects.create(team=self.team, is_static=True, name="Static Cohort")
+
+        self.assertEqual(cohort.determine_cohort_type(), CohortType.STATIC)
+
+    def test_determine_cohort_type_person_property(self):
+        """Cohorts with only person property filters should return PERSON_PROPERTY"""
+
+        property_filters = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                Property(type="person", key="email", operator="icontains", value="@posthog.com"),
+                Property(type="person", key="age", operator="gt", value="18"),
+            ],
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team, filters={"properties": property_filters.to_dict()}, name="Person Property Cohort"
+        )
+
+        self.assertEqual(cohort.determine_cohort_type(), CohortType.PERSON_PROPERTY)
+
+    def test_determine_cohort_type_behavioral(self):
+        """Cohorts with behavioral filters should return BEHAVIORAL"""
+
+        property_filters = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                Property(
+                    type="behavioral",
+                    key="performed_event",
+                    value=BehavioralPropertyType.PERFORMED_EVENT,
+                    operator="exact",
+                    event_type="events",
+                    time_interval="day",
+                    time_value="1",
+                )
+            ],
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team, filters={"properties": property_filters.to_dict()}, name="Behavioral Cohort"
+        )
+
+        self.assertEqual(cohort.determine_cohort_type(), CohortType.BEHAVIORAL)
+
+    def test_determine_cohort_type_analytical(self):
+        """Cohorts with analytical filters should return ANALYTICAL"""
+
+        property_filters = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                Property(
+                    type="behavioral",
+                    key="performed_event_first_time",
+                    event_type="events",
+                    value=BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                    operator="exact",
+                    time_interval="day",
+                    time_value="1",
+                )
+            ],
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team, filters={"properties": property_filters.to_dict()}, name="Analytical Cohort"
+        )
+
+        self.assertEqual(cohort.determine_cohort_type(), CohortType.ANALYTICAL)
+
+    def test_determine_cohort_type_hierarchy(self):
+        """Mixed filters should return the highest complexity type"""
+
+        property_filters = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                Property(type="person", key="email", operator="icontains", value="@posthog.com"),
+                Property(
+                    type="behavioral",
+                    key="performed_event",
+                    value=BehavioralPropertyType.PERFORMED_EVENT,
+                    operator="exact",
+                    event_type="events",
+                    time_interval="day",
+                    time_value="1",
+                ),
+                Property(
+                    type="behavioral",
+                    key="performed_event_first_time",
+                    value=BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                    operator="exact",
+                    event_type="events",
+                    time_interval="day",
+                    time_value="1",
+                ),
+            ],
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team, filters={"properties": property_filters.to_dict()}, name="Mixed Cohort"
+        )
+
+        # Should return ANALYTICAL since it has the highest complexity
+        self.assertEqual(cohort.determine_cohort_type(), CohortType.ANALYTICAL)
+
+    def test_determine_cohort_type_with_cohort_reference(self):
+        """Cohort referencing another should inherit the higher complexity type"""
+
+        # Create a behavioral cohort
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        Property(
+                            type="behavioral",
+                            key="performed_event",
+                            value=BehavioralPropertyType.PERFORMED_EVENT,
+                            operator="exact",
+                            event_type="events",
+                            time_interval="day",
+                            time_value="1",
+                        )
+                    ],
+                ).to_dict()
+            },
+            name="Behavioral Base Cohort",
+        )
+        behavioral_cohort.cohort_type = behavioral_cohort.determine_cohort_type()
+        behavioral_cohort.save()
+
+        # Create a cohort that references the behavioral one
+        referencing_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        Property(type="person", key="email", operator="icontains", value="@posthog.com"),
+                        Property(type="cohort", key="id", operator="in", value=behavioral_cohort.id),
+                    ],
+                ).to_dict()
+            },
+            name="Referencing Cohort",
+        )
+
+        # Should return BEHAVIORAL because it references a behavioral cohort
+        self.assertEqual(referencing_cohort.determine_cohort_type(), CohortType.BEHAVIORAL)
+
+    def test_determine_cohort_type_circular_reference_error(self):
+        """Should detect and raise error for circular cohort references"""
+
+        # Create two cohorts that will reference each other
+        cohort_a = Cohort.objects.create(team=self.team, name="Cohort A")
+        cohort_b = Cohort.objects.create(team=self.team, name="Cohort B")
+
+        # Set up circular reference: A -> B -> A
+        cohort_a.filters = {
+            "properties": PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[Property(type="cohort", key="id", operator="in", value=cohort_b.id)],
+            ).to_dict()
+        }
+        cohort_a.save()
+
+        cohort_b.filters = {
+            "properties": PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[Property(type="cohort", key="id", operator="in", value=cohort_a.id)],
+            ).to_dict()
+        }
+        cohort_b.save()
+
+        with self.assertRaises(ValueError) as cm:
+            cohort_a.determine_cohort_type()
+        self.assertIn("Circular cohort reference detected", str(cm.exception))
+
+    def test_determine_cohort_type_missing_cohort_error(self):
+        """Should raise error when referencing non-existent cohorts"""
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[Property(type="cohort", key="id", operator="in", value=99999)],  # Non-existent ID
+                ).to_dict()
+            },
+            name="Invalid Reference Cohort",
+        )
+
+        with self.assertRaises(ValueError) as cm:
+            cohort.determine_cohort_type()
+        self.assertIn("Referenced cohorts not found", str(cm.exception))
+
+    def test_determine_cohort_type_empty_cohort_error(self):
+        """Should raise error for cohorts with no filters"""
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Empty Cohort",
+            filters={"properties": PropertyGroup(type=PropertyOperatorType.AND, values=[]).to_dict()},
+        )
+
+        with self.assertRaises(ValueError) as cm:
+            cohort.determine_cohort_type()
+        self.assertIn("no valid filters found", str(cm.exception))
