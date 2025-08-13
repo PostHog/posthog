@@ -16,7 +16,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
-import { summarizeUsage } from './billing-utils'
+import { summarizeUsage, calculateProjectedAmountExcludingAddons } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
@@ -302,7 +302,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="flex flex-col items-end">
                                             <span className="text-secondary">
                                                 {humanFriendlyCurrency(
-                                                    parseFloat(product.projected_amount_usd || '0') * // This needs to be fixed to get session-only projection
+                                                    parseFloat(calculateProjectedAmountExcludingAddons(product)) *
                                                         (1 -
                                                             (billing?.discount_percent
                                                                 ? billing.discount_percent / 100

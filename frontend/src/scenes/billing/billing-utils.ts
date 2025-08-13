@@ -466,3 +466,14 @@ export function buildBillingCsv(params: {
 
     return Papa.unparse([header, ...rows])
 }
+
+/**
+ * Calculate projected amount for a product excluding addon amounts.
+ * Used for displaying base product projections separately from addon projections for products with standalone pricing addons
+ * (e.g. session replay and mobile replay).
+ */
+export function calculateProjectedAmountExcludingAddons(product: BillingProductV2Type): string {
+    const totalProjected = parseFloat(product.projected_amount_usd || '0')
+    const addonProjected = product.addons.reduce((sum, addon) => sum + parseFloat(addon.projected_amount_usd || '0'), 0)
+    return Math.max(0, totalProjected - addonProjected).toFixed(2)
+}
