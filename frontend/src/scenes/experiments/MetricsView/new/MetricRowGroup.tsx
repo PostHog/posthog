@@ -78,7 +78,6 @@ export function MetricRowGroup({
         isPositioned: false,
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
-    const chartCellRefs = useRef<{ [key: string]: HTMLTableCellElement | null }>({})
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
@@ -93,50 +92,51 @@ export function MetricRowGroup({
             : `${(primaryValue * 100).toFixed(2)}%`
     }
 
-    // Tooltip handlers
-    const handleTooltipMouseEnter = (variantResult: ExperimentVariantResult): void => {
-        // Calculate position immediately when hovering
-        const chartCell = chartCellRefs.current[variantResult.key]
-
-        if (chartCell && tooltipRef.current) {
-            const chartCellRect = chartCell.getBoundingClientRect()
-            const tooltipRect = tooltipRef.current.getBoundingClientRect()
-
-            // Calculate the delta position within the SVG
-            const delta = getDelta(variantResult)
-            const deltaX = scale(delta)
-
-            // Convert SVG coordinates to pixel coordinates
-            // The SVG viewBox width is VIEW_BOX_WIDTH, and the actual width is chartCellRect.width
-            const svgToPixelRatio = chartCellRect.width / VIEW_BOX_WIDTH
-            const deltaPixelX = deltaX * svgToPixelRatio
-
-            // Calculate tooltip position: center it above the confidence interval bar
-            let x = chartCellRect.left + deltaPixelX - tooltipRect.width / 2
-            const y = chartCellRect.top - tooltipRect.height - 8
-
-            // Keep tooltip within viewport bounds
-            const padding = 8
-            if (x < padding) {
-                x = padding
-            } else if (x + tooltipRect.width > window.innerWidth - padding) {
-                x = window.innerWidth - tooltipRect.width - padding
-            }
-
-            setTooltipState({
-                isVisible: true,
-                variantResult,
-                position: { x, y },
-                isPositioned: true,
-            })
-        } else {
-            setTooltipState((prev) => ({
-                ...prev,
-                isVisible: true,
-                variantResult,
-                isPositioned: false,
-            }))
+    // Helper function to calculate tooltip position
+    const calculateTooltipPosition = (
+        chartCell: HTMLElement,
+        variantResult: ExperimentVariantResult
+    ): { x: number; y: number } | null => {
+        if (!tooltipRef.current) {
+            return null
         }
+
+        const chartCellRect = chartCell.getBoundingClientRect()
+        const tooltipRect = tooltipRef.current.getBoundingClientRect()
+
+        // Calculate the delta position within the SVG
+        const delta = getDelta(variantResult)
+        const deltaX = scale(delta)
+
+        // Convert SVG coordinates to pixel coordinates
+        const svgToPixelRatio = chartCellRect.width / VIEW_BOX_WIDTH
+        const deltaPixelX = deltaX * svgToPixelRatio
+
+        // Calculate tooltip position: center it above the confidence interval bar
+        let x = chartCellRect.left + deltaPixelX - tooltipRect.width / 2
+        const y = chartCellRect.top - tooltipRect.height - 8
+
+        // Keep tooltip within viewport bounds
+        const padding = 8
+        x = Math.max(padding, Math.min(x, window.innerWidth - tooltipRect.width - padding))
+
+        return { x, y }
+    }
+
+    // Tooltip handlers
+    const handleTooltipMouseEnter = (e: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
+        const chartCell = e.currentTarget.querySelector('[data-table-cell="chart"]') as HTMLElement
+        if (!chartCell) {
+            return
+        }
+
+        const position = calculateTooltipPosition(chartCell, variantResult)
+        setTooltipState({
+            isVisible: true,
+            variantResult,
+            position: position || { x: 0, y: 0 },
+            isPositioned: !!position,
+        })
     }
 
     const handleTooltipMouseLeave = (): void => {
@@ -148,38 +148,19 @@ export function MetricRowGroup({
         }))
     }
 
-    const handleTooltipMouseMove = (_: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
+    const handleTooltipMouseMove = (e: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
         // Only reposition if not already positioned
-        if (tooltipRef.current && !tooltipState.isPositioned) {
-            const chartCell = chartCellRefs.current[variantResult.key]
+        if (!tooltipState.isPositioned) {
+            const chartCell = e.currentTarget.querySelector('[data-table-cell="chart"]') as HTMLElement
+            if (!chartCell) {
+                return
+            }
 
-            if (chartCell) {
-                const chartCellRect = chartCell.getBoundingClientRect()
-                const tooltipRect = tooltipRef.current.getBoundingClientRect()
-
-                // Calculate the delta position within the SVG
-                const delta = getDelta(variantResult)
-                const deltaX = scale(delta)
-
-                // Convert SVG coordinates to pixel coordinates
-                const svgToPixelRatio = chartCellRect.width / VIEW_BOX_WIDTH
-                const deltaPixelX = deltaX * svgToPixelRatio
-
-                // Calculate tooltip position: center it above the confidence interval bar
-                let x = chartCellRect.left + deltaPixelX - tooltipRect.width / 2
-                const y = chartCellRect.top - tooltipRect.height - 8
-
-                // Keep tooltip within viewport bounds
-                const padding = 8
-                if (x < padding) {
-                    x = padding
-                } else if (x + tooltipRect.width > window.innerWidth - padding) {
-                    x = window.innerWidth - tooltipRect.width - padding
-                }
-
+            const position = calculateTooltipPosition(chartCell, variantResult)
+            if (position) {
                 setTooltipState((prev) => ({
                     ...prev,
-                    position: { x, y },
+                    position,
                     isPositioned: true,
                 }))
             }
@@ -393,7 +374,7 @@ export function MetricRowGroup({
                         key={`${metricIndex}-${variant.key}`}
                         className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
-                        onMouseEnter={() => handleTooltipMouseEnter(variant)}
+                        onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
                         onMouseLeave={handleTooltipMouseLeave}
                         onMouseMove={(e) => handleTooltipMouseMove(e, variant)}
                     >
@@ -456,9 +437,6 @@ export function MetricRowGroup({
 
                         {/* Chart */}
                         <ChartCell
-                            ref={(el) => {
-                                chartCellRefs.current[variant.key] = el
-                            }}
                             variantResult={variant}
                             axisRange={axisRange}
                             metricIndex={metricIndex}

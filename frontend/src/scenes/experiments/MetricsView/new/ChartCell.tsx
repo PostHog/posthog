@@ -1,4 +1,3 @@
-import { forwardRef } from 'react'
 import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
@@ -32,18 +31,15 @@ interface ChartCellProps {
     isSecondary?: boolean
 }
 
-export const ChartCell = forwardRef<HTMLTableCellElement, ChartCellProps>(function ChartCell(
-    {
-        variantResult,
-        axisRange,
-        metricIndex,
-        showGridLines = true,
-        isAlternatingRow = false,
-        isLastRow = false,
-        isSecondary = false,
-    },
-    ref
-) {
+export function ChartCell({
+    variantResult,
+    axisRange,
+    metricIndex,
+    showGridLines = true,
+    isAlternatingRow = false,
+    isLastRow = false,
+    isSecondary = false,
+}: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
@@ -62,7 +58,7 @@ export const ChartCell = forwardRef<HTMLTableCellElement, ChartCellProps>(functi
 
     return (
         <td
-            ref={ref}
+            data-table-cell="chart"
             className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}
@@ -151,4 +147,4 @@ export const ChartCell = forwardRef<HTMLTableCellElement, ChartCellProps>(functi
             </div>
         </td>
     )
-})
+}
