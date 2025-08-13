@@ -497,39 +497,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
-        temporaryFilters: [
-            {
-                date_from: null,
-                date_to: null,
-                properties: null,
-                breakdown_filter: null,
-            } as DashboardFilter,
-            {
-                setDates: (state, { date_from, date_to }) => ({
-                    ...state,
-                    date_from: date_from || null,
-                    date_to: date_to || null,
-                }),
-                setProperties: (state, { properties }) => ({
-                    ...state,
-                    properties: properties || null,
-                }),
-                setBreakdownFilter: (state, { breakdown_filter }) => ({
-                    ...state,
-                    breakdown_filter: breakdown_filter || null,
-                }),
-                loadDashboardSuccess: (state, { dashboard }) =>
-                    dashboard
-                        ? {
-                              ...state,
-                              date_from: dashboard?.filters.date_from || null,
-                              date_to: dashboard?.filters.date_to || null,
-                              properties: dashboard?.filters.properties || [],
-                              breakdown_filter: dashboard?.filters.breakdown_filter || null,
-                          }
-                        : state,
-            },
-        ],
         temporaryBreakdownColors: [
             [] as BreakdownColorConfig[],
             {
@@ -550,38 +517,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 setDataColorThemeId: (_, { dataColorThemeId }) => dataColorThemeId || null,
                 loadDashboardSuccess: (_, { dashboard }) => dashboard?.data_color_theme_id || null,
-            },
-        ],
-        filters: [
-            {
-                date_from: null,
-                date_to: null,
-                properties: null,
-                breakdown_filter: null,
-            } as DashboardFilter,
-            {
-                setFiltersAndLayoutsAndVariables: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
-                loadDashboardSuccess: (state, { dashboard, payload }) => {
-                    const result = dashboard
-                        ? {
-                              ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === DashboardLoadAction.Preview
-                                  ? {}
-                                  : {
-                                        date_from: dashboard?.filters.date_from || null,
-                                        date_to: dashboard?.filters.date_to || null,
-                                        properties: dashboard?.filters.properties || [],
-                                        breakdown_filter: dashboard?.filters.breakdown_filter || null,
-                                    }),
-                          }
-                        : state
-
-                    return result
-                },
             },
         ],
         dashboard: [
@@ -805,12 +740,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setTextTileId: (_, { textTileId }) => textTileId,
             },
         ],
-        initialVariablesLoaded: [
-            false,
-            {
-                setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
-            },
-        ],
 
         lastDashboardRefresh: [
             null as Dayjs | null,
@@ -827,6 +756,80 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardNotFound: () => true,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
+            },
+        ],
+        /** Dashboard variables */
+        initialVariablesLoaded: [
+            false,
+            {
+                setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
+            },
+        ],
+
+        /** Dashboard filters */
+        filters: [
+            {
+                date_from: null,
+                date_to: null,
+                properties: null,
+                breakdown_filter: null,
+            } as DashboardFilter,
+            {
+                setFiltersAndLayoutsAndVariables: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                }),
+                loadDashboardSuccess: (state, { dashboard, payload }) => {
+                    const result = dashboard
+                        ? {
+                              ...state,
+                              // don't update filters if we're previewing
+                              ...(payload?.action === DashboardLoadAction.Preview
+                                  ? {}
+                                  : {
+                                        date_from: dashboard?.filters.date_from || null,
+                                        date_to: dashboard?.filters.date_to || null,
+                                        properties: dashboard?.filters.properties || [],
+                                        breakdown_filter: dashboard?.filters.breakdown_filter || null,
+                                    }),
+                          }
+                        : state
+
+                    return result
+                },
+            },
+        ],
+        temporaryFilters: [
+            {
+                date_from: null,
+                date_to: null,
+                properties: null,
+                breakdown_filter: null,
+            } as DashboardFilter,
+            {
+                setDates: (state, { date_from, date_to }) => ({
+                    ...state,
+                    date_from: date_from || null,
+                    date_to: date_to || null,
+                }),
+                setProperties: (state, { properties }) => ({
+                    ...state,
+                    properties: properties || null,
+                }),
+                setBreakdownFilter: (state, { breakdown_filter }) => ({
+                    ...state,
+                    breakdown_filter: breakdown_filter || null,
+                }),
+                loadDashboardSuccess: (state, { dashboard }) =>
+                    dashboard
+                        ? {
+                              ...state,
+                              date_from: dashboard?.filters.date_from || null,
+                              date_to: dashboard?.filters.date_to || null,
+                              properties: dashboard?.filters.properties || [],
+                              breakdown_filter: dashboard?.filters.breakdown_filter || null,
+                          }
+                        : state,
             },
         ],
     })),
