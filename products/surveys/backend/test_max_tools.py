@@ -19,7 +19,7 @@ from posthog.schema import (
 )
 from posthog.test.base import BaseTest
 
-from .max_tools import CreateSurveyTool, FeatureFlagLookupNode, SurveyToolkit
+from .max_tools import CreateSurveyTool, SurveyLoopNode, SurveyToolkit
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -335,13 +335,13 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.conditions["linkedFlagVariant"] == "any"
 
 
-class TestFeatureFlagLookupNode(BaseTest):
+class TestSurveyLoopNode(BaseTest):
     def setUp(self):
         super().setUp()
 
     def _setup_node(self):
-        """Helper to create a FeatureFlagLookupNode instance"""
-        return FeatureFlagLookupNode(team=self.team, user=self.user, toolkit_class=SurveyToolkit)
+        """Helper to create a TestSurveyLoopNode instance"""
+        return SurveyLoopNode(team=self.team, user=self.user, toolkit_class=SurveyToolkit)
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

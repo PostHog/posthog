@@ -98,13 +98,13 @@ export function sanitizeSurveyDisplayConditions(
     }
 
     const trimmedUrl = displayConditions.url?.trim()
-    const trimmedSlector = displayConditions.selector?.trim()
+    const trimmedSelector = displayConditions.selector?.trim()
     const trimmedLinkedFlagVariant = displayConditions.linkedFlagVariant?.trim()
 
     const sanitized: SurveyDisplayConditions = {
         ...displayConditions,
         ...(trimmedUrl && { url: trimmedUrl }),
-        ...(trimmedSlector && { selector: trimmedSlector }),
+        ...(trimmedSelector && { selector: trimmedSelector }),
         ...(trimmedLinkedFlagVariant && { linkedFlagVariant: trimmedLinkedFlagVariant }),
     }
 
@@ -112,7 +112,7 @@ export function sanitizeSurveyDisplayConditions(
     if (!trimmedUrl) {
         delete sanitized.url
     }
-    if (!trimmedSlector) {
+    if (!trimmedSelector) {
         delete sanitized.selector
     }
     if (!trimmedLinkedFlagVariant) {

@@ -36,13 +36,6 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
     }
 
 
-class FeatureFlagLookupResult(BaseModel):
-    flag_id: int | None = Field(description="The internal ID of the feature flag")
-    flag_key: str = Field(description="The key of the feature flag")
-    variants: list[str] = Field(description="List of available variant keys for this feature flag")
-    exists: bool = Field(description="Whether the feature flag exists")
-
-
 class CreateSurveyTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
@@ -69,12 +62,12 @@ class CreateSurveyTool(MaxTool):
         if isinstance(result["output"], SurveyCreationSchema):
             return result["output"]
         else:
-            surveyCreationScheme = SurveyCreationSchema(questions=[], should_launch=False)
+            survey_creation_schema = SurveyCreationSchema(questions=[], should_launch=False)
             capture_exception(
                 Exception(f"Survey creation graph returned unexpected output type: {type(result.get('output'))}"),
                 {"team_id": self._team.id, "user_id": self._user.id, "result": str(result)},
             )
-            return surveyCreationScheme
+            return survey_creation_schema
 
     async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
         """
@@ -212,10 +205,10 @@ class SurveyToolkit(TaxonomyAgentToolkit):
             return f"Feature flag '{flag_key}' not found in the team's feature flags."
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id})
-            return f"Error looking up feature flag: '{flag_key}'", {"error": str(e)}
+            return f"Error looking up feature flag: '{flag_key}'"
 
 
-class FeatureFlagLookupNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[FeatureFlagLookupResult]]):
+class SurveyLoopNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Node for feature flag lookup operations."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type[SurveyToolkit]):
@@ -237,7 +230,7 @@ class FeatureFlagLookupNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentS
             return "\n".join(summaries)
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"Unable to load existing surveys", {"error": str(e)}
+            return "Unable to load existing surveys"
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get system prompts for feature flag lookup."""
@@ -266,7 +259,7 @@ class FeatureFlagLookupNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentS
         return ChatPromptTemplate(all_messages, template_format="mustache")
 
 
-class FeatureFlagLookupToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
+class SurveyLookupToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Tools node for feature flag lookup operations."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type[SurveyToolkit]):
@@ -280,7 +273,7 @@ class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentStat
         super().__init__(
             team,
             user,
-            loop_node_class=FeatureFlagLookupNode,
-            tools_node_class=FeatureFlagLookupToolsNode,
+            loop_node_class=SurveyLoopNode,
+            tools_node_class=SurveyLookupToolsNode,
             toolkit_class=SurveyToolkit,
         )
