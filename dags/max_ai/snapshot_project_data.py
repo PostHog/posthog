@@ -68,7 +68,7 @@ def snapshot_postgres_project_data(
     }
     context.log_event(
         dagster.AssetMaterialization(
-            asset_key="project_postgres_snapshots",
+            asset_key="project_postgres_snapshot",
             description="Avro snapshots of project Postgres data",
             metadata={"project_id": project_id, **deps},
             tags={"owner": JobOwners.TEAM_MAX_AI.value},
