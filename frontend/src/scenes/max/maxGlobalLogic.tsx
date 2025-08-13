@@ -15,6 +15,7 @@ import { SidePanelTab } from '~/types'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
+import { maxLogic } from './maxLogic'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -30,7 +31,7 @@ export const STATIC_TOOLS: ToolRegistration[] = [
                 throw new Error(`${pageKey} not in urls`)
             }
             const url = urls[pageKey as AssistantNavigateUrls]()
-            router.actions.push(url)
+            router.actions.push(url, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
             // First wait for navigation to complete
             await new Promise<void>((resolve, reject) => {
                 const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
