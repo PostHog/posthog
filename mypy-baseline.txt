@@ -374,6 +374,7 @@ posthog/temporal/data_imports/sources/common/rest_source/config_setup.py:0: erro
 posthog/temporal/data_imports/sources/common/rest_source/config_setup.py:0: error: Value of type variable "StrOrLiteralStr" of "parse" of "Formatter" cannot be "str | None"  [type-var]
 posthog/temporal/data_imports/sources/postgres/postgres.py:0: error: No overload variant of "zip" matches argument types "list[str]", "Row"  [call-overload]
 posthog/temporal/data_modeling/run_workflow.py:0: error: Need type annotation for "matching_paths" (hint: "matching_paths: list[<type>] = ...")  [var-annotated]
+posthog/temporal/data_modeling/run_workflow.py:0: error: No overload variant of "utf8_slice_codeunits" matches argument types "Array[Scalar[StringType]]", "int", "int"  [call-overload]
 posthog/temporal/data_modeling/run_workflow.py:0: error: Too many arguments  [call-arg]
 posthog/temporal/data_modeling/run_workflow.py:0: error: Too many arguments  [call-arg]
 posthog/temporal/tests/common/test_error_tracking.py:0: error: Incompatible types in assignment (expression has type "OptionallyFailingInputs", variable has type "OptionallyFailingInputsWithPropertiesToLog")  [assignment]
