@@ -88,7 +88,7 @@ def call_surveys_max_tool(demo_org_team_user):
             max_tool = CreateSurveyTool(team=team, user=user)
             max_tool._context = {"user_id": str(user.uuid)}  # Additional context
             conversation = await Conversation.objects.acreate(team=team, user=user)
-            # Call the tool with the instructions
+
             result = await max_tool.ainvoke(
                 SurveyCreatorArgs(instructions=instructions).model_dump(),
                 {"configurable": {"thread_id": conversation.id, "team": team, "user": user}},
