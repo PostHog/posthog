@@ -624,14 +624,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         billing_manager = BillingManager(get_cached_instance_license())
         org_billing = billing_manager.get_billing(organization=self.team.organization)
-
         if org_billing and org_billing.get("billing_period"):
             billing_period = org_billing["billing_period"]
             billing_period_start = parser.parse(billing_period["current_period_start"])
             billing_period_end = parser.parse(billing_period["current_period_end"])
         else:
-            logger.error("No billing period available")
-            raise
+            raise ValidationError("No billing period available")
 
         # calculate total rows processed in billing period
         external_data_jobs = ExternalDataJob.objects.filter(
