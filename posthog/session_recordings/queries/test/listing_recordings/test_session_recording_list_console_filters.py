@@ -275,26 +275,26 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
 
     @parameterized.expand(
         [
-            # Case 1: OR operand, message 4 matches in warn and error
             (
+                "OR operand, message 4 matches in warn and error",
                 '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "icontains", "type": "log_entry"}]',
                 "OR",
                 ["with-errors-session", "with-two-session", "with-warns-session", "with-logs-session"],
             ),
-            # Case 2: AND operand, message 4 matches in log, warn, and error
             (
+                "AND operand, message 4 matches in log, warn, and error",
                 '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "icontains", "type": "log_entry"}]',
                 "AND",
                 ["with-errors-session", "with-two-session", "with-warns-session"],
             ),
-            # Case 2: AND operand, message 5 matches only in warn
             (
+                "AND operand, message 5 matches only in warn",
                 '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
                 "AND",
                 ["with-warns-session"],
             ),
-            # Case 3: AND operand, message 5 does not match log level "info"
             (
+                "AND operand, message 5 does not match log level info",
                 '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
                 "AND",
                 [],
@@ -305,6 +305,7 @@ class TestSessionRecordingListConsoleFilters(BaseTestSessionRecordingsList):
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_by_console_text(
         self,
+        _name: str,
         console_log_filters: str,
         operand: Literal["AND", "OR"],
         expected_session_ids: list[str],
