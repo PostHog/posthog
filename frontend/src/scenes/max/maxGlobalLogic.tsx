@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { routes } from 'scenes/scenes'
-import { IconBook, IconCompass, IconEye } from '@posthog/icons'
+import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { SidePanelTab } from '~/types'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
@@ -55,10 +55,16 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         icon: <IconBook />,
     },
     {
+        identifier: 'session_summarization' as const,
+        name: TOOL_DEFINITIONS['session_summarization'].name,
+        description: TOOL_DEFINITIONS['session_summarization'].description,
+        icon: <IconRewindPlay />,
+    },
+    {
         identifier: 'create_and_query_insight' as const,
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
-        icon: <IconEye />,
+        icon: <IconGraph />,
     },
 ]
 

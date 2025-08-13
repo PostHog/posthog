@@ -2,10 +2,25 @@ import {} from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
-
 import { IconAtSign, IconMemory } from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
+
+export type AssistantContextualTool =
+    | 'search_session_recordings'
+    | 'generate_hogql_query'
+    | 'fix_hogql_query'
+    | 'analyze_user_interviews'
+    | 'create_and_query_insight'
+    | 'create_hog_transformation_function'
+    | 'create_hog_function_filters'
+    | 'create_hog_function_inputs'
+    | 'navigate'
+    | 'search_error_tracking_issues'
+    | 'experiment_results_summary'
+    | 'create_survey'
+    | 'search_docs'
+    | 'search_insights'
+    | 'session_summarization'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -54,11 +69,15 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     callback?: (toolOutput: any) => void | Promise<void>
 }
 
-export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefinition>, 'fix_hogql_query'> = {
-    create_and_query_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        product: Scene.Insight,
+export const TOOL_DEFINITIONS: Omit<
+    Record<AssistantContextualTool, ToolDefinition>,
+    'fix_hogql_query' | 'search_insights'
+> = {
+    session_summarization: {
+        name: 'Summarize sessions',
+        description: 'Summarize sessions to analyze real user behavior',
+        product: null,
+        flag: 'max-session-summarization',
     },
     search_docs: {
         name: 'Search docs',
@@ -70,9 +89,14 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         description: 'Navigate to other places in PostHog',
         product: null,
     },
+    create_and_query_insight: {
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
+        product: Scene.Insight,
+    },
     search_session_recordings: {
         name: 'Search recordings',
-        description: 'Search recordings for interesting sessions',
+        description: 'Search recordings quickly',
         product: Scene.Replay,
     },
     generate_hogql_query: {
