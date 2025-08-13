@@ -3,6 +3,7 @@ import json
 from datetime import timedelta
 from unittest.mock import ANY, call, patch, Mock
 from urllib.parse import quote
+from parameterized import parameterized
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -18,7 +19,7 @@ from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import HogQLQueryThrottle, AISustainedRateThrottle, AIBurstRateThrottle
+from posthog.rate_limit import HogQLQueryThrottle, AISustainedRateThrottle, AIBurstRateThrottle, get_route_from_path
 from posthog.api.feature_flag import LocalEvaluationThrottle
 from posthog.test.base import APIBaseTest
 
@@ -144,7 +145,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": "/api/projects/TEAM_ID/feature_flags",
+                "route": "/api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -180,7 +181,7 @@ class TestUserAPI(APIBaseTest):
                     "team_id": self.team.pk,
                     "scope": "sustained",
                     "rate": "5/hour",
-                    "path": "/api/projects/TEAM_ID/feature_flags",
+                    "route": "/api/projects/TEAM_ID/feature_flags/",
                     "hashed_personal_api_key": self.hashed_personal_api_key,
                 },
             )
@@ -222,7 +223,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "clickhouse_burst",
                 "rate": "5/minute",
-                "path": "/api/projects/TEAM_ID/events",
+                "route": "/api/projects/TEAM_ID/events/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -255,7 +256,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/projects/TEAM_ID/feature_flags",
+                "route": "/api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -334,7 +335,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/organizations/ORG_ID/plugins",
+                "route": "/api/organizations/ORG_ID/plugins/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -395,7 +396,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": "/api/login",
+                "route": "/api/login/",
                 "hashed_personal_api_key": None,
             },
         )
@@ -593,3 +594,69 @@ class TestUserAPI(APIBaseTest):
             self.assertEqual(throttle.rate, "1200/minute")
             self.assertEqual(throttle.num_requests, 1200)
             self.assertEqual(throttle.duration, 60)  # 1 minute in seconds
+
+    @parameterized.expand(
+        [
+            # Test Django route pattern normalization
+            (
+                "/api/environments/123/query/abc-123-def/progress/",
+                "api/environments/<int:team_id>/query/<str:query_uuid>/progress/",
+                "/api/environments/TEAM_ID/query/QUERY_UUID/progress/",
+                "Django route pattern with int and str parameters",
+            ),
+            (
+                "/api/projects/123/feature_flags/",
+                "^api/projects/(?P<parent_lookup_project_id>[^/.]+)/feature_flags/?$",
+                "/api/projects/TEAM_ID/feature_flags/",
+                "Django route pattern with named regexp parameters",
+            ),
+            (
+                "/api/projects/123/recordings/session-recordings-id-1234",
+                "/api/projects/<team_id>/recordings/(?P<session_recording_id>[^/.]+)",
+                "/api/projects/TEAM_ID/recordings/SESSION_RECORDING_ID/",
+                "session recordings",
+            ),
+            # # Test fallback pattern for projects
+            (
+                "/api/projects/123/some/endpoint",
+                None,  # resolve will raise exception
+                "/api/projects/TEAM_ID/some/endpoint",
+                "Fallback pattern for team/project IDs",
+            ),
+            # Test fallback pattern for organizations
+            (
+                "/api/organizations/org-123/plugins",
+                None,  # resolve will raise exception
+                "/api/organizations/ORG_ID/plugins",
+                "Fallback pattern for organization IDs",
+            ),
+            # Test empty/None paths
+            ("", None, "", "Empty path"),
+            (None, None, "", "None path"),
+            # Test when resolve returns no route
+            (
+                "/some/path",
+                None,  # resolve returns object with route=None
+                "/some/path",
+                "No route pattern found",
+            ),
+        ]
+    )
+    @patch("posthog.rate_limit.statsd.incr")
+    def test_get_route_from_path(self, test_path, mock_route, expected_result, description, incr_mock):
+        """Test that get_route_from_path correctly extracts and normalizes route patterns"""
+        if test_path in ("", None):
+            # Direct test for empty/None paths
+            result = get_route_from_path(test_path)
+            self.assertEqual(result, expected_result, description)
+        else:
+            # Test Django route pattern normalization
+            with patch("posthog.rate_limit.patchable_resolve") as mock_resolve:
+                mock_resolved = Mock()
+                mock_resolved.route = mock_route
+                mock_resolve.return_value = mock_resolved
+                if mock_route is None and test_path == "/some/path":
+                    mock_resolve.side_effect = Exception("Route not found")
+
+                result = get_route_from_path(test_path)
+                self.assertEqual(expected_result, result, description)

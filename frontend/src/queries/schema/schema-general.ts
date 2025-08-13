@@ -1304,6 +1304,7 @@ export type RetentionFilter = {
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
+    showTrendLines?: boolean
 }
 
 export interface RetentionValue {
@@ -2792,8 +2793,8 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
 export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
-    REVENUE_ANALYTICS_INVOICE_ITEM = 'revenue_analytics_invoice_item',
     REVENUE_ANALYTICS_PRODUCT = 'revenue_analytics_product',
+    REVENUE_ANALYTICS_REVENUE_ITEM = 'revenue_analytics_revenue_item',
     REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
@@ -3107,9 +3108,11 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
+export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
+
 export interface LLMTraceEvent {
     id: string
-    event: string
+    event: AIEventType | string // Allow both specific AI events and other event types
     properties: Record<string, any>
     createdAt: string
 }
@@ -3422,6 +3425,8 @@ export interface MarketingAnalyticsTableQuery
     filterTestAccounts?: boolean
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter | null
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {

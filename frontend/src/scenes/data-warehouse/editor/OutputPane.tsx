@@ -474,7 +474,7 @@ export function OutputPane(): JSX.Element {
                         </div>
                     ))}
                 </div>
-                <div className="flex gap-2 py-2 px-4">
+                <div className="flex gap-2 py-2 px-4 flex-shrink-0">
                     {showLegacyFilters && (
                         <DateRange
                             key="date-range"
