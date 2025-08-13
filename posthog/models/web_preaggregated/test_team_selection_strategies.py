@@ -1,4 +1,5 @@
 import requests
+from urllib.parse import urlparse
 from unittest.mock import Mock, patch
 from freezegun import freeze_time
 
@@ -164,12 +165,10 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
         self.mock_context = Mock()
         self.mock_context.log = Mock()
 
-        # Create additional test team for multi-team scenarios
-        self.team2 = Team.objects.create(organization=self.organization, name="Test Team 2")
+        self.another_team = Team.objects.create(organization=self.organization, name="Another team who is interested")
 
     def create_feature_enrollment_events(self):
         with freeze_time("2024-01-10 12:00:00"):
-            # Event for team 1 with web-analytics-api flag
             _create_event(
                 team=self.team,
                 event="$feature_enrollment_update",
@@ -181,7 +180,6 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
                 },
             )
 
-            # Event for team 2 with web-analytics-api flag
             _create_event(
                 team=self.team,
                 event="$feature_enrollment_update",
@@ -189,11 +187,26 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
                 properties={
                     "$feature_flag": "web-analytics-api",
                     "$host": "localhost:8000",
-                    "$current_url": f"https://localhost:8000/project/{self.team2.pk}/dashboard",
+                    "$current_url": f"https://localhost:8000/project/{self.another_team.pk}/dashboard",  # The URL is configured for that other team usage
                 },
             )
 
         flush_persons_and_events()
+
+    # Patch requests.post to use Django test client but
+    def _redirect_request_to_test_api(self, url, json=None, headers=None, timeout=None):
+        parsed_url = urlparse(url)
+        path = parsed_url.path
+
+        # Use Django test client to "redirect" the request to our internal api
+        response = self.client.post(path, json)
+
+        # Shape the result as request expects it
+        mock_response = Mock()
+        mock_response.status_code = response.status_code
+        mock_response.json.return_value = response.json()
+        mock_response.text = response.content.decode()
+        return mock_response
 
     def test_strategy_with_full_integration(self):
         """
@@ -201,14 +214,13 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
         can correctly identify teams with enrolled users through the actual API.
 
         This test:
-        1. Creates enrollment events for multiple teams (self.team and self.team2)
+        1. Creates enrollment events for multiple teams (self.team and self.another_team)
         2. Uses a real PersonalAPIKey with the local API endpoint
         3. Calls FeatureEnrollmentStrategy.get_teams() method
         4. Verifies the strategy returns the correct set of team IDs
         """
         self.create_feature_enrollment_events()
 
-        # Create personal API token for the strategy
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Test Strategy API Key", user=self.user, secure_value=hash_key_value(personal_api_key)
@@ -216,7 +228,11 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
 
         with freeze_time("2024-01-10 12:30:00"):
             strategy = FeatureEnrollmentStrategy(
-                api_host=f"http://localhost:8000", api_token=personal_api_key, flag_key="web-analytics-api"
+                api_host=f"http://testserver",
+                api_token=personal_api_key,
+                flag_key="web-analytics-api",
+                since_date="2024-01-01",
+                team_id=self.team.id,
             )
 
             with patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True):
@@ -224,16 +240,10 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
                     "posthog.models.web_preaggregated.team_selection_strategies.settings.SITE_URL",
                     "https://localhost:8000",
                 ):
-                    result = strategy.get_teams(self.mock_context)
+                    with patch(
+                        "posthog.models.web_preaggregated.team_selection_strategies.requests.post",
+                        side_effect=self._redirect_request_to_test_api,
+                    ):
+                        result = strategy.get_teams(self.mock_context)
 
-            # Verify the strategy returns the correct teams
-            assert isinstance(result, set)
-
-            # The strategy should find both teams that have enrollment events
-            # for the web-analytics-api flag on localhost:8000
-            expected_teams = {self.team.pk, self.team2.pk}
-            assert result == expected_teams, f"Expected teams {expected_teams}, but got {result}"
-
-            # Verify our test data setup
-            assert personal_api_key.startswith("phx_")
-            assert len(PersonalAPIKey.objects.filter(user=self.user)) == 1
+            assert result == {self.team.pk, self.another_team.pk}

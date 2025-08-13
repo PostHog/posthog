@@ -83,10 +83,14 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
         api_host: str = "https://internal-t.posthog.com",
         api_token: str | None = None,
         flag_key: str = "web-analytics-api",
+        since_date: str = "2025-07-01",
+        team_id: int | None = None,
     ):
         self.api_host = api_host
         self.api_token = api_token
         self.flag_key = flag_key
+        self.since_date = since_date
+        self.team_id = team_id or POSTHOG_TEAM_ID
 
     def get_name(self) -> str:
         return "feature_enrollment"
@@ -119,7 +123,7 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
                 FROM events
                 WHERE event = '$feature_enrollment_update'
                     AND properties.$host = '{environment_host}'
-                    AND timestamp >= '2025-07-01'
+                    AND timestamp >= '{self.since_date}'
                     AND properties.$feature_flag = '{self.flag_key}'
             """
 
@@ -131,9 +135,9 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
             }
 
             headers = {"Authorization": f"Bearer {self.api_token}", "Content-Type": "application/json"}
-            url = f"{self.api_host}/api/environments/{POSTHOG_TEAM_ID}/query/"
+            url = f"{self.api_host}/api/environments/{self.team_id}/query/"
 
-            context.log.info(f"Querying PostHog internal API for feature enrollment data (team_id: {POSTHOG_TEAM_ID})")
+            context.log.info(f"Querying PostHog internal API for feature enrollment data (team_id: {self.team_id})")
             response = requests.post(url, json=query_payload, headers=headers, timeout=30)
 
             if response.status_code != 200:
