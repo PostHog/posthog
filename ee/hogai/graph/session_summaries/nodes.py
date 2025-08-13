@@ -50,6 +50,7 @@ class SessionSummarizationNode(AssistantNode):
                 extra={"node": "SessionSummarizationNode", "message": progress_message},
             )
             return
+        # TODO: Move to util
         message_chunk = AIMessageChunk(
             content="",
             additional_kwargs={"reasoning": {"summary": [{"text": f"**{progress_message}**"}]}},
@@ -71,12 +72,15 @@ class SessionSummarizationNode(AssistantNode):
 
         try:
             # Convert markdown to Prosemirror JSON
+            # TODO: Use `acreate` instead of asgrief
             serializer = NotebookSerializer()
             json_content = serializer.from_markdown_to_json(markdown_content)
 
             # Create the notebook update message
+            # Note: Not providing id to count is as a partial message on FE
+            # TODO: The last update should include the id (the final-ish state, processing finished)
+            # TODO: Ensure you use short ID and update docs/commments
             notebook_message = NotebookUpdateMessage(
-                id=str(uuid4()),
                 notebook_id=str(state.notebook_id),
                 content=json_content
             )
@@ -242,7 +246,8 @@ class SessionSummarizationNode(AssistantNode):
                 session_ids=[], user=self._user, team=self._team, summary=None
             )
             # TODO: Is it ok to modify the state directly?
-            state.notebook_id = notebook.id
+            # MENTAL REMINDER
+            state.notebook_id = notebook.short_id
         # If query was not provided for some reason
         if not state.session_summarization_query:
             self._log_failure(
@@ -297,6 +302,7 @@ class SessionSummarizationNode(AssistantNode):
                     writer=writer
                 )
             return PartialAssistantState(
+                # TODO: Add final notebook update message here, before the tool call message, ensure to include the id
                 messages=[
                     AssistantToolCallMessage(
                         content=summaries_content,
@@ -312,6 +318,7 @@ class SessionSummarizationNode(AssistantNode):
             return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
 
     def _create_error_response(self, message: str, root_tool_call_id: str | None) -> PartialAssistantState:
+        # TODO: Return notebook short id for it to be accessible in the next nodes or so
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(

@@ -498,6 +498,11 @@ class Assistant:
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
+
+        # TODO: Instead - wrap the whole logic into if (if chunk - process, if message union - allow)
+        if isinstance(langchain_message, NotebookUpdateMessage):
+            return langchain_message
+
         if not isinstance(langchain_message, AIMessageChunk):
             return None
 
