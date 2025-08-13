@@ -5,10 +5,16 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
+import {
+    externalDataSourcesLogic,
+    UnifiedRecentActivity,
+    DashboardDataSource,
+} from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+import type { PaginatedResponse } from 'lib/api'
 import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -21,7 +27,9 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             databaseTableListLogic,
             ['dataWarehouseTables'],
             externalDataSourcesLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading', 'recentActivity'],
+            availableSourcesDataLogic,
+            ['availableSources'],
         ],
         actions: [
             databaseTableListLogic,
@@ -104,6 +112,84 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
                 return dataWarehouseTables.filter((table) => !table.source)
+            },
+        ],
+        computedAllSources: [
+            (s) => [
+                s.dataWarehouseSources,
+                s.recentActivity,
+                s.selfManagedTables,
+                availableSourcesDataLogic.selectors.availableSources,
+            ],
+            (
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+                recentActivity: UnifiedRecentActivity[],
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+                availableSources: Record<string, any> | null
+            ): DashboardDataSource[] => {
+                const getSourceType = (
+                    sourceType: string,
+                    availableSources?: Record<string, any> | null
+                ): 'Database' | 'API' => {
+                    const fields = availableSources?.[sourceType]?.fields || []
+                    const lowerCaseFields = fields.map((f: any) => ({
+                        ...f,
+                        name: f.name.toLowerCase().replace(/ /g, '_'),
+                    }))
+                    if (
+                        lowerCaseFields.some(
+                            (f: any) =>
+                                f.name === 'connection_string' ||
+                                f.name === 'host' ||
+                                f.name === 'port' ||
+                                f.name === 'database'
+                        )
+                    ) {
+                        return 'Database'
+                    }
+                    if (
+                        lowerCaseFields.some(
+                            (f: any) => f.type === 'oauth' || f.name === 'api_key' || f.name === 'access_token'
+                        )
+                    ) {
+                        return 'API'
+                    }
+                    return 'API'
+                }
+
+                const managed: DashboardDataSource[] = (dataWarehouseSources?.results || []).map(
+                    (source: ExternalDataSource): DashboardDataSource => {
+                        const sourceActivities = (recentActivity || []).filter(
+                            (a) => a.type === 'Data Sync' && a.sourceId === source.id
+                        )
+                        const totalRows = sourceActivities.reduce(
+                            (sum: number, a: UnifiedRecentActivity) => sum + Number(a.rowCount || 0),
+                            0
+                        )
+                        const lastSync = sourceActivities.length > 0 ? sourceActivities[0].created_at : null
+                        return {
+                            id: source.id,
+                            name: source.source_type,
+                            type: getSourceType(source.source_type, availableSources),
+                            status: source.status,
+                            lastSync,
+                            rowCount: totalRows,
+                            url: `/data-warehouse/sources/managed-${source.id}`,
+                        }
+                    }
+                )
+
+                const selfManaged: DashboardDataSource[] = (selfManagedTables || []).map((table) => ({
+                    id: table.id,
+                    name: table.name,
+                    type: 'Database' as const,
+                    status: null,
+                    lastSync: null,
+                    rowCount: table.row_count ?? null,
+                    url: `/data-warehouse/sources/self-managed-${table.id}`,
+                }))
+
+                return [...managed, ...selfManaged]
             },
         ],
         filteredSelfManagedTables: [

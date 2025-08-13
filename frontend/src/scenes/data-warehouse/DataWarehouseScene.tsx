@@ -1,106 +1,143 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PipelineTab } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { urls } from 'scenes/urls'
 import { LemonButton, LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { IconPlusSmall, IconCheckCircle, IconInfo } from '@posthog/icons'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconSync, IconExclamation, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
-import { fetchRecentActivity, fetchTotalRowsProcessed, type UnifiedRecentActivity } from './externalDataSourcesLogic'
+import { externalDataSourcesLogic, DashboardDataSource, type UnifiedRecentActivity } from './externalDataSourcesLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene }
 
 const LIST_SIZE = 5
 
-const getSourceType = (sourceType: string, availableSources?: Record<string, any> | null): 'Database' | 'API' => {
-    const fields = availableSources?.[sourceType]?.fields || []
-    if (fields.some((f: any) => f.name === 'connection_string' || ['host', 'port', 'database'].includes(f.name))) {
-        return 'Database'
-    }
-    if (fields.some((f: any) => f.type === 'oauth' || ['api_key', 'access_token'].includes(f.name))) {
-        return 'API'
-    }
-    return 'API'
-}
-
-interface DashboardDataSource {
-    id: string
-    name: string
-    type: 'Database' | 'API'
-    status: string | null
-    lastSync: string | null
-    rowCount: number | null
-    url: string
-}
-
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { materializedViews } = useValues(dataWarehouseSceneLogic)
-
-    const [recentActivity, setRecentActivity] = useState<UnifiedRecentActivity[]>([])
-    const [totalRowsProcessed, setTotalRowsProcessed] = useState<number>(0)
+    const { totalRowsProcessed, recentActivity, dataWarehouseSources } = useValues(externalDataSourcesLogic)
+    const { computedAllSources } = useValues(dataWarehouseSettingsLogic)
+    const { loadTotalRowsProcessed, loadRecentActivity } = useActions(externalDataSourcesLogic)
 
     useEffect(() => {
-        const loadData = async (): Promise<void> => {
-            const [activities, totalRows] = await Promise.all([
-                fetchRecentActivity(dataWarehouseSources?.results || [], materializedViews),
-                fetchTotalRowsProcessed(dataWarehouseSources?.results || [], materializedViews),
-            ])
-            setRecentActivity(activities)
-            setTotalRowsProcessed(totalRows)
-        }
-
         if ((dataWarehouseSources?.results?.length || 0) > 0 || materializedViews.length > 0) {
-            loadData()
+            loadTotalRowsProcessed(materializedViews)
+            loadRecentActivity(materializedViews)
         }
-    }, [dataWarehouseSources?.results, materializedViews])
-
-    const allSources = useMemo(
-        (): DashboardDataSource[] => [
-            ...(dataWarehouseSources?.results || []).map((source): DashboardDataSource => {
-                const sourceActivities = recentActivity.filter(
-                    (activity) => activity.type === 'Data Sync' && activity.sourceName === source.source_type
-                )
-                const totalRows = sourceActivities.reduce((sum, activity) => sum + (activity.rowCount || 0), 0)
-                const lastSync = sourceActivities.length > 0 ? sourceActivities[0].created_at : null
-
-                return {
-                    id: source.id,
-                    name: source.source_type,
-                    type: getSourceType(source.source_type),
-                    status: source.status,
-                    lastSync,
-                    rowCount: totalRows,
-                    url: urls.dataWarehouseSource(`managed-${source.id}`),
-                }
-            }),
-            ...selfManagedTables.map(
-                (table): DashboardDataSource => ({
-                    id: table.id,
-                    name: table.name,
-                    type: 'Database',
-                    status: null,
-                    lastSync: null,
-                    rowCount: table.row_count ?? null,
-                    url: urls.dataWarehouseSource(`self-managed-${table.id}`),
-                })
-            ),
-        ],
-        [dataWarehouseSources?.results, selfManagedTables, recentActivity]
-    )
+    }, [dataWarehouseSources?.results, materializedViews, loadTotalRowsProcessed, loadRecentActivity])
 
     const activityPagination = usePagination(recentActivity, { pageSize: LIST_SIZE }, 'activity')
-    const sourcesPagination = usePagination(allSources, { pageSize: LIST_SIZE }, 'sources')
+    const sourcesPagination = usePagination(computedAllSources, { pageSize: LIST_SIZE }, 'sources')
     const viewsPagination = usePagination(materializedViews || [], { pageSize: LIST_SIZE }, 'views')
+
+    const sourceColumns: any[] = [
+        {
+            title: 'Name',
+            key: 'name',
+            render: (_: any, source: DashboardDataSource) => (
+                <div className="flex items-center gap-1">
+                    <StatusIcon status={source.status ?? undefined} />
+                    {source.url ? <LemonTableLink to={source.url} title={source.name} /> : <span>{source.name}</span>}
+                </div>
+            ),
+        },
+        { title: 'Type', dataIndex: 'type', key: 'type' },
+        {
+            title: 'Last sync',
+            key: 'lastSync',
+            render: (_: any, source: DashboardDataSource) =>
+                source.lastSync ? <TZLabel time={source.lastSync} /> : '—',
+        },
+        {
+            title: 'Rows',
+            key: 'rowCount',
+            align: 'right',
+            render: (_: any, source: DashboardDataSource) =>
+                source.rowCount !== null ? source.rowCount.toLocaleString() : '0',
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            align: 'right',
+            render: (_: any, source: DashboardDataSource) =>
+                source.status ? <StatusTag status={source.status} /> : '—',
+        },
+    ]
+
+    const viewColumns: any[] = [
+        {
+            title: 'Name',
+            key: 'name',
+            render: (_: any, view: any) => (
+                <div className="flex items-center gap-1">
+                    <StatusIcon status={view.status} />
+                    <LemonTableLink to={urls.sqlEditor(undefined, view.id)} title={view.name} />
+                </div>
+            ),
+        },
+        {
+            title: 'Last run',
+            key: 'last_run_at',
+            render: (_: any, view: any) => (view.last_run_at ? <TZLabel time={view.last_run_at} /> : 'Never'),
+        },
+        {
+            title: 'Rows',
+            key: 'row_count',
+            align: 'right',
+            render: (_: any, view: any) =>
+                view.row_count !== undefined && view.row_count !== null ? view.row_count.toLocaleString() : '0',
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            align: 'right',
+            render: (_: any, view: any) => <StatusTag status={view.status} />,
+        },
+    ]
+
+    const activityColumns: any[] = [
+        {
+            title: 'Activity',
+            key: 'name',
+            render: (_: any, activity: UnifiedRecentActivity) => (
+                <div className="flex items-center gap-1">
+                    <StatusIcon status={activity.status} />
+                    {activity.sourceName && <span>{activity.sourceName}</span>}
+                    <span>{activity.name}</span>
+                    <LemonTag size="medium" type="muted" className="px-1 rounded-lg ml-1">
+                        {activity.type}
+                    </LemonTag>
+                </div>
+            ),
+        },
+        {
+            title: 'When',
+            key: 'created_at',
+            render: (_: any, activity: UnifiedRecentActivity) => <TZLabel time={activity.created_at} />,
+        },
+        {
+            title: 'Rows',
+            key: 'rowCount',
+            align: 'right',
+            render: (_: any, activity: UnifiedRecentActivity) =>
+                activity.rowCount !== null ? activity.rowCount.toLocaleString() : '0',
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            align: 'right',
+            render: (_: any, activity: UnifiedRecentActivity) => <StatusTag status={activity.status} />,
+        },
+    ]
 
     const StatusIcon = ({ status }: { status?: string }): JSX.Element => {
         const s = (status || '').toLowerCase()
@@ -196,7 +233,7 @@ export function DataWarehouseScene(): JSX.Element {
                             <div className="flex items-center gap-2">
                                 <h3 className="font-semibold text-xl">Data Sources</h3>
                                 <LemonTag size="medium" type="muted" className="mb-2 p-1 px-2 rounded-xl">
-                                    {allSources.length} connected
+                                    {computedAllSources.length} connected
                                 </LemonTag>
                             </div>
                             <LemonButton
@@ -208,46 +245,12 @@ export function DataWarehouseScene(): JSX.Element {
                                 View All
                             </LemonButton>
                         </div>
-                        <div className="space-y-2">
-                            {sourcesPagination.dataSourcePage.map((item) => (
-                                <div key={item.id} className="flex items-center justify-between p-2 border rounded">
-                                    <div className="flex-1 min-w-0 ">
-                                        <div className="font-medium text-base flex items-center gap-1">
-                                            <StatusIcon status={item.status ?? undefined} />
-                                            <span>{item.name}</span>
-                                        </div>
-                                        <div className="text-xs text-muted mt-1">
-                                            {item.type} • Last sync:{' '}
-                                            {item.lastSync ? <TZLabel time={item.lastSync} /> : '—'}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2 ml-4">
-                                        <div className="text-right">
-                                            <div className="text-xs text-muted mb-1">
-                                                {item.rowCount !== null
-                                                    ? `${item.rowCount.toLocaleString()} rows`
-                                                    : '0 rows'}
-                                            </div>
-                                            {item.status ? (
-                                                <StatusTag status={item.status} />
-                                            ) : (
-                                                <span className="text-xs text-muted">—</span>
-                                            )}
-                                        </div>
-                                        {item.url && (
-                                            <LemonButton
-                                                to={item.url}
-                                                targetBlank
-                                                size="xsmall"
-                                                type="tertiary"
-                                                icon={<IconOpenInNew />}
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                            <PaginationControl {...sourcesPagination} nouns={['source', 'sources']} />
-                        </div>
+                        <LemonTable
+                            dataSource={sourcesPagination.dataSourcePage as DashboardDataSource[]}
+                            columns={sourceColumns}
+                            rowKey="id"
+                        />
+                        <PaginationControl {...sourcesPagination} nouns={['source', 'sources']} />
                     </LemonCard>
 
                     <LemonCard className="hover:transform-none">
@@ -257,76 +260,24 @@ export function DataWarehouseScene(): JSX.Element {
                                 {materializedViews?.length || 0} views
                             </LemonTag>
                         </div>
-                        <div className="space-y-2">
-                            {viewsPagination.dataSourcePage.map((view) => (
-                                <div key={view.id} className="flex items-center justify-between border rounded p-2">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-base flex items-center gap-1">
-                                            <StatusIcon status={view.status} />
-                                            <span>{view.name}</span>
-                                        </div>
-                                        <div className="text-xs text-muted mt-1">
-                                            Last run: {view.last_run_at ? <TZLabel time={view.last_run_at} /> : 'Never'}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2 ml-4">
-                                        <div className="text-right">
-                                            <div className="text-xs text-muted mb-1">
-                                                {view.row_count !== undefined && view.row_count !== null
-                                                    ? `${view.row_count.toLocaleString()} rows`
-                                                    : '0 rows'}
-                                            </div>
-                                            <StatusTag status={view.status} />
-                                        </div>
-                                        <LemonButton
-                                            to={urls.sqlEditor(undefined, view.id)}
-                                            targetBlank
-                                            size="xsmall"
-                                            type="tertiary"
-                                            icon={<IconOpenInNew />}
-                                        />
-                                    </div>
-                                </div>
-                            ))}
-                            <PaginationControl {...viewsPagination} nouns={['view', 'views']} />
-                        </div>
+                        <LemonTable
+                            dataSource={viewsPagination.dataSourcePage as any[]}
+                            columns={viewColumns}
+                            rowKey="id"
+                        />
+                        <PaginationControl {...viewsPagination} nouns={['view', 'views']} />
                     </LemonCard>
 
                     <LemonCard className="hover:transform-none">
                         <div className="flex items-center justify-between">
                             <h3 className="font-semibold text-xl">Recent Activity</h3>
                         </div>
-                        <div className="space-y-2">
-                            {activityPagination.dataSourcePage.map((activity) => (
-                                <div
-                                    key={`${activity.type}-${activity.name}-${activity.created_at}`}
-                                    className="flex items-center justify-between border rounded p-2"
-                                >
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-base flex items-center gap-1">
-                                            <StatusIcon status={activity.status} />
-                                            {activity.sourceName && <span>{activity.sourceName} </span>}
-                                            <span>{activity.name}</span>
-                                            <LemonTag size="medium" type="muted" className="px-1 rounded-lg ml-1">
-                                                {activity.type}
-                                            </LemonTag>
-                                        </div>
-                                        <div className="text-xs text-muted mt-1">
-                                            <TZLabel time={activity.created_at} />
-                                        </div>
-                                    </div>
-                                    <div className="ml-4 text-right">
-                                        <div className="text-xs text-muted mb-1">
-                                            {activity.rowCount !== null
-                                                ? `${activity.rowCount.toLocaleString()} rows`
-                                                : '0 rows'}
-                                        </div>
-                                        <StatusTag status={activity.status} />
-                                    </div>
-                                </div>
-                            ))}
-                            <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
-                        </div>
+                        <LemonTable
+                            dataSource={activityPagination.dataSourcePage as UnifiedRecentActivity[]}
+                            columns={activityColumns}
+                            rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
+                        />
+                        <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
                     </LemonCard>
                 </div>
 
