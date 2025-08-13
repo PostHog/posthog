@@ -41,7 +41,7 @@ class search_insights(BaseModel):
 
     search_query: str = Field(
         description="The user's query to search for insights. "
-        "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
+        "Include all relevant context from earlier messages too, as the tool won't see that conversation history."
     )
 
 
