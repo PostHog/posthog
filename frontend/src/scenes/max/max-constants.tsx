@@ -122,7 +122,7 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         name: 'Find impactful issues',
         description: 'Find impactful issues in error tracking',
         product: Scene.ErrorTracking,
-        flag: 'error-tracking-scene-max-tool',
+        flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL,
     },
 }
 
