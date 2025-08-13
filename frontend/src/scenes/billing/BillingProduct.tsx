@@ -57,9 +57,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         isSessionReplayWithAddons,
         visibleAddons,
         variantExpandedStates,
-        productVariants,
-        variantMonetaryDisplay,
-        variantGaugeItems,
+        projectedAmountExcludingAddons,
+        sessionReplayVariants,
+        combinedMonetaryData,
+        combinedGaugeItems,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
@@ -194,24 +195,18 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="mt-6 mb-4 ml-2">
                             <div className="flex items-center gap-x-8">
                                 <div className="grow">
-                                    <BillingGauge items={variantGaugeItems} product={{ ...product, unit: '$' }} />
+                                    <BillingGauge items={combinedGaugeItems} product={{ ...product, unit: '$' }} />
                                 </div>
                                 <div className="flex gap-8 flex-wrap items-end shrink-0">
                                     <div className="flex flex-col items-center">
                                         <div className="font-bold text-3xl leading-7">
-                                            {humanFriendlyCurrency(
-                                                parseFloat(variantMonetaryDisplay.currentTotal) *
-                                                    (1 - variantMonetaryDisplay.discountPercent / 100)
-                                            )}
+                                            {humanFriendlyCurrency(combinedMonetaryData.currentTotal)}
                                         </div>
                                         <span className="text-xs text-secondary">Month-to-date</span>
                                     </div>
                                     <div className="flex flex-col items-center">
                                         <div className="font-bold text-secondary text-lg leading-5">
-                                            {humanFriendlyCurrency(
-                                                parseFloat(variantMonetaryDisplay.projectedTotal) *
-                                                    (1 - variantMonetaryDisplay.discountPercent / 100)
-                                            )}
+                                            {humanFriendlyCurrency(combinedMonetaryData.projectedTotal)}
                                         </div>
                                         <span className="text-xs text-secondary">Projected</span>
                                     </div>
@@ -221,90 +216,113 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
 
                     {/* Product variants display (session replay + mobile replay) */}
-                    {productVariants && product.subscribed && !isUnlicensedDebug ? (
+                    {sessionReplayVariants && product.subscribed && !isUnlicensedDebug ? (
                         <div className="space-y-4 mt-6">
-                            {productVariants.map((variant) => (
-                                <div key={variant.key}>
-                                    <div
-                                        className="flex items-center justify-between cursor-pointer"
-                                        onClick={() => toggleVariantExpanded(variant.key)}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <LemonButton
-                                                icon={
-                                                    variantExpandedStates?.[variant.key] ? (
-                                                        <IconChevronDown />
-                                                    ) : (
-                                                        <IconChevronRight />
-                                                    )
-                                                }
-                                                size="small"
-                                            />
-                                            <h4 className="mb-0 font-bold">{variant.name}</h4>
-                                        </div>
-                                        <div className="flex gap-8 items-end">
-                                            <div className="flex flex-col items-end">
-                                                <span className="font-bold text-lg">
-                                                    {humanFriendlyCurrency(
-                                                        parseFloat(variant.currentAmount) *
-                                                            (1 - variantMonetaryDisplay.discountPercent / 100)
-                                                    )}
-                                                </span>
-                                                <span className="text-xs text-secondary">Month-to-date</span>
+                            {sessionReplayVariants.map(
+                                (variant: {
+                                    key: string
+                                    product: BillingProductV2Type | BillingProductV2AddonType
+                                    displayName: string
+                                }) => {
+                                    const isSessionReplay = variant.key === 'session_replay'
+                                    const currentAmount = isSessionReplay
+                                        ? (product as BillingProductV2Type).current_amount_usd_before_addons || '0'
+                                        : (variant.product as BillingProductV2AddonType).current_amount_usd || '0'
+                                    const projectedAmount = isSessionReplay
+                                        ? projectedAmountExcludingAddons
+                                        : variant.product.projected_amount_usd || '0'
+                                    const discountMultiplier = 1 - combinedMonetaryData.discountPercent / 100
+
+                                    return (
+                                        <div key={variant.key}>
+                                            <div
+                                                className="flex items-center justify-between cursor-pointer"
+                                                onClick={() => toggleVariantExpanded(variant.key)}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <LemonButton
+                                                        icon={
+                                                            variantExpandedStates?.[variant.key] ? (
+                                                                <IconChevronDown />
+                                                            ) : (
+                                                                <IconChevronRight />
+                                                            )
+                                                        }
+                                                        size="small"
+                                                    />
+                                                    <h4 className="mb-0 font-bold">{variant.displayName}</h4>
+                                                </div>
+                                                <div className="flex gap-8 items-end">
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="font-bold text-lg">
+                                                            {humanFriendlyCurrency(
+                                                                parseFloat(currentAmount) * discountMultiplier
+                                                            )}
+                                                        </span>
+                                                        <span className="text-xs text-secondary">Month-to-date</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="text-secondary">
+                                                            {humanFriendlyCurrency(
+                                                                parseFloat(projectedAmount) * discountMultiplier
+                                                            )}
+                                                        </span>
+                                                        <span className="text-xs text-secondary">Projected</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="flex flex-col items-end">
-                                                <span className="text-secondary">
-                                                    {humanFriendlyCurrency(
-                                                        parseFloat(variant.projectedAmount) *
-                                                            (1 - variantMonetaryDisplay.discountPercent / 100)
-                                                    )}
-                                                </span>
-                                                <span className="text-xs text-secondary">Projected</span>
-                                            </div>
+                                            {variantExpandedStates?.[variant.key] && (
+                                                <div className="mt-4">
+                                                    <div className="ml-16">
+                                                        <BillingGauge
+                                                            items={
+                                                                isSessionReplay
+                                                                    ? billingGaugeItems.filter(
+                                                                          (item) =>
+                                                                              item.type !==
+                                                                              BillingGaugeItemKind.BillingLimit
+                                                                      )
+                                                                    : ([
+                                                                          ((variant.product.tiers?.[0]
+                                                                              ?.unit_amount_usd === '0'
+                                                                              ? variant.product.tiers?.[0]?.up_to
+                                                                              : 0) || 0) > 0 && {
+                                                                              type: BillingGaugeItemKind.FreeTier,
+                                                                              text: 'Free tier limit',
+                                                                              value:
+                                                                                  variant.product.tiers?.[0]
+                                                                                      ?.unit_amount_usd === '0'
+                                                                                      ? variant.product.tiers?.[0]
+                                                                                            ?.up_to || 0
+                                                                                      : 0,
+                                                                          },
+                                                                          variant.product.projected_usage &&
+                                                                              variant.product.projected_usage >
+                                                                                  (variant.product.current_usage ||
+                                                                                      0) && {
+                                                                                  type: BillingGaugeItemKind.ProjectedUsage,
+                                                                                  text: 'Projected',
+                                                                                  value:
+                                                                                      variant.product.projected_usage ||
+                                                                                      0,
+                                                                              },
+                                                                          {
+                                                                              type: BillingGaugeItemKind.CurrentUsage,
+                                                                              text: 'Current',
+                                                                              value: variant.product.current_usage || 0,
+                                                                          },
+                                                                      ].filter(Boolean) as BillingGaugeItemType[])
+                                                            }
+                                                            product={variant.product}
+                                                        />
+                                                    </div>
+                                                    <BillingProductPricingTable product={variant.product} />
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                    {variantExpandedStates?.[variant.key] && (
-                                        <div className="mt-4">
-                                            <div className="ml-16">
-                                                <BillingGauge
-                                                    items={
-                                                        variant.key === 'session_replay'
-                                                            ? billingGaugeItems.filter(
-                                                                  (item) =>
-                                                                      item.type !== BillingGaugeItemKind.BillingLimit
-                                                              )
-                                                            : ([
-                                                                  ((variant.tiers?.[0]?.unit_amount_usd === '0'
-                                                                      ? variant.tiers?.[0]?.up_to
-                                                                      : 0) || 0) > 0 && {
-                                                                      type: BillingGaugeItemKind.FreeTier,
-                                                                      text: 'Free tier limit',
-                                                                      value:
-                                                                          variant.tiers?.[0]?.unit_amount_usd === '0'
-                                                                              ? variant.tiers?.[0]?.up_to || 0
-                                                                              : 0,
-                                                                  },
-                                                                  variant.projected_usage &&
-                                                                      variant.projected_usage > variant.usage && {
-                                                                          type: BillingGaugeItemKind.ProjectedUsage,
-                                                                          text: 'Projected',
-                                                                          value: variant.projected_usage || 0,
-                                                                      },
-                                                                  {
-                                                                      type: BillingGaugeItemKind.CurrentUsage,
-                                                                      text: 'Current',
-                                                                      value: variant.usage,
-                                                                  },
-                                                              ].filter(Boolean) as BillingGaugeItemType[])
-                                                    }
-                                                    product={variant.product}
-                                                />
-                                            </div>
-                                            <BillingProductPricingTable product={variant.product} />
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                                    )
+                                }
+                            )}
                         </div>
                     ) : (
                         /* Standard product display (non-variants) */

@@ -23,25 +23,6 @@ import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
 
-export interface ProductVariant {
-    key: string
-    name: string
-    icon: string | null | undefined
-    currentAmount: string
-    projectedAmount: string
-    usage: number
-    projected_usage?: number | null
-    tiers?: BillingTierType[] | null
-    product: BillingProductV2Type | BillingProductV2AddonType
-}
-
-export interface MonetaryDisplay {
-    currentTotal: string
-    projectedTotal: string
-    billingLimit?: number
-    discountPercent: number
-}
-
 type UnsubscribeReason = {
     reason: string
     question: string
@@ -425,68 +406,73 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return Math.max(0, totalProjected - addonProjected).toFixed(2)
             },
         ],
-        productVariants: [
-            (s, p) => [s.isSessionReplayWithAddons, p.product, s.projectedAmountExcludingAddons],
-            (hasVariants, product, sessionProjectedAmount): ProductVariant[] | null => {
+        sessionReplayVariants: [
+            (s, p) => [s.isSessionReplayWithAddons, p.product],
+            (
+                hasVariants: boolean,
+                product: BillingProductV2Type
+            ): Array<{
+                key: string
+                product: BillingProductV2Type | BillingProductV2AddonType
+                displayName: string
+            }> | null => {
                 if (!hasVariants) {
                     return null
                 }
 
-                // Type guard: only main products have addons and current_amount_usd_before_addons
                 const mainProduct = product as BillingProductV2Type
                 const mobileReplay = mainProduct.addons?.find(
                     (a: BillingProductV2AddonType) => a.type === 'mobile_replay'
                 )
 
-                const variants: ProductVariant[] = [
+                const variants: Array<{
+                    key: string
+                    product: BillingProductV2Type | BillingProductV2AddonType
+                    displayName: string
+                }> = [
                     {
                         key: 'session_replay',
-                        name: 'Session Replay (Web)',
-                        icon: mainProduct.icon_key,
-                        currentAmount: mainProduct.current_amount_usd_before_addons || '0',
-                        projectedAmount: sessionProjectedAmount,
-                        usage: mainProduct.current_usage || 0,
-                        projected_usage: mainProduct.projected_usage,
-                        tiers: mainProduct.tiers,
-                        product: mainProduct,
+                        product: mainProduct as BillingProductV2Type | BillingProductV2AddonType,
+                        displayName: 'Session Replay (Web)',
                     },
                 ]
 
                 if (mobileReplay) {
                     variants.push({
                         key: 'mobile_replay',
-                        name: 'Mobile Replay',
-                        icon: mobileReplay.icon_key,
-                        currentAmount: mobileReplay.current_amount_usd || '0',
-                        projectedAmount: mobileReplay.projected_amount_usd || '0',
-                        usage: mobileReplay.current_usage || 0,
-                        projected_usage: mobileReplay.projected_usage,
-                        tiers: mobileReplay.tiers,
-                        product: mobileReplay,
+                        product: mobileReplay as BillingProductV2Type | BillingProductV2AddonType,
+                        displayName: 'Mobile Replay',
                     })
                 }
 
                 return variants
             },
         ],
-        variantMonetaryDisplay: [
+        combinedMonetaryData: [
             (s, p) => [s.customLimitUsd, p.product, s.billing],
-            (limit, product, billing): MonetaryDisplay => {
-                // Type guard: only main products have projected_amount_usd_with_limit
+            (limit: number | null, product: BillingProductV2Type, billing: BillingType | null) => {
                 const mainProduct = product as BillingProductV2Type
+                const discountPercent = billing?.discount_percent || 0
+                const discountMultiplier = 1 - discountPercent / 100
+
                 return {
-                    currentTotal: mainProduct.current_amount_usd || '0',
-                    projectedTotal: mainProduct.projected_amount_usd_with_limit || '0',
-                    billingLimit: limit || undefined,
-                    discountPercent: billing?.discount_percent || 0,
+                    currentTotal: parseFloat(mainProduct.current_amount_usd || '0') * discountMultiplier,
+                    projectedTotal: parseFloat(mainProduct.projected_amount_usd_with_limit || '0') * discountMultiplier,
+                    billingLimit: limit,
+                    discountPercent,
+                    rawCurrentTotal: mainProduct.current_amount_usd || '0',
+                    rawProjectedTotal: mainProduct.projected_amount_usd_with_limit || '0',
                 }
             },
         ],
-        variantGaugeItems: [
-            (s) => [s.variantMonetaryDisplay],
-            (monetaryDisplay): BillingGaugeItemType[] => {
-                const { currentTotal, projectedTotal, billingLimit, discountPercent } = monetaryDisplay
-                const discountMultiplier = 1 - discountPercent / 100
+        combinedGaugeItems: [
+            (s) => [s.combinedMonetaryData],
+            (monetaryData: {
+                currentTotal: number
+                projectedTotal: number
+                billingLimit?: number
+            }): BillingGaugeItemType[] => {
+                const { currentTotal, projectedTotal, billingLimit } = monetaryData
 
                 return [
                     billingLimit && {
@@ -498,13 +484,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     {
                         type: BillingGaugeItemKind.ProjectedUsage,
                         text: 'Projected',
-                        value: parseFloat((parseFloat(projectedTotal) * discountMultiplier).toFixed(2)),
+                        value: parseFloat(projectedTotal.toFixed(2)),
                         prefix: '$',
                     },
                     {
                         type: BillingGaugeItemKind.CurrentUsage,
                         text: 'Current',
-                        value: parseFloat((parseFloat(currentTotal) * discountMultiplier).toFixed(2)),
+                        value: parseFloat(currentTotal.toFixed(2)),
                         prefix: '$',
                     },
                 ].filter(Boolean) as BillingGaugeItemType[]
