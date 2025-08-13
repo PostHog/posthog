@@ -58,7 +58,7 @@ from posthog.utils import (
 )
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET
 
-MAX_ALLOWED_PROJECTS_PER_ORG = 1000
+MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 
 
 class ProjectSerializer(serializers.ModelSerializer):
