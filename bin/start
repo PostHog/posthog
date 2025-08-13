@@ -63,7 +63,8 @@ if [[ "$*" == *"--custom"* ]] && ([[ "$*" == *"--minimal"* ]] || [[ "$*" == *"--
     exit 1
 fi
 
-# Use custom config, if provided
+# Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
+# Ensure to provide config path after --custom flag
 if [[ "$*" == *"--custom"* ]]; then
     # Extract the path after --custom
     config_path=""
