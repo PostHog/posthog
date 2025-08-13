@@ -37,7 +37,11 @@ export const TaxonomicBreakdownPopover = ({
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
     if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
-        taxonomicGroupTypes = [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]
+        taxonomicGroupTypes = [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.Cohorts,
+        ]
     } else {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.EventProperties,

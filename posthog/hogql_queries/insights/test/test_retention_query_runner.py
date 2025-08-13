@@ -19,7 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models import Action
+from posthog.models import Action, Cohort
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
@@ -31,6 +31,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     create_person_id_override_by_distinct_id,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
 
@@ -3931,3 +3932,124 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         assert organic_results[0]["values"][0]["count"] == 1  # Day 0
         assert organic_results[0]["values"][1]["count"] == 1  # Day 1
         assert organic_results[0]["values"][2]["count"] == 0  # Day 2
+
+    def test_retention_with_cohort_breakdown(self):
+        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
+        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"name": "person3"})
+
+        flush_persons_and_events()
+
+        # Create a cohort with person1 and person2 using separate groups (OR condition)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "name", "value": "person1", "type": "person"},
+                    ]
+                },
+                {
+                    "properties": [
+                        {"key": "name", "value": "person2", "type": "person"},
+                    ]
+                },
+            ],
+        )
+
+        # Create events
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),  # Day 0, in cohort
+                ("person2", _date(0)),  # Day 0, in cohort
+                ("person3", _date(0)),  # Day 0, not in cohort
+                ("person1", _date(1)),  # Day 1, in cohort
+                ("person2", _date(2)),  # Day 2, in cohort
+                ("person3", _date(3)),  # Day 3, not in cohort
+            ],
+        )
+
+        flush_persons_and_events()
+
+        cohort.calculate_people_ch(pending_version=0)
+        # Make sure the cohort is calculated before running the query
+        cohort_people = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s",
+            {"cohort_id": cohort.pk},
+        )
+
+        cohort_person_ids = {row[0] for row in cohort_people}
+        self.assertEqual(cohort_person_ids, {person1.uuid, person2.uuid})
+
+        # Run retention query with cohort breakdown
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort.pk]},
+            }
+        )
+
+        # Verify results
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {str(cohort.pk)})
+
+        cohort_results = pluck([c for c in result if c.get("breakdown_value") == str(cohort.pk)], "values", "count")
+        self.assertEqual(
+            cohort_results,
+            pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [1, 0, 0], [0, 0], [0]]),
+        )
+
+    def test_retention_with_multiple_cohort_breakdowns(self):
+        # Person 1 in cohort 1
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
+        # Person 2 in cohort 2
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
+        # Person 3 in neither
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"name": "person3"})
+
+        flush_persons_and_events()
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "person1", "type": "person"}]}],
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            name="cohort2",
+            groups=[{"properties": [{"key": "name", "value": "person2", "type": "person"}]}],
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        # Create events
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person2", _date(0)),
+                ("person3", _date(0)),
+                ("person1", _date(1)),
+                ("person2", _date(2)),
+                ("person3", _date(3)),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Run retention query with multiple cohort breakdown
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            }
+        )
+
+        # Verify results
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {str(cohort1.pk), str(cohort2.pk)})
