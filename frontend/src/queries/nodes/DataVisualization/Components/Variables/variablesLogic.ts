@@ -200,18 +200,21 @@ export const variablesLogic = kea<variablesLogicType>([
                 ...props.sourceQuery,
                 source: {
                     ...props.sourceQuery?.source,
-                    variables: variables.reduce((acc, cur) => {
-                        if (cur.variableId) {
-                            acc[cur.variableId] = {
-                                variableId: cur.variableId,
-                                value: cur.value,
-                                code_name: cur.code_name,
-                                isNull: cur.isNull,
+                    variables: variables.reduce(
+                        (acc, cur) => {
+                            if (cur.variableId) {
+                                acc[cur.variableId] = {
+                                    variableId: cur.variableId,
+                                    value: cur.value,
+                                    code_name: cur.code_name,
+                                    isNull: cur.isNull,
+                                }
                             }
-                        }
 
-                        return acc
-                    }, {} as Record<string, HogQLVariable>),
+                            return acc
+                        },
+                        {} as Record<string, HogQLVariable>
+                    ),
                 },
             }
             const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query.source, props.sourceQuery?.source)

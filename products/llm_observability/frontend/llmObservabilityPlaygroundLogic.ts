@@ -54,14 +54,20 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
     actions({
         setModel: (model: string) => ({ model }),
         setSystemPrompt: (systemPrompt: string) => ({ systemPrompt }),
-        setTemperature: (temperature: number) => ({ temperature }),
-        setMaxTokens: (maxTokens: number) => ({ maxTokens }),
+        setMaxTokens: (maxTokens: number | null) => ({ maxTokens }),
         setThinking: (thinking: boolean) => ({ thinking }),
+        setReasoningLevel: (reasoningLevel: 'minimal' | 'low' | 'medium' | 'high' | null) => ({ reasoningLevel }),
+        setTools: (tools: any) => ({ tools }),
         clearConversation: true,
         submitPrompt: true,
         setMessages: (messages: Message[]) => ({ messages }),
         deleteMessage: (index: number) => ({ index }),
         addAssistantMessageChunk: (text: string) => ({ text }),
+        addFinalizedContent: (text: string) => ({ text }),
+        addToolCallChunk: (toolCall: { id?: string; function: { name?: string; arguments?: string } }) => ({
+            toolCall,
+        }),
+        clearToolCalls: true,
         finalizeAssistantMessage: true,
         addMessage: (message?: Partial<Message>) => ({ message }),
         updateMessage: (index: number, payload: Partial<Message>) => ({ index, payload }),
@@ -71,7 +77,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
         addToComparison: (item: ComparisonItem) => ({ item }),
         removeFromComparison: (id: string) => ({ id }),
         clearComparison: true,
-        setupPlaygroundFromEvent: (payload: { model?: string; input?: any }) => ({ payload }),
+        setupPlaygroundFromEvent: (payload: { model?: string; input?: any; tools?: any }) => ({ payload }),
         setResponseError: (hasError: boolean) => ({ hasError }),
         clearResponseError: true,
     }),
@@ -79,9 +85,13 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
     reducers({
         model: ['', { setModel: (_, { model }) => model }],
         systemPrompt: ['You are a helpful AI assistant.', { setSystemPrompt: (_, { systemPrompt }) => systemPrompt }],
-        temperature: [0.7, { setTemperature: (_, { temperature }) => temperature }],
-        maxTokens: [1024, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
+        maxTokens: [null as number | null, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
         thinking: [false, { setThinking: (_, { thinking }) => thinking }],
+        reasoningLevel: [
+            null as 'minimal' | 'low' | 'medium' | 'high' | null,
+            { setReasoningLevel: (_, { reasoningLevel }) => reasoningLevel },
+        ],
+        tools: [null as any, { setTools: (_, { tools }) => tools }],
         messages: [
             [] as Message[],
             {
@@ -116,11 +126,55 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 finalizeAssistantMessage: () => false,
             },
         ],
+        currentToolCalls: [
+            [] as Array<{ id: string; name: string; arguments: string }>,
+            {
+                submitPrompt: () => [],
+                clearConversation: () => [],
+                setMessages: () => [],
+                clearToolCalls: () => [],
+                addToolCallChunk: (state, { toolCall }) => {
+                    if (toolCall.id && toolCall.id !== 'null') {
+                        const existingIndex = state.findIndex((tc) => tc.id === toolCall.id)
+                        if (existingIndex >= 0) {
+                            const updated = [...state]
+                            updated[existingIndex] = {
+                                ...updated[existingIndex],
+                                name: toolCall.function?.name || updated[existingIndex].name,
+                                arguments: updated[existingIndex].arguments + (toolCall.function?.arguments || ''),
+                            }
+                            return updated
+                        }
+                        return [
+                            ...state,
+                            {
+                                id: toolCall.id,
+                                name: toolCall.function?.name || '',
+                                arguments: toolCall.function?.arguments || '',
+                            },
+                        ]
+                    }
+
+                    if (state.length === 0) {
+                        return state
+                    }
+
+                    const updated = [...state]
+                    const lastIndex = updated.length - 1
+                    updated[lastIndex] = {
+                        ...updated[lastIndex],
+                        arguments: updated[lastIndex].arguments + (toolCall.function?.arguments || ''),
+                    }
+                    return updated
+                },
+            },
+        ],
         currentResponse: [
             null as string | null,
             {
                 submitPrompt: () => '',
                 addAssistantMessageChunk: (state, { text }) => (state ?? '') + text,
+                addFinalizedContent: (state, { text }) => (state ?? '') + text,
                 addResponseToHistory: () => null,
                 clearConversation: () => null,
                 setMessages: () => null,
@@ -174,6 +228,20 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
         },
     })),
     listeners(({ actions, values }) => ({
+        finalizeAssistantMessage: () => {
+            const toolCalls = values.currentToolCalls
+            if (toolCalls.length > 0) {
+                const toolCallsText = toolCalls
+                    .map((tc) => JSON.stringify({ id: tc.id, name: tc.name, arguments: tc.arguments }, null, 2))
+                    .join('\n\n')
+
+                if (toolCallsText) {
+                    const separator = values.currentResponse && values.currentResponse.trim() ? '\n\n' : ''
+                    actions.addFinalizedContent(separator + toolCallsText)
+                }
+            }
+            actions.clearToolCalls()
+        },
         submitPrompt: async (_, breakpoint) => {
             const requestModel = values.model
             const requestSystemPrompt = values.systemPrompt
@@ -201,16 +269,31 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 // Start timer for latency? Might be inaccurate due to network etc.
                 startTime = performance.now()
 
+                const requestData: any = {
+                    system: requestSystemPrompt,
+                    messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
+                    model: requestModel,
+                    thinking: values.thinking,
+                }
+
+                // Include tools if available
+                if (values.tools) {
+                    requestData.tools = values.tools
+                }
+
+                // Only include max_tokens if it has a value
+                if (values.maxTokens !== null && values.maxTokens > 0) {
+                    requestData.max_tokens = values.maxTokens
+                }
+
+                // Include optional reasoning level if provided
+                if (values.reasoningLevel) {
+                    requestData.reasoning_level = values.reasoningLevel
+                }
+
                 await api.stream('/api/llm_proxy/completion', {
                     method: 'POST',
-                    data: {
-                        system: requestSystemPrompt,
-                        messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
-                        model: requestModel,
-                        thinking: values.thinking,
-                        temperature: values.temperature,
-                        max_tokens: values.maxTokens,
-                    },
+                    data: requestData,
                     headers: { 'Content-Type': 'application/json' },
                     onMessage: (event) => {
                         breakpoint()
@@ -225,6 +308,12 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                                     ttftMs = firstTokenTime - startTime
                                 }
                                 actions.addAssistantMessageChunk(data.text)
+                            } else if (data.type === 'tool_call') {
+                                if (firstTokenTime === null && startTime !== null) {
+                                    firstTokenTime = performance.now()
+                                    ttftMs = firstTokenTime - startTime
+                                }
+                                actions.addToolCallChunk(data)
                             } else if (data.type === 'usage') {
                                 responseUsage = {
                                     prompt_tokens: data.prompt_tokens ?? null,
@@ -285,11 +374,16 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
             }
         },
         setupPlaygroundFromEvent: ({ payload }) => {
-            const { model, input } = payload
+            const { model, input, tools } = payload
 
             // Set model if available
             if (model) {
                 actions.setModel(model)
+            }
+
+            // Set tools if available
+            if (tools) {
+                actions.setTools(tools)
             }
 
             let systemPromptContent: string | undefined = undefined

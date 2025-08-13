@@ -1,23 +1,25 @@
-import { cn } from 'lib/utils/css-classes'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconPlus, IconX } from '@posthog/icons'
+import { cn } from 'lib/utils/css-classes'
 
 import { useActions, useValues } from 'kea'
-import { sceneTabsLogic, SceneTab } from '~/layout/scenes/sceneTabsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+import { SceneTab, sceneLogic } from '~/scenes/sceneLogic'
 
-import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
-import { SortableContext, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable'
+import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
+import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 
 export interface SceneTabsProps {
     className?: string
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs } = useValues(sceneTabsLogic)
-    const { newTab, reorderTabs } = useActions(sceneTabsLogic)
+    const { tabs } = useValues(sceneLogic)
+    const { newTab, reorderTabs } = useActions(sceneLogic)
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -30,27 +32,41 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'flex items-center w-full sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary',
+                'flex items-center w-full sticky top-0 bg-surface-tertiary z-[var(--z-top-navigation)] px-1.5 border-b border-primary',
                 className
             )}
         >
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
-                    <div className={cn('flex flex-row flex-wrap', className)}>
+                    <div className={cn('flex flex-row flex-wrap gap-1 pt-1', className)}>
+                        <div className="flex items-center gap-1">
+                            <ProjectDropdownMenu
+                                buttonProps={{
+                                    className: 'h-[32px] mt-[-2px]',
+                                }}
+                            />
+                        </div>
                         {tabs.map((tab) => (
                             <SortableSceneTab key={tab.id} tab={tab} />
                         ))}
-                        <Link
-                            to={urls.newTab()}
-                            className="rounded-none px-2 py-1.5 text-primary hover:text-primary-hover hover:bg-surface-primary focus:text-primary-hover focus:outline-none"
-                            data-attr="scene-tab-new-button"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                newTab()
-                            }}
-                        >
-                            <IconPlus className="!ml-0" fontSize={14} />
-                        </Link>
+                        <div className="py-1">
+                            <Link
+                                to={urls.newTab()}
+                                data-attr="scene-tab-new-button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    newTab()
+                                }}
+                                buttonProps={{
+                                    size: 'sm',
+                                    className:
+                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
+                                    iconOnly: true,
+                                }}
+                            >
+                                <IconPlus className="!ml-0" fontSize={14} />
+                            </Link>
+                        </div>
                     </div>
                 </SortableContext>
             </DndContext>
@@ -60,7 +76,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
 
 function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
     const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: tab.id })
-
     const style: React.CSSProperties = {
         transform: CSS.Translate.toString(transform),
         transition,
@@ -69,7 +84,9 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
 
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            <SceneTabComponent tab={tab} isDragging={isDragging} />
+            <SceneTabContextMenu tab={tab}>
+                <SceneTabComponent tab={tab} isDragging={isDragging} />
+            </SceneTabContextMenu>
         </div>
     )
 }
@@ -82,7 +99,7 @@ interface SceneTabProps {
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const canRemoveTab = true
-    const { clickOnTab, removeTab } = useActions(sceneTabsLogic)
+    const { clickOnTab, removeTab } = useActions(sceneLogic)
     return (
         <Link
             onClick={(e) => {
@@ -94,26 +111,28 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             }}
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
             className={cn(
-                'deprecated-space-y-px p-1 flex border-b-2 flex-row items-center gap-1 cursor-pointer',
+                'h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-1px] relative',
                 tab.active
-                    ? 'text-primary bg-surface-primary !border-brand-yellow'
-                    : 'text-secondary bg-surface-secondary border-transparent',
-                canRemoveTab ? 'pl-3 pr-2' : 'px-3',
-                'hover:bg-surface-primary hover:text-primary-hover focus:outline-none',
+                    ? 'cursor-default text-primary bg-surface-secondary border-primary border-b-transparent'
+                    : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover',
+                canRemoveTab ? 'pl-2 pr-1' : 'px-3',
+                'focus:outline-none',
                 className
             )}
         >
             <div className="flex-grow text-left whitespace-pre">{tab.title}</div>
             {canRemoveTab && (
-                <LemonButton
+                <ButtonPrimitive
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         removeTab(tab)
                     }}
-                    size="xsmall"
-                    icon={<IconX />}
-                />
+                    iconOnly
+                    size="xs"
+                >
+                    <IconX />
+                </ButtonPrimitive>
             )}
         </Link>
     )

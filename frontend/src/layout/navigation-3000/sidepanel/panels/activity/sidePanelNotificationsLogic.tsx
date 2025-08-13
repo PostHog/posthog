@@ -140,7 +140,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                       notificationDate: dayjs(notification.notificationDate as string),
                                       email: notification.email,
                                       name: notification.name,
-                                  } as ChangelogFlagPayload)
+                                  }) as ChangelogFlagPayload
                           )
                         : null
 
@@ -158,7 +158,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                         description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
                                         created_at: changelogNotification.notificationDate,
                                         unread: lastRead?.isSameOrBefore(changelogNotification.notificationDate),
-                                    } as HumanizedActivityLogItem)
+                                    }) as HumanizedActivityLogItem
                             ),
                         ]
 

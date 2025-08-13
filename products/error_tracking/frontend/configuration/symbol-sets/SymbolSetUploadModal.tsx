@@ -59,8 +59,8 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                             uploadSymbolSet.minified.length < 1
                                 ? 'Upload a minified source'
                                 : uploadSymbolSet.sourceMap.length < 1
-                                ? 'Upload a source map'
-                                : undefined
+                                  ? 'Upload a source map'
+                                  : undefined
                         }
                         type="primary"
                         status="alt"

@@ -38,8 +38,8 @@ export function SignupForm(): JSX.Element | null {
                 {preflight?.demo
                     ? 'Explore PostHog yourself'
                     : panel === 0
-                    ? 'Get started'
-                    : 'Tell us a bit about yourself'}
+                      ? 'Get started'
+                      : 'Tell us a bit about yourself'}
             </h2>
             {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
                 <LemonBanner type="error">

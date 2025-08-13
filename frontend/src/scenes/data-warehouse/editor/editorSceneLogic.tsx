@@ -58,7 +58,7 @@ export const renderTableCount = (count: undefined | number): null | JSX.Element 
     }
 
     return (
-        <span className="text-xs mr-1 italic text-[color:var(--text-secondary-3000)]">
+        <span className="text-xs mr-1 italic text-[color:var(--color-text-secondary-3000)]">
             {`(${new Intl.NumberFormat('en', {
                 notation: 'compact',
                 compactDisplay: 'short',
@@ -248,10 +248,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       key: `hogQLQueryEditor/${router.values.location.pathname}`,
                                   }).actions.createTab(`SELECT * FROM ${view.name}`)
                                 : isSavedQuery
-                                ? multitabEditorLogic({
-                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                  }).actions.editView(view.query.query, view)
-                                : null
+                                  ? multitabEditorLogic({
+                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                    }).actions.editView(view.query.query, view)
+                                  : null
                         }
 
                         const savedViewMenuItems = isSavedQuery
@@ -496,7 +496,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                 (result) =>
                                     [result.item, result.matches] as [
                                         DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
-                                        FuseSearchMatch[]
+                                        FuseSearchMatch[],
                                     ]
                             )
                     )

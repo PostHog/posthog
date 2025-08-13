@@ -50,8 +50,8 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
         letter === undefined
             ? allIcons
             : letter !== null
-            ? allIcons.filter((icon) => icon.name.replace('Icon', '').toLowerCase().startsWith(letter))
-            : allIcons.filter((icon) => !icon.name.replace('Icon', '').toLowerCase().match(/[a-z]/))
+              ? allIcons.filter((icon) => icon.name.replace('Icon', '').toLowerCase().startsWith(letter))
+              : allIcons.filter((icon) => !icon.name.replace('Icon', '').toLowerCase().match(/[a-z]/))
 
     return (
         <div className="deprecated-space-y-2">

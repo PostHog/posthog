@@ -1320,6 +1320,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
+    def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
+        # Create two teams with different secret keys
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        other_team = Team.objects.create(
+            organization=self.organization, api_token="phc_other_team_token", name="Other Team"
+        )
+        other_team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        # Create a flag in the other team
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="other-team-flag",
+            name="Other Team Flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                "payloads": {"true": '{"other_team": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        self.client.logout()
+
+        # Try to access other team's flag using this team's secret key + other team's project_api_key in body
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+        )
+
+        # Should be forbidden due to team mismatch
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_remote_config_returns_not_found_for_unknown_flag(self):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -3137,15 +3174,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.team.save()
 
         self.client.logout()  # `local_evaluation` is called by logged out clients!
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            data={"secret_api_key": secret_api_key},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.get(f"/api/feature_flag/local_evaluation?secret_api_key={secret_api_key}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation",
@@ -5339,7 +5367,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "both_flag"
 
-    def test_flag_is_cached_on_create_and_update(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_flag_is_cached_on_create_and_update(self, mock_on_commit):
         # Ensure empty feature flag list
         FeatureFlag.objects.all().delete()
 
@@ -5389,7 +5418,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flags is not None
         self.assertEqual(len(flags), 0)
 
-    @patch("posthog.api.feature_flag.FeatureFlagThrottle.rate", new="7/minute")
+    @patch("posthog.api.feature_flag.LocalEvaluationThrottle.rate", new="7/minute")
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
@@ -5420,7 +5449,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/projects/TEAM_ID/feature_flags",
+                "route": "/api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
@@ -6014,6 +6043,738 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "keys" in data
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
+    def test_local_evaluation_caching_basic(self):
+        """Test basic caching functionality for local_evaluation endpoint."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        cache.clear()  # Start with empty cache
+
+        # First request should miss cache and populate it
+        self.client.logout()
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Check that cache is now populated
+        cache_key = f"local_evaluation/{self.team.project_id}/v1"
+        cached_data = cache.get(cache_key)
+        self.assertIsNotNone(cached_data)
+        self.assertEqual(len(cached_data["flags"]), 1)
+        self.assertEqual(cached_data["flags"][0]["key"], "test-flag")
+
+    def test_local_evaluation_caching_with_cohorts(self):
+        """Test caching with send_cohorts parameter."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        cache.clear()
+
+        # Test cache for send_cohorts=true
+        self.client.logout()
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Check separate cache key for cohorts version
+        cache_key_cohorts = f"local_evaluation/{self.team.project_id}/cohorts/v1"
+        cache_key_regular = f"local_evaluation/{self.team.project_id}/v1"
+
+        cached_cohorts = cache.get(cache_key_cohorts)
+        cached_regular = cache.get(cache_key_regular)
+
+        self.assertIsNotNone(cached_cohorts)
+        self.assertIsNone(cached_regular)  # Regular cache should not be populated yet
+
+    def test_local_evaluation_cache_invalidation_on_flag_change(self):
+        """Test cache invalidation when feature flags change."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        cache.clear()
+
+        # Populate cache
+        self.client.logout()
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify cache is populated
+        cache_key = f"local_evaluation/{self.team.project_id}/v1"
+        cache_key_cohorts = f"local_evaluation/{self.team.project_id}/cohorts/v1"
+        self.assertIsNotNone(cache.get(cache_key))
+
+        # Update the flag (this should trigger cache invalidation via signal handler)
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag.save()
+
+        # Cache should now be invalidated
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(cache_key_cohorts))
+
+    def test_local_evaluation_cache_invalidation_on_cohort_change(self):
+        """Test cache invalidation when cohorts change."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        cache.clear()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        # Populate both cache variants
+        self.client.logout()
+        response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify both caches are populated
+        cache_key = f"local_evaluation/{self.team.project_id}/v1"
+        cache_key_cohorts = f"local_evaluation/{self.team.project_id}/cohorts/v1"
+        self.assertIsNotNone(cache.get(cache_key))
+        self.assertIsNotNone(cache.get(cache_key_cohorts))
+
+        # Update the cohort (this should trigger cache invalidation via signal handler)
+        cohort.name = "Updated Test Cohort"
+        cohort.save()
+
+        # Both caches should now be invalidated
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(cache_key_cohorts))
+
+    def test_local_evaluation_cache_invalidation_on_group_type_mapping_change(self):
+        """Test cache invalidation when group type mappings change."""
+        # Create a group type mapping
+        GroupTypeMapping.objects.create(
+            team=self.team,
+            project=self.team.project,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-groups",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        cache.clear()
+
+        # Populate both cache variants
+        self.client.logout()
+        response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify both caches are populated
+        cache_key = f"local_evaluation/{self.team.project_id}/v1"
+        cache_key_cohorts = f"local_evaluation/{self.team.project_id}/cohorts/v1"
+        self.assertIsNotNone(cache.get(cache_key))
+        self.assertIsNotNone(cache.get(cache_key_cohorts))
+
+        # Update the group type mapping (this should trigger cache invalidation)
+        group_mapping = GroupTypeMapping.objects.get(team=self.team)
+        group_mapping.name_singular = "Company"
+        group_mapping.save()
+
+        # Both caches should now be invalidated
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(cache_key_cohorts))
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_with_use_cache_parameter(self, mock_on_commit):
+        """Test that use_cache parameter triggers the new cache path."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Use ProjectSecretAPIKeyAuthentication for the cache path
+        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("flags", data)
+        self.assertIn("group_type_mapping", data)
+        self.assertIn("cohorts", data)
+        self.assertEqual(len(data["flags"]), 1)
+        self.assertEqual(data["flags"][0]["key"], "test-flag")
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_cache_vs_regular_identical_response(self, mock_on_commit):
+        """Test that cached and non-cached responses are identical."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Get regular response (without use_cache)
+        regular_response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+        self.assertEqual(regular_response.status_code, status.HTTP_200_OK)
+        regular_data = regular_response.json()
+
+        # Get cached response (with use_cache=true)
+        cached_response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        self.assertEqual(cached_response.status_code, status.HTTP_200_OK)
+        cached_data = cached_response.json()
+
+        # Responses should have identical structure
+        self.assertEqual(set(regular_data.keys()), set(cached_data.keys()))
+        self.assertEqual(len(regular_data["flags"]), len(cached_data["flags"]))
+        self.assertEqual(regular_data["flags"][0]["key"], cached_data["flags"][0]["key"])
+        self.assertEqual(regular_data["group_type_mapping"], cached_data["group_type_mapping"])
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_with_cohorts(self, mock_on_commit):
+        """Test use_cache parameter with cohorts - verifies cohorts are properly included."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        # Test with send_cohorts parameter
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts&use_cache=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("flags", data)
+        self.assertIn("cohorts", data)
+        self.assertEqual(len(data["flags"]), 1)
+        self.assertEqual(data["flags"][0]["key"], "test-flag-cohort")
+        self.assertEqual(len(data["cohorts"]), 1)  # Should contain the cohort
+        self.assertIn(str(cohort.id), data["cohorts"])
+        self.assertEqual(
+            data["cohorts"][str(cohort.id)],
+            {
+                "type": "OR",
+                "values": [
+                    {"type": "AND", "values": [{"key": "email", "value": "test@example.com", "type": "person"}]}
+                ],
+            },
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_basic_functionality(self, mock_on_commit):
+        """Test that use_cache parameter works without breaking existing functionality."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Basic test that use_cache doesn't break the endpoint
+        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("flags", data)
+        self.assertIn("group_type_mapping", data)
+        self.assertIn("cohorts", data)
+        self.assertEqual(len(data["flags"]), 1)
+        self.assertEqual(data["flags"][0]["key"], "test-flag")
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_transformation_with_send_cohorts_true(self, mock_on_commit):
+        """
+        Test that cached responses with send_cohorts=true do NOT transform filters.
+        This test should FAIL initially, exposing the bug where cache incorrectly transforms filters.
+        """
+        # Create cohort for testing
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        # Create flag with single cohort reference (triggers transformation logic)
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        # Get regular response with send_cohorts (should NOT transform filters)
+        regular_response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts"
+        )
+        self.assertEqual(regular_response.status_code, status.HTTP_200_OK)
+        regular_data = regular_response.json()
+
+        # Get cached response with send_cohorts (should also NOT transform filters)
+        cached_response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts&use_cache=true"
+        )
+        self.assertEqual(cached_response.status_code, status.HTTP_200_OK)
+        cached_data = cached_response.json()
+
+        # Both should have cohorts
+        self.assertEqual(len(regular_data["cohorts"]), 1)
+        self.assertEqual(len(cached_data["cohorts"]), 1)
+        self.assertIn(str(cohort.id), regular_data["cohorts"])
+        self.assertIn(str(cohort.id), cached_data["cohorts"])
+
+        # CRITICAL: Filter structure should be IDENTICAL (no transformation when send_cohorts=true)
+        regular_flag = regular_data["flags"][0]
+        cached_flag = cached_data["flags"][0]
+
+        self.assertEqual(regular_flag["key"], "test-flag-cohort")
+        self.assertEqual(cached_flag["key"], "test-flag-cohort")
+
+        # This assertion should FAIL - filters should be identical but cache incorrectly transforms them
+        self.assertEqual(
+            regular_flag["filters"],
+            cached_flag["filters"],
+            "Filters should be identical when send_cohorts=true (no transformation should occur)",
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_transformation_with_send_cohorts_false(self, mock_on_commit):
+        """
+        Test that cached responses without send_cohorts DO transform filters.
+        This test should FAIL initially, exposing the bug where cache doesn't transform filters.
+        """
+        # Create cohort for testing
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        # Create flag with single cohort reference (triggers transformation logic)
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        # Get regular response without send_cohorts (should transform filters)
+        regular_response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+        self.assertEqual(regular_response.status_code, status.HTTP_200_OK)
+        regular_data = regular_response.json()
+
+        # Get cached response without send_cohorts (should also transform filters)
+        cached_response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        self.assertEqual(cached_response.status_code, status.HTTP_200_OK)
+        cached_data = cached_response.json()
+
+        # Neither should have cohorts
+        self.assertEqual(len(regular_data["cohorts"]), 0)
+        self.assertEqual(len(cached_data["cohorts"]), 0)
+
+        # CRITICAL: Both should have transformed filters (cohort properties expanded)
+        regular_flag = regular_data["flags"][0]
+        cached_flag = cached_data["flags"][0]
+
+        self.assertEqual(regular_flag["key"], "test-flag-cohort")
+        self.assertEqual(cached_flag["key"], "test-flag-cohort")
+
+        # Check that regular response has transformed filters (should contain person properties)
+        regular_properties = regular_flag["filters"]["groups"][0]["properties"]
+        self.assertTrue(
+            any(prop.get("type") == "person" for prop in regular_properties),
+            "Regular response should have transformed cohort to person properties",
+        )
+
+        # This assertion should FAIL - cached response should also have transformed filters
+        cached_properties = cached_flag["filters"]["groups"][0]["properties"]
+        self.assertTrue(
+            any(prop.get("type") == "person" for prop in cached_properties),
+            "Cached response should have transformed cohort to person properties",
+        )
+
+        # Filters should be identical (both transformed)
+        self.assertEqual(
+            regular_flag["filters"],
+            cached_flag["filters"],
+            "Both regular and cached should have identical transformed filters",
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_invalidation_on_group_type_mapping_change(self, mock_on_commit):
+        """Test that HyperCache invalidates when GroupTypeMapping changes."""
+        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+
+        # Create a group type mapping
+        group_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project=self.team.project,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+        )
+
+        # Create a feature flag that would use group types
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-groups",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Clear caches to start fresh
+        flags_hypercache.clear_cache(self.team)
+        flags_without_cohorts_hypercache.clear_cache(self.team)
+
+        # Populate both cache variants using use_cache parameter
+        response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true")
+        response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify group type mapping is included in responses
+        data1 = response1.json()
+        data2 = response2.json()
+        self.assertIn("group_type_mapping", data1)
+        self.assertIn("group_type_mapping", data2)
+        self.assertEqual(data1["group_type_mapping"]["0"], "organization")
+        self.assertEqual(data2["group_type_mapping"]["0"], "organization")
+
+        # Verify both caches are populated by checking we get the same data on subsequent calls
+        cached_response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        cached_response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        self.assertEqual(cached_response1.json(), data1)
+        self.assertEqual(cached_response2.json(), data2)
+
+        # Update the group type mapping - this should trigger cache invalidation via our new signal handler
+        group_mapping.group_type = "company"
+        group_mapping.save()
+
+        # Get responses again - they should reflect the change (meaning cache was invalidated)
+        updated_response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        updated_response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+
+        # Verify the group type mapping has been updated in the responses
+        updated_data1 = updated_response1.json()
+        updated_data2 = updated_response2.json()
+        self.assertEqual(updated_data1["group_type_mapping"]["0"], "company")
+        self.assertEqual(updated_data2["group_type_mapping"]["0"], "company")
+
+        # Verify responses changed from the original cached versions
+        self.assertNotEqual(data1["group_type_mapping"], updated_data1["group_type_mapping"])
+        self.assertNotEqual(data2["group_type_mapping"], updated_data2["group_type_mapping"])
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_invalidation_on_group_type_mapping_delete(self, mock_on_commit):
+        """Test that HyperCache invalidates when GroupTypeMapping is deleted."""
+        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+
+        # Create a group type mapping
+        group_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project=self.team.project,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+        )
+
+        # Create a feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-groups",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Clear caches and populate them
+        flags_hypercache.clear_cache(self.team)
+        flags_without_cohorts_hypercache.clear_cache(self.team)
+
+        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("group_type_mapping", data)
+        self.assertEqual(data["group_type_mapping"]["0"], "organization")
+
+        # Delete the group type mapping - this should trigger cache invalidation
+        group_mapping.delete()
+
+        # Get response again - group type mapping should be gone
+        updated_response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        updated_data = updated_response.json()
+
+        # Group type mapping should no longer exist in the response
+        self.assertNotIn("0", updated_data.get("group_type_mapping", {}))
+
+        # Verify response changed from the original cached version
+        self.assertNotEqual(data["group_type_mapping"], updated_data.get("group_type_mapping", {}))
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_invalidation_on_feature_flag_delete(self, mock_on_commit):
+        """Test that HyperCache invalidates when FeatureFlag is deleted."""
+        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+
+        # Create two feature flags
+        flag1 = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-1",
+            name="Test Flag 1",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-2",
+            name="Test Flag 2",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        # Clear caches to start fresh
+        flags_hypercache.clear_cache(self.team)
+        flags_without_cohorts_hypercache.clear_cache(self.team)
+
+        # Populate both cache variants using use_cache parameter
+        response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true")
+        response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify both flags are in the responses
+        data1 = response1.json()
+        data2 = response2.json()
+        self.assertEqual(len(data1["flags"]), 2)
+        self.assertEqual(len(data2["flags"]), 2)
+
+        flag_keys_1 = {flag["key"] for flag in data1["flags"]}
+        flag_keys_2 = {flag["key"] for flag in data2["flags"]}
+        self.assertEqual(flag_keys_1, {"test-flag-1", "test-flag-2"})
+        self.assertEqual(flag_keys_2, {"test-flag-1", "test-flag-2"})
+
+        # Verify caches are populated by checking we get the same data on subsequent calls
+        cached_response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        cached_response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        self.assertEqual(cached_response1.json(), data1)
+        self.assertEqual(cached_response2.json(), data2)
+
+        # Delete one of the feature flags - this should trigger cache invalidation via post_delete signal
+        flag1.delete()
+
+        # Get responses again - they should reflect the deletion (meaning cache was invalidated)
+        updated_response1 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true"
+        )
+        updated_response2 = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+
+        # Verify only one flag remains in both responses
+        updated_data1 = updated_response1.json()
+        updated_data2 = updated_response2.json()
+        self.assertEqual(len(updated_data1["flags"]), 1)
+        self.assertEqual(len(updated_data2["flags"]), 1)
+        self.assertEqual(updated_data1["flags"][0]["key"], "test-flag-2")
+        self.assertEqual(updated_data2["flags"][0]["key"], "test-flag-2")
+
+        # Verify responses changed from the original cached versions (flag count decreased)
+        self.assertNotEqual(len(data1["flags"]), len(updated_data1["flags"]))
+        self.assertNotEqual(len(data2["flags"]), len(updated_data2["flags"]))
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_local_evaluation_use_cache_invalidation_on_cohort_delete(self, mock_on_commit):
+        """Test that HyperCache invalidates when Cohort is deleted."""
+        from posthog.models.feature_flag.local_evaluation import flags_hypercache, flags_without_cohorts_hypercache
+
+        # Create a cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        # Create a feature flag that references the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag-cohort",
+            name="Test Flag with Cohort",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        # Clear caches to start fresh
+        flags_hypercache.clear_cache(self.team)
+        flags_without_cohorts_hypercache.clear_cache(self.team)
+
+        # Populate cache with cohorts using use_cache parameter
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        # Verify cohort is present in the response
+        self.assertIn("cohorts", data)
+        self.assertIn(str(cohort.id), data["cohorts"])
+
+        # Verify cache is populated by checking we get the same data on subsequent calls
+        cached_response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        self.assertEqual(cached_response.json(), data)
+
+        # Delete the cohort - this should trigger cache invalidation via post_delete signal
+        cohort.delete()
+
+        # Get response again - cohort should be gone from the response
+        updated_response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&use_cache=true&send_cohorts"
+        )
+        updated_data = updated_response.json()
+
+        # Cohort should no longer exist in the response
+        self.assertNotIn(str(cohort.id), updated_data.get("cohorts", {}))
+
+        # Verify response changed from the original cached version
+        self.assertNotEqual(data["cohorts"], updated_data.get("cohorts", {}))
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
@@ -6181,7 +6942,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 0, response)
 
-    def test_creating_static_cohort_with_experience_continuity_flag(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_creating_static_cohort_with_experience_continuity_flag(self, mock_on_commit):
         FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -6223,7 +6985,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(16):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6233,7 +6995,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    def test_creating_static_cohort_iterator(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_creating_static_cohort_iterator(self, mock_on_commit):
         FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -6276,7 +7039,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(21):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(35):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -6287,7 +7050,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(20):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -6297,7 +7060,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 3, response)
 
-    def test_creating_static_cohort_with_default_person_properties_adjustment(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_creating_static_cohort_with_default_person_properties_adjustment(self, mock_on_commit):
         FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -6350,7 +7114,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(20):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -6367,7 +7131,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(20):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -6375,7 +7139,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cohort2.name, "some cohort2")
         self.assertEqual(cohort2.count, 2)
 
-    def test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too(self, mock_on_commit):
         cohort_nested = Cohort.objects.create(
             team=self.team,
             filters={
@@ -6460,7 +7225,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(30):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 

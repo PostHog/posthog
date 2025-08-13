@@ -35,11 +35,10 @@ import { userLogic } from 'scenes/userLogic'
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SURVEY_CREATED_SOURCE, SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -48,28 +47,12 @@ export const scene: SceneExport = {
 }
 
 function NewSurveyButton(): JSX.Element {
-    const { loadSurveys } = useActions(surveysLogic)
+    const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
     const button = (
-        <LemonButton
-            to={urls.surveyTemplates()}
-            type="primary"
-            data-attr="new-survey"
-            sideAction={{
-                dropdown: {
-                    placement: 'bottom-start',
-                    actionable: true,
-                    overlay: (
-                        <LemonButton size="small" to={urls.survey('new')}>
-                            Create blank survey
-                        </LemonButton>
-                    ),
-                },
-                'data-attr': 'saved-insights-new-insight-dropdown',
-            }}
-        >
-            New survey
+        <LemonButton to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
+            <span className="pr-3">New survey</span>
         </LemonButton>
     )
 
@@ -80,9 +63,7 @@ function NewSurveyButton(): JSX.Element {
 
     return (
         <MaxTool
-            name="create_survey"
-            description="Max can create surveys to collect qualitative feedback from your users on new or existing features."
-            displayName="Create survey"
+            identifier="create_survey"
             initialMaxPrompt="Create a survey to collect "
             suggestions={[
                 'Create an NPS survey for customers who completed checkout',
@@ -94,6 +75,16 @@ function NewSurveyButton(): JSX.Element {
                 user_id: user.uuid,
             }}
             callback={(toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+                addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: toolOutput.survey_id,
+                        source: SURVEY_CREATED_SOURCE.MAX_AI,
+                        created_successfully: !toolOutput?.error,
+                    },
+                })
+
                 if (toolOutput?.error || !toolOutput?.survey_id) {
                     posthog.captureException('survey-creation-failed', {
                         error: toolOutput.error,
@@ -105,6 +96,7 @@ function NewSurveyButton(): JSX.Element {
                 loadSurveys()
                 router.actions.push(urls.survey(toolOutput.survey_id))
             }}
+            position="bottom-right"
         >
             {button}
         </MaxTool>
@@ -130,22 +122,13 @@ function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        <LemonButton
-                            size="small"
-                            type={!newSceneLayout ? 'secondary' : undefined}
-                            id="surveys-page-feedback-button"
-                            tooltip={newSceneLayout ? 'Have any questions or feedback?' : undefined}
-                        >
-                            {!newSceneLayout ? <>Have any questions or feedback?</> : <>Feedback</>}
-                        </LemonButton>
+                        <SurveyFeedbackButton />
                         <NewSurveyButton />
                     </>
                 }

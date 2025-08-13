@@ -21,10 +21,10 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
     const disabledReason = !alias
         ? 'Alias is required'
         : !regex
-        ? 'Regex is required'
-        : !isValidRegexp(regex)
-        ? 'Malformed regex'
-        : null
+          ? 'Regex is required'
+          : !isValidRegexp(regex)
+            ? 'Malformed regex'
+            : null
 
     // Reset state when reopening the modal with a different filter (or none)
     useEffect(() => {
