@@ -1,8 +1,13 @@
-from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from posthog.warehouse.models import ExternalDataSource
-from posthog.temporal.data_imports.sources import SourceRegistry
+from unittest import mock
+
+from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
 
 
 def test_bigquery_get_schemas():
-    source_cls = SourceRegistry.get_source(ExternalDataSource.Type.BIGQUERY)
-    source_cls.get_schemas(BigQuerySourceConfig(), 1)
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas", return_value={"table": []}
+    ):
+        source_cls = BigQuerySource()
+        schemas = source_cls.get_schemas(mock.ANY, 1)
+        assert len(schemas) == 1
+        assert schemas[0].name == "table"
