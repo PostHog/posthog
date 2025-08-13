@@ -180,9 +180,28 @@ export const BillingProductPricingTable = ({
                           basePrice: '',
                           usage: '',
                           total: `$${
-                              product.tiers
-                                  ?.reduce((sum, tier) => sum + parseFloat(tier.current_amount_usd || '0'), 0)
-                                  .toFixed(2) || '0.00'
+                              isSessionReplayWithAddons
+                                  ? product.tiers
+                                        ?.reduce((sum, tier) => sum + parseFloat(tier.current_amount_usd || '0'), 0)
+                                        .toFixed(2) || '0.00'
+                                  : (
+                                        (product.tiers?.reduce(
+                                            (sum, tier) => sum + parseFloat(tier.current_amount_usd || '0'),
+                                            0
+                                        ) || 0) +
+                                        ('addons' in product
+                                            ? subscribedAddons?.reduce(
+                                                  (addonSum, addon) =>
+                                                      addonSum +
+                                                      (addon.tiers?.reduce(
+                                                          (tierSum, tier) =>
+                                                              tierSum + parseFloat(tier.current_amount_usd || '0'),
+                                                          0
+                                                      ) || 0),
+                                                  0
+                                              ) || 0
+                                            : 0)
+                                    ).toFixed(2)
                           }`,
                           projectedTotal: isSessionReplayWithAddons
                               ? `$${projectedAmountExcludingAddons || '0.00'}`
