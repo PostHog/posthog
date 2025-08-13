@@ -10,11 +10,14 @@ use crate::checkpoint::{CheckpointClient, CheckpointLoader};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
 
+/// Type alias for partition-store mapping
+type PartitionStoreMap = Arc<RwLock<HashMap<(String, i32), Arc<DeduplicationStore>>>>;
+
 /// Deduplication-specific rebalance handler
 /// This implements the RebalanceHandler trait to manage deduplication stores per partition
 pub struct DeduplicationRebalanceHandler<C: CheckpointClient> {
     checkpoint_loader: CheckpointLoader<C>,
-    stores: Arc<RwLock<HashMap<(String, i32), Arc<DeduplicationStore>>>>,
+    stores: PartitionStoreMap,
     store_config_template: DeduplicationStoreConfig,
 }
 
@@ -60,7 +63,7 @@ impl<C: CheckpointClient> DeduplicationRebalanceHandler<C> {
 
         // Create partition-specific config
         let mut store_config = self.store_config_template.clone();
-        store_config.path = store_config.path.join(format!("{}_{}", topic, partition));
+        store_config.path = store_config.path.join(format!("{topic}_{partition}"));
 
         // Try to load latest checkpoint
         match self
@@ -80,8 +83,7 @@ impl<C: CheckpointClient> DeduplicationRebalanceHandler<C> {
                 let store = DeduplicationStore::new(store_config, topic.to_string(), partition)
                     .with_context(|| {
                         format!(
-                            "Failed to create store from checkpoint for topic {} partition {}",
-                            topic, partition
+                            "Failed to create store from checkpoint for topic {topic} partition {partition}"
                         )
                     })?;
 
@@ -100,8 +102,7 @@ impl<C: CheckpointClient> DeduplicationRebalanceHandler<C> {
                 let store = DeduplicationStore::new(store_config, topic.to_string(), partition)
                     .with_context(|| {
                         format!(
-                            "Failed to create new store for topic {} partition {}",
-                            topic, partition
+                            "Failed to create new store for topic {topic} partition {partition}"
                         )
                     })?;
 
@@ -120,8 +121,7 @@ impl<C: CheckpointClient> DeduplicationRebalanceHandler<C> {
                 let store = DeduplicationStore::new(store_config, topic.to_string(), partition)
                     .with_context(|| {
                         format!(
-                            "Failed to create fallback store for topic {} partition {}",
-                            topic, partition
+                            "Failed to create fallback store for topic {topic} partition {partition}"
                         )
                     })?;
 

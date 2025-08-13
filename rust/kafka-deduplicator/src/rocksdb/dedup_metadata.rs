@@ -22,7 +22,9 @@ impl From<&RawEvent> for SerializableRawEvent {
         SerializableRawEvent {
             uuid: raw_event.uuid.map(|u| u.to_string()),
             event: raw_event.event.clone(),
-            distinct_id_json: raw_event.distinct_id.as_ref()
+            distinct_id_json: raw_event
+                .distinct_id
+                .as_ref()
                 .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".to_string())),
             token: raw_event.token.clone(),
             properties_json: serde_json::to_string(&raw_event.properties)
@@ -34,19 +36,26 @@ impl From<&RawEvent> for SerializableRawEvent {
 
 impl TryFrom<&SerializableRawEvent> for RawEvent {
     type Error = anyhow::Error;
-    
+
     fn try_from(serializable: &SerializableRawEvent) -> Result<Self> {
-        let uuid = serializable.uuid.as_ref()
+        let uuid = serializable
+            .uuid
+            .as_ref()
             .map(|s| s.parse().map_err(|e| anyhow!("Invalid UUID: {}", e)))
             .transpose()?;
-            
-        let distinct_id = serializable.distinct_id_json.as_ref()
-            .map(|s| serde_json::from_str(s).map_err(|e| anyhow!("Invalid distinct_id JSON: {}", e)))
+
+        let distinct_id = serializable
+            .distinct_id_json
+            .as_ref()
+            .map(|s| {
+                serde_json::from_str(s).map_err(|e| anyhow!("Invalid distinct_id JSON: {}", e))
+            })
             .transpose()?;
-            
-        let properties: HashMap<String, serde_json::Value> = serde_json::from_str(&serializable.properties_json)
-            .map_err(|e| anyhow!("Invalid properties JSON: {}", e))?;
-            
+
+        let properties: HashMap<String, serde_json::Value> =
+            serde_json::from_str(&serializable.properties_json)
+                .map_err(|e| anyhow!("Invalid properties JSON: {}", e))?;
+
         Ok(RawEvent {
             uuid,
             event: serializable.event.clone(),
@@ -103,9 +112,10 @@ impl VersionedMetadata {
         let (version, payload) = bytes.split_first().ok_or_else(|| anyhow!("empty value"))?;
         match version {
             1 => {
-                let (v1, _): (MetadataV1, _) = bincode::serde::decode_from_slice(payload, bincode::config::standard())?;
+                let (v1, _): (MetadataV1, _) =
+                    bincode::serde::decode_from_slice(payload, bincode::config::standard())?;
                 Ok(VersionedMetadata::V1(v1))
-            },
+            }
             _ => Err(anyhow::anyhow!("unknown version: {}", version)),
         }
     }
@@ -117,7 +127,7 @@ impl MetadataVersion for VersionedMetadata {
             VersionedMetadata::V1(v1) => v1.update_duplicate(new_event),
         }
     }
-    
+
     fn get_metrics_summary(&self) -> String {
         match self {
             VersionedMetadata::V1(v1) => v1.get_metrics_summary(),
@@ -133,7 +143,7 @@ impl MetadataV1 {
             .as_ref()
             .and_then(|t| t.parse::<u64>().ok())
             .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
-            
+
         MetadataV1 {
             source: 1, // Default source, can be configured later
             team: 0,   // Default team, can be extracted from token if needed
@@ -142,7 +152,7 @@ impl MetadataV1 {
             duplicate_metrics: DuplicateMetrics::new(composite_key, timestamp),
         }
     }
-    
+
     /// Get the original RawEvent (deserializing from stored format)
     pub fn get_original_event(&self) -> Result<RawEvent> {
         RawEvent::try_from(&self.original_event)
@@ -153,19 +163,15 @@ impl MetadataVersion for MetadataV1 {
     /// Update metrics when a duplicate is detected
     fn update_duplicate(&mut self, new_event: &RawEvent) {
         // Convert serializable event back to RawEvent for comparison
-        let original_event = self.get_original_event()
-            .unwrap_or_else(|_| {
-                // Fallback to a minimal RawEvent if deserialization fails
-                RawEvent::default()
-            });
-            
-        self.duplicate_metrics.update_with_raw_event(
-            new_event,
-            &original_event,
-            self.timestamp,
-        );
+        let original_event = self.get_original_event().unwrap_or_else(|_| {
+            // Fallback to a minimal RawEvent if deserialization fails
+            RawEvent::default()
+        });
+
+        self.duplicate_metrics
+            .update_with_raw_event(new_event, &original_event, self.timestamp);
     }
-    
+
     /// Get a summary of the duplicate metrics for logging
     fn get_metrics_summary(&self) -> String {
         self.duplicate_metrics.summary()
@@ -199,7 +205,7 @@ mod tests {
         let metadata = MetadataV1::new(raw_event, composite_key);
 
         assert_eq!(metadata.source, 1); // Default source
-        assert_eq!(metadata.team, 0);   // Default team
+        assert_eq!(metadata.team, 0); // Default team
         assert_eq!(metadata.timestamp, 1234567890);
         assert_eq!(metadata.duplicate_metrics.composite_key, "test_key");
         assert_eq!(metadata.duplicate_metrics.duplicate_count, 0);
@@ -218,7 +224,7 @@ mod tests {
         // Check that version byte is present
         assert_eq!(serialized[0], 1);
         assert!(serialized.len() > 1);
-        
+
         // Verify deserialized data matches original
         match deserialized {
             VersionedMetadata::V1(v1) => {
@@ -234,16 +240,16 @@ mod tests {
     fn test_metadata_v1_trait_methods() {
         let raw_event = create_test_raw_event();
         let mut metadata = MetadataV1::new(raw_event.clone(), "test_key".to_string());
-        
+
         // Test initial state
         let summary = metadata.get_metrics_summary();
         assert!(summary.contains("test_key"));
         assert!(summary.contains("Duplicates: 0"));
-        
+
         // Test update_duplicate method
         let duplicate_event = create_test_raw_event();
         metadata.update_duplicate(&duplicate_event);
-        
+
         // Verify metrics were updated
         let updated_summary = metadata.get_metrics_summary();
         assert!(updated_summary.contains("Duplicates: 1"));
@@ -295,9 +301,9 @@ mod tests {
                     VersionedMetadata::V1(v1) => {
                         assert_eq!(v1.duplicate_metrics.composite_key, "test_key_with_props");
                         assert_eq!(v1.original_event.event, "page_view");
-                        
+
                         // Verify the properties were serialized correctly
-                        let properties: HashMap<String, serde_json::Value> = 
+                        let properties: HashMap<String, serde_json::Value> =
                             serde_json::from_str(&v1.original_event.properties_json).unwrap();
                         assert_eq!(properties.len(), 4);
                         assert_eq!(properties["url"], serde_json::json!("/home"));
@@ -307,7 +313,7 @@ mod tests {
             }
             Err(e) => {
                 // If serialization fails, the test should fail with clear error message
-                panic!("Serialization failed with properties: {}", e);
+                panic!("Serialization failed with properties: {e}");
             }
         }
     }

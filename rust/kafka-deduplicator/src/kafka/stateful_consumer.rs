@@ -7,9 +7,9 @@ use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use super::stateful_context::StatefulConsumerContext;
 use super::message::{AckableMessage, MessageProcessor};
 use super::rebalance_handler::RebalanceHandler;
+use super::stateful_context::StatefulConsumerContext;
 use super::tracker::{InFlightTracker, TrackerStats};
 
 /// Stateful Kafka consumer that coordinates with external state systems

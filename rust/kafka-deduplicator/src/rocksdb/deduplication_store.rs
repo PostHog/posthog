@@ -100,9 +100,20 @@ impl From<&RawEvent> for DeduplicationKey {
         let distinct_id = raw_event
             .distinct_id
             .as_ref()
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
+            .and_then(|v| {
+                // Treat JSON null as None
+                if v.is_null() {
+                    None
+                } else {
+                    // Try to get as string first, if not possible stringify the JSON
+                    Some(
+                        v.as_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| v.to_string()),
+                    )
+                }
+            })
+            .unwrap_or_else(|| "unknown".to_string());
 
         let token = raw_event
             .token
@@ -204,7 +215,7 @@ impl DeduplicationStore {
             let mut metadata = VersionedMetadata::deserialize_metadata(&existing_bytes)?;
 
             // Update duplicate metrics using trait method
-            metadata.update_duplicate(&raw_event);
+            metadata.update_duplicate(raw_event);
 
             // Log the duplicate metrics using trait method
             info!("Duplicate detected: {}", metadata.get_metrics_summary());

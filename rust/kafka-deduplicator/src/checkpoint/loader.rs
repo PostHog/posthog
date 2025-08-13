@@ -258,7 +258,7 @@ mod tests {
         fn add_checkpoint(&mut self, topic: &str, partition: i32, checkpoint: CheckpointInfo) {
             self.checkpoints
                 .entry((topic.to_string(), partition))
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(checkpoint);
         }
     }

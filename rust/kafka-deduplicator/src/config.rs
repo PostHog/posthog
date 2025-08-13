@@ -145,7 +145,10 @@ impl Config {
         .with_worker_threads(self.worker_threads)
         .with_poll_timeout(self.poll_timeout())
         .with_shutdown_timeout(self.shutdown_timeout())
-        .with_kafka_config("auto.offset.reset".to_string(), self.kafka_consumer_offset_reset.clone())
+        .with_kafka_config(
+            "auto.offset.reset".to_string(),
+            self.kafka_consumer_offset_reset.clone(),
+        )
     }
 
     /// Convert to checkpoint config (for compatibility with existing checkpoint code)

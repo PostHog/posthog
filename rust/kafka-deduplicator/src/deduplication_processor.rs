@@ -22,6 +22,9 @@ pub struct DeduplicationConfig {
     pub store_config: DeduplicationStoreConfig,
 }
 
+/// Type alias for partition-store mapping
+type PartitionStoreMap = Arc<RwLock<HashMap<(String, i32), Arc<DeduplicationStore>>>>;
+
 /// Processor that handles deduplication of events using per-partition stores
 #[derive(Clone)]
 pub struct DeduplicationProcessor {
@@ -33,7 +36,7 @@ pub struct DeduplicationProcessor {
 
     /// Per-partition deduplication stores
     /// Key: (topic, partition)
-    stores: Arc<RwLock<HashMap<(String, i32), Arc<DeduplicationStore>>>>,
+    stores: PartitionStoreMap,
 }
 
 impl DeduplicationProcessor {
@@ -234,7 +237,9 @@ impl MessageProcessor for DeduplicationProcessor {
         };
 
         // Get the original message key for publishing
-        let key = message.kafka_message().key()
+        let key = message
+            .kafka_message()
+            .key()
             .map(|k| String::from_utf8_lossy(k).to_string())
             .unwrap_or_default();
 
@@ -263,7 +268,7 @@ impl MessageProcessor for DeduplicationProcessor {
                     "Failed to process event from {}:{} offset {}: {}",
                     topic, partition, offset, e
                 );
-                message.nack(format!("Processing failed: {}", e)).await;
+                message.nack(format!("Processing failed: {e}")).await;
                 Err(e)
             }
         }
@@ -363,7 +368,6 @@ mod tests {
         // Note: This will fail if Kafka is not running, but that's expected in unit tests
         // In a real scenario, we'd mock the producer
         // Skip actual creation since Kafka not available in tests
-        assert!(true); // Test passes if config creation succeeds
     }
 
     #[tokio::test]
@@ -372,8 +376,7 @@ mod tests {
 
         // We can't easily test the full processor without Kafka running,
         // but we can test the store management logic separately
-        let stores: Arc<RwLock<HashMap<(String, i32), Arc<DeduplicationStore>>>> =
-            Arc::new(RwLock::new(HashMap::new()));
+        let stores: PartitionStoreMap = Arc::new(RwLock::new(HashMap::new()));
 
         // Test that stores map starts empty
         assert_eq!(stores.read().await.len(), 0);
@@ -401,5 +404,4 @@ mod tests {
         assert_eq!(event.uuid, deserialized.uuid);
         assert_eq!(event.distinct_id, deserialized.distinct_id);
     }
-
 }

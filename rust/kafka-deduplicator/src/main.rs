@@ -44,9 +44,9 @@ async fn main() -> Result<()> {
     info!("Starting Kafka Deduplicator service");
 
     // Load configuration using PostHog pattern
-    let config = Config::init_with_defaults()
-        .context("Failed to load configuration from environment")?;
-    
+    let config =
+        Config::init_with_defaults().context("Failed to load configuration from environment")?;
+
     info!("Configuration loaded: {:?}", config);
 
     // Start HTTP server with metrics endpoint
@@ -63,9 +63,18 @@ async fn main() -> Result<()> {
     let mut producer_config = ClientConfig::new();
     producer_config
         .set("bootstrap.servers", &config.kafka_hosts)
-        .set("message.timeout.ms", config.kafka_message_timeout_ms.to_string())
-        .set("queue.buffering.max.messages", config.kafka_producer_queue_messages.to_string())
-        .set("queue.buffering.max.ms", config.kafka_producer_linger_ms.to_string())
+        .set(
+            "message.timeout.ms",
+            config.kafka_message_timeout_ms.to_string(),
+        )
+        .set(
+            "queue.buffering.max.messages",
+            config.kafka_producer_queue_messages.to_string(),
+        )
+        .set(
+            "queue.buffering.max.ms",
+            config.kafka_producer_linger_ms.to_string(),
+        )
         .set("compression.type", &config.kafka_compression_codec);
 
     // Create deduplication processor
@@ -87,7 +96,10 @@ async fn main() -> Result<()> {
     let consumer_config = ClientConfig::new()
         .set("bootstrap.servers", &config.kafka_hosts)
         .set("group.id", &config.kafka_consumer_group)
-        .set("enable.auto.commit", config.kafka_consumer_auto_commit.to_string())
+        .set(
+            "enable.auto.commit",
+            config.kafka_consumer_auto_commit.to_string(),
+        )
         .set("auto.offset.reset", &config.kafka_consumer_offset_reset)
         .set("session.timeout.ms", "30000")
         .set("heartbeat.interval.ms", "10000")

@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 
-use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
 use common_types::RawEvent;
+use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
 use kafka_deduplicator::rocksdb::deduplication_store::{
     DeduplicationStore, DeduplicationStoreConfig,
 };
@@ -178,7 +178,6 @@ impl CheckpointUploader for MockUploader {
         Ok(uploaded_keys)
     }
 
-
     async fn is_available(&self) -> bool {
         self.available
     }
@@ -200,10 +199,13 @@ fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> Ra
         distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
         token: Some(token.to_string()),
         properties: std::collections::HashMap::new(),
-        timestamp: Some(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs().to_string()),
+        timestamp: Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                .to_string(),
+        ),
         ..Default::default()
     }
 }

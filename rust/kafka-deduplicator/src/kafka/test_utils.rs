@@ -2,15 +2,15 @@ use rdkafka::config::ClientConfig;
 use rdkafka::consumer::BaseConsumer;
 use std::sync::Arc;
 
-use super::stateful_context::StatefulConsumerContext;
 use super::rebalance_handler::RebalanceHandler;
+use super::stateful_context::StatefulConsumerContext;
 
 /// Test utilities for kafka module tests
 pub fn create_test_consumer<H: RebalanceHandler + 'static>(
     handler: Arc<H>,
 ) -> BaseConsumer<StatefulConsumerContext> {
     let context = StatefulConsumerContext::new(handler);
-    
+
     let consumer: BaseConsumer<StatefulConsumerContext> = ClientConfig::new()
         .set("bootstrap.servers", "localhost:9092")
         .set("group.id", "test-group")
@@ -18,6 +18,6 @@ pub fn create_test_consumer<H: RebalanceHandler + 'static>(
         .set("auto.offset.reset", "earliest")
         .create_with_context(context)
         .expect("Consumer creation failed");
-    
+
     consumer
 }

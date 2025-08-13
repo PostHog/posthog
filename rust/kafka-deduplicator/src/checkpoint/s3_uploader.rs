@@ -108,19 +108,6 @@ impl S3Uploader {
         );
         Ok(())
     }
-
-    async fn delete_object(&self, key: &str) -> Result<()> {
-        self.client
-            .delete_object()
-            .bucket(&self.config.s3_bucket)
-            .key(key)
-            .send()
-            .await
-            .with_context(|| format!("Failed to delete S3 object: {key}"))?;
-
-        info!("Deleted S3 object: {key}");
-        Ok(())
-    }
 }
 
 #[async_trait]

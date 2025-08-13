@@ -1,9 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use kafka_deduplicator::kafka::{
-    stateful_consumer::StatefulKafkaConsumer,
     message::{AckableMessage, MessageProcessor},
     rebalance_handler::RebalanceHandler,
+    stateful_consumer::StatefulKafkaConsumer,
 };
 use rdkafka::{
     config::ClientConfig,

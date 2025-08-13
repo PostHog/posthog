@@ -9,18 +9,18 @@ pub trait RebalanceHandler: Send + Sync {
     /// Called when partitions are assigned to this consumer
     /// This happens after Kafka coordinator assigns partitions during rebalance
     async fn on_partitions_assigned(&self, partitions: &TopicPartitionList) -> Result<()>;
-    
+
     /// Called when partitions are revoked from this consumer  
     /// This happens before Kafka coordinator revokes partitions during rebalance
     async fn on_partitions_revoked(&self, partitions: &TopicPartitionList) -> Result<()>;
-    
+
     /// Called before any rebalance operation begins
     /// Use this for preparation work before partition changes
     async fn on_pre_rebalance(&self) -> Result<()> {
         // Default implementation does nothing
         Ok(())
     }
-    
+
     /// Called after rebalance operation completes
     /// Use this for cleanup or post-rebalance initialization
     async fn on_post_rebalance(&self) -> Result<()> {
@@ -51,23 +51,23 @@ mod tests {
     impl RebalanceHandler for TestRebalanceHandler {
         async fn on_partitions_assigned(&self, partitions: &TopicPartitionList) -> Result<()> {
             self.assigned_count.fetch_add(1, Ordering::SeqCst);
-            
+
             let mut assigned = self.assigned_partitions.lock().unwrap();
             for elem in partitions.elements() {
                 assigned.push((elem.topic().to_string(), elem.partition()));
             }
-            
+
             Ok(())
         }
 
         async fn on_partitions_revoked(&self, partitions: &TopicPartitionList) -> Result<()> {
             self.revoked_count.fetch_add(1, Ordering::SeqCst);
-            
+
             let mut revoked = self.revoked_partitions.lock().unwrap();
             for elem in partitions.elements() {
                 revoked.push((elem.topic().to_string(), elem.partition()));
             }
-            
+
             Ok(())
         }
 
@@ -84,9 +84,12 @@ mod tests {
 
     fn create_test_partition_list() -> TopicPartitionList {
         let mut list = TopicPartitionList::new();
-        list.add_partition_offset("test-topic-1", 0, Offset::Beginning).unwrap();
-        list.add_partition_offset("test-topic-1", 1, Offset::Beginning).unwrap();
-        list.add_partition_offset("test-topic-2", 0, Offset::Beginning).unwrap();
+        list.add_partition_offset("test-topic-1", 0, Offset::Beginning)
+            .unwrap();
+        list.add_partition_offset("test-topic-1", 1, Offset::Beginning)
+            .unwrap();
+        list.add_partition_offset("test-topic-2", 0, Offset::Beginning)
+            .unwrap();
         list
     }
 

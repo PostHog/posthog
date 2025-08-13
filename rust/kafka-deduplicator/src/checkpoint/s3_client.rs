@@ -37,7 +37,7 @@ impl S3CheckpointClient {
             .key(s3_key)
             .send()
             .await
-            .with_context(|| format!("Failed to download S3 object: {}", s3_key))?;
+            .with_context(|| format!("Failed to download S3 object: {s3_key}"))?;
 
         let body = response
             .body
@@ -47,13 +47,13 @@ impl S3CheckpointClient {
 
         if let Some(parent) = local_path.parent() {
             fs::create_dir_all(parent).await.with_context(|| {
-                format!("Failed to create parent directories for: {:?}", local_path)
+                format!("Failed to create parent directories for: {local_path:?}")
             })?;
         }
 
         fs::write(local_path, body.into_bytes())
             .await
-            .with_context(|| format!("Failed to write file: {:?}", local_path))?;
+            .with_context(|| format!("Failed to write file: {local_path:?}"))?;
 
         info!(
             "Downloaded s3://{}/{} to {:?}",
@@ -134,7 +134,7 @@ impl CheckpointClient for S3CheckpointClient {
         // Create local directory
         fs::create_dir_all(local_path)
             .await
-            .with_context(|| format!("Failed to create checkpoint directory: {:?}", local_path))?;
+            .with_context(|| format!("Failed to create checkpoint directory: {local_path:?}"))?;
 
         // Download metadata.json first
         let metadata_s3_key = format!("{}/metadata.json", checkpoint_info.s3_key_prefix);
@@ -175,7 +175,7 @@ impl CheckpointClient for S3CheckpointClient {
             .key(metadata_key)
             .send()
             .await
-            .with_context(|| format!("Failed to get checkpoint metadata: {}", metadata_key))?;
+            .with_context(|| format!("Failed to get checkpoint metadata: {metadata_key}"))?;
 
         let body = response
             .body
@@ -187,7 +187,7 @@ impl CheckpointClient for S3CheckpointClient {
             String::from_utf8(body.into_bytes().to_vec()).context("Invalid UTF-8 in metadata")?;
 
         CheckpointMetadata::from_json(&json)
-            .with_context(|| format!("Failed to parse checkpoint metadata: {}", metadata_key))
+            .with_context(|| format!("Failed to parse checkpoint metadata: {metadata_key}"))
     }
 
     async fn checkpoint_exists(&self, checkpoint_info: &CheckpointInfo) -> Result<bool> {
