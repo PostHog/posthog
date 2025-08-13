@@ -48,8 +48,10 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             tagged_item_instance, _ = obj.tagged_items.get_or_create(tag_id=tag_instance.id)
             tagged_item_objects.append(tagged_item_instance)
 
-        # Delete tags that are missing
-        obj.tagged_items.exclude(tag__name__in=deduped_tags).delete()
+        # Delete tags that are missing (use individual deletes to trigger activity logging)
+        tagged_items_to_delete = obj.tagged_items.exclude(tag__name__in=deduped_tags)
+        for tagged_item in tagged_items_to_delete:
+            tagged_item.delete()
 
         # Cleanup tags that aren't used by team
         Tag.objects.filter(Q(team_id=obj.team_id) & Q(tagged_items__isnull=True)).delete()
@@ -169,28 +171,31 @@ def handle_tag_change(sender, scope, before_update, after_update, activity, user
 def handle_tagged_item_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
-    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(after_update)
+    if after_update and after_update.tag:
+        related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(after_update)
 
-    context = TaggedItemContext(
-        tag_name=after_update.tag.name,
-        tag_id=str(after_update.tag.id),
-        team_id=after_update.tag.team_id,
-        related_object_type=related_object_type,
-        related_object_id=related_object_id,
-        related_object_name=related_object_name,
-    )
+        context = TaggedItemContext(
+            tag_name=after_update.tag.name,
+            tag_id=str(after_update.tag.id),
+            team_id=after_update.tag.team_id,
+            related_object_type=related_object_type,
+            related_object_id=related_object_id,
+            related_object_name=related_object_name,
+        )
 
-    log_activity(
-        organization_id=after_update.tag.team.organization_id if after_update.tag and after_update.tag.team else None,
-        team_id=after_update.tag.team_id if after_update.tag else None,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.tag.name if after_update.tag else None,
-            context=context,
-        ),
-    )
+        log_activity(
+            organization_id=after_update.tag.team.organization_id
+            if after_update.tag and after_update.tag.team
+            else None,
+            team_id=after_update.tag.team_id if after_update.tag else None,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=after_update.id,
+            scope=scope,
+            activity=activity,
+            detail=Detail(
+                changes=changes_between(scope, previous=before_update, current=after_update),
+                name=after_update.tag.name if after_update.tag else None,
+                context=context,
+            ),
+        )

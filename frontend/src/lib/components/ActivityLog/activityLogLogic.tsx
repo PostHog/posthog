@@ -28,6 +28,7 @@ import { insightActivityDescriber } from 'scenes/saved-insights/activityDescript
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
+import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
@@ -77,6 +78,9 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return replayActivityDescriber
         case ActivityScope.EXPERIMENT:
             return experimentActivityDescriber
+        case ActivityScope.TAG:
+        case ActivityScope.TAGGED_ITEM:
+            return tagActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

@@ -8,6 +8,15 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
 
+// ActivityScope values that should not appear in dropdowns
+const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
+    ActivityScope.TAGGED_ITEM, // Handled under ActivityScope.TAG
+]
+
+const getVisibleActivityScopes = (): ActivityScope[] => {
+    return Object.values(ActivityScope).filter((scope) => !HIDDEN_ACTIVITY_SCOPES.includes(scope))
+}
+
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
@@ -120,6 +129,12 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
         allActivityHasNext: [(s) => [s.allActivityResponse], (allActivityResponse) => !!allActivityResponse?.next],
+        visibleActivityScopes: [
+            () => [],
+            (): ActivityScope[] => {
+                return getVisibleActivityScopes()
+            },
+        ],
     }),
 
     subscriptions(({ actions, values }) => ({

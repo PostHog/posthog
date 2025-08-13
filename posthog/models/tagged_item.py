@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.activity_logging.model_activity import ModelActivityMixin, get_current_user, get_was_impersonated
 from posthog.models.utils import UUIDModel, build_unique_relationship_check, build_partial_uniqueness_constraint
 
 RELATED_OBJECTS = (
@@ -111,3 +111,18 @@ class TaggedItem(ModelActivityMixin, UUIDModel):
 
     def __str__(self) -> str:
         return str(self.tag)
+
+    def delete(self, *args, **kwargs):
+        from posthog.models.signals import model_activity_signal
+
+        model_activity_signal.send(
+            sender=self.__class__,
+            scope=self.__class__.__name__,
+            before_update=None,
+            after_update=self,
+            activity="deleted",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+
+        return super().delete(*args, **kwargs)
