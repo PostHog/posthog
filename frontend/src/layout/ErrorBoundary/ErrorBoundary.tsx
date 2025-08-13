@@ -51,21 +51,6 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 // Use the globally captured exception event
                 const exceptionEvent = globalLastExceptionEvent
 
-                // Function to parse exception event data into readable format
-                const parseExceptionEvent = (event: any): string => {
-                    const uuid = event?.uuid || 'Unknown'
-                    const commitSha = event?.properties?.commit_sha || 'Unknown'
-                    const feature = event?.properties?.feature || 'Unknown'
-                    const exceptionType = event?.properties?.$exception_list?.[0]?.type || 'Unknown'
-                    const exceptionValue = event?.properties?.$exception_list?.[0]?.value || 'Unknown'
-
-                    return `UUID: ${uuid}
-Commit SHA: ${commitSha}
-Feature: ${feature}
-Type: ${exceptionType}
-Value: ${exceptionValue}`
-                }
-
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
@@ -86,11 +71,10 @@ Value: ${exceptionValue}`
                             fullWidth
                             center
                             onClick={() => {
-                                const exceptionData = exceptionEvent ? parseExceptionEvent(exceptionEvent) : undefined
                                 openSupportForm({
                                     kind: 'bug',
                                     isEmailFormOpen: true,
-                                    message: exceptionData ? `Exception details:\n${exceptionData}\n\n` : '',
+                                    exception_event: exceptionEvent || null,
                                 })
                             }}
                             targetBlank

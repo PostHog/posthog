@@ -77,6 +77,69 @@ function getErrorTrackingLink(): string {
     return `\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
 }
 
+function getExceptionEventLink(uuid: string): string {
+    const filterGroup = encodeURIComponent(
+        JSON.stringify({
+            type: 'AND',
+            values: [
+                {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'hogql',
+                            key: `uuid = '${uuid}'`,
+                            value: null,
+                        },
+                    ],
+                },
+            ],
+        })
+    )
+
+    return `\nException Event: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
+}
+
+function parseExceptionEvent(event: any): { parsedData: string; uuid?: string } {
+    const uuid = event?.uuid || 'Unknown'
+    const commitSha = event?.properties?.commit_sha || 'Unknown'
+    const feature = event?.properties?.feature || 'Unknown'
+    const exceptionType = event?.properties?.$exception_list?.[0]?.type || 'Unknown'
+    const exceptionValue = event?.properties?.$exception_list?.[0]?.value || 'Unknown'
+
+    // Extract stack trace details for filtering/aggregation
+    let filename = 'Unknown'
+    let functionName = 'Unknown'
+    let lineNumber = 'Unknown'
+
+    const exceptionList = event?.properties?.$exception_list
+    if (exceptionList && Array.isArray(exceptionList) && exceptionList[0]) {
+        const exception = exceptionList[0]
+
+        // Check if there's a stack trace in the exception
+        if (exception.stacktrace && exception.stacktrace.frames) {
+            const frames = exception.stacktrace.frames
+            const appFrames = frames.filter((frame: any) => frame.in_app === true)
+            const componentFrame = appFrames[appFrames.length - 1]
+            if (componentFrame) {
+                filename = componentFrame.filename || 'Unknown'
+                functionName = componentFrame.function || 'Unknown'
+                lineNumber = componentFrame.lineno || 'Unknown'
+            }
+        }
+    }
+
+    const parsedData = `UUID: ${uuid}
+Commit SHA: ${commitSha}
+Feature: ${feature}
+Type: ${exceptionType}
+Value: ${exceptionValue}
+Filename: ${filename}
+Function: ${functionName}
+Line: ${lineNumber}`
+
+    return { parsedData, uuid: uuid !== 'Unknown' ? uuid : undefined }
+}
+
 function getDjangoAdminLink(
     user: UserType | null,
     cloudRegion: Region | null | undefined,
@@ -360,6 +423,7 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
+    exception_event?: any
     isEmailFormOpen?: boolean | 'true' | 'false'
 }
 
@@ -417,6 +481,7 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: null,
                 target_area: null,
                 message: '',
+                exception_event: null,
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -475,6 +540,7 @@ export const supportLogic = kea<supportLogicType>([
             target_area,
             severity_level,
             message,
+            exception_event,
         }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
@@ -488,6 +554,7 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: area,
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
+                exception_event: exception_event ?? null,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -505,7 +572,24 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }: SupportFormFields) => {
+        submitZendeskTicket: async ({
+            name,
+            email,
+            kind,
+            target_area,
+            severity_level,
+            message,
+            exception_event,
+        }: SupportFormFields) => {
+            // Parse exception event if provided
+            let parsedExceptionData = ''
+            let exceptionUuid: string | undefined
+            if (exception_event) {
+                const parsed = parseExceptionEvent(exception_event)
+                parsedExceptionData = parsed.parsedData
+                exceptionUuid = parsed.uuid
+            }
+
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -609,6 +693,10 @@ export const supportLogic = kea<supportLogicType>([
                             id: 37742340880411,
                             value: accountOwner?.name || 'unassigned',
                         },
+                        {
+                            id: 39967113285659,
+                            value: parsedExceptionData || '',
+                        },
                     ],
                     comment: {
                         body:
@@ -634,7 +722,8 @@ export const supportLogic = kea<supportLogicType>([
                                   (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
                                       teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
                                       'unknown')
-                                : ''),
+                                : '') +
+                            (exceptionUuid ? getExceptionEventLink(exceptionUuid) : ''),
                     },
                 },
             }
