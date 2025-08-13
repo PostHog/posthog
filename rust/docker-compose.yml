@@ -34,8 +34,6 @@ services:
             interval: 3s
             timeout: 10s
             retries: 10
-        ports:
-            - '9092:9092'
 
     redis:
         image: redis:6.2.7-alpine
