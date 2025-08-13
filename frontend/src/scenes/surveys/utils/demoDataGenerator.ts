@@ -2,36 +2,7 @@
  * Demo Survey Data Generator
  *
  * Generates highly realistic survey response data to show customers exactly how their
- * survey results will look. Built with industry-standard patterns and real user behavior.
- *
- * BELIEVABILITY FEATURES:
- *
- * 🎯 Realistic User Profiles:
- * - Diverse names, companies, and job roles across industries
- * - Authentic email domains and user properties
- * - Varied company sizes and subscription plans
- *
- * 📊 Statistically Accurate Distributions:
- * - NPS: 20% detractors, 15% passives, 65% promoters (industry standard)
- * - Rating scales: Positive skew (realistic for most products)
- * - Response rates: 60-85% (typical for in-app surveys)
- * - Choice weighting: First option popular, "Other" less common
- *
- * 💬 Contextual Response Generation:
- * - Question-aware open text responses
- * - "Improve" questions → improvement suggestions
- * - "Experience" questions → experience feedback
- * - Authentic feedback language and tone
- *
- * ⏰ Temporal Realism:
- * - Responses distributed over 30-day period
- * - Random times throughout day/week
- * - Proper chronological sorting
- *
- * 🔢 Behavioral Patterns:
- * - Multiple choice: 1-3 selections typical
- * - Custom "Other" responses with 15% probability
- * - Realistic user engagement patterns
+ * survey results will look.
  */
 
 import { dayjs } from 'lib/dayjs'
