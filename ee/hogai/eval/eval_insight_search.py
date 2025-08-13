@@ -50,7 +50,7 @@ def extract_evaluation_info_from_state(state) -> dict:
         for msg in state.messages:
             if hasattr(msg, "content"):
                 content = str(msg.content)
-                # Look for various insight ID patterns
+                # Look for numeric IDs first
                 id_matches = re.findall(
                     r"(?:Insight\s+ID\s+|Insight\s+|Selected\s+insight\s+)(\d+)", content, re.IGNORECASE
                 )
@@ -61,6 +61,13 @@ def extract_evaluation_info_from_state(state) -> dict:
                             selected_insight_ids.append(insight_id)
                     except ValueError:
                         pass
+
+                # Also look for short IDs in URLs like /insights/PHIpzaKI
+                url_matches = re.findall(r"/insights/([A-Za-z0-9_-]+)", content)
+                for short_id in url_matches:
+                    # Convert short ID to string representation for consistency
+                    if short_id not in selected_insight_ids:
+                        selected_insight_ids.append(short_id)
 
     return {
         "selected_insights": selected_insight_ids,
@@ -121,7 +128,8 @@ def call_insight_search(demo_org_team_user):
 
         selected_insights = eval_info["selected_insights"]
         if not selected_insights and eval_info["insights_selected"]:
-            selected_insights = list(range(1, eval_info["visualization_count"] + 1))
+            # Return empty list to make the failure visible in evaluation
+            selected_insights = []
 
         unique_insights = list(dict.fromkeys(selected_insights))
 
