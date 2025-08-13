@@ -13,12 +13,15 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
-from posthog.schema import AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import (
+    AssistantToolCallMessage,
+    VisualizationMessage,
+)
 
 from .prompts import (
     EMPTY_DATABASE_ERROR_MESSAGE,
@@ -343,7 +346,7 @@ class InsightSearchNode(AssistantNode):
         """Find an insight by ID across all loaded pages (with cache)."""
         return self._insight_id_cache.get(insight_id)
 
-    def _process_insight_query(self, insight: Insight) -> tuple[object | None, str | None]:
+    def _process_insight_query(self, insight: Insight) -> tuple[SupportedQueryTypes | None, str | None]:
         """
         Process an insight's query and cache object and formatted results for reference
         """
@@ -360,19 +363,24 @@ class InsightSearchNode(AssistantNode):
 
         return self._cache_and_return(insight_id, query_obj, formatted_results)
 
-    def _get_cached_query(self, insight_id: int) -> tuple[object | None, str | None] | None:
+    def _get_cached_query(self, insight_id: int) -> tuple[SupportedQueryTypes | None, str | None] | None:
         """Get cached query result if available."""
         if insight_id in self._query_cache:
             return self._query_cache[insight_id]
         return None
 
-    def _cache_and_return(self, insight_id: int, query_obj: object | None, formatted_results: str | None) -> tuple:
+    def _cache_and_return(
+        self,
+        insight_id: int,
+        query_obj: SupportedQueryTypes | None,
+        formatted_results: str | None,
+    ) -> tuple[SupportedQueryTypes | None, str | None]:
         """Cache and return query result."""
         result = (query_obj, formatted_results)
         self._query_cache[insight_id] = result
         return result
 
-    def _extract_and_execute_query(self, insight: Insight) -> tuple[object | None, str | None]:
+    def _extract_and_execute_query(self, insight: Insight) -> tuple[SupportedQueryTypes | None, str | None]:
         """Extract query object and execute it."""
         try:
             query_dict = insight.query
@@ -390,7 +398,7 @@ class InsightSearchNode(AssistantNode):
             capture_exception(e)
             return None, "Query processing failed"
 
-    def _validate_and_create_query_object(self, insight_type: str, query_source: dict) -> object | None:
+    def _validate_and_create_query_object(self, insight_type: str, query_source: dict) -> SupportedQueryTypes | None:
         """Validate query type and create query object."""
         if insight_type not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
             return None
@@ -398,7 +406,7 @@ class InsightSearchNode(AssistantNode):
         AssistantQueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[insight_type]
         return AssistantQueryModel.model_validate(query_source, strict=False)
 
-    def _execute_and_format_query(self, query_obj: object) -> str:
+    def _execute_and_format_query(self, query_obj: SupportedQueryTypes) -> str:
         """Execute query and format results."""
         try:
             query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
@@ -514,7 +522,7 @@ class InsightSearchNode(AssistantNode):
             visualization_message = VisualizationMessage.model_construct(
                 query=f"Existing insight: {insight_name}",
                 plan=f"Showing existing insight: {insight_name}",
-                answer=query_obj,
+                answer=query_obj,  # type: ignore[arg-type]
                 id=str(uuid4()),
             )
 
