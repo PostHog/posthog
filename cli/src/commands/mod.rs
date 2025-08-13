@@ -67,6 +67,27 @@ pub enum SourcemapCommand {
         #[arg(long, default_value = "false")]
         delete_after: bool,
     },
+    /// Run inject and upload in one command
+    Process {
+        /// The directory containing the bundled chunks
+        #[arg(short, long)]
+        directory: PathBuf,
+
+        /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
+        /// a specific release, auto-discovered from git information on disk if not provided.
+        #[arg(long)]
+        project: Option<String>,
+
+        /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
+        /// to have the uploaded chunks associated with a specific release. Auto-discovered from git information on
+        /// disk if not provided.
+        #[arg(long)]
+        version: Option<String>,
+
+        /// Whether to delete the source map files after uploading them
+        #[arg(long, default_value = "false")]
+        delete_after: bool,
+    },
 }
 
 impl Cli {
@@ -87,6 +108,21 @@ impl Cli {
                     version,
                     delete_after,
                 } => {
+                    sourcemap::upload::upload(
+                        command.host,
+                        directory,
+                        project.clone(),
+                        version.clone(),
+                        *delete_after,
+                    )?;
+                }
+                SourcemapCommand::Process {
+                    directory,
+                    project,
+                    version,
+                    delete_after,
+                } => {
+                    sourcemap::inject::inject(directory)?;
                     sourcemap::upload::upload(
                         command.host,
                         directory,

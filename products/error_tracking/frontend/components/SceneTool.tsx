@@ -99,9 +99,7 @@ export function ErrorTrackingSceneTool(): JSX.Element {
 
     return (
         <MaxTool
-            name="search_error_tracking_issues"
-            displayName="Filter issues"
-            description="Max can search for issues by message, file name, event properties, or stack trace."
+            identifier="search_error_tracking_issues"
             context={{
                 current_query: query,
             }}

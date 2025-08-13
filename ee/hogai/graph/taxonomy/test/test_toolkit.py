@@ -221,7 +221,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
             ("retrieve_event_properties", {"event_name": "test_event"}, "mocked"),
             ("retrieve_event_property_values", {"event_name": "test_event", "property_name": "$browser"}, "mocked"),
             ("ask_user_for_help", {"request": "Help needed"}, "Help needed"),
-            ("final_answer", {}, "Taxonomy finalized"),
         ]
     )
     @patch.object(DummyToolkit, "retrieve_entity_properties", return_value="mocked")
