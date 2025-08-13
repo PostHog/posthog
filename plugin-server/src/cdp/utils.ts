@@ -114,7 +114,13 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
 
     let properties = data.event.properties
 
-    if ('exception_props' in properties) {
+    // KLUDGE: spread the properties of the exception event that caused the internal issue event
+    // so those properties can be used to filter CDP destinations for error tracking alerts
+    if (
+        isInternalErrorTrackingEvent(data.event) &&
+        'exception_props' in properties &&
+        typeof properties.exception_props === 'object'
+    ) {
         properties = { ...properties, ...properties.exception_props }
         delete properties.exception_props
     }
@@ -217,6 +223,10 @@ export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolea
 
 export function isNativeHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('native-') ?? false
+}
+
+export function isInternalErrorTrackingEvent(event: CdpInternalEvent['event']): boolean {
+    return ['$error_tracking_issue_created', '$error_tracking_issue_reopened'].includes(event.event)
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {
