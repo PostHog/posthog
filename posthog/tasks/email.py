@@ -140,6 +140,15 @@ def send_invite(invite_id: str) -> None:
     )
     message.add_recipient(email=invite.target_email)
     message.send()
+    posthoganalytics.capture(
+        distinct_id=str(invite.created_by.distinct_id),
+        event="invite email sent",
+        groups={"organization": str(invite.organization_id)},
+        properties={
+            "invite_id": str(invite.id),
+            "recipient": invite.target_email,
+        },
+    )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
