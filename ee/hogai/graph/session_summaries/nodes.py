@@ -296,7 +296,10 @@ class SessionSummarizationNode(AssistantNode):
                     NotebookUpdateMessage(
                         id=str(uuid4()),
                         notebook_id=state.notebook_id,
-                        content="",
+                        content={
+                            "type": "doc",
+                            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Test"}]}],
+                        },
                     ),
                     AssistantToolCallMessage(
                         content=summaries_content,
@@ -306,23 +309,25 @@ class SessionSummarizationNode(AssistantNode):
                 ],
                 session_summarization_query=None,
                 root_tool_call_id=None,
+                # Ensure to pass the notebook id to the next node
+                notebook_id=state.notebook_id,
             )
         except Exception as err:
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
-            return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
+            return self._create_error_response(self._base_error_instructions)
 
-    def _create_error_response(self, message: str, root_tool_call_id: str | None) -> PartialAssistantState:
-        # TODO: Return notebook short id for it to be accessible in the next nodes or so
+    def _create_error_response(self, message: str, state: AssistantState) -> PartialAssistantState:
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(
                     content=message,
-                    tool_call_id=root_tool_call_id or "unknown",
+                    tool_call_id=state.root_tool_call_id or "unknown",
                     id=str(uuid4()),
                 ),
             ],
             session_summarization_query=None,
             root_tool_call_id=None,
+            notebook_id=state.notebook_id,
         )
 
     def _log_failure(self, message: str, conversation_id: str, start_time: float, error: Any = None):
