@@ -5,8 +5,10 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from rest_framework import exceptions, serializers
 import structlog
+from posthog.exceptions_capture import capture_exception
 
 from posthog.models.integration import Integration
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
 from posthog.models import ProductIntent
 from posthog.models.organization import Organization
@@ -14,20 +16,74 @@ from posthog.models.team.team import Team
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.event_usage import report_user_signed_up
 from posthog.utils import absolute_uri
-from ee.models.vercel.vercel_installation import VercelInstallation
-from ee.models.vercel.vercel_resource import VercelResource
 from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
 
 class VercelIntegration:
-    integration: Integration
-    # organization_integration: OrganizationIntegration
+    @staticmethod
+    def _get_installation(installation_id: str) -> OrganizationIntegration:
+        try:
+            return OrganizationIntegration.objects.get(
+                kind=Integration.IntegrationKind.VERCEL, integration_id=installation_id
+            )
+        except OrganizationIntegration.DoesNotExist:
+            raise exceptions.NotFound("Installation not found")
+
+    @staticmethod
+    def _get_installation_for_organization(organization: Organization) -> OrganizationIntegration | None:
+        try:
+            return OrganizationIntegration.objects.get(
+                organization=organization, kind=Integration.IntegrationKind.VERCEL
+            )
+        except OrganizationIntegration.DoesNotExist:
+            return None
+
+    @staticmethod
+    def _get_access_token(installation: OrganizationIntegration) -> str | None:
+        access_token = installation.config.get("credentials", {}).get("access_token")
+        if not access_token:
+            logger.exception("vercel_access_token_missing", installation_id=installation.integration_id)
+        return access_token
+
+    @staticmethod
+    def _create_vercel_client(access_token: str) -> VercelAPIClient | None:
+        try:
+            return VercelAPIClient(bearer_token=access_token)
+        except ValueError as e:
+            logger.exception("vercel_client_creation_failed")
+            capture_exception(e)
+            return None
+
+    @staticmethod
+    def _setup_vercel_client_for_feature_flag(feature_flag: FeatureFlag) -> tuple[VercelAPIClient, str, str] | None:
+        resource = VercelIntegration._get_vercel_resource_for_feature_flag(feature_flag)
+        if not resource:
+            logger.exception("vercel_resource_not_found", feature_flag_id=feature_flag.pk)
+            return None
+
+        installation = VercelIntegration._get_installation_for_organization(resource.team.organization)
+        if not installation:
+            logger.exception("vercel_installation_not_found", team_id=resource.team.id)
+            return None
+
+        access_token = VercelIntegration._get_access_token(installation)
+        if not access_token:
+            return None
+
+        client = VercelIntegration._create_vercel_client(access_token)
+        if not client:
+            return None
+
+        integration_config_id = installation.integration_id
+        resource_id = str(resource.pk)
+
+        return client, integration_config_id, resource_id
 
     @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
-        """Get PostHog plans formatted for Vercel Marketplace"""
+        # TODO: Retrieve through billing service instead.
         return [
             {
                 "id": "free",
@@ -73,7 +129,7 @@ class VercelIntegration:
 
     @staticmethod
     def upsert_installation(installation_id: str, payload: dict[str, Any]) -> None:
-        """Create or update a Vercel installation"""
+        logger.info("vercel_installation_upsert_started", installation_id=installation_id)
         try:
             # TODO: Not sure if this is the best move because users might be confused
             # by the default project created here and their "Resource" project.
@@ -86,7 +142,9 @@ class VercelIntegration:
                 organization_name=payload["account"].get("name", f"Vercel Installation {installation_id}"),
                 password=None,  # SSO instead of password. Users will still be able to reset their password.
             )
-        except IntegrityError:
+        except IntegrityError as e:
+            logger.exception("vercel_installation_email_conflict", email=payload["account"]["contact"]["email"])
+            capture_exception(e)
             raise exceptions.ValidationError(
                 {"email": "There is already an account with this email address."},
                 code="unique",
@@ -103,22 +161,25 @@ class VercelIntegration:
             referral_source="vercel",
         )
 
-        VercelInstallation.objects.create(
-            installation_id=installation_id,
+        OrganizationIntegration.objects.create(
             organization=organization,
-            upsert_data=payload,
-            # If the provider is using installation-level billing plans,
-            # a default plan must be assigned in provider systems (default "free")
-            billing_plan_id="free",
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=installation_id,
+            config={
+                **payload,
+                "billing_plan_id": "free",
+            },
+            created_by=user,
         )
+
+        logger.info("vercel_installation_created", installation_id=installation_id, organization_id=organization.id)
 
     @staticmethod
     def get_installation(installation_id: str) -> dict[str, Any]:
-        """Get installation details with billing plan"""
-        installation = VercelInstallation.objects.get(installation_id=installation_id)
+        installation = VercelIntegration._get_installation(installation_id)
 
         billing_plans = VercelIntegration.get_vercel_plans()
-        current_plan_id = installation.billing_plan_id
+        current_plan_id = installation.config.get("billing_plan_id", "free")
 
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
         return {
@@ -127,34 +188,26 @@ class VercelIntegration:
 
     @staticmethod
     def update_installation(installation_id: str, payload: dict[str, Any]) -> None:
-        """Update an existing installation"""
-        try:
-            installation = VercelInstallation.objects.get(installation_id=installation_id)
-        except VercelInstallation.DoesNotExist:
-            raise exceptions.NotFound("Installation not found")
+        logger.info("vercel_installation_update_started", installation_id=installation_id)
+        installation = VercelIntegration._get_installation(installation_id)
 
-        # TODO: Handle billing plan updates
+        installation.config.update(payload)
+        installation.save(update_fields=["config"])
 
-        installation.upsert_data = payload
-        installation.save(update_fields=["upsert_data"])
+        logger.info("vercel_installation_updated", installation_id=installation_id)
 
     @staticmethod
     def delete_installation(installation_id: str) -> dict[str, Any]:
-        """Delete an installation"""
-        try:
-            installation = VercelInstallation.objects.get(installation_id=installation_id)
-        except VercelInstallation.DoesNotExist:
-            raise exceptions.NotFound("Installation not found")
-
+        logger.info("vercel_installation_delete_started", installation_id=installation_id)
+        installation = VercelIntegration._get_installation(installation_id)
         installation.delete()
 
-        # In production, installation stays in "delete pending" state for 24 hours for invoicing
         is_dev = settings.DEBUG
+        logger.info("vercel_installation_deleted", installation_id=installation_id, finalized=is_dev)
         return {"finalized": is_dev}
 
     @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:
-        """Get plans for a specific product"""
         if product_slug != "posthog":
             raise exceptions.NotFound("Product not found")
 
@@ -162,8 +215,10 @@ class VercelIntegration:
 
     @staticmethod
     def create_resource(installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
-        """Create a new resource for an installation"""
-        installation = VercelInstallation.objects.get(installation_id=installation_id)
+        logger.info(
+            "vercel_resource_create_started", installation_id=installation_id, resource_name=resource_data.get("name")
+        )
+        installation = VercelIntegration._get_installation(installation_id)
         organization: Organization = installation.organization
 
         team = Team.objects.create_with_data(
@@ -187,45 +242,49 @@ class VercelIntegration:
             contexts={"vercel native integration": 1},
         )
 
-        resource: VercelResource = VercelResource.objects.create(
+        resource = Integration.objects.create(
             team=team,
-            installation=installation,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
             config=resource_data,
+            created_by=installation.created_by,
+        )
+
+        logger.info(
+            "vercel_resource_created", installation_id=installation_id, resource_id=resource.pk, team_id=team.id
         )
 
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
     def get_resource(resource_id: str, installation_id: str) -> dict[str, Any]:
-        """Get resource details"""
-        resource = VercelResource.objects.get(pk=resource_id)
-        installation = VercelInstallation.objects.get(installation_id=installation_id)
+        resource = Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
+        installation = VercelIntegration._get_installation(installation_id)
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
     def update_resource(resource_id: str, installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
-        """Update an existing resource"""
-        resource = VercelResource.objects.get(pk=resource_id)
-        installation = VercelInstallation.objects.get(installation_id=installation_id)
+        logger.info("vercel_resource_update_started", resource_id=resource_id, installation_id=installation_id)
+        resource = Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
+        installation = VercelIntegration._get_installation(installation_id)
 
         updated_config = resource.config.copy()
         updated_config.update(resource_data)
         resource.config = updated_config
         resource.save(update_fields=["config"])
 
+        logger.info("vercel_resource_updated", resource_id=resource_id)
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
     def delete_resource(resource_id: str) -> None:
-        """Delete a resource"""
         # TODO: Implement resource deletion logic
         raise serializers.MethodNotAllowed("DELETE")
 
     @staticmethod
-    def _build_resource_response(resource: VercelResource, installation: VercelInstallation) -> dict[str, Any]:
-        """Build the standard resource response data"""
+    def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
         billing_plans = VercelIntegration.get_vercel_plans()
-        current_plan_id = installation.billing_plan_id
+        current_plan_id = installation.config.get("billing_plan_id", "free")
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
 
         return {
@@ -240,7 +299,6 @@ class VercelIntegration:
 
     @staticmethod
     def _build_secrets(team: Team) -> list[dict[str, str]]:
-        """Build the secrets array for the resource response"""
         return [
             {
                 "name": "POSTHOG_PROJECT_API_KEY",
@@ -254,29 +312,12 @@ class VercelIntegration:
 
     @staticmethod
     def sync_feature_flag_to_vercel(feature_flag: FeatureFlag, created: bool) -> None:
-        """
-        Sync a feature flag to Vercel as an experimentation item.
-        Called from Django signal handlers.
-        """
-        resource = VercelIntegration._get_vercel_resource_for_feature_flag(feature_flag)
-        if not resource:
-            logger.debug("vercel_resource_not_found", feature_flag_id=feature_flag.pk)
+        setup_result = VercelIntegration._setup_vercel_client_for_feature_flag(feature_flag)
+        if not setup_result:
             return
 
-        access_token = resource.installation.upsert_data.get("credentials", {}).get("access_token")
-        if not access_token:
-            logger.error("vercel_access_token_unavailable", feature_flag_id=feature_flag.pk)
-            return
-
-        try:
-            client = VercelAPIClient(bearer_token=access_token)
-        except ValueError:
-            logger.exception("vercel_client_initialization_failed", feature_flag_id=feature_flag.pk)
-            return
-
+        client, integration_config_id, resource_id = setup_result
         vercel_item = VercelIntegration._convert_feature_flag_to_vercel_item(feature_flag)
-        integration_config_id = resource.installation.installation_id
-        resource_id = resource.resource_id
 
         if created:
             success: bool = client.create_experimentation_items(
@@ -314,29 +355,13 @@ class VercelIntegration:
 
     @staticmethod
     def delete_feature_flag_from_vercel(feature_flag: FeatureFlag) -> None:
-        """
-        Delete a feature flag from Vercel experimentation items.
-        Called from Django signal handlers.
-        """
-        resource = VercelIntegration._get_vercel_resource_for_feature_flag(feature_flag)
-        if not resource:
-            logger.debug("vercel_resource_not_found", feature_flag_id=feature_flag.pk)
+        setup_result = VercelIntegration._setup_vercel_client_for_feature_flag(feature_flag)
+        if not setup_result:
             return
 
-        access_token = resource.installation.upsert_data.get("credentials", {}).get("access_token")
-        if not access_token:
-            logger.error("vercel_access_token_unavailable", feature_flag_id=feature_flag.pk)
-            return
+        client, integration_config_id, resource_id = setup_result
 
-        try:
-            client = VercelAPIClient(bearer_token=access_token)
-        except ValueError:
-            logger.exception("vercel_client_initialization_failed", feature_flag_id=feature_flag.pk)
-            return
-
-        integration_config_id = resource.installation.installation_id
-        resource_id = resource.resource_id
-
+        logger.info("vercel_feature_flag_delete_started", feature_flag_id=feature_flag.pk)
         success = client.delete_experimentation_item(
             integration_config_id=integration_config_id, resource_id=resource_id, item_id=str(feature_flag.pk)
         )
@@ -347,10 +372,16 @@ class VercelIntegration:
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
             )
+        else:
+            logger.exception(
+                "feature_flag_delete_failed",
+                feature_flag_id=feature_flag.pk,
+                integration_config_id=integration_config_id,
+                resource_id=resource_id,
+            )
 
     @staticmethod
     def _convert_feature_flag_to_vercel_item(feature_flag: FeatureFlag) -> dict:
-        """Convert PostHog FeatureFlag to Vercel experimentation item format"""
         return {
             "id": str(feature_flag.pk),
             "slug": feature_flag.key,
@@ -363,28 +394,19 @@ class VercelIntegration:
         }
 
     @staticmethod
-    def _get_vercel_resource_for_feature_flag(feature_flag: FeatureFlag) -> VercelResource | None:
-        """Get the Vercel resource for this team"""
+    def _get_vercel_resource_for_feature_flag(feature_flag: FeatureFlag) -> Integration | None:
         try:
-            return VercelResource.objects.get(team=feature_flag.team)
-        except VercelResource.DoesNotExist:
+            return Integration.objects.get(team=feature_flag.team, kind=Integration.IntegrationKind.VERCEL)
+        except Integration.DoesNotExist:
             return None
 
 
 # TODO: Use jobs for these
 @receiver(post_save, sender=FeatureFlag)
 def update_resource_experimentation_item(sender, instance: FeatureFlag, created, **kwargs):
-    """
-    Handle feature flag save events by syncing it as an experimentation item
-    on the related resource in Vercel.
-    """
     VercelIntegration.sync_feature_flag_to_vercel(instance, created)
 
 
 @receiver(post_delete, sender=FeatureFlag)
 def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs):
-    """
-    Handle feature flag deletion by removing it as an experimentation item
-    from the related resource in Vercel.
-    """
     VercelIntegration.delete_feature_flag_from_vercel(instance)

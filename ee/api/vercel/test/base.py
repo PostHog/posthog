@@ -4,7 +4,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.utils import timezone
 from ee.api.authentication import VERCEL_CLIENT_INTEGRATION_ID, VERCEL_ISSUER
-from ee.models.vercel.vercel_installation import VercelInstallation
+from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.integration import Integration
 from posthog.test.base import APIBaseTest
 
 
@@ -15,11 +16,16 @@ class VercelTestBase(APIBaseTest):
         self.account_id = "acc987654321"
         self.user_id = "111222333abc"
 
-        self.installation = VercelInstallation.objects.create(
+        self.installation = OrganizationIntegration.objects.create(
             organization=self.organization,
-            installation_id=self.installation_id,
-            billing_plan_id="free",
-            upsert_data={"scopes": ["read", "write"], "access_token": "test_token", "token_type": "Bearer"},
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=self.installation_id,
+            config={
+                "billing_plan_id": "free",
+                "scopes": ["read", "write"],
+                "credentials": {"access_token": "test_token", "token_type": "Bearer"},
+            },
+            created_by=self.user,
         )
 
         self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

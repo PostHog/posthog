@@ -1,7 +1,7 @@
 from unittest.mock import patch
 import json
 from rest_framework import status
-from ee.models.vercel.vercel_resource import VercelResource
+from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from ee.api.vercel.test.base import VercelTestBase
 
@@ -17,15 +17,17 @@ class TestVercelResourceAPI(VercelTestBase):
             name="Test Resource Team",
         )
 
-        self.resource = VercelResource.objects.create(
+        self.resource = Integration.objects.create(
             team=self.test_team,
-            installation=self.installation,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.test_team.pk),
             config={
                 "productId": "posthog",
                 "name": "Test Resource Team",
                 "metadata": {"key": "value"},
                 "billingPlanId": "free",
             },
+            created_by=self.user,
         )
 
     def test_partial_update_resource_name(self, mock_get_jwks):
