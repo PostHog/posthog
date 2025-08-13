@@ -5,10 +5,12 @@ from posthog.redis import get_client
 
 class TestLoginDeviceCache(BaseTest):
     def setUp(self):
-        """Clean up Redis keys before each test"""
+        """Clean up login device cache keys before each test"""
         super().setUp()
         redis_client = get_client()
-        redis_client.flushdb()
+        keys = redis_client.keys("login_device:*")
+        if keys:
+            redis_client.delete(*keys)
 
     def test_new_device_login(self):
         """Test new device login"""
