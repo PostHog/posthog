@@ -377,10 +377,9 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
     - Empty string if no GroupTypeMapping exists for that index
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
-    # Query all group type mappings for this team in one query
     group_mappings = {mapping.group_type_index: mapping for mapping in GroupTypeMapping.objects.filter(team=team)}
 
-    for group_index in range(5):  # Groups 0-4
+    for group_index in range(5):
         field_name = f"$group_{group_index}"
 
         if group_index in group_mappings:
