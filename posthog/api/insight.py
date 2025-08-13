@@ -104,7 +104,6 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
-from posthog.tasks.insight_query_metadata import extract_insight_query_metadata
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     refresh_requested_by_client,
@@ -428,15 +427,6 @@ class InsightSerializer(InsightBasicSerializer):
             **validated_data,
         )
 
-        # schedule the insight query metadata extraction
-        query_meta_task = extract_insight_query_metadata.delay(insight_id=insight.id)
-        logger.warn(
-            "scheduled extract_insight_query_metadata",
-            insight_id=insight.id,
-            task_id=query_meta_task.id,
-            trigger="create_insight",
-        )
-
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
@@ -507,15 +497,6 @@ class InsightSerializer(InsightBasicSerializer):
         self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
 
         self.user_permissions.reset_insights_dashboard_cached_results()
-
-        if not before_update or before_update.query != updated_insight.query:
-            query_meta_task = extract_insight_query_metadata.delay(insight_id=updated_insight.id)
-            logger.warn(
-                "scheduled extract_insight_query_metadata",
-                insight_id=updated_insight.id,
-                task_id=query_meta_task.id,
-                trigger="update_insight",
-            )
 
         return updated_insight
 

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 from dateutil import parser
 from django.core.cache import cache
@@ -57,7 +58,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(14, 15)):
+        with self.assertNumQueries(FuzzyInt(15, 16)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -74,7 +75,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(14, 15)):
+        with self.assertNumQueries(FuzzyInt(15, 16)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1703,7 +1704,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(21):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1715,7 +1716,8 @@ class TestExperimentCRUD(APILicensedTest):
                 [("flag_0", []), (ff_key, [created_experiment])],
             )
 
-    def test_create_experiment_updates_feature_flag_cache(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):
         cache.clear()
 
         initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)

@@ -32,6 +32,7 @@ import { Query } from '~/queries/Query/Query'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { createCohortDataNodeLogicKey } from './cohortUtils'
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
@@ -42,6 +43,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -274,9 +276,10 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             {({ onChange }) => (
                                 <>
                                     <span>
-                                        Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID. The very first row (the header) will
-                                        be skipped during import.
+                                        Upload a CSV file to add users to your cohort. For single-column files, include
+                                        one distinct ID per row (all rows will be processed as data). For multi-column
+                                        files, include a header row with a 'distinct_id' column containing the user
+                                        identifiers.
                                     </span>
                                     <LemonFileInput
                                         accept=".csv"
@@ -376,7 +379,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 <Query
                                     query={query}
                                     setQuery={setQuery}
-                                    context={{ refresh: 'force_blocking', fileNameForExport: cohort.name }}
+                                    context={{
+                                        refresh: 'force_blocking',
+                                        fileNameForExport: cohort.name,
+                                        dataNodeLogicKey: dataNodeLogicKey,
+                                    }}
                                 />
                             )}
                         </div>

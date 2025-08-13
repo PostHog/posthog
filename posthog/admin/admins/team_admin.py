@@ -89,6 +89,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "person_processing_opt_out",
                     "capture_console_log_opt_in",
                     "capture_performance_opt_in",
+                    "recording_domains",
                     "session_recording_sample_rate",
                     "session_recording_minimum_duration_milliseconds",
                     "session_recording_linked_flag",
