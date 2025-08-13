@@ -6,12 +6,23 @@
  */
 
 import { dayjs } from 'lib/dayjs'
-import { Survey, SurveyQuestion, SurveyQuestionType } from '~/types'
+import { calculateSurveyRates } from 'scenes/surveys/utils'
+import {
+    ResponsesByQuestion,
+    Survey,
+    SurveyEventName,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyRates,
+    SurveyRawResults,
+    SurveyResponseRow,
+    SurveyStats,
+} from '~/types'
 import { NewSurvey, SURVEY_RATING_SCALE } from '../constants'
-import { SurveyRawResults, SurveyResponseRow } from '../surveyLogic'
+import { processResultsForSurveyQuestions } from '../surveyLogic'
 
 // Demo configuration constants
-const DEMO_CONFIG = {
+export const DEMO_CONFIG = {
     // Response distributions for realistic data
     NPS_DETRACTORS_RATE: 0.2, // 20% detractors (0-6)
     NPS_PASSIVES_RATE: 0.15, // 15% passives (7-8)
@@ -304,7 +315,7 @@ export function generateDemoSurveyResults(
     }
 
     // Sort by timestamp (newest first)
-    results.sort((a, b) => {
+    results.sort((a: SurveyResponseRow, b: SurveyResponseRow) => {
         const timestampA = a[a.length - 1] as string
         const timestampB = b[b.length - 1] as string
         return dayjs(timestampB).valueOf() - dayjs(timestampA).valueOf()
@@ -313,11 +324,7 @@ export function generateDemoSurveyResults(
     return results
 }
 
-export function generateDemoSurveyStats(): {
-    survey_sent: { total_count: number; unique_persons: number }
-    survey_shown: { total_count: number; unique_persons: number }
-    survey_dismissed: { total_count: number; unique_persons: number }
-} {
+export function generateDemoSurveyStats(): SurveyStats {
     // Generate realistic stats for the demo based on industry benchmarks
     const baseShown =
         DEMO_CONFIG.BASE_SHOWN_MIN +
@@ -332,8 +339,51 @@ export function generateDemoSurveyStats(): {
     const dismissed = Math.floor(baseShown * dismissalRate)
 
     return {
-        survey_sent: { total_count: sent, unique_persons: sent },
-        survey_shown: { total_count: baseShown, unique_persons: baseShown },
-        survey_dismissed: { total_count: dismissed, unique_persons: dismissed },
+        [SurveyEventName.SENT]: {
+            total_count: sent,
+            unique_persons: sent,
+            total_count_only_seen: 0,
+            unique_persons_only_seen: 0,
+            first_seen: null,
+            last_seen: null,
+        },
+        [SurveyEventName.SHOWN]: {
+            total_count: baseShown,
+            unique_persons: baseShown,
+            total_count_only_seen: 0,
+            unique_persons_only_seen: 0,
+            first_seen: null,
+            last_seen: null,
+        },
+        [SurveyEventName.DISMISSED]: {
+            total_count: dismissed,
+            unique_persons: dismissed,
+            total_count_only_seen: 0,
+            unique_persons_only_seen: 0,
+            first_seen: null,
+            last_seen: null,
+        },
+    }
+}
+
+export function getDemoDataForSurvey(survey: Survey | NewSurvey): {
+    demoStats: ReturnType<typeof generateDemoSurveyStats>
+    demoResults: SurveyRawResults
+    demoProcessedResults: ResponsesByQuestion
+    responseCount: number
+    demoRates: SurveyRates
+} {
+    const demoStats = generateDemoSurveyStats()
+    const demoRates = calculateSurveyRates(demoStats)
+    const demoResponseCount = demoStats[SurveyEventName.SENT].total_count
+    const demoResults = generateDemoSurveyResults(survey, demoResponseCount)
+    const demoProcessedResults = processResultsForSurveyQuestions(survey.questions, demoResults)
+
+    return {
+        demoStats: demoStats,
+        demoResults: demoResults,
+        demoProcessedResults: demoProcessedResults,
+        responseCount: demoStats[SurveyEventName.SENT].total_count,
+        demoRates,
     }
 }

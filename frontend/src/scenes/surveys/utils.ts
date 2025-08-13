@@ -2,10 +2,11 @@ import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { NewSurvey } from 'scenes/surveys/constants'
-import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
+    QuestionProcessedResponses,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -13,6 +14,8 @@ import {
     SurveyEventProperties,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveyRates,
+    SurveyStats,
     SurveyType,
 } from '~/types'
 
@@ -470,4 +473,36 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         questions: sanitizedQuestions,
         appearance: sanitizedAppearance,
     }
+}
+
+export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
+    const defaultRates: SurveyRates = {
+        response_rate: 0.0,
+        dismissal_rate: 0.0,
+        unique_users_response_rate: 0.0,
+        unique_users_dismissal_rate: 0.0,
+    }
+
+    if (!stats) {
+        return defaultRates
+    }
+
+    const shownCount = stats[SurveyEventName.SHOWN].total_count
+    if (shownCount > 0) {
+        const sentCount = stats[SurveyEventName.SENT].total_count
+        const dismissedCount = stats[SurveyEventName.DISMISSED].total_count
+        const uniqueUsersShownCount = stats[SurveyEventName.SHOWN].unique_persons
+        const uniqueUsersSentCount = stats[SurveyEventName.SENT].unique_persons
+        const uniqueUsersDismissedCount = stats[SurveyEventName.DISMISSED].unique_persons
+
+        return {
+            response_rate: parseFloat(((sentCount / shownCount) * 100).toFixed(2)),
+            dismissal_rate: parseFloat(((dismissedCount / shownCount) * 100).toFixed(2)),
+            unique_users_response_rate: parseFloat(((uniqueUsersSentCount / uniqueUsersShownCount) * 100).toFixed(2)),
+            unique_users_dismissal_rate: parseFloat(
+                ((uniqueUsersDismissedCount / uniqueUsersShownCount) * 100).toFixed(2)
+            ),
+        }
+    }
+    return defaultRates
 }

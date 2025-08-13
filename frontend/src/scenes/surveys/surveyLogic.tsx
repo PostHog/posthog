@@ -28,15 +28,20 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     Breadcrumb,
+    ChoiceQuestionProcessedResponses,
+    ConsolidatedSurveyResults,
     EventPropertyFilter,
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
+    OpenQuestionProcessedResponses,
     ProductKey,
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
+    QuestionProcessedResponses,
     RatingSurveyQuestion,
+    ResponsesByQuestion,
     Survey,
     SurveyEventName,
     SurveyEventProperties,
@@ -46,13 +51,15 @@ import {
     SurveyQuestionBase,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
-    SurveyRates,
+    SurveyRawResults,
+    SurveyResponseRow,
     SurveySchedule,
     SurveyStats,
 } from '~/types'
 
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
+import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
 import { userLogic } from 'scenes/userLogic'
 import {
     defaultSurveyAppearance,
@@ -187,66 +194,6 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
 }
-
-export interface ChoiceQuestionResponseData {
-    label: string
-    value: number
-    isPredefined: boolean
-    // For unique responses (value === 1), include person data for display
-    distinctId?: string
-    personProperties?: Record<string, any>
-    timestamp?: string
-}
-
-export interface OpenQuestionResponseData {
-    distinctId: string
-    response: string
-    personProperties?: Record<string, any>
-    timestamp?: string
-}
-
-export interface ChoiceQuestionProcessedResponses {
-    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
-    data: ChoiceQuestionResponseData[]
-    totalResponses: number
-}
-
-export interface OpenQuestionProcessedResponses {
-    type: SurveyQuestionType.Open
-    data: OpenQuestionResponseData[]
-    totalResponses: number
-}
-
-export type QuestionProcessedResponses = ChoiceQuestionProcessedResponses | OpenQuestionProcessedResponses
-
-export interface ResponsesByQuestion {
-    [questionId: string]: QuestionProcessedResponses
-}
-
-export interface ConsolidatedSurveyResults {
-    responsesByQuestion: {
-        [questionId: string]: QuestionProcessedResponses
-    }
-}
-
-/**
- * Raw survey response data from the SQL query.
- * Each SurveyResponseRow represents one user's complete response to all questions.
- *
- * Structure:
- * - response[questionIndex] contains the answer to that specific question
- * - For rating/single choice/open questions: response[questionIndex] is a string
- * - For multiple choice questions: response[questionIndex] is a string[]
- * - The last elements may contain metadata like person properties and distinct_id
- *
- * Example:
- * [
- *   ["9", ["Customer case studies"], "Great product!", "user123"],
- *   ["7", ["Tutorials", "Other"], "Good but could improve", "user456"]
- * ]
- */
-export type SurveyResponseRow = Array<string | string[]>
-export type SurveyRawResults = SurveyResponseRow[]
 
 function isEmptyOrUndefined(value: any): boolean {
     return value === null || value === undefined || value === ''
@@ -1784,40 +1731,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return stats
             },
         ],
-        surveyRates: [
-            (s) => [s.processedSurveyStats],
-            (stats: SurveyStats | null): SurveyRates => {
-                const defaultRates: SurveyRates = {
-                    response_rate: 0.0,
-                    dismissal_rate: 0.0,
-                    unique_users_response_rate: 0.0,
-                    unique_users_dismissal_rate: 0.0,
-                }
-
-                if (!stats) {
-                    return defaultRates
-                }
-
-                const shownCount = stats[SurveyEventName.SHOWN].total_count
-                if (shownCount > 0) {
-                    const sentCount = stats[SurveyEventName.SENT].total_count
-                    const dismissedCount = stats[SurveyEventName.DISMISSED].total_count
-                    const uniqueUsersShownCount = stats[SurveyEventName.SHOWN].unique_persons
-                    const uniqueUsersSentCount = stats[SurveyEventName.SENT].unique_persons
-                    const uniqueUsersDismissedCount = stats[SurveyEventName.DISMISSED].unique_persons
-
-                    return {
-                        response_rate: parseFloat(((sentCount / shownCount) * 100).toFixed(2)),
-                        dismissal_rate: parseFloat(((dismissedCount / shownCount) * 100).toFixed(2)),
-                        unique_users_response_rate: parseFloat(
-                            ((uniqueUsersSentCount / uniqueUsersShownCount) * 100).toFixed(2)
-                        ),
-                        unique_users_dismissal_rate: parseFloat(
-                            ((uniqueUsersDismissedCount / uniqueUsersShownCount) * 100).toFixed(2)
-                        ),
-                    }
-                }
-                return defaultRates
+        surveyDemoData: [
+            (s) => [s.survey],
+            (survey: Survey | NewSurvey): ReturnType<typeof getDemoDataForSurvey> => {
+                return getDemoDataForSurvey(survey)
             },
         ],
     }),

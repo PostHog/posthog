@@ -5,40 +5,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useMemo } from 'react'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
-import { ResponsesByQuestion, surveyLogic, SurveyRawResults } from 'scenes/surveys/surveyLogic'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyStatsSummaryWithData } from 'scenes/surveys/SurveyStatsSummary'
 
-import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'
-
-import { NewSurvey } from 'scenes/surveys/constants'
-import { processResultsForSurveyQuestions } from './surveyLogic'
-import { generateDemoSurveyResults, generateDemoSurveyStats } from './utils/demoDataGenerator'
-
-// Generate demo data once and reuse across all components
-const DEMO_STATS = generateDemoSurveyStats()
-const DEMO_RESPONSE_COUNT = DEMO_STATS.survey_sent.total_count
-
-// Function to get demo data for a specific survey
-function getDemoDataForSurvey(survey: Survey | NewSurvey): {
-    demoStats: ReturnType<typeof generateDemoSurveyStats>
-    demoResults: SurveyRawResults
-    demoProcessedResults: ResponsesByQuestion
-    responseCount: number
-} {
-    const demoResults = generateDemoSurveyResults(survey, DEMO_RESPONSE_COUNT)
-    const demoProcessedResults = processResultsForSurveyQuestions(survey.questions, demoResults)
-
-    return {
-        demoStats: DEMO_STATS,
-        demoResults,
-        demoProcessedResults,
-        responseCount: DEMO_RESPONSE_COUNT,
-    }
-}
+import { SurveyQuestionType } from '~/types'
 
 function SurveyResponsesByQuestionV2Demo(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
-    const { demoProcessedResults } = getDemoDataForSurvey(survey)
+    const { survey, surveyDemoData } = useValues(surveyLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -47,7 +20,7 @@ function SurveyResponsesByQuestionV2Demo(): JSX.Element {
                     return null
                 }
 
-                const processedResponses = demoProcessedResults[question.id]
+                const processedResponses = surveyDemoData.demoProcessedResults[question.id]
 
                 return (
                     <div key={question.id} className="flex flex-col gap-2">
@@ -65,72 +38,22 @@ function SurveyResponsesByQuestionV2Demo(): JSX.Element {
 }
 
 function DemoStatsSummary(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
-    const { demoStats } = getDemoDataForSurvey(survey)
+    const { surveyDemoData } = useValues(surveyLogic)
 
-    // Transform demo stats to match the expected format
-    const processedDemoStats = useMemo(
-        () => ({
-            [SurveyEventName.SENT]: {
-                total_count: demoStats.survey_sent.total_count,
-                unique_persons: demoStats.survey_sent.unique_persons,
-                unique_persons_only_seen: 0,
-                total_count_only_seen: 0,
-                first_seen: null,
-                last_seen: null,
-            },
-            [SurveyEventName.SHOWN]: {
-                total_count: demoStats.survey_shown.total_count,
-                unique_persons: demoStats.survey_shown.unique_persons,
-                unique_persons_only_seen:
-                    demoStats.survey_shown.unique_persons -
-                    demoStats.survey_sent.unique_persons -
-                    demoStats.survey_dismissed.unique_persons,
-                total_count_only_seen:
-                    demoStats.survey_shown.total_count -
-                    demoStats.survey_sent.total_count -
-                    demoStats.survey_dismissed.total_count,
-                first_seen: null,
-                last_seen: null,
-            },
-            [SurveyEventName.DISMISSED]: {
-                total_count: demoStats.survey_dismissed.total_count,
-                unique_persons: demoStats.survey_dismissed.unique_persons,
-                unique_persons_only_seen: 0,
-                total_count_only_seen: 0,
-                first_seen: null,
-                last_seen: null,
-            },
-        }),
-        [demoStats]
+    return (
+        <SurveyStatsSummaryWithData
+            processedSurveyStats={surveyDemoData.demoStats}
+            surveyRates={surveyDemoData.demoRates}
+        />
     )
-
-    // Calculate survey rates for demo
-    const demoRates = useMemo(() => {
-        const uniqueUsersShown = processedDemoStats[SurveyEventName.SHOWN].unique_persons
-        const uniqueUsersSent = processedDemoStats[SurveyEventName.SENT].unique_persons
-        const totalShown = processedDemoStats[SurveyEventName.SHOWN].total_count
-        const totalSent = processedDemoStats[SurveyEventName.SENT].total_count
-
-        return {
-            unique_users_response_rate:
-                uniqueUsersShown > 0 ? Math.round((uniqueUsersSent / uniqueUsersShown) * 100) : 0,
-            response_rate: totalShown > 0 ? Math.round((totalSent / totalShown) * 100) : 0,
-            dismissal_rate: 0,
-            unique_users_dismissal_rate: 0,
-        }
-    }, [processedDemoStats])
-
-    return <SurveyStatsSummaryWithData processedSurveyStats={processedDemoStats} surveyRates={demoRates} />
 }
 
 function DemoDataTable(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
-    const { demoResults } = getDemoDataForSurvey(survey)
+    const { survey, surveyDemoData } = useValues(surveyLogic)
 
     // Transform demo data into table format
     const tableData = useMemo(() => {
-        return demoResults.map((row, index) => {
+        return surveyDemoData.demoResults.map((row, index) => {
             const responseData: Record<string, any> = {}
 
             // Add question responses
@@ -164,7 +87,7 @@ function DemoDataTable(): JSX.Element {
                 ...responseData,
             }
         })
-    }, [demoResults, survey.questions])
+    }, [surveyDemoData.demoResults, survey.questions])
 
     // Create table columns
     const columns = useMemo(() => {

@@ -122,8 +122,9 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     })
 
                                     if (toolOutput?.error || !toolOutput?.survey_id) {
-                                        posthog.captureException('survey-creation-failed', {
+                                        posthog.captureException('survey-creation-via-max-ai-failed', {
                                             error: toolOutput.error,
+                                            sessionRecordingUrl: posthog.get_session_replay_url(),
                                         })
                                         return
                                     }
