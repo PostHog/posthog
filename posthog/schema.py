@@ -8237,31 +8237,6 @@ class ExperimentExposureQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentRatioMetric(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    conversion_window: Optional[int] = None
-    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    denominator: EventsNode
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    metric_type: Literal["ratio"] = "ratio"
-    name: Optional[str] = None
-    numerator: EventsNode
-    response: Optional[dict[str, Any]] = None
-    uuid: Optional[str] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentRatioMetricTypeProps(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    denominator: EventsNode
-    metric_type: Literal["ratio"] = "ratio"
-    numerator: EventsNode
-
-
 class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11236,6 +11211,31 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     series: list[Union[EventsNode, ActionsNode]]
 
 
+class ExperimentRatioMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["ratio"] = "ratio"
+    name: Optional[str] = None
+    numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    response: Optional[dict[str, Any]] = None
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentRatioMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    metric_type: Literal["ratio"] = "ratio"
+    numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+
+
 class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12731,6 +12731,10 @@ class IsExperimentFunnelMetric(BaseModel):
 
 
 class IsExperimentMeanMetric(BaseModel):
+    namedArgs: Optional[NamedArgs] = None
+
+
+class IsExperimentRatioMetric(BaseModel):
     namedArgs: Optional[NamedArgs] = None
 
 

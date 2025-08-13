@@ -2503,9 +2503,8 @@ export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is Ex
 
 export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RATIO
-    // TODO: Generalize to ExperimentMetricSource
-    numerator: EventsNode
-    denominator: EventsNode
+    numerator: ExperimentMetricSource
+    denominator: ExperimentMetricSource
 }
 
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
