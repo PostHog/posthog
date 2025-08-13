@@ -4853,6 +4853,8 @@
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -4868,6 +4870,8 @@
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.1
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -4883,6 +4887,8 @@
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.2
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
