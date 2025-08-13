@@ -123,8 +123,8 @@ def query_cache_use_s3(team: Team, user: Optional["User"] = None) -> bool:
         team: The team to check the feature flag for
         user: Optional user to check user-specific feature flags
     """
-    # Use user-specific evaluation if user is provided
-    distinct_id = str(user.distinct_id) if user else str(team.uuid)
+
+    distinct_id = str(user.distinct_id) if user else ""
 
     return posthoganalytics.feature_enabled(
         "query-cache-use-s3",
