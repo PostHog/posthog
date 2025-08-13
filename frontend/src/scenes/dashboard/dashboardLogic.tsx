@@ -1390,7 +1390,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setRefreshStatus(insight.short_id, true, true)
 
                     try {
-                        console.debug('updateDashboardItems', values.temporaryVariables)
                         const syncInsight = await getInsightWithRetry(
                             values.currentTeamId,
                             insight,
@@ -1443,7 +1442,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     primary_interaction_id: dashboardQueryId,
                     time_to_see_data_ms: Math.floor(performance.now() - startTime),
                     api_response_bytes: responseBytes,
-                    insights_fetched: insightsToRefresh.length,
+                    insights_fetched: sortedInsights.length,
                     insights_fetched_cached: values.dashboard?.tiles.reduce(
                         (acc, curr) => acc + (curr.is_cached ? 1 : 0),
                         0
