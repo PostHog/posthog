@@ -620,9 +620,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Returns aggregated statistics for the data warehouse scene including total rows processed.
         Used by the frontend data warehouse scene to display usage information.
         """
-        external_data_job_filters = {"team_id": self.team_id, "billable": True}
-        data_modeling_job_filters = {"team_id": self.team_id}
         billing_period_type = "lifetime"
+
+        external_data_jobs = ExternalDataJob.objects.filter(team_id=self.team_id, billable=True)
+        data_modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id)
 
         try:
             billing_manager = BillingManager(get_cached_instance_license())
@@ -634,24 +635,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_period_end = parser.parse(billing_period["current_period_end"])
                 billing_period_type = "monthly"
 
-                external_data_job_filters["created_at__gte"] = billing_period_start
-                external_data_job_filters["created_at__lt"] = billing_period_end
-                data_modeling_job_filters["created_at__gte"] = billing_period_start
-                data_modeling_job_filters["created_at__lt"] = billing_period_end
+                external_data_jobs = external_data_jobs.filter(
+                    created_at__gte=billing_period_start, created_at__lt=billing_period_end
+                )
+                data_modeling_jobs = data_modeling_jobs.filter(
+                    created_at__gte=billing_period_start, created_at__lt=billing_period_end
+                )
         except Exception as e:
             logger.exception("Could not retrieve billing information", exc_info=e)
 
-        external_data_rows = (
-            ExternalDataJob.objects.filter(**external_data_job_filters).aggregate(total=Sum("rows_synced"))["total"]
-            or 0
-        )
-
-        data_modeling_rows = (
-            DataModelingJob.objects.filter(**data_modeling_job_filters).aggregate(total=Sum("rows_materialized"))[
-                "total"
-            ]
-            or 0
-        )
+        external_data_rows = external_data_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
+        data_modeling_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
         return Response(
             status=status.HTTP_200_OK,
