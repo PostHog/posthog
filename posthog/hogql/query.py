@@ -289,7 +289,6 @@ class HogQLQueryExecutor:
         if self.clickhouse_sql is not None:
             self._execute_clickhouse_query()
 
-        # Include debug information only if debug modifier is True
         include_debug = self.query_modifiers.debug if self.query_modifiers else False
 
         return HogQLQueryResponse(

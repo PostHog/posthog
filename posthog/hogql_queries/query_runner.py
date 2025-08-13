@@ -731,7 +731,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
 
-        # Set timings based on debug mode and whether explicit timings were provided
         if timings is not None:
             self.timings = timings
         elif self.modifiers and self.modifiers.debug:
