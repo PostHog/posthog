@@ -10,8 +10,19 @@ import { useEffect, useState } from 'react'
 import { fileSystemTypes } from '~/products'
 import { iconForType } from '../panel-layout/ProjectTree/defaultTree'
 import { IconDocument } from '@posthog/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    // If not in new scene layout, we don't want to show anything new
+    if (!newSceneLayout) {
+        return <div>{children}</div>
+    }
+
     return <div className="flex flex-col gap-y-4">{children}</div>
 }
 
@@ -29,6 +40,14 @@ interface SceneSectionProps {
 }
 
 export function SceneSection({ title, description, isLoading, children, className }: SceneSectionProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    // If not in new scene layout, we don't want to show anything new
+    if (!newSceneLayout) {
+        return <div className={cn('flex flex-col gap-4', className)}>{children}</div>
+    }
+
     if (isLoading) {
         return (
             <div className={cn('flex flex-col gap-4', className)}>
@@ -81,32 +100,36 @@ export function SceneTitleSection({
     onDescriptionBlur,
     docsLink,
 }: SceneMainTitleProps): JSX.Element {
-    // const [isEditing, setIsEditing] = useState(false)
-    // const resourceCapitalized: string | null = resourceType.type ? capitalizeFirstLetter(resourceType.type) : null
-    // const resourceCapitalizedPlural: string | null = resourceType.typePlural
-    //     ? capitalizeFirstLetter(resourceType.typePlural)
-    //     : null
     const icon = iconForType(resourceType.type)
 
     return (
         <div className="w-full flex gap-0 group/colorful-product-icons colorful-product-icons-true">
             <div className="flex flex-col gap-1.5 flex-1">
-                <div className="flex gap-3 [&_svg]:size-10 [&_svg]:p-2 items-center">
+                <div className="flex gap-3 [&_svg]:size-6 items-center">
                     {resourceType.to ? (
                         <Link
                             to={resourceType.to}
                             tooltip={resourceType.tooltip || `View all ${resourceType.typePlural}`}
                             buttonProps={{
-                                size: 'lg',
+                                size: 'base',
                                 iconOnly: true,
                                 variant: 'panel',
-                                className: 'rounded-sm',
+                                className: 'rounded-sm h-[var(--button-height-lg)]',
                             }}
                         >
                             {icon}
                         </Link>
                     ) : (
-                        icon
+                        <span
+                            className={buttonPrimitiveVariants({
+                                size: 'base',
+                                iconOnly: true,
+                                className: 'rounded-sm h-[var(--button-height-lg)]',
+                                inert: true,
+                            })}
+                        >
+                            {icon}
+                        </span>
                     )}
                     <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
                 </div>
@@ -248,12 +271,22 @@ export function SceneDescription({
             {markdown && description ? (
                 <LemonMarkdown
                     lowKeyHeadings
-                    className={buttonPrimitiveVariants({ inert: true, className: textClasses, autoHeight: true })}
+                    className={buttonPrimitiveVariants({
+                        inert: true,
+                        className: `${textClasses} -ml-[var(--button-padding-x-base)]`,
+                        autoHeight: true,
+                    })}
                 >
                     {description}
                 </LemonMarkdown>
             ) : (
-                <p className={buttonPrimitiveVariants({ inert: true, className: textClasses, autoHeight: true })}>
+                <p
+                    className={buttonPrimitiveVariants({
+                        inert: true,
+                        className: `${textClasses} -ml-[var(--button-padding-x-base)]`,
+                        autoHeight: true,
+                    })}
+                >
                     {description ? description : <span className="text-tertiary">No description (optional)</span>}
                 </p>
             )}
@@ -295,5 +328,13 @@ export function SceneDescription({
 }
 
 export function SceneDivider(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    // If not in new scene layout, we don't want to show anything new
+    if (!newSceneLayout) {
+        return <></>
+    }
+
     return <LemonDivider className="-mx-4 w-[calc(100%+var(--spacing)*8)]" />
 }
