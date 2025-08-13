@@ -310,12 +310,12 @@ export async function buildOrWatch(config) {
                     ? 'Building'
                     : 'Rebuilding'
                 : logOpts.success
-                ? buildCount === 1
-                    ? 'Built'
-                    : 'Rebuilt'
-                : buildCount === 1
-                ? 'Building failed'
-                : 'Rebuilding failed '
+                  ? buildCount === 1
+                      ? 'Built'
+                      : 'Rebuilt'
+                  : buildCount === 1
+                    ? 'Building failed'
+                    : 'Rebuilding failed '
 
         console.info(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }
@@ -413,11 +413,11 @@ export async function printResponse(response, { compact = true, color = true, ve
 
 let clients = new Set()
 
-function reloadLiveServer() {
+export function reloadLiveServer() {
     clients.forEach((client) => client.write(`data: reload\n\n`))
 }
 
-let server
+export let server
 
 export function startDevServer(absWorkingDir) {
     if (isDev) {
