@@ -137,7 +137,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
-            "You have reached the maximum limit of 1500 projects per organization. Contact support for more if you'd like access to more projects.",
+            "You have reached the maximum limit of 1500 projects per organization. Contact support if you'd like access to more projects.",
         )
 
     def test_demo_projects_not_counted_toward_limit(self):

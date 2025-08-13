@@ -829,7 +829,7 @@ class PremiumMultiProjectPermission(BasePermission):
                 # We have a hard limit of MAX_ALLOWED_PROJECTS_PER_ORG projects per organization
                 # We don't want to block updates if a customer is already over the max allowed
                 if current_non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG and view.action == "create":
-                    self.message = f"You have reached the maximum limit of {MAX_ALLOWED_PROJECTS_PER_ORG} projects per organization. Contact support for more if you'd like access to more projects."
+                    self.message = f"You have reached the maximum limit of {MAX_ALLOWED_PROJECTS_PER_ORG} projects per organization. Contact support if you'd like access to more projects."
                     return False
                 return True
             # Check current limit against allowed limit
