@@ -2428,12 +2428,12 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
 
     def test_explicit_cohort_type_validation_failure(self):
-        """Should reject invalid explicit cohort types"""
+        """Should reject mismatched explicit cohort types"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
             {
                 "name": "Test Cohort",
-                "cohort_type": CohortType.PERSON_PROPERTY,  # Insufficient for behavioral filters
+                "cohort_type": CohortType.PERSON_PROPERTY,  # Wrong type for behavioral filters
                 "filters": {
                     "properties": {
                         "type": "AND",
@@ -2455,10 +2455,11 @@ class TestCohortTypeIntegration(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("not sufficient for the provided filters", str(response.data))
+        self.assertIn("does not match the filters", str(response.data))
+        self.assertIn("Expected type: 'behavioral'", str(response.data))
 
     def test_explicit_cohort_type_update_validation(self):
-        """Should validate explicit cohort type on updates"""
+        """Should validate explicit cohort type matches filters on updates"""
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort",
@@ -2470,21 +2471,31 @@ class TestCohortTypeIntegration(APIBaseTest):
             },
         )
 
-        # Valid update
+        # Invalid update - wrong type for existing filters
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
-            {"cohort_type": CohortType.BEHAVIORAL},  # Higher complexity is allowed
+            {"cohort_type": CohortType.BEHAVIORAL},  # Wrong - filters are person_property
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("does not match the filters", str(response.data))
+        self.assertIn("Expected type: 'person_property'", str(response.data))
+
+        # Valid update - correct type for existing filters
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+            {"cohort_type": CohortType.PERSON_PROPERTY},  # Correct type
             format="json",
         )
         self.assertEqual(response.status_code, 200)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
+        self.assertEqual(cohort.cohort_type, CohortType.PERSON_PROPERTY)
 
-        # Invalid update
+        # Update both filters and type together
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
             {
-                "cohort_type": CohortType.STATIC,  # Invalid for non-static cohort
+                "cohort_type": CohortType.BEHAVIORAL,  # Now matches the new behavioral filters
                 "filters": {
                     "properties": {
                         "type": "AND",
@@ -2504,5 +2515,6 @@ class TestCohortTypeIntegration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("not sufficient for the provided filters", str(response.data))
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)

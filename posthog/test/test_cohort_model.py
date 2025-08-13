@@ -600,8 +600,8 @@ class TestCohort(BaseTest):
         self.assertTrue(is_valid)
         self.assertIsNone(error_msg)
 
-    def test_validate_cohort_type_insufficient_complexity(self):
-        """Should fail validation when provided type is less complex than required"""
+    def test_validate_cohort_type_mismatch(self):
+        """Should fail validation when provided type doesn't exactly match required type"""
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -622,26 +622,17 @@ class TestCohort(BaseTest):
             },
         )
 
+        # Test with lower complexity type
         is_valid, error_msg = cohort.validate_cohort_type("person_property")
         self.assertFalse(is_valid)
-        self.assertIn("not sufficient for the provided filters", error_msg)
-        self.assertIn("Minimum required type: 'behavioral'", error_msg)
+        self.assertIn("does not match the filters", error_msg)
+        self.assertIn("Expected type: 'behavioral'", error_msg)
 
-    def test_validate_cohort_type_higher_complexity_allowed(self):
-        """Should pass validation when provided type is more complex than required"""
-        cohort = Cohort.objects.create(
-            team=self.team,
-            filters={
-                "properties": PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[Property(type="person", key="email", operator="icontains", value="@posthog.com")],
-                ).to_dict()
-            },
-        )
-
-        is_valid, error_msg = cohort.validate_cohort_type("behavioral")
-        self.assertTrue(is_valid)
-        self.assertIsNone(error_msg)
+        # Test with higher complexity type (also fails now)
+        is_valid, error_msg = cohort.validate_cohort_type("analytical")
+        self.assertFalse(is_valid)
+        self.assertIn("does not match the filters", error_msg)
+        self.assertIn("Expected type: 'behavioral'", error_msg)
 
     def test_validate_cohort_type_invalid_type(self):
         """Should fail validation for invalid cohort type strings"""
