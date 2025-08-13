@@ -51,16 +51,6 @@ export function ReleasesTable(): JSX.Element {
             render: (_, release) => <div className="truncate w-[150px]">{release.version}</div>,
         },
         {
-            title: 'Created',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            render: (_, release) => (
-                <Tooltip title={humanFriendlyDetailedTime(release.created_at)}>
-                    <TZLabel time={release.created_at} />
-                </Tooltip>
-            ),
-        },
-        {
             title: 'Repository',
             key: 'repository',
             render: (_, release) => {
@@ -77,6 +67,16 @@ export function ReleasesTable(): JSX.Element {
                     return <span className="text-muted-alt">{release.metadata.git.branch}</span>
                 }
             },
+        },
+        {
+            title: 'Created',
+            dataIndex: 'created_at',
+            key: 'created_at',
+            render: (_, release) => (
+                <Tooltip title={humanFriendlyDetailedTime(release.created_at)}>
+                    <TZLabel time={release.created_at} />
+                </Tooltip>
+            ),
         },
         {
             width: 0,
