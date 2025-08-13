@@ -97,7 +97,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     let conn_acquisition_start = Instant::now();
     let conn_result = reader.as_ref().get_connection().await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
-    
+
     let mut conn = match conn_result {
         Ok(conn) => {
             info!(
