@@ -342,14 +342,18 @@ def sync_old_schemas_with_new_schemas(
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
     for schema in schemas_to_possibly_delete:
-        s = ExternalDataSchema.objects.get(team_id=team_id, name=schema, source_id=source_id, deleted=False)
-        if s.table_id is None:
-            s.soft_delete()
-            deleted_schemas.append(schema)
-        else:
-            s.should_sync = False
-            s.status = ExternalDataSchema.Status.COMPLETED
-            s.save()
+        # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible
+        schemas_to_check = ExternalDataSchema.objects.filter(
+            team_id=team_id, name=schema, source_id=source_id, deleted=False
+        )
+        for s in schemas_to_check:
+            if s.table_id is None:
+                s.soft_delete()
+                deleted_schemas.append(schema)
+            else:
+                s.should_sync = False
+                s.status = ExternalDataSchema.Status.COMPLETED
+                s.save()
 
     return schemas_to_create, deleted_schemas
 
