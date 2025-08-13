@@ -135,6 +135,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isDataVisualizationNode(query)) {
         component = (
             <DataTableVisualization
+                attachTo={props.attachTo}
                 query={query}
                 setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
                 cachedResults={props.cachedResults}
@@ -145,10 +146,19 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
             />
         )
     } else if (isSavedInsightNode(query)) {
-        component = <SavedInsight query={query} context={queryContext} readOnly={readOnly} embedded={embedded} />
+        component = (
+            <SavedInsight
+                attachTo={props.attachTo}
+                query={query}
+                context={queryContext}
+                readOnly={readOnly}
+                embedded={embedded}
+            />
+        )
     } else if (isInsightVizNode(query)) {
         component = (
             <InsightViz
+                attachTo={props.attachTo}
                 query={query}
                 setQuery={setQuery as unknown as (query: InsightVizNode) => void}
                 context={queryContext}
@@ -195,7 +205,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isCalendarHeatmapQuery(query)) {
         component = <WebActiveHoursHeatmap query={query} context={queryContext} cachedResults={props.cachedResults} />
     } else {
-        component = <DataNode query={query} cachedResults={props.cachedResults} />
+        component = <DataNode attachTo={props.attachTo} query={query} cachedResults={props.cachedResults} />
     }
 
     return (

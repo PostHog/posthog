@@ -7,16 +7,19 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
+import { tabAwareScene } from 'lib/logic/scene-plugin/tabAwareScene'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
 export interface LiveEventsTableProps {
-    showLiveStreamErrorToast: boolean
+    showLiveStreamErrorToast?: boolean
+    tabId?: string
 }
 
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
     props({} as LiveEventsTableProps),
+    tabAwareScene(),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
     })),

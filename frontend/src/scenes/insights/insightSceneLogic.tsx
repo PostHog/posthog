@@ -187,7 +187,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
-        insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
+        insight: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.insightSelector?.(state, props)?.(state, props)
+                    } catch {
+                        // Not mounted yet
+                        return null
+                    }
+                },
+            ],
+            (insight) => insight,
+        ],
         breadcrumbs: [
             (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName, (_, { tabId }) => tabId],
             (insightLogicRef, insight, dashboardId, dashboardName, tabId): Breadcrumb[] => {

@@ -13,6 +13,8 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import type { LiveEvent } from '~/types'
+import { useAttachedLogic } from 'lib/logic/scene-plugin/useAttachedLogic'
+import { activitySceneLogic } from 'scenes/activity/activitySceneLogic'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
@@ -66,9 +68,11 @@ const columns: LemonTableColumns<LiveEvent> = [
     },
 ]
 
-export function LiveEventsTable(): JSX.Element {
-    const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
+export function LiveEventsTable({ tabId }: { tabId: string }): JSX.Element {
+    const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic.build({ tabId }))
+    const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic.build({ tabId }))
+
+    useAttachedLogic(liveEventsTableLogic.build({ tabId }), activitySceneLogic)
 
     return (
         <div data-attr="manage-events-table">

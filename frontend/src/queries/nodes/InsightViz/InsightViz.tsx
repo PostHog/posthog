@@ -1,7 +1,7 @@
 import './InsightViz.scss'
 
 import clsx from 'clsx'
-import { BindLogic } from 'kea'
+import { BindLogic, BuiltLogic, Logic, LogicWrapper } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -18,6 +18,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { getCachedResults } from './utils'
+import { useAttachedLogic } from 'lib/logic/scene-plugin/useAttachedLogic'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps<any>): string => {
@@ -38,6 +39,7 @@ type InsightVizProps = {
     inSharedMode?: boolean
     filtersOverride?: DashboardFilter | null
     variablesOverride?: Record<string, HogQLVariable> | null
+    attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
 let uniqueNode = 0
@@ -52,6 +54,7 @@ export function InsightViz({
     inSharedMode,
     filtersOverride,
     variablesOverride,
+    attachTo,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps =
@@ -112,6 +115,13 @@ export function InsightViz({
             inSharedMode={inSharedMode}
         />
     )
+
+    if (!attachTo) {
+    }
+
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
+    useAttachedLogic(insightLogic(insightProps), attachTo)
+    useAttachedLogic(insightVizDataLogic(insightProps), attachTo)
 
     return (
         <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>

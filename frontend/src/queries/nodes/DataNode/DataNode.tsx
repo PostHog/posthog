@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { BuiltLogic, Logic, LogicWrapper, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
@@ -7,6 +7,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '~/queries/schema/schema-general'
+import { useAttachedLogic } from 'lib/logic/scene-plugin/useAttachedLogic'
 
 interface DataNodeProps {
     query: DataNodeType
@@ -14,6 +15,7 @@ interface DataNodeProps {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
 let uniqueNode = 0
@@ -23,6 +25,8 @@ export function DataNode(props: DataNodeProps): JSX.Element {
     const [key] = useState(() => `DataNode.${uniqueNode++}`)
     const logic = dataNodeLogic({ ...props, key, cachedResults: props.cachedResults, dataNodeCollectionId: key })
     const { response, responseLoading, responseErrorObject } = useValues(logic)
+
+    useAttachedLogic(logic, props.attachTo)
 
     return (
         <div className="relative">

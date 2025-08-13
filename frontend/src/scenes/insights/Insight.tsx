@@ -1,5 +1,5 @@
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
 import { isEmptyObject, isObject } from 'lib/utils'
@@ -17,18 +17,23 @@ import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
+import { useAttachedLogic } from 'lib/logic/scene-plugin/useAttachedLogic'
+import { useState } from 'react'
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
     tabId: string
+    attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
-export function Insight({ insightId, tabId }: InsightSceneProps): JSX.Element | null {
+let uniqueCount = 0
+export function Insight({ insightId, attachTo }: InsightSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, freshQuery } = useValues(insightSceneLogic)
+    const [uniqueId] = useState(() => `${uniqueCount++}`)
 
     // insightLogic
     const logic = insightLogic({
-        dashboardItemId: insightId || `new-${tabId}`,
+        dashboardItemId: insightId || `new-${uniqueId}`,
         // don't use cached insight if we have filtersOverride
         cachedInsight:
             (isObject(filtersOverride) || isObject(variablesOverride)) && insight?.short_id === insightId
@@ -45,6 +50,9 @@ export function Insight({ insightId, tabId }: InsightSceneProps): JSX.Element | 
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
+
+    useAttachedLogic(logic, attachTo)
+    useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
@@ -95,6 +103,7 @@ export function Insight({ insightId, tabId }: InsightSceneProps): JSX.Element | 
                 {freshQuery ? <ReloadInsight /> : null}
 
                 <Query
+                    attachTo={attachTo}
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}
                     setQuery={setQuery}
                     readOnly={insightMode !== ItemMode.Edit}
