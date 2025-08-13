@@ -356,6 +356,7 @@ class TaxonomyAgentToolkit:
         if not response.results:
             return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}."
 
+        # TRICKY. Remove when the toolkit supports multiple results.
         if isinstance(response.results, list):
             unpacked_results = response.results[0]
         else:

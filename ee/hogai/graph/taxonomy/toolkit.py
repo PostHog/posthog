@@ -372,6 +372,7 @@ class TaxonomyAgentToolkit:
         if not response.results:
             return TaxonomyErrorMessages.property_values_not_found(property_name, entity)
 
+        # TRICKY. Remove when the toolkit supports multiple results.
         if isinstance(response.results, list):
             unpacked_results = response.results[0]
         else:
