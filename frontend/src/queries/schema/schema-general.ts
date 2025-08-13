@@ -3028,12 +3028,14 @@ export interface ActorsPropertyTaxonomyResponse {
 
 export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
     kind: NodeKind.ActorsPropertyTaxonomyQuery
-    property: string
-    group_type_index?: integer
+    properties: string[]
+    groupTypeIndex?: integer
     maxPropertyValues?: integer
 }
 
-export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
+export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<
+    ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
+>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
@@ -3110,9 +3112,11 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
+export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
+
 export interface LLMTraceEvent {
     id: string
-    event: string
+    event: AIEventType | string // Allow both specific AI events and other event types
     properties: Record<string, any>
     createdAt: string
 }

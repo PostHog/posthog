@@ -27,7 +27,6 @@ import {
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
 import { entityFilterLogic, LocalFilter, toFilters } from './entityFilterLogic'
-import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -95,8 +94,6 @@ export interface ActionFilterProps {
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
     addFilterDocLink?: string
-    /** Properties to exclude from the properties filter */
-    excludedProperties?: TaxonomicPopoverProps['excludedProperties']
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -131,7 +128,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         dataWarehousePopoverFields,
         filtersLeftPadding,
         addFilterDocLink,
-        excludedProperties,
     },
     ref
 ): JSX.Element {
@@ -194,7 +190,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         dataWarehousePopoverFields,
         filtersLeftPadding,
         addFilterDocLink,
-        excludedProperties,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
