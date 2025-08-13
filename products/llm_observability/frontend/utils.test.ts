@@ -19,9 +19,18 @@ describe('LLM Observability utils', () => {
         const message = {
             role: 'assistant',
         }
+        // When no defaultRole is provided, it defaults to 'user'
         expect(normalizeMessage(message)).toEqual([
             {
                 role: 'user',
+                content: JSON.stringify(message),
+            },
+        ])
+
+        // When 'assistant' is provided as defaultRole, it uses that
+        expect(normalizeMessage(message, 'assistant')).toEqual([
+            {
+                role: 'assistant',
                 content: JSON.stringify(message),
             },
         ])
@@ -93,9 +102,18 @@ describe('LLM Observability utils', () => {
     })
 
     it('normalizeOutputMessage: parses a string message', () => {
+        // When no defaultRole is provided, it defaults to 'user'
         expect(normalizeMessage('foo')).toEqual([
             {
                 role: 'user',
+                content: 'foo',
+            },
+        ])
+
+        // When 'assistant' is provided as defaultRole, it uses that
+        expect(normalizeMessage('foo', 'assistant')).toEqual([
+            {
+                role: 'assistant',
                 content: 'foo',
             },
         ])
