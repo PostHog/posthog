@@ -85,16 +85,7 @@ export class RetentionService {
     }
 
     public async processBatch(messages: MessageWithTeam[]): Promise<MessageWithRetention[]> {
-        // TODO: Look up session ID in Redis and add it to the messages
-        // ....if not present, look it up in the backgroundrefresher and add it to Redis with 24h TTL
-
-        const client = await this.redisPool.acquire()
-
-        const messagesWithRetention = await Promise.all(messages.map((message) => this.addRetentionToMessage(message)))
-
-        await this.redisPool.release(client)
-
-        return messagesWithRetention
+        return await Promise.all(messages.map((message) => this.addRetentionToMessage(message)))
     }
 }
 
