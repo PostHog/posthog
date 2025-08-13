@@ -9143,8 +9143,8 @@
             "enum": [
                 "revenue_analytics_charge",
                 "revenue_analytics_customer",
-                "revenue_analytics_invoice_item",
                 "revenue_analytics_product",
+                "revenue_analytics_revenue_item",
                 "revenue_analytics_subscription"
             ],
             "type": "string"

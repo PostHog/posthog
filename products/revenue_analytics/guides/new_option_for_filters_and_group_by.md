@@ -100,7 +100,7 @@ Add property mapping in `create_expr_for_revenue_analytics_property()`:
 ```python
 def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
     if property.key == "amount":
-        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
+        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])
     elif property.key == "product":
         return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
     elif property.key == "country":

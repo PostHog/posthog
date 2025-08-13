@@ -693,7 +693,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_call_id, None)  # Tool was fully handled by the node
         self.assertIsNone(result.root_tool_insight_plan)  # No insight plan for contextual tools
         self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
-        self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
+        self.assertFalse(result.messages[-1].visible)  # This tool must not be visible by default
 
     async def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
