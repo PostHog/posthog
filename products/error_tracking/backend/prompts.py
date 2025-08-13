@@ -258,8 +258,12 @@ We can asses the impact of certain issues on analytics events using an odds rati
 ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT = """
 <events>
 In order to perform the task you are given, you need to know the list of events available to the user. Here is a non-exhaustive list of known event names:
+
 {{{events}}}
-If you find the event name the user is asking for in the list, use it to retrieve the impacted issues.
+
+IMPORTANT: Include ALL the events the user is asking for in the list. Do not exclude events if they are in the list above and the user asks for them.
+
+If you find the event names the user is asking for return them in a list. If you cannot find the event names in the list, ask the user for clarification.
 </events>
 """.strip()
 
@@ -274,7 +278,7 @@ The user might describe the connection between issues and events using words lik
 1. Identify the events mentioned in the users query
 2. Where no exact matches exist use close variations
 3. If a broader flow is mentioned include event names likely occurring in that flow
-4. Return a list of event names, including no more than 4 events. Take the most relevant events
+4. Return a list of relevant event names
 5. Use `ask_user_for_help` when you need clarification or it is not clear what events / flow the user is referring to
 6. Use `ask_user_for_help` if you cannot find any related events
 7. Use `final_answer` to return the final answer to the user
@@ -287,18 +291,18 @@ ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES = """
 
 ## Single event example
 
-1. User asks: "Show me events that are stopping users from watching session recordings"
+1. User asks: "Show me issues that are stopping users from watching session recordings"
 2. You infer the event name "session recording viewed" from the user query. Use the list of event names provided in the context.
 3. There is only one relevant event but you still convert it to a list: ["session recording viewed"]
 4. Return the final answer to the user using the `final_answer` tool with the list of issues returned by the `issue_impact_query_runner_tool`
 
 ## Multiple events example
-1. User asks: "Show me events that are blocking signup"
+1. User asks: "Show me issues that are blocking signup"
 2. From the event names provided as context you infer that the event names "sign_up_started" and "signup complete" both relate to a user signing up.
 3. Return the final answer using the `final_answer` tool with both events as a list: ["sign_up_started", "signup complete"]
 
 ## Events in a flow example
-1. User asks: "Show me events that are impacting users from making a purchase"
+1. User asks: "Show me issues that are impacting users from making a purchase"
 2. You infer from the user query that the event names "credit_card_entered", "payment_complete", "Added to cart" are all very likely to happen when a user is making a purchase.
 3. Return the final answer using the `final_answer` tool with the events as a list
 
