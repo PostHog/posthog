@@ -356,10 +356,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         for cohort in referenced_cohorts:
             if cohort.cohort_type:
-                # Use cached type if available
+                # Use existing if available
                 cohort_type = cohort.cohort_type
             else:
-                # Recursively determine type
+                # Otherwise, use the determined cohort type determine type
                 cohort_type = cohort.determine_cohort_type(visited)
 
             # Update max_type based on hierarchy: ANALYTICAL > BEHAVIORAL > PERSON_PROPERTY > STATIC
@@ -370,22 +370,22 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         return max_type
 
-    def validate_cohort_type(self, explicit_type: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    def validate_cohort_type(self, provided_cohort_type: Optional[str] = None) -> tuple[bool, Optional[str]]:
         """
         Validate that the provided cohort type matches the filters.
         Returns (is_valid, error_message)
         """
-        if explicit_type is None:
-            explicit_type = self.cohort_type
+        if provided_cohort_type is None:
+            provided_cohort_type = self.cohort_type
 
-        if not explicit_type:
-            # No type specified, validation passes
+        if not provided_cohort_type:
+            # No type specified, validation passes since we don't need to validate the type
             return True, None
 
         try:
-            explicit_cohort_type = CohortType(explicit_type)
+            provided_cohort_type = CohortType(provided_cohort_type)
         except ValueError:
-            return False, f"Invalid cohort type: {explicit_type}"
+            return False, f"Invalid cohort type: {provided_cohort_type}"
 
         # Determine the actual required type based on filters
         try:
@@ -401,19 +401,21 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             CohortType.ANALYTICAL: 3,
         }
 
-        explicit_level = type_hierarchy[explicit_cohort_type]
+        explicit_level = type_hierarchy[provided_cohort_type]
         calculated_level = type_hierarchy[calculated_type]
 
         # The explicit type must be at least as complex as the calculated type
         if explicit_level < calculated_level:
             return (
                 False,
-                f"Cohort type '{explicit_type}' is not sufficient for the provided filters. Minimum required type: '{calculated_type}'",
+                f"Cohort type '{provided_cohort_type}' is not sufficient for the provided filters. Minimum required type: '{calculated_type}'",
             )
 
-        # For exact match requirement (optional - can be made configurable)
-        # if explicit_cohort_type != calculated_type:
-        #     return False, f"Cohort type '{explicit_type}' does not match the filters. Expected type: '{calculated_type}'"
+        if provided_cohort_type != calculated_type:
+            return (
+                False,
+                f"Cohort type '{provided_cohort_type}' does not match the filters. Expected type: '{calculated_type}'",
+            )
 
         return True, None
 
