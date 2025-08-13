@@ -410,7 +410,7 @@ class TestCohort(BaseTest):
                     operator="exact",
                     event_type="events",
                     time_interval="day",
-                    time_value="1",
+                    time_value=1,
                 )
             ],
         )
@@ -434,7 +434,7 @@ class TestCohort(BaseTest):
                     value=BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
                     operator="exact",
                     time_interval="day",
-                    time_value="1",
+                    time_value=1,
                 )
             ],
         )
@@ -459,7 +459,7 @@ class TestCohort(BaseTest):
                     operator="exact",
                     event_type="events",
                     time_interval="day",
-                    time_value="1",
+                    time_value=1,
                 ),
                 Property(
                     type="behavioral",
@@ -468,7 +468,7 @@ class TestCohort(BaseTest):
                     operator="exact",
                     event_type="events",
                     time_interval="day",
-                    time_value="1",
+                    time_value=1,
                 ),
             ],
         )
@@ -497,7 +497,7 @@ class TestCohort(BaseTest):
                             operator="exact",
                             event_type="events",
                             time_interval="day",
-                            time_value="1",
+                            time_value=1,
                         )
                     ],
                 ).to_dict()
@@ -615,7 +615,7 @@ class TestCohort(BaseTest):
                             operator="exact",
                             event_type="events",
                             time_interval="day",
-                            time_value="1",
+                            time_value=1,
                         )
                     ],
                 ).to_dict()
