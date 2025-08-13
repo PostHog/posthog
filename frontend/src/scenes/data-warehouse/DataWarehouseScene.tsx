@@ -159,16 +159,18 @@ export function DataWarehouseScene(): JSX.Element {
 
     const StatusTag = ({ status }: { status?: string }): JSX.Element => {
         const s = (status || '').toLowerCase()
+
         const type = ['failed', 'error'].includes(s)
-            ? 'danger'
+            ? ('danger' as const)
             : s === 'warning'
-              ? 'warning'
+              ? ('warning' as const)
               : ['completed', 'success'].includes(s)
-                ? 'success'
+                ? ('success' as const)
                 : s === 'running'
-                  ? 'none'
-                  : 'muted'
-        const size = ['completed', 'failed', 'error'].includes(s) ? 'medium' : 'small'
+                  ? ('none' as const)
+                  : ('muted' as const)
+
+        const size = (['completed', 'failed', 'error'].includes(s) ? 'medium' : 'small') as 'medium' | 'small'
 
         return (
             <LemonTag
@@ -209,9 +211,9 @@ export function DataWarehouseScene(): JSX.Element {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="flex items-start gap-1">
-                        <div className="text-sm text-muted">Total Rows Processed</div>
+                        <div className="text-sm text-muted">Rows Processed (MTD)</div>
                         <Tooltip
-                            title="Total rows processed by all data sources and materialized views summed together"
+                            title="Total rows processed this month by all data sources and materialized views"
                             placement="bottom"
                         >
                             <IconInfo className="text-muted mt-0.5" />

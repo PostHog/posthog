@@ -7,8 +7,6 @@ import type { externalDataSourcesLogicType } from './externalDataSourcesLogicTyp
 
 const DATA_WAREHOUSE_CONFIG = {
     recentActivityDays: 7,
-    maxJobsPerSource: 50,
-    maxJobsPerView: 25,
     maxConcurrentRequests: 5,
     batchSize: 20,
 } as const
@@ -77,18 +75,23 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             {
                 loadTotalRowsProcessed: async ({ materializedViews }: { materializedViews: any[] }) => {
                     const dataSources = values.dataWarehouseSources?.results || []
+
+                    // Calculate start of current month in user's timezone
+                    const now = new Date()
+                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+                    const monthStartISO = startOfMonth.toISOString()
+
                     let totalRows = 0
 
                     const [schemaResults, materializationResults] = await Promise.all([
-                        // get ALL schema sync jobs (no limit) and sum their rows_synced
+                        // Get MTD schema sync jobs and sum their rows_synced
                         Promise.all(
                             dataSources.map(async (source: ExternalDataSource) => {
                                 try {
                                     const allJobs: ExternalDataJob[] = []
-                                    let hasMore = true
                                     let lastJobTimestamp: string | null = null
 
-                                    while (hasMore && allJobs.length < DATA_WAREHOUSE_CONFIG.maxJobsPerSource) {
+                                    while (true) {
                                         const res: unknown = await api.externalDataSources.jobs(
                                             source.id,
                                             lastJobTimestamp ?? null,
@@ -102,12 +105,17 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                                             break
                                         }
 
-                                        allJobs.push(...jobs)
-                                        lastJobTimestamp = jobs[jobs.length - 1]?.created_at || null
+                                        // Filter jobs to only include those from this month
+                                        const monthJobs = jobs.filter((job) => job.created_at >= monthStartISO)
+                                        allJobs.push(...monthJobs)
 
-                                        if (allJobs.length >= DATA_WAREHOUSE_CONFIG.maxJobsPerSource) {
-                                            hasMore = false
+                                        // If we've hit jobs older than the start of the month, we can stop
+                                        const oldestJob = jobs[jobs.length - 1]
+                                        if (oldestJob && oldestJob.created_at < monthStartISO) {
+                                            break
                                         }
+
+                                        lastJobTimestamp = oldestJob?.created_at || null
                                     }
 
                                     return allJobs.reduce((sum, job) => sum + (job.rows_synced || 0), 0)
@@ -118,17 +126,23 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                             })
                         ),
 
-                        // get ALL materialization jobs (no limit) and sum their rows_materialized
+                        // Get MTD materialization jobs and sum their rows_materialized
                         Promise.all(
                             materializedViews.map(async (view: any) => {
                                 try {
                                     const res = await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
                                         view.id,
-                                        DATA_WAREHOUSE_CONFIG.maxJobsPerView,
+                                        100, // Reasonable limit for MTD
                                         0
                                     )
                                     const jobs = res.results || []
-                                    return jobs.reduce(
+
+                                    // Filter to MTD jobs only
+                                    const monthJobs = jobs.filter(
+                                        (job: DataModelingJob) => job.created_at >= monthStartISO
+                                    )
+
+                                    return monthJobs.reduce(
                                         (sum: number, job: DataModelingJob) => sum + (job.rows_materialized || 0),
                                         0
                                     )
@@ -206,7 +220,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                                 try {
                                     const res = await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
                                         view.id,
-                                        DATA_WAREHOUSE_CONFIG.maxJobsPerView,
+                                        100, // Reasonable limit for MTD
                                         0
                                     )
                                     const jobs = res.results || []
@@ -236,7 +250,6 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             },
         ],
     })),
-    // selectors moved to dataWarehouseSettingsLogic to avoid circular imports
     reducers(({ cache }) => ({
         dataWarehouseSourcesLoading: [
             false as boolean,
@@ -247,7 +260,6 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             },
         ],
     })),
-    //
     listeners(({ cache }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
