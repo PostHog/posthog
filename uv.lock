@@ -1207,6 +1207,18 @@ wheels = [
 ]
 
 [[package]]
+name = "deepdiff"
+version = "8.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "orderly-set" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0a/0f/9cd2624f7dcd755cbf1fa21fb7234541f19a1be96a56f387ec9053ebe220/deepdiff-8.5.0.tar.gz", hash = "sha256:a4dd3529fa8d4cd5b9cbb6e3ea9c95997eaa919ba37dac3966c1b8f872dc1cd1", size = 538517, upload-time = "2025-05-09T18:44:10.035Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/3b/2e0797200c51531a6d8c97a8e4c9fa6fb56de7e6e2a15c1c067b6b10a0b0/deepdiff-8.5.0-py3-none-any.whl", hash = "sha256:d4599db637f36a1c285f5fdfc2cd8d38bde8d8be8636b65ab5e425b67c54df26", size = 85112, upload-time = "2025-05-09T18:44:07.784Z" },
+]
+
+[[package]]
 name = "defusedxml"
 version = "0.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3577,6 +3589,15 @@ wheels = [
 ]
 
 [[package]]
+name = "orderly-set"
+version = "5.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/88/39c83c35d5e97cc203e9e77a4f93bf87ec89cf6a22ac4818fdcc65d66584/orderly_set-5.5.0.tar.gz", hash = "sha256:e87185c8e4d8afa64e7f8160ee2c542a475b738bc891dc3f58102e654125e6ce", size = 27414, upload-time = "2025-07-10T20:10:55.885Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/27/fb8d7338b4d551900fa3e580acbe7a0cf655d940e164cb5c00ec31961094/orderly_set-5.5.0-py3-none-any.whl", hash = "sha256:46f0b801948e98f427b412fcabb831677194c05c3b699b80de260374baa0b1e7", size = 13068, upload-time = "2025-07-10T20:10:54.377Z" },
+]
+
+[[package]]
 name = "orjson"
 version = "3.10.15"
 source = { registry = "https://pypi.org/simple" }
@@ -4006,6 +4027,7 @@ dev = [
     { name = "braintrust" },
     { name = "braintrust-langchain" },
     { name = "datamodel-code-generator" },
+    { name = "deepdiff" },
     { name = "django-linear-migrations" },
     { name = "django-stubs" },
     { name = "djangorestframework-stubs" },
@@ -4193,7 +4215,7 @@ requires-dist = [
     { name = "sshtunnel", specifier = "==0.4.0" },
     { name = "statshog", specifier = "==1.0.6" },
     { name = "stripe", specifier = "==12.2.0" },
-    { name = "structlog", specifier = "==23.2.0" },
+    { name = "structlog", specifier = "==25.4.0" },
     { name = "temporalio", specifier = "==1.14.1" },
     { name = "tenacity", specifier = "==9.1.2" },
     { name = "tiktoken", specifier = "==0.9.*" },
@@ -4224,6 +4246,7 @@ dev = [
     { name = "braintrust", specifier = "==0.2.0" },
     { name = "braintrust-langchain", specifier = "==0.0.2" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
+    { name = "deepdiff", specifier = ">=8.5.0" },
     { name = "django-linear-migrations", specifier = "==2.16.*" },
     { name = "django-stubs", specifier = "==5.0.4" },
     { name = "djangorestframework-stubs", specifier = "~=3.14.5" },
@@ -5761,11 +5784,11 @@ wheels = [
 
 [[package]]
 name = "structlog"
-version = "23.2.0"
+version = "25.4.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/99/4c/67e8cc235bbeb0a87053739c4c9d0619e3f284730ebdb2b34349488d9e8a/structlog-23.2.0.tar.gz", hash = "sha256:334666b94707f89dbc4c81a22a8ccd34449f0201d5b1ee097a030b577fa8c858", size = 749288, upload-time = "2023-10-09T14:56:18.602Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/79/b9/6e672db4fec07349e7a8a8172c1a6ae235c58679ca29c3f86a61b5e59ff3/structlog-25.4.0.tar.gz", hash = "sha256:186cd1b0a8ae762e29417095664adf1d6a31702160a46dacb7796ea82f7409e4", size = 1369138, upload-time = "2025-06-02T08:21:12.971Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/26/0f5f842dea4e93e28f7d4ed020021cf41ebd79572a06f12e273c8eac4db9/structlog-23.2.0-py3-none-any.whl", hash = "sha256:16a167e87b9fa7fae9a972d5d12805ef90e04857a93eba479d4be3801a6a1482", size = 62875, upload-time = "2023-10-09T14:56:16.76Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/4a/97ee6973e3a73c74c8120d59829c3861ea52210667ec3e7a16045c62b64d/structlog-25.4.0-py3-none-any.whl", hash = "sha256:fe809ff5c27e557d14e613f45ca441aabda051d119ee5a0102aaba6ce40eed2c", size = 68720, upload-time = "2025-06-02T08:21:11.43Z" },
 ]
 
 [[package]]

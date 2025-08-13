@@ -17,7 +17,6 @@ import {
     LemonInput,
     LemonSkeleton,
     ProfilePicture,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -61,7 +60,7 @@ import {
     isVisualizationMessage,
 } from './utils'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { MAX_SLASH_COMMANDS } from './components/SlashCommandAutocomplete'
+import { MAX_SLASH_COMMANDS } from './slash-commands'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -144,7 +143,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
     const { tools } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
-    const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
+    const isEditingInsight = tools?.some((tool) => tool.identifier === 'create_and_query_insight')
 
     return (
         <MessageGroupContainer groupType={groupType}>
@@ -235,9 +234,12 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
-                                <div className="flex items-center gap-1.5">
-                                    <Spinner className="text-xl" />
-                                    <span>{message.content}…</span>
+                                <div className="flex items-center gap-2">
+                                    <img
+                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                    />
+                                    <span className="font-medium">{message.content}…</span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage

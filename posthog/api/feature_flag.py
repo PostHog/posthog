@@ -24,6 +24,10 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.api.cohort import CohortSerializer
 from posthog.models.experiment import Experiment
+from posthog.models.feature_flag.local_evaluation import (
+    DATABASE_FOR_LOCAL_EVALUATION,
+    get_flags_response_for_local_evaluation,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -77,14 +81,16 @@ from posthog.queries.base import (
 from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
+from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import model_activity_signal
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
-
-DATABASE_FOR_LOCAL_EVALUATION = (
-    "default"
-    if ("local_evaluation" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES)
-    else "replica"
+from posthog.api.services.flag_definitions_cache import (
+    FlagDefinitionsCache,
+    invalidate_cache_for_feature_flag_change,
+    invalidate_cache_for_cohort_change,
+    invalidate_cache_for_group_type_mapping_change,
 )
+
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -1187,6 +1193,68 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    def _local_evaluation_via_cache(self, request: request.Request) -> Response:
+        """ "
+        Once we have are secure in this approach this method replaces the normal one
+        """
+        start_time = time.time()
+        logger = logging.getLogger(__name__)
+
+        include_cohorts = "send_cohorts" in request.GET
+
+        try:
+            # Check if team is quota limited for feature flags
+            if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+                from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+                limited_tokens_flags = list_limited_team_attributes(
+                    QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+                if self.team.api_token in limited_tokens_flags:
+                    return Response(
+                        {
+                            "type": "quota_limited",
+                            "detail": "You have exceeded your feature flag request quota",
+                            "code": "payment_required",
+                        },
+                        status=status.HTTP_402_PAYMENT_REQUIRED,
+                    )
+
+            logger.info(
+                "Starting local evaluation",
+                extra={
+                    "team_id": self.team.pk,
+                    "has_send_cohorts": include_cohorts,
+                },
+            )
+            response_data = get_flags_response_for_local_evaluation(self.team, include_cohorts)
+
+            if not response_data:
+                raise Exception("No response data")
+
+            flag_keys = [flag["key"] for flag in response_data["flags"]]
+
+            # Add request for analytics
+            if len(flag_keys) > 0 and not all(
+                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag_key in flag_keys
+            ):
+                increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+
+            return Response(response_data)
+
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error("Unexpected error in local evaluation", extra={"duration": duration}, exc_info=True)
+            capture_exception(e)
+            return Response(
+                {
+                    "type": "server_error",
+                    "code": "unexpected_error",
+                    "detail": "An unexpected error occurred",
+                },
+                status=500,
+            )
+
     @action(
         methods=["GET"],
         detail=False,
@@ -1196,6 +1264,9 @@ class FeatureFlagViewSet(
         permission_classes=[ProjectSecretAPITokenPermission],
     )
     def local_evaluation(self, request: request.Request, **kwargs):
+        if "use_cache" in request.GET:
+            return self._local_evaluation_via_cache(request)
+
         logger = logging.getLogger(__name__)
         start_time = time.time()
 
@@ -1225,6 +1296,17 @@ class FeatureFlagViewSet(
                 },
             )
 
+            # Check cache first
+            should_send_cohorts = "send_cohorts" in request.GET
+
+            try:
+                cached_response = FlagDefinitionsCache.get_cache(self.project_id, should_send_cohorts)
+                response = self._handle_cached_response(cached_response)
+                if response is not None:
+                    return response
+            except Exception as e:
+                logger.warning("Cache error in local evaluation, proceeding without cache", extra={"error": str(e)})
+
             try:
                 feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
                     ~Q(is_remote_configuration=True),
@@ -1244,8 +1326,7 @@ class FeatureFlagViewSet(
                     status=500,
                 )
 
-            should_send_cohorts = "send_cohorts" in request.GET
-            cohorts = {}
+            cohorts: dict[str, dict] = {}
             seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
 
             if should_send_cohorts:
@@ -1299,34 +1380,7 @@ class FeatureFlagViewSet(
                     # irrespective of complexity
                     if should_send_cohorts:
                         try:
-                            cohort_ids = feature_flag.get_cohort_ids(
-                                using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                                seen_cohorts_cache=seen_cohorts_cache,
-                            )
-
-                            for id in cohort_ids:
-                                # don't duplicate queries for already added cohorts
-                                if id not in cohorts:
-                                    if id in seen_cohorts_cache:
-                                        cohort = seen_cohorts_cache[id]
-                                    else:
-                                        cohort = (
-                                            Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                                            .filter(id=id, team__project_id=self.project_id, deleted=False)
-                                            .first()
-                                        )
-                                        seen_cohorts_cache[id] = cohort or ""
-
-                                    if cohort and not cohort.is_static:
-                                        try:
-                                            cohorts[str(cohort.pk)] = cohort.properties.to_dict()
-                                        except Exception:
-                                            logger.error(
-                                                "Error processing cohort properties",
-                                                extra={"cohort_id": id},
-                                                exc_info=True,
-                                            )
-                                            continue
+                            self._build_cohort_properties_cache(cohorts, seen_cohorts_cache, feature_flag)
 
                         except Exception:
                             logger.error(
@@ -1366,6 +1420,10 @@ class FeatureFlagViewSet(
                     },
                     "cohorts": cohorts,
                 }
+
+                # Store in cache for future requests
+                FlagDefinitionsCache.set_cache(self.project_id, response_data, should_send_cohorts)
+
                 return Response(response_data)
 
             except Exception as e:
@@ -1392,6 +1450,60 @@ class FeatureFlagViewSet(
                 },
                 status=500,
             )
+
+    def _handle_cached_response(self, cached_response: Optional[dict]) -> Optional[Response]:
+        """Handle cached response including analytics tracking."""
+        if cached_response is None:
+            return None
+
+        # Increment request count for analytics (exclude survey targeting flags)
+        if cached_response.get("flags") and not all(
+            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in cached_response["flags"]
+        ):
+            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+
+        return Response(cached_response)
+
+    def _build_cohort_properties_cache(self, cohorts, seen_cohorts_cache, feature_flag):
+        """
+        Builds a cache of cohort properties for a feature flag.
+
+        This is used to avoid duplicate queries for cohort properties.
+
+        Args:
+            cohorts: The cache of cohort properties.
+            seen_cohorts_cache: The cache of seen cohorts.
+            feature_flag: The feature flag to build the cache for.
+        """
+        logger = logging.getLogger(__name__)
+        cohort_ids = feature_flag.get_cohort_ids(
+            using_database=DATABASE_FOR_LOCAL_EVALUATION,
+            seen_cohorts_cache=seen_cohorts_cache,
+        )
+
+        for id in cohort_ids:
+            # don't duplicate queries for already added cohorts
+            if id not in cohorts:
+                if id in seen_cohorts_cache:
+                    cohort = seen_cohorts_cache[id]
+                else:
+                    cohort = (
+                        Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+                        .filter(id=id, team__project_id=self.project_id, deleted=False)
+                        .first()
+                    )
+                    seen_cohorts_cache[id] = cohort or ""
+
+                if cohort and not cohort.is_static:
+                    try:
+                        cohorts[str(cohort.pk)] = cohort.properties.to_dict()
+                    except Exception:
+                        logger.error(
+                            "Error processing cohort properties",
+                            extra={"cohort_id": id},
+                            exc_info=True,
+                        )
+                        continue
 
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
@@ -1577,6 +1689,23 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
             trigger=trigger,
         ),
     )
+
+    # Invalidate flag definitions cache when feature flags change
+    invalidate_cache_for_feature_flag_change(after_update, activity)
+
+
+@receiver(post_save, sender=Cohort)
+@receiver(post_delete, sender=Cohort)
+def handle_cohort_change(sender, instance, **kwargs):
+    """Invalidate flag definitions cache when cohorts change."""
+    invalidate_cache_for_cohort_change(instance)
+
+
+@receiver(post_save, sender=GroupTypeMapping)
+@receiver(post_delete, sender=GroupTypeMapping)
+def handle_group_type_mapping_change(sender, instance, **kwargs):
+    """Invalidate flag definitions cache when group type mappings change."""
+    invalidate_cache_for_group_type_mapping_change(instance)
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):

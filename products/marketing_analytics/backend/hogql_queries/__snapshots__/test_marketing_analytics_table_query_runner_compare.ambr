@@ -1,0 +1,979 @@
+# serializer version: 1
+# name: TestMarketingAnalyticsTableQueryRunnerCompare.test_comprehensive_marketing_analytics_basic
+  '''
+  
+  SELECT
+      campaign_costs.campaign AS Campaign,
+      campaign_costs.source AS Source,
+      round(campaign_costs.total_cost, 2) AS `Total Cost`,
+      round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
+      round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
+      round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+      round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR
+  
+  FROM
+      (
+  SELECT
+          campaign,
+          source,
+          sum(cost) AS total_cost,
+          sum(clicks) AS total_clicks,
+          sum(impressions) AS total_impressions
+      
+  FROM
+          (
+  SELECT
+              toString(campaign1) AS campaign,
+              toString(source1) AS source,
+              toFloat(coalesce(impressions1, 0)) AS impressions,
+              toFloat(coalesce(clicks1, 0)) AS clicks,
+              toFloat(coalesce(spend1, 0)) AS cost
+          
+  FROM
+              `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+          
+  WHERE
+              and(greaterOrEquals(toDateTime(date1), toDateTime('2024-11-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-11-30 23:59:59'))))
+      
+  GROUP BY
+          campaign,
+          source) AS campaign_costs
+  ORDER BY
+      `Total Cost` DESC
+  
+  LIMIT 101
+  OFFSET 0
+  '''
+# ---
+# name: TestMarketingAnalyticsTableQueryRunnerCompare.test_conversion_goal_basic_setup
+  '''
+  
+  SELECT
+      tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
+      tuple(current_period.Source, previous_period.Source) AS Source,
+      tuple(current_period.`Total Cost`, previous_period.`Total Cost`) AS `Total Cost`,
+      tuple(current_period.`Total Clicks`, previous_period.`Total Clicks`) AS `Total Clicks`,
+      tuple(current_period.`Total Impressions`, previous_period.`Total Impressions`) AS `Total Impressions`,
+      tuple(current_period.`Cost per Click`, previous_period.`Cost per Click`) AS `Cost per Click`,
+      tuple(current_period.CTR, previous_period.CTR) AS CTR,
+      tuple(current_period.`Sign Up Conversions`, previous_period.`Sign Up Conversions`) AS `Sign Up Conversions`,
+      tuple(current_period.`Cost per Sign Up Conversions`, previous_period.`Cost per Sign Up Conversions`) AS `Cost per Sign Up Conversions`
+  
+  FROM
+      (
+  SELECT
+          campaign_costs.campaign AS Campaign,
+          campaign_costs.source AS Source,
+          round(campaign_costs.total_cost, 2) AS `Total Cost`,
+          round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
+          round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
+          round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+          round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
+          cg_0.conversion_0 AS `Sign Up Conversions`,
+          round(divide(campaign_costs.total_cost, nullif(cg_0.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
+      
+  FROM
+          (
+  SELECT
+              campaign,
+              source,
+              sum(cost) AS total_cost,
+              sum(clicks) AS total_clicks,
+              sum(impressions) AS total_impressions
+          
+  FROM
+              (
+  SELECT
+                  toString(campaign1) AS campaign,
+                  toString(source1) AS source,
+                  toFloat(coalesce(impressions1, 0)) AS impressions,
+                  toFloat(coalesce(clicks1, 0)) AS clicks,
+                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost
+              
+  FROM
+                  `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+              
+  WHERE
+                  and(greaterOrEquals(toDateTime(date1), toDateTime('2024-11-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59'))))
+          
+  GROUP BY
+              campaign,
+              source) AS campaign_costs
+          LEFT JOIN (
+  SELECT
+              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+              if(notEmpty(source_name), source_name, 'organic') AS source,
+              count() AS conversion_0
+          
+  FROM
+              (
+  SELECT
+                  person_id,
+                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+                  1 AS conversion_value
+              
+  FROM
+                  (
+  SELECT
+                      person_id,
+                      conversion_timestamps[i] AS conversion_time,
+                      conversion_math_values[i] AS conversion_math_value,
+                      conversion_campaigns[i] AS conversion_campaign,
+                      conversion_sources[i] AS conversion_source,
+                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                  
+  FROM
+                      (
+  SELECT
+                          events.person_id,
+                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(event, 'test_event'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(event, 'test_event'), toFloat(1), 0))) AS conversion_math_values,
+                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(event, 'test_event'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(event, 'test_event'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
+                      
+  FROM
+                          events
+                      
+  WHERE
+                          or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-11-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-11-01 00:00:00'), toIntervalSecond(31536000))), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))))
+                      
+  GROUP BY
+                          events.person_id
+                      
+  HAVING
+                          greater(length(conversion_timestamps), 0))
+                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+          
+  GROUP BY
+              campaign,
+              source) AS cg_0 ON and(equals(campaign_costs.campaign, cg_0.campaign), equals(campaign_costs.source, cg_0.source))) AS current_period
+      LEFT JOIN (
+  SELECT
+          campaign_costs.campaign AS Campaign,
+          campaign_costs.source AS Source,
+          round(campaign_costs.total_cost, 2) AS `Total Cost`,
+          round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
+          round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
+          round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+          round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
+          cg_0.conversion_0 AS `Sign Up Conversions`,
+          round(divide(campaign_costs.total_cost, nullif(cg_0.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
+      
+  FROM
+          (
+  SELECT
+              campaign,
+              source,
+              sum(cost) AS total_cost,
+              sum(clicks) AS total_clicks,
+              sum(impressions) AS total_impressions
+          
+  FROM
+              (
+  SELECT
+                  toString(campaign1) AS campaign,
+                  toString(source1) AS source,
+                  toFloat(coalesce(impressions1, 0)) AS impressions,
+                  toFloat(coalesce(clicks1, 0)) AS clicks,
+                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost
+              
+  FROM
+                  `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+              
+  WHERE
+                  and(greaterOrEquals(toDateTime(date1), toDateTime('2024-09-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-10-31 23:59:59'))))
+          
+  GROUP BY
+              campaign,
+              source) AS campaign_costs
+          LEFT JOIN (
+  SELECT
+              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+              if(notEmpty(source_name), source_name, 'organic') AS source,
+              count() AS conversion_0
+          
+  FROM
+              (
+  SELECT
+                  person_id,
+                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+                  1 AS conversion_value
+              
+  FROM
+                  (
+  SELECT
+                      person_id,
+                      conversion_timestamps[i] AS conversion_time,
+                      conversion_math_values[i] AS conversion_math_value,
+                      conversion_campaigns[i] AS conversion_campaign,
+                      conversion_sources[i] AS conversion_source,
+                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                  
+  FROM
+                      (
+  SELECT
+                          events.person_id,
+                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(event, 'test_event'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(event, 'test_event'), toFloat(1), 0))) AS conversion_math_values,
+                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(event, 'test_event'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(event, 'test_event'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
+                      
+  FROM
+                          events
+                      
+  WHERE
+                          or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-09-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-09-01 00:00:00'), toIntervalSecond(31536000))), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))))
+                      
+  GROUP BY
+                          events.person_id
+                      
+  HAVING
+                          greater(length(conversion_timestamps), 0))
+                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+          
+  GROUP BY
+              campaign,
+              source) AS cg_0 ON and(equals(campaign_costs.campaign, cg_0.campaign), equals(campaign_costs.source, cg_0.source))) AS previous_period ON and(equals(current_period.Campaign, previous_period.Campaign), equals(current_period.Source, previous_period.Source))
+  ORDER BY
+      `Total Cost` DESC
+  
+  LIMIT 101
+  OFFSET 0
+  '''
+# ---
+# name: TestMarketingAnalyticsTableQueryRunnerCompare.test_multi_source_business_metrics_validation_with_compare
+  dict({
+    'query': '''
+      
+      SELECT
+          tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
+          tuple(current_period.Source, previous_period.Source) AS Source,
+          tuple(current_period.`Total Cost`, previous_period.`Total Cost`) AS `Total Cost`,
+          tuple(current_period.`Total Clicks`, previous_period.`Total Clicks`) AS `Total Clicks`,
+          tuple(current_period.`Total Impressions`, previous_period.`Total Impressions`) AS `Total Impressions`,
+          tuple(current_period.`Cost per Click`, previous_period.`Cost per Click`) AS `Cost per Click`,
+          tuple(current_period.CTR, previous_period.CTR) AS CTR
+      
+      FROM
+          (
+      SELECT
+              campaign_costs.campaign AS Campaign,
+              campaign_costs.source AS Source,
+              round(campaign_costs.total_cost, 2) AS `Total Cost`,
+              round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
+              round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
+              round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+              round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR
+          
+      FROM
+              (
+      SELECT
+                  campaign,
+                  source,
+                  sum(cost) AS total_cost,
+                  sum(clicks) AS total_clicks,
+                  sum(impressions) AS total_impressions
+              
+      FROM
+                  (
+      SELECT
+                      toString(campaign1) AS campaign,
+                      toString(source1) AS source,
+                      toFloat(coalesce(impressions1, 0)) AS impressions,
+                      toFloat(coalesce(clicks1, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date1), toDateTime('2024-11-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59')))
+                  UNION ALL
+                  
+      SELECT
+                      toString(campaign2) AS campaign,
+                      toString(source2) AS source,
+                      toFloat(coalesce(impressions2, 0)) AS impressions,
+                      toFloat(coalesce(clicks2, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend2, 0)))) AS cost
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_tiktok_ads_table` AS posthog_test_tiktok_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date2), toDateTime('2024-11-01 00:00:00')), lessOrEquals(toDateTime(date2), toDateTime('2024-12-31 23:59:59')))
+                  UNION ALL
+                  
+      SELECT
+                      toString(campaign3) AS campaign,
+                      toString(source3) AS source,
+                      toFloat(coalesce(impressions3, 0)) AS impressions,
+                      toFloat(coalesce(clicks3, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date3), toDateTime('2024-11-01 00:00:00')), lessOrEquals(toDateTime(date3), toDateTime('2024-12-31 23:59:59'))))
+              
+      GROUP BY
+                  campaign,
+                  source) AS campaign_costs) AS current_period
+          LEFT JOIN (
+      SELECT
+              campaign_costs.campaign AS Campaign,
+              campaign_costs.source AS Source,
+              round(campaign_costs.total_cost, 2) AS `Total Cost`,
+              round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
+              round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
+              round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+              round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR
+          
+      FROM
+              (
+      SELECT
+                  campaign,
+                  source,
+                  sum(cost) AS total_cost,
+                  sum(clicks) AS total_clicks,
+                  sum(impressions) AS total_impressions
+              
+      FROM
+                  (
+      SELECT
+                      toString(campaign1) AS campaign,
+                      toString(source1) AS source,
+                      toFloat(coalesce(impressions1, 0)) AS impressions,
+                      toFloat(coalesce(clicks1, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date1), toDateTime('2024-09-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-10-31 23:59:59')))
+                  UNION ALL
+                  
+      SELECT
+                      toString(campaign2) AS campaign,
+                      toString(source2) AS source,
+                      toFloat(coalesce(impressions2, 0)) AS impressions,
+                      toFloat(coalesce(clicks2, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend2, 0)))) AS cost
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_tiktok_ads_table` AS posthog_test_tiktok_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date2), toDateTime('2024-09-01 00:00:00')), lessOrEquals(toDateTime(date2), toDateTime('2024-10-31 23:59:59')))
+                  UNION ALL
+                  
+      SELECT
+                      toString(campaign3) AS campaign,
+                      toString(source3) AS source,
+                      toFloat(coalesce(impressions3, 0)) AS impressions,
+                      toFloat(coalesce(clicks3, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date3), toDateTime('2024-09-01 00:00:00')), lessOrEquals(toDateTime(date3), toDateTime('2024-10-31 23:59:59'))))
+              
+      GROUP BY
+                  campaign,
+                  source) AS campaign_costs) AS previous_period ON and(equals(current_period.Campaign, previous_period.Campaign), equals(current_period.Source, previous_period.Source))
+      ORDER BY
+          `Total Cost` DESC
+      
+      LIMIT 101
+      OFFSET 0
+    ''',
+    'response': list([
+      tuple(
+        tuple(
+          'Test-Brand-Campaign-EMEA',
+          '',
+        ),
+        tuple(
+          'TikTok Ads',
+          '',
+        ),
+        tuple(
+          47.21,
+          None,
+        ),
+        tuple(
+          118.0,
+          None,
+        ),
+        tuple(
+          324.0,
+          None,
+        ),
+        tuple(
+          0.4,
+          None,
+        ),
+        tuple(
+          36.42,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'Test-Competitors-AMER',
+          '',
+        ),
+        tuple(
+          'TikTok Ads',
+          '',
+        ),
+        tuple(
+          38.92,
+          None,
+        ),
+        tuple(
+          1.0,
+          None,
+        ),
+        tuple(
+          48.0,
+          None,
+        ),
+        tuple(
+          38.92,
+          None,
+        ),
+        tuple(
+          2.08,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024',
+          'TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024',
+        ),
+        tuple(
+          'LinkedIn Ads',
+          'LinkedIn Ads',
+        ),
+        tuple(
+          31.92,
+          24.42,
+        ),
+        tuple(
+          4.0,
+          4.0,
+        ),
+        tuple(
+          1581.0,
+          2649.0,
+        ),
+        tuple(
+          7.98,
+          6.1,
+        ),
+        tuple(
+          0.25,
+          0.15,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Analytics-Aug-2024',
+          '',
+        ),
+        tuple(
+          'LinkedIn Ads',
+          '',
+        ),
+        tuple(
+          23.12,
+          None,
+        ),
+        tuple(
+          4.0,
+          None,
+        ),
+        tuple(
+          1171.0,
+          None,
+        ),
+        tuple(
+          5.78,
+          None,
+        ),
+        tuple(
+          0.34,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Comparison-Oct-2024',
+          '',
+        ),
+        tuple(
+          'LinkedIn Ads',
+          '',
+        ),
+        tuple(
+          13.49,
+          None,
+        ),
+        tuple(
+          3.0,
+          None,
+        ),
+        tuple(
+          420.0,
+          None,
+        ),
+        tuple(
+          4.5,
+          None,
+        ),
+        tuple(
+          0.71,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TechFlow-Prospecting-AMER-Traffic-Leadership-Static-Analytics-Aug-2024',
+          '',
+        ),
+        tuple(
+          'LinkedIn Ads',
+          '',
+        ),
+        tuple(
+          10.25,
+          None,
+        ),
+        tuple(
+          2.0,
+          None,
+        ),
+        tuple(
+          616.0,
+          None,
+        ),
+        tuple(
+          5.12,
+          None,
+        ),
+        tuple(
+          0.32,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'Test-Experimentation-AMER',
+          '',
+        ),
+        tuple(
+          'TikTok Ads',
+          '',
+        ),
+        tuple(
+          7.43,
+          None,
+        ),
+        tuple(
+          1.0,
+          None,
+        ),
+        tuple(
+          11.0,
+          None,
+        ),
+        tuple(
+          7.43,
+          None,
+        ),
+        tuple(
+          9.09,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TestCorp-Search-EMEA-Analytics-Tools',
+          'TestCorp-Search-EMEA-Analytics-Tools',
+        ),
+        tuple(
+          'Facebook Ads',
+          'Facebook Ads',
+        ),
+        tuple(
+          6.88,
+          2.63,
+        ),
+        tuple(
+          3.0,
+          2.0,
+        ),
+        tuple(
+          168.0,
+          164.0,
+        ),
+        tuple(
+          2.29,
+          1.32,
+        ),
+        tuple(
+          1.79,
+          1.22,
+        ),
+      ),
+      tuple(
+        tuple(
+          'Test-AB-Testing-AMER',
+          'Test-AB-Testing-AMER',
+        ),
+        tuple(
+          'TikTok Ads',
+          'TikTok Ads',
+        ),
+        tuple(
+          6.28,
+          8.67,
+        ),
+        tuple(
+          2.0,
+          2.0,
+        ),
+        tuple(
+          76.0,
+          28.0,
+        ),
+        tuple(
+          3.14,
+          4.34,
+        ),
+        tuple(
+          2.63,
+          7.14,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TechFlow-Prospecting-GroupB-Traffic-Engineering-Static-Dec-2024',
+          '',
+        ),
+        tuple(
+          'LinkedIn Ads',
+          '',
+        ),
+        tuple(
+          4.13,
+          None,
+        ),
+        tuple(
+          1.0,
+          None,
+        ),
+        tuple(
+          312.0,
+          None,
+        ),
+        tuple(
+          4.13,
+          None,
+        ),
+        tuple(
+          0.32,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'test_brand_campaign',
+          '',
+        ),
+        tuple(
+          'Facebook Ads',
+          '',
+        ),
+        tuple(
+          3.43,
+          None,
+        ),
+        tuple(
+          2.0,
+          None,
+        ),
+        tuple(
+          731.0,
+          None,
+        ),
+        tuple(
+          1.72,
+          None,
+        ),
+        tuple(
+          0.27,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TestCorp-Search-AMER-Analytics-Tools',
+          'TestCorp-Search-AMER-Analytics-Tools',
+        ),
+        tuple(
+          'Facebook Ads',
+          'Facebook Ads',
+        ),
+        tuple(
+          2.94,
+          2.2,
+        ),
+        tuple(
+          2.0,
+          2.0,
+        ),
+        tuple(
+          207.0,
+          106.0,
+        ),
+        tuple(
+          1.47,
+          1.1,
+        ),
+        tuple(
+          0.97,
+          1.89,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TechFlow-Prospecting-EMEA-Traffic-Technical-Static-Analytics-Aug-2024',
+          '',
+        ),
+        tuple(
+          'LinkedIn Ads',
+          '',
+        ),
+        tuple(
+          1.28,
+          None,
+        ),
+        tuple(
+          2.0,
+          None,
+        ),
+        tuple(
+          238.0,
+          None,
+        ),
+        tuple(
+          0.64,
+          None,
+        ),
+        tuple(
+          0.84,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'Test-Product-Analytics-EMEA',
+          '',
+        ),
+        tuple(
+          'Facebook Ads',
+          '',
+        ),
+        tuple(
+          0.58,
+          None,
+        ),
+        tuple(
+          1.0,
+          None,
+        ),
+        tuple(
+          298.0,
+          None,
+        ),
+        tuple(
+          0.58,
+          None,
+        ),
+        tuple(
+          0.34,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'Test-Experimentation-EMEA',
+          'Test-Experimentation-EMEA',
+        ),
+        tuple(
+          'TikTok Ads',
+          'TikTok Ads',
+        ),
+        tuple(
+          0.0,
+          0.0,
+        ),
+        tuple(
+          0.0,
+          0.0,
+        ),
+        tuple(
+          7.0,
+          21.0,
+        ),
+        tuple(
+          None,
+          None,
+        ),
+        tuple(
+          0.0,
+          0.0,
+        ),
+      ),
+      tuple(
+        tuple(
+          'Test-Session-Recording-AMER',
+          '',
+        ),
+        tuple(
+          'TikTok Ads',
+          '',
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+        tuple(
+          5.0,
+          None,
+        ),
+        tuple(
+          None,
+          None,
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TestCorp-Search-EMEA-Mobile-Platform',
+          '',
+        ),
+        tuple(
+          'TikTok Ads',
+          '',
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+        tuple(
+          13.0,
+          None,
+        ),
+        tuple(
+          None,
+          None,
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'Test-Product-Analytics-AMER',
+          '',
+        ),
+        tuple(
+          'Facebook Ads',
+          '',
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+        tuple(
+          2.0,
+          None,
+        ),
+        tuple(
+          None,
+          None,
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+      ),
+      tuple(
+        tuple(
+          'TechFlow-Prospecting-GroupB-Traffic-Leadership-Static-Dec-2024',
+          '',
+        ),
+        tuple(
+          'LinkedIn Ads',
+          '',
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+        tuple(
+          257.0,
+          None,
+        ),
+        tuple(
+          None,
+          None,
+        ),
+        tuple(
+          0.0,
+          None,
+        ),
+      ),
+    ]),
+  })
+# ---

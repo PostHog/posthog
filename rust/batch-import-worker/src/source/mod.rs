@@ -28,4 +28,8 @@ pub trait DataSource: Sync + Send {
     async fn cleanup_after_job(&self) -> Result<(), Error> {
         Ok(())
     }
+
+    fn get_date_range_for_key(&self, _key: &str) -> Option<String> {
+        None
+    }
 }
