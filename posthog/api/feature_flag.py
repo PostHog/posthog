@@ -70,7 +70,6 @@ from posthog.models.feature_flag import (
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
 from posthog.models.surveys.survey import Survey
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.schema import PropertyOperator
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
@@ -81,14 +80,8 @@ from posthog.queries.base import (
 from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
-from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import model_activity_signal
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
-from posthog.api.services.flag_definitions_cache import (
-    invalidate_cache_for_feature_flag_change,
-    invalidate_cache_for_cohort_change,
-    invalidate_cache_for_group_type_mapping_change,
-)
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
@@ -1498,23 +1491,6 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
             trigger=trigger,
         ),
     )
-
-    # Invalidate flag definitions cache when feature flags change
-    invalidate_cache_for_feature_flag_change(after_update, activity)
-
-
-@receiver(post_save, sender=Cohort)
-@receiver(post_delete, sender=Cohort)
-def handle_cohort_change(sender, instance, **kwargs):
-    """Invalidate flag definitions cache when cohorts change."""
-    invalidate_cache_for_cohort_change(instance)
-
-
-@receiver(post_save, sender=GroupTypeMapping)
-@receiver(post_delete, sender=GroupTypeMapping)
-def handle_group_type_mapping_change(sender, instance, **kwargs):
-    """Invalidate flag definitions cache when group type mappings change."""
-    invalidate_cache_for_group_type_mapping_change(instance)
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
