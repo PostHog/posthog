@@ -1369,11 +1369,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     (i) => manualDashboardRefresh || !i.cache_target_age || dayjs(i.cache_target_age).isBefore(dayjs())
                 )
 
-            const insightsToRefresh = sortedInsights
-            if (insightsToRefresh.length > 0) {
+            if (sortedInsights.length > 0) {
                 // Set refresh status for all insights
                 actions.setRefreshStatuses(
-                    insightsToRefresh.map((item) => item.short_id),
+                    sortedInsights.map((item) => item.short_id),
                     false,
                     true
                 )
@@ -1382,7 +1381,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController = new AbortController()
                 const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
 
-                const fetchSyncInsightFunctions = insightsToRefresh.map((insight) => async () => {
+                const fetchSyncInsightFunctions = sortedInsights.map((insight) => async () => {
                     const queryId = uuid()
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
