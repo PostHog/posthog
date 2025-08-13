@@ -33,7 +33,6 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from ee.billing.billing_manager import BillingManager
 from posthog.cloud_utils import get_cached_instance_license
@@ -624,22 +623,32 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         billing_manager = BillingManager(get_cached_instance_license())
         org_billing = billing_manager.get_billing(organization=self.team.organization)
+        type_of_rows = "MONTHLY"
         if org_billing and org_billing.get("billing_period"):
             billing_period = org_billing["billing_period"]
             billing_period_start = parser.parse(billing_period["current_period_start"])
             billing_period_end = parser.parse(billing_period["current_period_end"])
+        elif org_billing and not org_billing.get("billing_period"):
+            type_of_rows = "ALL_TIME"
         else:
             raise ValidationError("No billing period available")
 
         # calculate total rows processed in billing period
-        external_data_jobs = ExternalDataJob.objects.filter(
-            team_id=self.team_id, billable=True, created_at__gte=billing_period_start, created_at__lt=billing_period_end
-        )
+        if type_of_rows == "MONTHLY":
+            external_data_jobs = ExternalDataJob.objects.filter(
+                team_id=self.team_id,
+                billable=True,
+                created_at__gte=billing_period_start,
+                created_at__lt=billing_period_end,
+            )
+            # TODO: double check if this is needed (do materialized views count towards billing limit?)
+            materialized_jobs = DataModelingJob.objects.filter(
+                team_id=self.team_id, created_at__gte=billing_period_start, created_at__lt=billing_period_end
+            )
 
-        # TODO: double check if this is needed (do materialized views count towards billing limit?)
-        materialized_jobs = DataModelingJob.objects.filter(
-            team_id=self.team_id, created_at__gte=billing_period_start, created_at__lt=billing_period_end
-        )
+        elif type_of_rows == "ALL_TIME":
+            external_data_jobs = ExternalDataJob.objects.filter(team_id=self.team_id, billable=True)
+            materialized_jobs = DataModelingJob.objects.filter(team_id=self.team_id)
 
         external_rows = external_data_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
         materialized_rows = materialized_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
@@ -649,5 +658,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
             data={
                 "billingPeriodRowsProcessed": billing_period_rows_processed,
+                "typeOfBillingPeriod": type_of_rows,
             },
         )
