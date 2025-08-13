@@ -32,8 +32,8 @@ const TooltipContent = (): JSX.Element | null => {
         liveUserUpdatedSecondsAgo === 0
             ? 'updated just now'
             : liveUserUpdatedSecondsAgo == null
-            ? ''
-            : `updated ${liveUserUpdatedSecondsAgo} seconds ago`
+              ? ''
+              : `updated ${liveUserUpdatedSecondsAgo} seconds ago`
 
     return (
         <div>

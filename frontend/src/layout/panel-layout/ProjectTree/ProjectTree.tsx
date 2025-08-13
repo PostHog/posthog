@@ -10,6 +10,7 @@ import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import {
     ContextMenuGroup,
     ContextMenuItem,
@@ -131,7 +132,7 @@ export function ProjectTree({
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
             setSortMethod(sortMethod ?? 'folder')
         }
-    }, [sortMethod, projectSortMethod])
+    }, [sortMethod, projectSortMethod, setSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {
@@ -141,6 +142,35 @@ export function ProjectTree({
             clearScrollTarget()
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
+
+    // Show active state for items that are active in the URL
+    function isItemActive(item: TreeDataItem): boolean {
+        if (!item.record?.href) {
+            return false
+        }
+
+        const currentPath = removeProjectIdIfPresent(window.location.pathname)
+        const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+
+        if (currentPath === itemHref) {
+            return true
+        }
+
+        // Current path is a sub-path of item (e.g., /insights/new under /insights)
+        if (currentPath.startsWith(itemHref + '/')) {
+            return true
+        }
+
+        // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+        if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+            return true
+        }
+        if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
+            return true
+        }
+
+        return false
+    }
 
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
@@ -378,17 +408,13 @@ export function ProjectTree({
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
-            isItemActive={(item) => {
-                if (!item.record?.href) {
-                    return false
-                }
-                return window.location.href.endsWith(item.record?.href)
-            }}
+            isItemActive={isItemActive}
             size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
             disableScroll={onlyTree ? true : false}
-            onItemClick={(item) => {
+            onItemClick={(item, event) => {
+                event.preventDefault()
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
                 }
@@ -448,8 +474,8 @@ export function ProjectTree({
                 const folder = newItem
                     ? newItem.path || ''
                     : newId && String(newId).startsWith('project://')
-                    ? String(newId).substring(10)
-                    : ''
+                      ? String(newId).substring(10)
+                      : ''
 
                 if (checkedItems[oldId]) {
                     moveCheckedItems(folder)
@@ -621,8 +647,8 @@ export function ProjectTree({
                                             {header.formatComponent
                                                 ? header.formatComponent(value, item)
                                                 : header.formatString
-                                                ? header.formatString(value, item)
-                                                : value}
+                                                  ? header.formatString(value, item)
+                                                  : value}
                                         </span>
                                     </Tooltip>
                                 </span>
@@ -635,7 +661,27 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
                 if (root === 'products://' || root === 'data://' || root === 'persons://') {
-                    return <>View {nameNode}</>
+                    return (
+                        <>
+                            {nameNode}
+                            {item.record?.protocol === 'products://' && item.tags?.length && (
+                                <>
+                                    {item.tags?.map((tag) => (
+                                        <LemonTag
+                                            key={tag}
+                                            type={
+                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
+                                            }
+                                            size="small"
+                                            className="ml-2 relative top-[-1px]"
+                                        >
+                                            {tag.toUpperCase()}
+                                        </LemonTag>
+                                    ))}
+                                </>
+                            )}
+                        </>
+                    )
                 }
                 if (root === 'new://') {
                     if (item.children) {

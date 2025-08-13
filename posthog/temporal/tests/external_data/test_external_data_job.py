@@ -36,9 +36,6 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
 )
 
-from posthog.temporal.data_imports.pipelines.schemas import (
-    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-)
 from posthog.models import Team
 from temporalio.testing import WorkflowEnvironment
 from temporalio.common import RetryPolicy
@@ -48,14 +45,15 @@ import pytest_asyncio
 import boto3
 import functools
 from django.conf import settings
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 import psycopg
 
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
+from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
 
 BUCKET_NAME = "test-pipeline"
@@ -202,7 +200,7 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
     )
@@ -226,10 +224,11 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
         team=team,
         status="running",
         source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
     )
 
     ExternalDataSchema.objects.create(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
@@ -239,9 +238,9 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
 
     activity_environment.run(sync_new_schemas_activity, inputs)
 
-    all_schemas = get_all_schemas_for_source_id(new_source.pk, team.id)
+    all_schemas = get_all_schemas_for_source_id(str(new_source.pk), team.id)
 
-    assert len(all_schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE])
+    assert len(all_schemas) == len(STRIPE_ENDPOINTS)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -259,7 +258,7 @@ def test_update_external_job_activity(activity_environment, team, **kwargs):
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
@@ -303,7 +302,7 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
@@ -432,7 +431,7 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
 
 @pytest.fixture
 def mock_stripe_client():
-    with mock.patch("posthog.temporal.data_imports.pipelines.stripe.StripeClient") as MockStripeClient:
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()
@@ -689,11 +688,11 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         with (
             override_settings(
                 BUCKET_URL=f"s3://{BUCKET_NAME}",
+                BUCKET_PATH=BUCKET_NAME,
                 AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
                 AIRBYTE_BUCKET_REGION="us-east-1",
                 AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-                BUCKET_NAME=BUCKET_NAME,
             ),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -783,37 +782,13 @@ async def test_run_postgres_job(
 
     job_1, job_1_inputs = await setup_job_1()
 
-    def mock_to_session_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "aws_session_token": None,
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    def mock_to_object_store_rs_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region": "us-east-1",
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-            BUCKET_NAME=BUCKET_NAME,
-        ),
-        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    with override_settings(
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
+        BUCKET_PATH=BUCKET_NAME,
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         await sync_to_async(activity_environment.run)(import_data_activity_sync, job_1_inputs)
 

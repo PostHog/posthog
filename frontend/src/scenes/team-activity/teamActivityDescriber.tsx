@@ -199,8 +199,8 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         }
     },
     recording_domains: (change) => {
-        const before: string[] | null = Array.isArray(change.before) ? change.before.map(String) ?? null : null
-        const after: string[] | null = Array.isArray(change.after) ? change.after.map(String) ?? null : null
+        const before: string[] | null = Array.isArray(change.before) ? (change.before.map(String) ?? null) : null
+        const after: string[] | null = Array.isArray(change.after) ? (change.after.map(String) ?? null) : null
         if (after === null && before === null) {
             return null
         }

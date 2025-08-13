@@ -32,12 +32,12 @@ export function OrganizationDisplayName(): JSX.Element {
                     restrictionReason
                         ? restrictionReason
                         : !name
-                        ? 'You must provide a name'
-                        : !currentOrganization
-                        ? 'Organization not loaded'
-                        : currentOrganization.name === name
-                        ? 'Name unchanged'
-                        : undefined
+                          ? 'You must provide a name'
+                          : !currentOrganization
+                            ? 'Organization not loaded'
+                            : currentOrganization.name === name
+                              ? 'Name unchanged'
+                              : undefined
                 }
                 loading={currentOrganizationLoading}
             >

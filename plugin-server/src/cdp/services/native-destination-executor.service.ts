@@ -231,7 +231,7 @@ export class NativeDestinationExecutorService {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry
                     result.finished = false
-                    result.invocation.queue = 'native'
+                    result.invocation.queue = 'hog'
                     result.invocation.queuePriority = metadata.tries
                     result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
                     return result

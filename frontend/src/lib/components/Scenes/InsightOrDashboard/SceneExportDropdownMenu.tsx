@@ -15,7 +15,7 @@ import { exportsLogic } from '../../ExportButton/exportsLogic'
 interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
     dropdownMenuItems: {
         label?: string
-        dataAttr?: string
+        dataAttr: string
         format: ExporterFormat
         insight?: number
         dashboard?: number

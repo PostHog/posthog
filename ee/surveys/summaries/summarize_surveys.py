@@ -3,6 +3,7 @@ import openai
 from datetime import datetime
 from typing import Optional, cast
 
+from posthog.api.utils import ServerTimingsGathered
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -10,7 +11,6 @@ from posthog.utils import get_instance_region
 
 from prometheus_client import Histogram
 
-from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import Team, User
 
 import structlog

@@ -125,7 +125,8 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization, level=self.level)
-        for item in self.private_project_access:
+
+        for item in self.private_project_access or []:
             try:
                 team: Team = self.organization.teams.get(id=item["id"])
                 parent_membership = OrganizationMembership.objects.get(
@@ -166,7 +167,9 @@ class OrganizationInvite(UUIDModel):
                     "organization_id": self.organization_id,
                 }
             )
-        OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
+        OrganizationInvite.objects.filter(
+            organization=self.organization, target_email__iexact=self.target_email
+        ).delete()
 
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""

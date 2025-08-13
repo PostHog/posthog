@@ -1,13 +1,9 @@
 import uuid
 from abc import ABC, abstractmethod
-from typing import Optional
-from freezegun import freeze_time
-from urllib.parse import urlparse
 
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_event,
     _create_person,
     cleanup_materialized_columns,
 )
@@ -64,34 +60,6 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
             distinct_id = self._generate_random_distinct_id()
         _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
         return distinct_id
-
-    def _create_session_event(
-        self,
-        distinct_id: str,
-        session_id: str,
-        timestamp: str,
-        url: str = "https://example.com/page",
-        event: str = "$pageview",
-        extra_properties: Optional[dict] = None,
-    ) -> None:
-        parsed_url = urlparse(url)
-        hostname = parsed_url.hostname or ""
-        properties = {
-            "$session_id": session_id,
-            "$current_url": url,
-            "$pathname": (url.split(hostname)[-1] if hostname and hostname.endswith(".example.com") else "/"),
-            **self.STANDARD_EVENT_PROPERTIES,
-            **(extra_properties or {}),
-        }
-
-        _create_event(distinct_id=distinct_id, event=event, team=self.team, timestamp=timestamp, properties=properties)
-
-    def _create_session_with_events(
-        self, distinct_id: str, session_id: str, events: list[tuple[str, str]], extra_properties: Optional[dict] = None
-    ) -> None:
-        for timestamp, url in events:
-            with freeze_time(timestamp):
-                self._create_session_event(distinct_id, session_id, timestamp, url, extra_properties=extra_properties)
 
     def _sort_results(self, results, key=lambda x: str(x[0])):
         return sorted(results, key=key)

@@ -16,7 +16,6 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
     update_column_is_disabled,
 )
-from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
 from posthog.clickhouse.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
@@ -245,20 +244,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         expr_nonnullable = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         expr_nullable = "JSONExtract(properties, 'myprop_nullable', 'Nullable(String)')"
-        self.assertEqual(("String", "MATERIALIZED", expr_nonnullable), self._get_column_types("mat_myprop"))
-        self.assertEqual(
-            ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
-        )
 
         backfill_materialized_columns("events", columns, timedelta(days=50))
         self.assertEqual(("String", "DEFAULT", expr_nonnullable), self._get_column_types("mat_myprop"))
         self.assertEqual(("Nullable(String)", "DEFAULT", expr_nullable), self._get_column_types("mat_myprop_nullable"))
-
-        mark_all_materialized()
-        self.assertEqual(("String", "MATERIALIZED", expr_nonnullable), self._get_column_types("mat_myprop"))
-        self.assertEqual(
-            ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
-        )
 
     def _count_materialized_rows(self, column):
         return sync_execute(

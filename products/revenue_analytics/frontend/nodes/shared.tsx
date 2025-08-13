@@ -1,4 +1,4 @@
-import { LemonSegmentedButtonOption, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButtonOption, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { IconGraph, IconInfo, IconLineGraph } from '@posthog/icons'
 
@@ -88,10 +88,20 @@ export const RevenueAnalyticsLineGraph = (
             type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
             isArea={insightsDisplayMode !== 'line'}
             isInProgress={!dateFilter.dateTo}
-            legend={{ display: true, position: 'right' }}
+            legend={{ display: props.datasets.length > 1, position: 'right' }}
             trendsFilter={{ aggregationAxisFormat: 'numeric' }}
             labelGroupType="none"
             {...props}
         />
+    )
+}
+
+export const AlphaTag = (): JSX.Element => {
+    return (
+        <Tooltip title="This is a new chart type that is still in alpha. Data might not be accurate.">
+            <LemonTag type="completion" size="small">
+                ALPHA
+            </LemonTag>
+        </Tooltip>
     )
 }

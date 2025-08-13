@@ -15,7 +15,8 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
         description: 'Send event data to Laudspeaker',
         icon_url: 'https://raw.githubusercontent.com/laudspeaker/laudspeaker-posthog-plugin/master/logo.png',
         category: [],
-        hog: 'return event',
+        code_language: 'javascript',
+        code: 'return event',
         inputs_schema: [
             {
                 templating: false,

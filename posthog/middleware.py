@@ -33,9 +33,11 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
+from posthog.models.utils import generate_random_token
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
 
@@ -642,5 +644,68 @@ class Fix204Middleware:
             response.content = b""
             for h in ["Content-Type", "X-Content-Type-Options"]:
                 response.headers.pop(h, None)
+
+        return response
+
+
+class ActivityLoggingMiddleware:
+    """
+    Middleware that sets the current user and impersonation status in activity storage
+    for use by the activity logging system.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        # Set user in activity storage if authenticated
+        if request.user.is_authenticated:
+            activity_storage.set_user(request.user)
+            activity_storage.set_was_impersonated(is_impersonated_session(request))
+
+        try:
+            response = self.get_response(request)
+        finally:
+            # Clean up activity storage after request
+            activity_storage.clear_all()
+
+        return response
+
+
+# Add CSP to Admin tooling
+class AdminCSPMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        is_admin_view = request.path.startswith("/admin/")
+        # add nonce to request before generating response
+        if is_admin_view:
+            nonce = generate_random_token(16)
+            request.admin_csp_nonce = nonce
+
+        response = self.get_response(request)
+
+        if is_admin_view:
+            # TODO replace with django-loginas `LOGINAS_CSP_FRIENDLY` setting once 0.3.12 is released (https://github.com/skorokithakis/django-loginas/issues/111)
+            django_loginas_inline_script_hash = "sha256-YS9p0l7SQLkAEtvGFGffDcYHRcUBpPzMcbSQe1lRuLc="
+            csp_parts = [
+                "default-src 'self'",
+                "style-src 'self' 'unsafe-inline'",
+                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
+                "worker-src 'none'",
+                "child-src 'none'",
+                "object-src 'none'",
+                "frame-ancestors 'none'",
+                "manifest-src 'none'",
+                "base-uri 'self'",
+                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
+                "report-to posthog",
+            ]
+
+            response.headers["Reporting-Endpoints"] = (
+                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
+            )
+            response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
 
         return response

@@ -4,7 +4,10 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
@@ -12,8 +15,7 @@ import { SessionPlayerState } from '~/types'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
@@ -65,11 +67,11 @@ function FullScreen(): JSX.Element {
 }
 
 function CinemaMode(): JSX.Element {
-    const { isZenMode, sidebarOpen } = useValues(playerSettingsLogic)
-    const { setIsZenMode, setSidebarOpen } = useActions(playerSettingsLogic)
+    const { isCinemaMode, sidebarOpen } = useValues(playerSettingsLogic)
+    const { setIsCinemaMode, setSidebarOpen } = useActions(playerSettingsLogic)
 
     const handleCinemaMode = (): void => {
-        setIsZenMode(!isZenMode)
+        setIsCinemaMode(!isCinemaMode)
         if (sidebarOpen) {
             setSidebarOpen(false)
         }
@@ -77,27 +79,28 @@ function CinemaMode(): JSX.Element {
 
     return (
         <>
-            {isZenMode && <LemonTag type="success">You are in "Cinema mode"</LemonTag>}
+            {isCinemaMode && <LemonTag type="success">You are in "Cinema mode"</LemonTag>}
             <LemonButton
                 size="xsmall"
                 onClick={handleCinemaMode}
                 tooltip={
                     <>
-                        <span>{!isZenMode ? 'Enter' : 'Exit'}</span> cinema mode
+                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode
                     </>
                 }
-                status={isZenMode ? 'danger' : 'default'}
+                status={isCinemaMode ? 'danger' : 'default'}
                 icon={<IconVideoCamera className="text-2xl" />}
-                data-attr={isZenMode ? 'exit-zen-mode' : 'zen-mode'}
+                data-attr={isCinemaMode ? 'exit-cinema-mode' : 'cinema-mode'}
             />
         </>
     )
 }
 
 export function PlayerController(): JSX.Element {
-    const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
-    const { isZenMode } = useValues(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
+
+    const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -115,13 +118,13 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    {!isZenMode && (
+                    {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
                         <>
                             <CommentOnRecordingButton />
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
-                    {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <CinemaMode />}
+                    <CinemaMode />
                     <FullScreen />
                 </div>
             </div>

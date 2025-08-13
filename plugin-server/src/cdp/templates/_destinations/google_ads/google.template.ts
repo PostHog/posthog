@@ -1,7 +1,7 @@
 import { HogFunctionInputSchemaType } from '~/cdp/types'
 import { HogFunctionTemplate } from '~/cdp/types'
 
-// Based on https://developers.google.com/google-ads/api/reference/rpc/v18/ClickConversion
+// Based on https://developers.google.com/google-ads/api/reference/rpc/v21/ClickConversion
 
 const build_inputs = (): HogFunctionInputSchemaType[] => {
     return [
@@ -69,14 +69,15 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'hidden',
+    status: 'alpha',
     type: 'destination',
     id: 'template-google-ads',
     name: 'Google Ads Conversions',
     description: 'Send conversion events to Google Ads',
     icon_url: '/static/services/google-ads.png',
     category: ['Advertisement'],
-    hog: `
+    code_language: 'hog',
+    code: `
 if (empty(inputs.gclid)) {
     print('Empty \`gclid\`. Skipping...')
     return
@@ -103,7 +104,7 @@ if (not empty(inputs.orderId)) {
     body.conversions[1].order_id := inputs.orderId
 }
 
-let res := fetch(f'https://googleads.googleapis.com/v18/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {
+let res := fetch(f'https://googleads.googleapis.com/v21/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',

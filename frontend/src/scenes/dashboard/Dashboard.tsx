@@ -7,7 +7,6 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
@@ -22,6 +21,7 @@ import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 interface DashboardProps {
     id?: string
@@ -60,19 +60,16 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
-        dashboardVariables,
+        hasVariables,
     } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
-    const hasVariables = Object.keys(dashboardVariables).length > 0
-
-    useEffect(() => {
+    useOnMountEffect(() => {
         reportDashboardViewed()
-        return () => {
-            // request cancellation of any running queries when this component is no longer in the dom
-            abortAnyRunningQuery()
-        }
-    }, [])
+
+        // request cancellation of any running queries when this component is no longer in the dom
+        return () => abortAnyRunningQuery()
+    })
 
     useKeyboardHotkeys(
         placement == DashboardPlacement.Dashboard

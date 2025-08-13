@@ -1,5 +1,4 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
@@ -8,7 +7,6 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -19,6 +17,8 @@ import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconRocket } from '@posthog/icons'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
@@ -95,6 +95,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                   }
                 : undefined,
         ])
+        // oxlint-disable-next-line exhaustive-deps
     }, [featureFlag])
 
     if (featureFlagMissing) {

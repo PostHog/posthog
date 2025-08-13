@@ -1,5 +1,6 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
 import { AlertType } from 'lib/components/Alerts/types'
 import { isEmptyObject } from 'lib/utils'
@@ -31,7 +32,7 @@ import {
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
-import { parseDraftQueryFromURL } from './utils'
+import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
 import api from 'lib/api'
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
 
@@ -119,8 +120,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         ? itemId === 'new'
                             ? 'new'
                             : Number.isInteger(+itemId)
-                            ? parseInt(itemId, 10)
-                            : itemId
+                              ? parseInt(itemId, 10)
+                              : itemId
                         : null,
             },
         ],
@@ -229,6 +230,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     ? {
                           activity_scope: ActivityScope.INSIGHT,
                           activity_item_id: `${insight.id}`,
+                          // when e.g. constructing URLs for an insight we don't use the id,
+                          // so we also store the short id
+                          activity_item_context: {
+                              short_id: `${insight.short_id}`,
+                          },
                           access_control_resource: 'insight',
                           access_control_resource_id: `${insight.id}`,
                       }
@@ -324,20 +330,25 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 mode === 'subscriptions'
                     ? ItemMode.Subscriptions
                     : mode === 'alerts'
-                    ? ItemMode.Alerts
-                    : mode === 'sharing'
-                    ? ItemMode.Sharing
-                    : mode === 'edit' || shortId === 'new'
-                    ? ItemMode.Edit
-                    : ItemMode.View
+                      ? ItemMode.Alerts
+                      : mode === 'sharing'
+                        ? ItemMode.Sharing
+                        : mode === 'edit' || shortId === 'new'
+                          ? ItemMode.Edit
+                          : ItemMode.View
             const insightId = String(shortId) as InsightShortId
 
             const currentScene = sceneLogic.findMounted()?.values
 
+            const alertChanged = alert_id !== values.alertId
+
             if (
                 currentScene?.activeScene === Scene.Insight &&
-                currentScene.activeSceneLogic?.values.insightId === insightId &&
-                currentScene.activeSceneLogic?.values.mode === insightMode
+                currentScene.activeSceneLogic &&
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
+                    insightMode &&
+                !alertChanged
             ) {
                 // If nothing about the scene has changed, don't do anything
                 return
@@ -356,7 +367,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
-                alert_id !== values.alertId ||
+                alertChanged ||
                 !objectsEqual(variablesOverride, values.variablesOverride) ||
                 !objectsEqual(filtersOverride, values.filtersOverride) ||
                 dashboard !== values.dashboardId ||
@@ -417,32 +428,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         },
     })),
     actionToUrl(({ values }) => {
+        // Use the browser redirect to determine state to hook into beforeunload prevention
         const actionToUrl = ({
             insightMode = values.insightMode,
             insightId = values.insightId,
         }: {
             insightMode?: ItemMode
             insightId?: InsightShortId | 'new' | null
-        }): [
-            string,
-            string | Record<string, any> | undefined,
-            string | Record<string, any> | undefined,
-            { replace?: boolean }
-        ] => {
-            const baseUrl =
-                !insightId || insightId === 'new'
-                    ? urls.insightNew()
-                    : insightMode === ItemMode.View
-                    ? urls.insightView(insightId)
-                    : urls.insightEdit(insightId)
-            const searchParams = router.values.currentLocation.searchParams
-            // TODO: also kepe these in the URL?
-            // const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
-            const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
-            const query = values.insightDataLogicRef?.logic.values.query
-            const hashParams = queryChanged ? { q: query } : undefined
+        }): string | undefined => {
+            if (!insightId || insightId === 'new') {
+                return undefined
+            }
 
-            return [baseUrl, searchParams, hashParams, { replace: true }]
+            const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
+            const searchParams = window.location.search
+            return searchParams ? `${baseUrl}${searchParams}` : baseUrl
         }
 
         return {
@@ -450,4 +450,66 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightMode: actionToUrl,
         }
     }),
+    beforeUnload(({ values }) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            // Don't run this check on other scenes
+            if (values.activeScene !== Scene.Insight) {
+                return false
+            }
+
+            if (values.disableNavigationHooks) {
+                return false
+            }
+
+            // If just the hash or project part changes, don't show the prompt
+            const currentPathname = router.values.currentLocation.pathname.replace(/\/project\/\d+/, '')
+            const newPathname = newLocation?.pathname.replace(/\/project\/\d+/, '')
+            if (currentPathname === newPathname) {
+                return false
+            }
+
+            // Don't show the prompt if we're in edit mode (just exploring)
+            if (values.insightMode !== ItemMode.Edit) {
+                return false
+            }
+
+            const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
+            const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
+            const draftQueryFromLocalStorage = localStorage.getItem(`draft-query-${values.currentTeamId}`)
+            let draftQuery: { query: Node; timestamp: number } | null = null
+            if (draftQueryFromLocalStorage) {
+                const parsedQuery = parseDraftQueryFromLocalStorage(draftQueryFromLocalStorage)
+                if (parsedQuery) {
+                    draftQuery = parsedQuery
+                } else {
+                    // If the draft query is invalid, remove it
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
+            }
+            const query = values.insightDataLogicRef?.logic.values.query
+
+            if (draftQuery && query && objectsEqual(draftQuery.query, query)) {
+                return false
+            }
+
+            const isChanged = metadataChanged || queryChanged
+
+            if (!isChanged) {
+                return false
+            }
+
+            // Do not show confirmation if newPathname is undefined; this usually means back button in browser
+            if (newPathname === undefined) {
+                const savedQuery = values.insightDataLogicRef?.logic.values.savedInsight.query
+                values.insightDataLogicRef?.logic.actions.setQuery(savedQuery || null)
+                return false
+            }
+
+            return true
+        },
+        message: 'Leave insight?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            values.insightDataLogicRef?.logic.actions.cancelChanges()
+        },
+    })),
 ])

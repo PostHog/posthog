@@ -24,7 +24,7 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
         addEmojiComment(emoji)
         emojiUsed(emoji)
         onSelectEmoji?.()
-    }, [])
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-row items-center justify-around">

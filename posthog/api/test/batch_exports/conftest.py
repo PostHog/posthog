@@ -99,7 +99,7 @@ def start_test_worker(temporal: TemporalClient):
         client=temporal,
         task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
-        activities=ACTIVITIES,  # type: ignore
+        activities=ACTIVITIES,
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=dt.timedelta(seconds=5),
     ).run_in_thread():

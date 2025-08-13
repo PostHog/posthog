@@ -95,7 +95,8 @@ export const template: HogFunctionTemplate = {
     description: 'Send conversion events to Snapchat Ads',
     icon_url: '/static/services/snapchat.png',
     category: ['Advertisement'],
-    hog: `
+    code_language: 'hog',
+    code: `
 if (empty(inputs.pixelId) or empty(inputs.oauth.access_token)) {
     throw Error('Pixel ID and access token are required')
 }

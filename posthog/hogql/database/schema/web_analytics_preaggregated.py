@@ -5,6 +5,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     Table,
     FieldOrTable,
+    BooleanDatabaseField,
 )
 
 DEVICE_BROWSER_FIELDS = {
@@ -30,6 +31,12 @@ UTM_FIELDS = {
     "referring_domain": StringDatabaseField(name="referring_domain", nullable=True),
 }
 
+ATTRIBUTION_FIELDS = {
+    "has_gclid": BooleanDatabaseField(name="has_gclid", nullable=True),
+    "has_gad_source_paid_search": BooleanDatabaseField(name="has_gad_source_paid_search", nullable=True),
+    "has_fbclid": BooleanDatabaseField(name="has_fbclid", nullable=True),
+}
+
 PATH_FIELDS = {
     "entry_pathname": StringDatabaseField(name="entry_pathname", nullable=True),
     "end_pathname": StringDatabaseField(name="end_pathname", nullable=True),
@@ -39,8 +46,10 @@ SHARED_SCHEMA_FIELDS = {
     **DEVICE_BROWSER_FIELDS,
     **GEOIP_FIELDS,
     **UTM_FIELDS,
+    **ATTRIBUTION_FIELDS,
     **PATH_FIELDS,
 }
+
 
 # Web stats daily specific fields
 WEB_STATS_SPECIFIC_FIELDS = {

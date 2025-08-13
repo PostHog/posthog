@@ -30,13 +30,14 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useSt
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
-import { EditorCommands, EditorRange } from './utils'
+import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeType } from '../types'
 
 type SlashCommandConditionalProps =
     | {
@@ -390,6 +391,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             keys: ['title', 'search'],
             threshold: 0.3,
         })
+        // oxlint-disable-next-line exhaustive-deps
     }, [allCommmands])
 
     const filteredCommands = useMemo(() => {
@@ -397,6 +399,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             return allCommmands
         }
         return fuse.search(query).map((result) => result.item)
+        // oxlint-disable-next-line exhaustive-deps
     }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
@@ -466,6 +469,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
             return false
         },
+        // oxlint-disable-next-line exhaustive-deps
         [selectedIndex, selectedHorizontalIndex, filteredCommands]
     )
 

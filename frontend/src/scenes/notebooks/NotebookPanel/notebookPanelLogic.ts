@@ -3,10 +3,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { HTMLProps } from 'react'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { NotebookNodeResource, SidePanelTab } from '~/types'
+import { SidePanelTab } from '~/types'
 
-import { EditorFocusPosition } from '../Notebook/utils'
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
+import { EditorFocusPosition } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeResource } from '../types'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),

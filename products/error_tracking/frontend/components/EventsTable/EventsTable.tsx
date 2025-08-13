@@ -1,4 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ErrorEventType } from 'lib/components/Errors/types'
@@ -14,6 +14,11 @@ import { DataSourceTable, DataSourceTableColumn } from '../DataSourceTable'
 import { ExceptionAttributesPreview } from '../ExceptionAttributesPreview'
 import { eventsQueryLogic } from './eventsQueryLogic'
 import { eventsSourceLogic } from './eventsSourceLogic'
+import { IconAI } from '@posthog/icons'
+import { urls } from 'scenes/urls'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { IconLink } from 'lib/lemon-ui/icons'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export interface EventsTableProps {
     issueId: string
@@ -36,6 +41,46 @@ function renderViewRecordingButton(event: ErrorEventType): JSX.Element {
     )
 }
 
+function renderMoreButton(event: ErrorEventType): JSX.Element {
+    return (
+        <More
+            size="xsmall"
+            overlay={
+                <>
+                    <LemonButton
+                        fullWidth
+                        size="small"
+                        sideIcon={<IconLink />}
+                        data-attr="events-table-event-link"
+                        onClick={() =>
+                            void copyToClipboard(
+                                urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
+                                'link to event'
+                            )
+                        }
+                    >
+                        Copy link to event
+                    </LemonButton>
+                    <LemonButton
+                        fullWidth
+                        size="small"
+                        sideIcon={<IconAI />}
+                        to={urls.llmObservabilityTrace(event.properties.$ai_trace_id, {
+                            event: event.uuid,
+                            timestamp: event.timestamp,
+                        })}
+                        disabledReason={
+                            !event.properties.$ai_trace_id ? 'There is no LLM Trace ID on this event' : undefined
+                        }
+                    >
+                        View LLM Trace
+                    </LemonButton>
+                </>
+            }
+        />
+    )
+}
+
 export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
     const { query, queryKey } = useValues(eventsQueryLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
@@ -53,7 +98,7 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
         // Click event is caught at the row level
         return (
             <div className="flex items-center">
-                <input type="radio" className="cursor-pointer" checked={isEventSelected(record)} />
+                <input type="radio" className="cursor-pointer" checked={isEventSelected(record)} onChange={() => {}} />
             </div>
         )
     }
@@ -84,7 +129,12 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
     }
 
     function renderRecording(record: ErrorEventType): JSX.Element {
-        return <div className="flex justify-end">{renderViewRecordingButton(record)}</div>
+        return (
+            <div className="flex justify-end items-center gap-x-1">
+                {renderViewRecordingButton(record)}
+                {renderMoreButton(record)}
+            </div>
+        )
     }
 
     function renderTime(record: ErrorEventType): JSX.Element {
@@ -97,7 +147,7 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
             <DataSourceTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
             <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
             <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
-            <DataSourceTableColumn<ErrorEventType> title="Recording" align="right" cellRenderer={renderRecording} />
+            <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={renderRecording} />
         </DataSourceTable>
     )
 }

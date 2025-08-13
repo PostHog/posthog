@@ -21,10 +21,14 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
 
     if (templateLoading) {
         return (
-            <div className="flex items-center justify-center">
+            <div className="flex justify-center items-center">
                 <Spinner />
             </div>
         )
+    }
+
+    if (!template) {
+        return <div>Template not found!</div>
     }
 
     return (
@@ -35,6 +39,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                     inputs_schema: template?.inputs_schema ?? [],
                 }}
                 showSource={false}
+                sampleGlobalsWithInputs={null} // TODO: Load this based on the trigger event
             />
         </Form>
     )

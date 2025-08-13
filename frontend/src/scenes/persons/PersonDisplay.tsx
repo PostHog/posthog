@@ -118,35 +118,35 @@ export function PersonDisplay({
         </span>
     )
 
-    content =
-        noPopover || notebookNode ? (
-            content
-        ) : (
-            <Popover
-                overlay={
-                    person?.distinct_id || person?.distinct_ids?.[0] ? (
-                        <PersonPreview
-                            distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
-                            onClose={() => setVisible(false)}
-                        />
-                    ) : null
-                }
-                visible={visible}
-                onClickOutside={() => setVisible(false)}
-                placement={placement || 'top'}
-                fallbackPlacements={['bottom', 'right']}
-                showArrow
-            >
-                {withCopyButton ? (
-                    <div className="flex flex-row items-center justify-between">
-                        {content}
-                        <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
-                    </div>
-                ) : (
-                    <span>{content}</span>
-                )}
-            </Popover>
-        )
+    if (noPopover || notebookNode) {
+        return content
+    }
 
-    return content
+    return (
+        <Popover
+            overlay={
+                person?.distinct_id || person?.distinct_ids?.[0] || person?.id ? (
+                    <PersonPreview
+                        distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
+                        personId={person?.id}
+                        onClose={() => setVisible(false)}
+                    />
+                ) : null
+            }
+            visible={visible}
+            onClickOutside={() => setVisible(false)}
+            placement={placement || 'top'}
+            fallbackPlacements={['bottom', 'right']}
+            showArrow
+        >
+            {withCopyButton ? (
+                <div className="flex flex-row items-center justify-between">
+                    {content}
+                    <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
+                </div>
+            ) : (
+                <span>{content}</span>
+            )}
+        </Popover>
+    )
 }

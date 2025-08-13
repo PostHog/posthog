@@ -91,6 +91,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "integration",
             "integration_field",
             "email",
+            "native_email",
         ]
     )
     key = serializers.CharField()
@@ -159,7 +160,7 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
-        elif item_type == "email":
+        elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
             for key_ in ["from", "to", "subject"]:
@@ -177,8 +178,8 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    if item_type in ["string", "dictionary", "json", "email"]:
-                        if item_type == "email" and isinstance(value, dict):
+                    if item_type in ["string", "dictionary", "json", "email", "native_email"]:
+                        if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
                             value = {key: value[key] for key in value if key != "design"}
 
@@ -272,6 +273,7 @@ class InputsSerializer(serializers.DictField):
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(choices=["events", "person-updates"], required=False, default="events")  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
@@ -291,6 +293,11 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
+
+        if data.get("source") == "person-updates":
+            # Don't allow events or actions for person-updates
+            data.pop("events", None)
+            data.pop("actions", None)
 
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_TRANSPILED_FILTERS:

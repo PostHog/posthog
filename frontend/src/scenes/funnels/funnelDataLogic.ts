@@ -77,6 +77,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         hideSkewWarning: true,
         setHiddenLegendBreakdowns: (hiddenLegendBreakdowns: string[]) => ({ hiddenLegendBreakdowns }),
         toggleLegendBreakdownVisibility: (breakdown: string) => ({ breakdown }),
+        setBreakdownSortOrder: (breakdownSortOrder: (string | number)[]) => ({ breakdownSortOrder }),
     }),
 
     reducers({
@@ -84,6 +85,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             false,
             {
                 hideSkewWarning: () => true,
+            },
+        ],
+        breakdownSortOrder: [
+            [] as (string | number)[],
+            {
+                setBreakdownSortOrder: (_, { breakdownSortOrder }) => breakdownSortOrder,
             },
         ],
     }),
@@ -100,8 +107,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return funnelsFilter === null
                     ? null
                     : funnelsFilter === undefined
-                    ? true
-                    : funnelsFilter.funnelVizType === FunnelVizType.Steps
+                      ? true
+                      : funnelsFilter.funnelVizType === FunnelVizType.Steps
             },
         ],
         isTimeToConvertFunnel: [
@@ -185,7 +192,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
                             ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
-                            : breakdownFilter?.breakdown ?? undefined
+                            : (breakdownFilter?.breakdown ?? undefined)
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
                     return results.sort((a, b) => a.order - b.order)
@@ -215,15 +222,25 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
         resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
-            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
-            (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
+            (s) => [
+                s.stepsWithConversionMetrics,
+                s.flattenedBreakdowns,
+                s.breakdownSortOrder,
+                s.hiddenLegendBreakdowns,
+            ],
+            (
+                steps: FunnelStepWithConversionMetrics[],
+                flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
+                breakdownSortOrder: (string | number)[],
+                hiddenLegendBreakdowns: string[]
+            ): FunnelStepWithConversionMetrics[] => {
                 const isOnlySeries = flattenedBreakdowns.length <= 1
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
-                return steps.map((step, stepIndex) => ({
-                    ...step,
-                    nested_breakdown: (baseLineSteps?.steps
-                        ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
-                        : step?.nested_breakdown
+                return steps.map((step, stepIndex) => {
+                    let nested = (
+                        baseLineSteps?.steps
+                            ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
+                            : step?.nested_breakdown
                     )
                         ?.map((b, breakdownIndex) => ({
                             ...b,
@@ -231,10 +248,21 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         }))
                         ?.filter(
                             (b) =>
-                                isOnlySeries ||
-                                !funnelsFilter?.hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
-                        ),
-                }))
+                                isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                        )
+                    // Sort by breakdownSortOrder if present
+                    if (breakdownSortOrder && breakdownSortOrder.length > 0 && nested) {
+                        nested = [...nested].sort((a, b) => {
+                            const aValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[0] : a.breakdown_value
+                            const bValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[0] : b.breakdown_value
+                            return breakdownSortOrder.indexOf(aValue ?? '') - breakdownSortOrder.indexOf(bValue ?? '')
+                        })
+                    }
+                    return {
+                        ...step,
+                        nested_breakdown: nested,
+                    }
+                })
             },
         ],
 

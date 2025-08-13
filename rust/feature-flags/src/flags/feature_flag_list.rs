@@ -71,7 +71,8 @@ impl FeatureFlagList {
                   f.deleted,
                   f.active,
                   f.ensure_experience_continuity,
-                  f.version
+                  f.version,
+                  f.evaluation_runtime
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
@@ -106,9 +107,10 @@ impl FeatureFlagList {
                         active: row.active,
                         ensure_experience_continuity: row.ensure_experience_continuity,
                         version: row.version,
+                        evaluation_runtime: row.evaluation_runtime,
                     }),
                     Err(e) => {
-                        tracing::error!(
+                        tracing::warn!(
                             "Failed to deserialize filters for flag {} in project {} (team {}): {}",
                             row.key,
                             project_id,
@@ -306,6 +308,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let flag2 = FeatureFlagRow {
@@ -318,6 +321,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         // Insert multiple flags for the team

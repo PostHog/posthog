@@ -2,7 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '../types'
 
 export default {
     title: 'Scenes-App/Notebooks/Components/Notebook Select Button',

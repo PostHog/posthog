@@ -6,6 +6,8 @@ from posthog.cdp.validation import compile_hog
 from posthog.hogql.ai import (
     HOG_EXAMPLE_MESSAGE,
     HOG_GRAMMAR_MESSAGE,
+    TRANSFORMATION_LIMITATIONS_MESSAGE,
+    DESTINATION_LIMITATIONS_MESSAGE,
     IDENTITY_MESSAGE_HOG,
     HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
@@ -47,7 +49,13 @@ class CreateHogTransformationFunctionTool(MaxTool):
     description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
     thinking_message: str = "Creating your desired function"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
-    root_system_prompt_template: str = HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
+    root_system_prompt_template: str = (
+        HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
+        + "\n\n"
+        + TRANSFORMATION_LIMITATIONS_MESSAGE
+        + "\n\n"
+        + DESTINATION_LIMITATIONS_MESSAGE
+    )
 
     def _run_impl(self, instructions: str) -> tuple[str, str]:
         current_hog_code = self.context.get("current_hog_code", "")

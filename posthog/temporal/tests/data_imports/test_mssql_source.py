@@ -31,7 +31,7 @@ import pytest
 import pytz
 import structlog
 
-from posthog.temporal.data_imports.pipelines.mssql.mssql import (
+from posthog.temporal.data_imports.sources.mssql.mssql import (
     _get_table_average_row_size,
     _get_table_stats,
 )

@@ -6,7 +6,7 @@ from django.contrib.auth.base_user import AbstractBaseUser
 from django.db.models import QuerySet
 
 from django.core.cache import cache
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
@@ -73,6 +73,20 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
     has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
+
+    evaluation_runtime_CHOICES = [
+        ("server", "Server"),
+        ("client", "Client"),
+        ("all", "All"),
+    ]
+    evaluation_runtime = models.CharField(
+        max_length=10,
+        choices=evaluation_runtime_CHOICES,
+        default="all",
+        null=True,
+        blank=True,
+        help_text="Specifies where this feature flag should be evaluated",
+    )
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -355,11 +369,17 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
         return list(cohort_ids)
 
-    def scheduled_changes_dispatcher(self, payload, user: Optional[AbstractBaseUser] = None):
+    def scheduled_changes_dispatcher(
+        self, payload, user: Optional[AbstractBaseUser] = None, scheduled_change_id: Optional[int] = None
+    ):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
+
+        # Store scheduled change context on the instance for activity logging
+        if scheduled_change_id is not None:
+            self._scheduled_change_context = {"scheduled_change_id": scheduled_change_id}
 
         http_request = HttpRequest()
         # We kind of cheat here set the request user to the user who created the scheduled change
@@ -400,7 +420,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
 @mutable_receiver([post_save, post_delete], sender=FeatureFlag)
 def refresh_flag_cache_on_updates(sender, instance, **kwargs):
-    set_feature_flags_for_team_in_cache(instance.team.project_id)
+    # Defer cache update until after the transaction commits
+    # This ensures the database has the new data before we query it
+    transaction.on_commit(lambda: set_feature_flags_for_team_in_cache(instance.team.project_id))
 
 
 class FeatureFlagHashKeyOverride(models.Model):

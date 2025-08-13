@@ -12,8 +12,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
 import React from 'react'
-import { NewActionButton } from 'scenes/actions/NewActionButton'
+import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 import { Annotations } from 'scenes/annotations'
+import { Comments } from 'scenes/data-management/comments/Comments'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,7 +22,7 @@ import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
-import { ActionsTable } from './actions/ActionsTable'
+import { ActionsTable } from 'products/actions/frontend/components/ActionsTable'
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
@@ -32,23 +33,28 @@ export enum DataManagementTab {
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
     Annotations = 'annotations',
+    Comments = 'comments',
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
 }
 
-const tabs: Record<
-    DataManagementTab,
-    {
-        url: string
-        label: LemonTab<any>['label']
-        content: JSX.Element
-        buttons?: React.ReactNode
-        flag?: FeatureFlagKey
-        tooltipDocLink?: string
+type TabConfig = {
+    url: string
+    label: LemonTab<any>['label']
+    content: JSX.Element
+    buttons?: React.ReactNode
+    flag?: FeatureFlagKey
+    tooltipDocLink?: string
+    children?: {
+        [path: string]: {
+            component?: JSX.Element
+        }
     }
-> = {
+}
+
+const tabs: Record<DataManagementTab, TabConfig> = {
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
         label: 'Events',
@@ -94,6 +100,16 @@ const tabs: Record<
         label: 'Annotations',
         buttons: <NewAnnotationButton />,
         tooltipDocLink: 'https://posthog.com/docs/data/annotations',
+        children: {
+            [urls.annotation(':id')]: {},
+        },
+    },
+    [DataManagementTab.Comments]: {
+        url: urls.comments(),
+        content: <Comments />,
+        label: 'Comments',
+        buttons: undefined,
+        tooltipDocLink: 'https://posthog.com/docs/data/comments',
     },
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),
@@ -198,16 +214,31 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => {
-        return Object.fromEntries(
-            Object.entries(tabs).map(([key, tab]) => [
-                tab.url,
-                () => {
-                    if (values.tab !== key) {
-                        actions.setTab(key as DataManagementTab)
+        const mappings: Record<string, () => void> = {}
+
+        Object.entries(tabs).forEach(([tabKey, tabConfig]) => {
+            const tabEnum = tabKey as DataManagementTab
+
+            // First main tab URLs
+            mappings[tabConfig.url] = () => {
+                if (values.tab !== tabEnum) {
+                    actions.setTab(tabEnum)
+                }
+            }
+
+            // Then child URLs
+            if (tabConfig.children) {
+                Object.keys(tabConfig.children).forEach((childUrl) => {
+                    mappings[childUrl] = () => {
+                        if (values.tab !== tabEnum) {
+                            actions.setTab(tabEnum)
+                        }
                     }
-                },
-            ])
-        )
+                })
+            }
+        })
+
+        return mappings
     }),
 ])
 

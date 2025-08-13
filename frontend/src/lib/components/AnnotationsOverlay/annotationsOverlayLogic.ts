@@ -152,7 +152,6 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     dateRange
                         ? annotations.filter(
                               (annotation) =>
-                                  annotation.scope !== AnnotationScope.Recording &&
                                   (annotation.scope !== AnnotationScope.Insight ||
                                       annotation.dashboard_item === insightNumericId) &&
                                   (annotation.scope !== AnnotationScope.Dashboard ||

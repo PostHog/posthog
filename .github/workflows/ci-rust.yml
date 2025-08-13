@@ -30,6 +30,7 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/workflows/rust-hook-migrator-docker.yml'
@@ -37,6 +38,7 @@ jobs:
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
+                        - 'docker-compose.dev.yml'
 
     build:
         name: Build Rust services
@@ -135,7 +137,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
@@ -245,15 +247,3 @@ jobs:
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && needs.changes.outputs.rust == 'true'
-        needs: [test, build, shear, linting] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

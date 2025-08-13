@@ -86,7 +86,7 @@ export function InsightsTable({
         getTrendsColor,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
-    const { timezone } = useValues(teamLogic)
+    const { weekStartDay, timezone } = useValues(teamLogic)
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
@@ -293,6 +293,7 @@ export function InsightsTable({
                     interval={interval}
                     resolvedDateRange={insightData?.resolved_date_range}
                     timezone={timezone}
+                    weekStartDay={weekStartDay}
                 />
             ),
             render: (_, item: IndexedTrendResult) => {
@@ -302,7 +303,7 @@ export function InsightsTable({
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])
+    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     columns.push(...valueColumns)
 

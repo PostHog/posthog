@@ -8,6 +8,7 @@ import { SEGMENT_DESTINATIONS } from './segment-templates'
 void SEGMENT_DESTINATIONS.map(async ({ template }) => {
     const iconId = template.icon_url?.replace('/static/services/', '')
 
+    // eslint-disable-next-line no-restricted-globals
     const res = await fetch(`https://img.logo.dev/${iconId}?token=${process.env.LOGO_DEV_TOKEN}`)
     const buffer = await res.arrayBuffer()
 

@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -11,24 +11,36 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { SceneNotebookMenuItems } from './SceneNotebookMenuItems'
-import { NotebookNodeType } from '~/types'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { SceneDataAttrKeyProps } from '../utils'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 type SceneAddToDropdownMenuProps = {
     onClick?: () => void
 }
 
-type SceneNotebookDropdownMenuProps = {
-    notebook?: boolean
-    dashboard?: SceneAddToDropdownMenuProps
-    shortId?: string
-}
+type SceneNotebookDropdownMenuProps = SceneDataAttrKeyProps &
+    Pick<ButtonPrimitiveProps, 'disabledReasons'> & {
+        notebook?: boolean
+        dashboard?: SceneAddToDropdownMenuProps
+        shortId?: string
+    }
 
-export function SceneAddToDropdownMenu({ notebook, dashboard, shortId }: SceneNotebookDropdownMenuProps): JSX.Element {
+export function SceneAddToDropdownMenu({
+    notebook,
+    dashboard,
+    shortId,
+    dataAttrKey,
+    disabledReasons,
+}: SceneNotebookDropdownMenuProps): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive menuItem>
+                <ButtonPrimitive
+                    menuItem
+                    data-attr={`${dataAttrKey}-add-to-dropdown-menu`}
+                    disabledReasons={disabledReasons}
+                >
                     <IconPlus />
                     Add to...
                     <DropdownMenuOpenIndicator />
@@ -39,7 +51,7 @@ export function SceneAddToDropdownMenu({ notebook, dashboard, shortId }: SceneNo
                     {notebook && (
                         <>
                             <DropdownMenuSubTrigger asChild>
-                                <ButtonPrimitive menuItem>
+                                <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-add-to-notebook-dropdown-menu`}>
                                     Notebook
                                     <DropdownMenuOpenIndicator intent="sub" />
                                 </ButtonPrimitive>
@@ -57,6 +69,7 @@ export function SceneAddToDropdownMenu({ notebook, dashboard, shortId }: SceneNo
                                             },
                                         },
                                     }}
+                                    dataAttrKey={dataAttrKey}
                                 />
                             </DropdownMenuSubContent>
                         </>
@@ -69,6 +82,7 @@ export function SceneAddToDropdownMenu({ notebook, dashboard, shortId }: SceneNo
                             onClick={() => {
                                 dashboard.onClick?.()
                             }}
+                            data-attr={`${dataAttrKey}-add-to-dashboard-dropdown-menu`}
                         >
                             Dashboard
                         </ButtonPrimitive>

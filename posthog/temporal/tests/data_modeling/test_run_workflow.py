@@ -372,7 +372,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     expected_events = sorted(
         [
             {
-                k: dt.datetime.fromisoformat(v) if k == "timestamp" else v
+                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
                 for k, v in event.items()
                 if k in ("event", "distinct_id", "timestamp")
             }
@@ -438,7 +438,7 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
     expected_events = sorted(
         [
             {
-                k: dt.datetime.fromisoformat(v) if k == "timestamp" else v
+                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
                 for k, v in event.items()
                 if k in ("event", "distinct_id", "timestamp")
             }
@@ -706,7 +706,7 @@ async def test_run_workflow_with_minio_bucket(
     all_expected_events = sorted(
         [
             {
-                k: dt.datetime.fromisoformat(v) if k == "timestamp" else v
+                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
                 for k, v in event.items()
                 if k in ("event", "distinct_id", "timestamp")
             }
@@ -1102,10 +1102,10 @@ async def test_cleanup_running_jobs_activity(activity_environment, ateam):
 
     assert old_job.status == DataModelingJob.Status.FAILED
     assert old_job.error is not None
-    assert "orphaned when a new data modeling run started" in old_job.error
+    assert "Job timed out" in old_job.error
     assert recent_job.status == DataModelingJob.Status.FAILED
     assert recent_job.error is not None
-    assert "orphaned when a new data modeling run started" in recent_job.error
+    assert "Job timed out" in recent_job.error
     assert completed_job.status == DataModelingJob.Status.COMPLETED
 
 
@@ -1128,7 +1128,7 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED
     assert orphaned_job.error is not None
-    assert "orphaned when a new data modeling run started" in orphaned_job.error
+    assert "Job timed out" in orphaned_job.error
 
     with unittest.mock.patch("temporalio.activity.info") as mock_info:
         mock_info.return_value.workflow_id = "new-workflow"

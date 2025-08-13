@@ -1,7 +1,7 @@
 import importlib
 import json
 import pkgutil
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Literal
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -9,14 +9,10 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 import products
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
+from posthog.models import Team, User
 from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
-
-if TYPE_CHECKING:
-    from posthog.models.team.team import Team
-    from posthog.models.user import User
-
-MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
 
 # Lower casing matters here. Do not change it.
@@ -47,6 +43,17 @@ class search_insights(BaseModel):
     )
 
 
+class session_summarization(BaseModel):
+    """
+    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
+    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+    """
+
+    session_summarization_query: str = Field(
+        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
+    )
+
+
 class search_documentation(BaseModel):
     """
     Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
@@ -59,11 +66,24 @@ class search_documentation(BaseModel):
     - How to submit feature requests
     and/or when the user:
     - Needs help understanding PostHog concepts
+    - Has questions about SDK integration or instrumentation
+      - e.g. `posthog.capture('event')`, `posthog.captureException(err)`,
+        `posthog.identify(userId)`, `capture({ ... })` not working, etc.
+    - Troubleshooting missing or unexpected data
+      - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
     - Wants to know more about PostHog the company
     - Has questions about incidents or system status
     - Has PostHog-related questions that don't match your other specialized tools
+    - Has disabled session replay and needs help turning it back on
 
     Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
+    """
+
+
+class retrieve_billing_information(BaseModel):
+    """
+    Retrieve detailed billing information for the current organization.
+    Use this tool when the user asks about billing, subscription, usage, or spending related questions.
     """
 
 
@@ -89,7 +109,7 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
 
 
-class MaxTool(BaseTool):
+class MaxTool(AssistantContextMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
@@ -104,10 +124,9 @@ class MaxTool(BaseTool):
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+    show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]
-    _team: Optional["Team"]
-    _user: Optional["User"]
     _config: RunnableConfig
     _state: AssistantState
 
@@ -120,8 +139,10 @@ class MaxTool(BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def __init__(self, state: AssistantState | None = None):
-        super().__init__()
+    def __init__(self, *, team: Team, user: User, state: AssistantState | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._team = team
+        self._user = user
         self._state = state if state else AssistantState(messages=[])
 
     def __init_subclass__(cls, **kwargs):

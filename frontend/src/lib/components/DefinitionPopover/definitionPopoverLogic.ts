@@ -167,7 +167,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
 
                     return item
                 },
-                setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
+                setLocalDefinition: (state, { item }) => ({ ...state, ...item }) as Partial<TaxonomicDefinitionTypes>,
             },
         ],
     }),
@@ -228,6 +228,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.Metadata,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
                     TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                    TaxonomicFilterGroupType.ErrorTrackingProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
         isVirtual: [

@@ -6,7 +6,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 export function DeleteProjectModal({
     isOpen,
@@ -77,7 +76,7 @@ export function DeleteProjectModal({
 }
 
 export function ProjectDangerZone(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentProject } = useValues(projectLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
     const restrictedReason = useRestrictedArea({
@@ -102,7 +101,7 @@ export function ProjectDangerZone(): JSX.Element {
                         icon={<IconTrash />}
                         disabledReason={restrictedReason}
                     >
-                        Delete {currentTeam?.name || 'the current project'}
+                        Delete {currentProject?.name || 'the current project'}
                     </LemonButton>
                 </div>
             </div>

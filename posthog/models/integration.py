@@ -14,6 +14,8 @@ import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework import status
+from slack_sdk.web.async_client import AsyncWebClient
+
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -25,7 +27,7 @@ from posthog.cache_utils import cache_for
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
-from products.messaging.backend.providers.mailjet import MailjetProvider
+from products.messaging.backend.providers import MailjetProvider, TwilioProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -61,6 +63,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
+        GOOGLE_SHEETS = "google-sheets"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         INTERCOM = "intercom"
@@ -68,6 +71,8 @@ class Integration(models.Model):
         LINEAR = "linear"
         GITHUB = "github"
         META_ADS = "meta-ads"
+        TWILIO = "twilio"
+        CLICKUP = "clickup"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -142,11 +147,13 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-sheets",
         "snapchat",
         "linkedin-ads",
         "meta-ads",
         "intercom",
         "linear",
+        "clickup",
     ]
     integration: Integration
 
@@ -242,6 +249,23 @@ class OauthIntegration:
                 id_path="sub",
                 name_path="email",
             )
+        elif kind == "google-sheets":
+            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
+                raise NotImplementedError("Google Sheets app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
+                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
+                scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
         elif kind == "snapchat":
             if not settings.SNAPCHAT_APP_CLIENT_ID or not settings.SNAPCHAT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Snapchat app not configured")
@@ -322,6 +346,21 @@ class OauthIntegration:
                 scope="ads_read ads_management business_management read_insights",
                 id_path="id",
                 name_path="name",
+            )
+        elif kind == "clickup":
+            if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
+                raise NotImplementedError("ClickUp app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.clickup.com/api",
+                token_url="https://api.clickup.com/api/v2/oauth/token",
+                token_info_url="https://api.clickup.com/api/v2/user",
+                token_info_config_fields=["user.id", "user.email"],
+                client_id=settings.CLICKUP_APP_CLIENT_ID,
+                client_secret=settings.CLICKUP_APP_CLIENT_SECRET,
+                scope="",
+                id_path="user.id",
+                name_path="user.email",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -526,6 +565,10 @@ class SlackIntegration:
     @property
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
+
+    @property
+    def async_client(self) -> AsyncWebClient:
+        return AsyncWebClient(self.integration.sensitive_config["access_token"])
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
@@ -880,6 +923,77 @@ class LinkedInAdsIntegration:
         return response.json()
 
 
+class ClickUpIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "clickup":
+            raise Exception("ClickUpIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def list_clickup_spaces(self, workspace_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/team/{workspace_id}/space",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list spaces: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_folderless_lists(self, space_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/space/{space_id}/list",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list lists: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_folders(self, space_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/space/{space_id}/folder",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list folders: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_workspaces(self) -> dict:
+        response = requests.request(
+            "GET",
+            "https://api.clickup.com/api/v2/team",
+            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list workspaces: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+
 class EmailIntegration:
     integration: Integration
 
@@ -1186,3 +1300,51 @@ class MetaAdsIntegration:
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
+
+
+class TwilioIntegration:
+    integration: Integration
+    twilio_provider: TwilioProvider
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "twilio":
+            raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+        self.twilio_provider = TwilioProvider(
+            account_sid=self.integration.config["account_sid"],
+            auth_token=self.integration.sensitive_config["auth_token"],
+        )
+
+    def list_twilio_phone_numbers(self) -> list[dict]:
+        twilio_phone_numbers = self.twilio_provider.get_phone_numbers()
+
+        if not twilio_phone_numbers:
+            raise Exception(f"There was an internal error")
+
+        return twilio_phone_numbers
+
+    def integration_from_keys(self) -> Integration:
+        account_info = self.twilio_provider.get_account_info()
+
+        if not account_info.get("sid"):
+            raise ValidationError({"account_info": "Failed to get account info"})
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=self.integration.team_id,
+            kind="twilio",
+            integration_id=account_info["sid"],
+            defaults={
+                "config": {
+                    "account_sid": account_info["sid"],
+                },
+                "sensitive_config": {
+                    "auth_token": self.integration.sensitive_config["auth_token"],
+                },
+                "created_by": self.integration.created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration

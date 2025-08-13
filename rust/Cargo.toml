@@ -25,6 +25,7 @@ members = [
     "common/geoip",
     "common/hogvm",
     "log-capture",
+    "kafka-deduplicator",
 ]
 
 [workspace.lints.rust]
@@ -68,7 +69,7 @@ opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
 public-suffix = "0.1.2"
 rand = "0.8.5"
-rdkafka = { version = "0.37.0", features = ["ssl", "tracing"] }
+rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = { version = "1.0" }

@@ -12,9 +12,11 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
+import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
@@ -22,9 +24,9 @@ import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookAct
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
-import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
@@ -38,6 +40,8 @@ import type { activityLogLogicType } from './activityLogLogicType'
  * **/
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
     switch (logItem?.scope) {
+        case ActivityScope.ANNOTATION:
+            return annotationActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
         case ActivityScope.PLUGIN:
@@ -68,6 +72,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dataWarehouseSavedQueryActivityDescriber
         case ActivityScope.REPLAY:
             return replayActivityDescriber
+        case ActivityScope.EXPERIMENT:
+            return experimentActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

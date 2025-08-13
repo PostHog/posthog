@@ -6,6 +6,7 @@ import {
     CyclotronJobInvocationResult,
     CyclotronPerson,
 } from '../types'
+import { getPersonDisplayName } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
@@ -28,8 +29,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
         await Promise.all(
             invocations.map(async (item) => {
+                const team = await this.hub.teamManager.getTeam(item.teamId)
                 const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId)
-                if (!hogFlow) {
+                if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,
                     })
@@ -46,11 +48,17 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     distinctId: hogFlowInvocationState.event.distinct_id,
                 })
 
+                const personDisplayName = getPersonDisplayName(
+                    team,
+                    hogFlowInvocationState.event.distinct_id,
+                    dbPerson?.properties ?? {}
+                )
+
                 const person: CyclotronPerson | undefined = dbPerson
                     ? {
                           id: dbPerson.id,
                           properties: dbPerson.properties,
-                          name: '',
+                          name: personDisplayName,
                           url: `${this.hub.SITE_URL}/project/${hogFlow.team_id}/persons/${encodeURIComponent(
                               hogFlowInvocationState.event.distinct_id
                           )}`,

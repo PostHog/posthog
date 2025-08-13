@@ -6,6 +6,8 @@ import { lightenDarkenColor } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { shouldQueryBeAsync } from '~/queries/utils'
 
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 
@@ -24,6 +26,7 @@ export function PathsV2(): JSX.Element {
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
         useValues(pathsDataLogic(insightProps))
     const { openPersonsModal } = useActions(pathsDataLogic(insightProps))
+    const { loadData } = useActions(insightDataLogic(insightProps))
 
     useEffect(() => {
         setNodes([])
@@ -50,10 +53,18 @@ export function PathsV2(): JSX.Element {
             const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
             elements?.forEach((node) => node?.parentNode?.removeChild(node))
         }
-    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter])
+    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter, openPersonsModal])
 
     if (insightDataError) {
-        return <InsightErrorState query={insightQuery} excludeDetail />
+        return (
+            <InsightErrorState
+                query={insightQuery}
+                excludeDetail
+                onRetry={() => {
+                    loadData(shouldQueryBeAsync(insightQuery) ? 'force_async' : 'force_blocking')
+                }}
+            />
+        )
     }
 
     return (

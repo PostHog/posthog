@@ -2,6 +2,7 @@
 import { mockProducerObserver } from '../helpers/mocks/producer.mock'
 
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+// eslint-disable-next-line no-restricted-imports
 import { fetch } from 'undici'
 
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'

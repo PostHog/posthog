@@ -16,7 +16,7 @@ export function resetKeaStory(): void {
     const history = createMemoryHistory({})
     ;(history as any).pushState = history.push
     ;(history as any).replaceState = history.replace
-    initKea({ routerLocation: history.location, routerHistory: history })
+    initKea({ routerLocation: history.location, routerHistory: history, replaceInitialPathInWindow: false })
     featureFlagLogic.mount()
     teamLogic.mount()
     projectLogic.mount()

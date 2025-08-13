@@ -1,25 +1,27 @@
-from posthog.schema import CurrencyCode, HogQLQueryModifiers
+from posthog.schema import CurrencyCode
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, DataWarehouseTable, DataWarehouseCredential
 from posthog.test.base import BaseTest
 
 from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
-    RevenueAnalyticsChargeView,
-    STRIPE_CHARGE_RESOURCE_NAME,
+from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import (
+    STRIPE_INVOICE_RESOURCE_NAME,
 )
 from products.revenue_analytics.backend.views.currency_helpers import ZERO_DECIMAL_CURRENCIES_IN_STRIPE
 from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsInvoiceItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
+from posthog.hogql.timings import HogQLTimings
 
 
 class TestRevenueAnalyticsViews(BaseTest):
     def setUp(self):
         super().setUp()
-        self.modifiers = HogQLQueryModifiers()
+
+        self.timings = HogQLTimings()
 
         self.source = ExternalDataSource.objects.create(
             team=self.team,
@@ -33,7 +35,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         )
 
         self.table = DataWarehouseTable.objects.create(
-            name="charge",
+            name="invoice",
             format="Parquet",
             team=self.team,
             external_data_source=self.source,
@@ -44,7 +46,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         )
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_CHARGE_RESOURCE_NAME,
+            name=STRIPE_INVOICE_RESOURCE_NAME,
             source=self.source,
             table=self.table,
             should_sync=True,
@@ -58,18 +60,18 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertNotIn(CurrencyCode.USD, ZERO_DECIMAL_CURRENCIES_IN_STRIPE)
 
     def test_schema_source_views(self):
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.modifiers)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.charge_revenue_view")
+        self.assertEqual(views[0].name, "stripe.revenue_item_revenue_view")
 
-        charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source, self.modifiers)
-        self.assertEqual(len(charge_views), 1)
-        self.assertEqual(charge_views[0].name, "stripe.charge_revenue_view")
+        revenue_item_views = RevenueAnalyticsRevenueItemView.for_schema_source(self.source)
+        self.assertEqual(len(revenue_item_views), 1)
+        self.assertEqual(revenue_item_views[0].name, "stripe.revenue_item_revenue_view")
 
-        customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source, self.modifiers)
+        customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source)
         self.assertEqual(len(customer_views), 0)
 
-        subscription_views = RevenueAnalyticsSubscriptionView.for_schema_source(self.source, self.modifiers)
+        subscription_views = RevenueAnalyticsSubscriptionView.for_schema_source(self.source)
         self.assertEqual(len(subscription_views), 0)
 
     def test_revenue_view_non_stripe_source(self):
@@ -77,14 +79,14 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.source.source_type = "Salesforce"
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.modifiers)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 0)
 
     def test_revenue_view_missing_schema(self):
         """Test that RevenueAnalyticsBaseView handles missing schema gracefully"""
         self.schema.delete()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.modifiers)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 0)
 
     def test_revenue_view_prefix(self):
@@ -92,36 +94,36 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.source.prefix = "prefix"
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.modifiers)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.prefix.charge_revenue_view")
+        self.assertEqual(views[0].name, "stripe.prefix.revenue_item_revenue_view")
 
     def test_revenue_view_no_prefix(self):
         """Test that RevenueAnalyticsBaseView handles no prefix correctly"""
         self.source.prefix = None
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.modifiers)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.charge_revenue_view")
+        self.assertEqual(views[0].name, "stripe.revenue_item_revenue_view")
 
     def test_revenue_view_prefix_with_underscores(self):
         """Test that RevenueAnalyticsBaseView handles prefix with underscores correctly"""
         self.source.prefix = "prefix_with_underscores_"
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.modifiers)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.prefix_with_underscores.charge_revenue_view")
+        self.assertEqual(views[0].name, "stripe.prefix_with_underscores.revenue_item_revenue_view")
 
     def test_revenue_view_prefix_with_empty_string(self):
         """Test that RevenueAnalyticsBaseView handles empty prefix"""
         self.source.prefix = ""
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.modifiers)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.charge_revenue_view")
+        self.assertEqual(views[0].name, "stripe.revenue_item_revenue_view")
 
     def test_revenue_all_views(self):
         """Test that RevenueAnalyticsBaseView creates both charge and customer views"""
@@ -163,8 +165,8 @@ class TestRevenueAnalyticsViews(BaseTest):
             last_synced_at="2024-01-01",
         )
 
-        invoice_table = DataWarehouseTable.objects.create(
-            name="invoice",
+        charge_table = DataWarehouseTable.objects.create(
+            name="charge",
             format="Parquet",
             team=self.team,
             external_data_source=self.source,
@@ -173,11 +175,11 @@ class TestRevenueAnalyticsViews(BaseTest):
             url_pattern="https://bucket.s3/data/*",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
-        _invoice_schema = ExternalDataSchema.objects.create(
+        _charge_schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name="Invoice",
+            name="Charge",
             source=self.source,
-            table=invoice_table,
+            table=charge_table,
             should_sync=True,
             last_synced_at="2024-01-01",
         )
@@ -201,33 +203,38 @@ class TestRevenueAnalyticsViews(BaseTest):
             last_synced_at="2024-01-01",
         )
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.modifiers)
+        views = RevenueAnalyticsBaseView.for_team(self.team, self.timings)
+        self.assertEqual(len(views), 5)
+        self.assertIn("./for_events", self.timings.to_dict().keys())
+        self.assertIn("./for_schema_source", self.timings.to_dict().keys())
+
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 5)
 
         names = [view.name for view in views]
         self.assertIn("stripe.charge_revenue_view", names)
         self.assertIn("stripe.customer_revenue_view", names)
         self.assertIn("stripe.product_revenue_view", names)
-        self.assertIn("stripe.invoice_item_revenue_view", names)
+        self.assertIn("stripe.revenue_item_revenue_view", names)  # Already exists from the setup
         self.assertIn("stripe.subscription_revenue_view", names)
 
         # Test individual views
-        charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source, self.modifiers)
+        charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source)
         self.assertEqual(len(charge_views), 1)
         self.assertEqual(charge_views[0].name, "stripe.charge_revenue_view")
 
-        customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source, self.modifiers)
+        customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source)
         self.assertEqual(len(customer_views), 1)
         self.assertEqual(customer_views[0].name, "stripe.customer_revenue_view")
 
-        product_views = RevenueAnalyticsProductView.for_schema_source(self.source, self.modifiers)
+        product_views = RevenueAnalyticsProductView.for_schema_source(self.source)
         self.assertEqual(len(product_views), 1)
         self.assertEqual(product_views[0].name, "stripe.product_revenue_view")
 
-        invoice_item_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source, self.modifiers)
-        self.assertEqual(len(invoice_item_views), 1)
-        self.assertEqual(invoice_item_views[0].name, "stripe.invoice_item_revenue_view")
+        revenue_item_views = RevenueAnalyticsRevenueItemView.for_schema_source(self.source)
+        self.assertEqual(len(revenue_item_views), 1)
+        self.assertEqual(revenue_item_views[0].name, "stripe.revenue_item_revenue_view")
 
-        subscription_views = RevenueAnalyticsSubscriptionView.for_schema_source(self.source, self.modifiers)
+        subscription_views = RevenueAnalyticsSubscriptionView.for_schema_source(self.source)
         self.assertEqual(len(subscription_views), 1)
         self.assertEqual(subscription_views[0].name, "stripe.subscription_revenue_view")
