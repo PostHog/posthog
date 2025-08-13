@@ -123,6 +123,29 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def __str__(self):
         return self.name or self.derived_name or self.short_id
 
+    def save(self, *args, **kwargs) -> None:
+        # generate query metadata if needed
+        if self._state.adding or self.query != self._original_query or self.query_metadata is None:
+            try:
+                self.generate_query_metadata()
+                if "update_fields" in kwargs:
+                    kwargs["update_fields"].append("query_metadata")
+            except Exception as e:
+                # log and ignore the error, as this is not critical
+                logger.exception(
+                    "Failed to generate query metadata for insight",
+                    insight_id=self.id or "new",
+                    team_id=self.team_id,
+                    query=self.query,
+                    error=str(e),
+                )
+                capture_exception(e)
+        super().save(*args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_query = self.query
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Insight"]:
         base_qs = cls.objects.filter(team=team, deleted=False, saved=True)

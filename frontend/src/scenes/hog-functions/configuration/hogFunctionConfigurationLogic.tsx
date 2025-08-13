@@ -44,6 +44,7 @@ import {
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
+    HogWatcherState,
     PersonType,
     PipelineNodeTab,
     PipelineStage,
@@ -813,7 +814,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         willReEnableOnSave: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
-                return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
+                const hogState = hogFunction?.status?.state ?? 0
+                return configuration?.enabled && hogState === HogWatcherState.disabled
             },
         ],
 
