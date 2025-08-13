@@ -1,17 +1,5 @@
-import {
-    actions,
-    BuiltLogic,
-    connect,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-    sharedListeners,
-    props,
-    key,
-} from 'kea'
-import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
+import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
 import { AlertType } from 'lib/components/Alerts/types'
@@ -50,6 +38,9 @@ import api from 'lib/api'
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
 
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { tabAwareScene } from 'lib/logic/scene-plugin/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scene-plugin/tabAwareUrlToAction'
+import { tabAwareActionToUrl } from 'lib/logic/scene-plugin/tabAwareActionToUrl'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -70,20 +61,14 @@ export interface InsightSceneLogicProps {
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
-    props({} as InsightSceneLogicProps),
-    key((props: InsightSceneLogicProps) => {
-        if (!props.tabId) {
-            throw new Error('insightSceneLogic has no tabId')
-        }
-        return props.tabId
-    }),
+    tabAwareScene(),
     connect(() => ({
         logic: [eventUsageLogic],
         values: [
             teamLogic,
             ['currentTeam', 'currentTeamId'],
             sceneLogic,
-            ['activeScene'],
+            ['activeSceneId'],
             preflightLogic,
             ['disableNavigationHooks'],
             filterTestAccountsDefaultsLogic,
@@ -342,7 +327,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             )
         },
     })),
-    urlToAction(({ actions, values, props }) => ({
+    tabAwareUrlToAction(({ actions, values, props }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params
@@ -379,7 +364,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = alert_id !== values.alertId
 
             if (
-                currentScene?.activeScene === Scene.Insight &&
+                currentScene?.activeSceneId === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
@@ -463,7 +448,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         // Use the browser redirect to determine state to hook into beforeunload prevention
         const actionToUrl = ({
             insightMode = values.insightMode,
@@ -489,7 +474,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     beforeUnload(({ values }) => ({
         enabled: (newLocation?: CombinedLocation) => {
             // Don't run this check on other scenes
-            if (values.activeScene !== Scene.Insight) {
+            if (values.activeSceneId !== Scene.Insight) {
                 return false
             }
 

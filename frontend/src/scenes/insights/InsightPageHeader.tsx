@@ -51,11 +51,11 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightsApi } from 'scenes/insights/utils/api'
+
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
@@ -111,7 +111,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
 
     // savedInsightsLogic
-    const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
+    // const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
     const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
@@ -152,15 +152,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         // We do not want to duplicate the dashboard filters that might be included in this insight
         // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
         // irreversibly in apply_dashboard_filters and return that to the front-end
-        if (insight.short_id) {
-            const cleanInsight = await insightsApi.getByShortId(insight.short_id)
-            if (cleanInsight) {
-                duplicateInsight(cleanInsight, true)
-                return
-            }
-        }
-        // Fallback to original behavior if load failed
-        duplicateInsight(insight as QueryBasedInsightModel, true)
+        // if (insight.short_id) {
+        //     const cleanInsight = await insightsApi.getByShortId(insight.short_id)
+        //     if (cleanInsight) {
+        //         duplicateInsight(cleanInsight, true)
+        //         return
+        //     }
+        // }
+        // // Fallback to original behavior if load failed
+        // duplicateInsight(insight as QueryBasedInsightModel, true)
     }
 
     return (
@@ -514,7 +514,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             object: insight as QueryBasedInsightModel,
                                                             endpoint: `projects/${currentProjectId}/insights`,
                                                             callback: () => {
-                                                                loadInsights()
+                                                                // loadInsights()
                                                                 push(urls.savedInsights())
                                                             },
                                                         })
@@ -860,7 +860,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     object: insight as QueryBasedInsightModel,
                                                     endpoint: `projects/${currentProjectId}/insights`,
                                                     callback: () => {
-                                                        loadInsights()
+                                                        // loadInsights()
                                                         push(urls.savedInsights())
                                                     },
                                                 })

@@ -81,7 +81,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             featureFlagLogic,
             ['featureFlags'],
             sceneLogic,
-            ['activeScene'],
+            ['activeSceneId'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -384,8 +384,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         ],
         supportsCreatingExperiment: [
-            (s) => [s.insight, s.activeScene],
-            (insight: QueryBasedInsightModel, activeScene: Scene) =>
+            (s) => [s.insight, s.activeSceneId],
+            (insight: QueryBasedInsightModel, activeSceneId: Scene) =>
                 insight?.query &&
                 isValidQueryForExperiment(insight.query) &&
                 ![
@@ -393,7 +393,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.Experiments,
                     Scene.ExperimentsSharedMetric,
                     Scene.ExperimentsSharedMetrics,
-                ].includes(activeScene),
+                ].includes(activeSceneId),
         ],
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],

@@ -22,6 +22,7 @@ import {
     SceneConfig,
     SceneExport,
     SceneParams,
+    SceneTab,
     sceneToAccessControlResourceType,
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -38,15 +39,6 @@ import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 import { arrayMove } from '@dnd-kit/sortable'
 import { subscriptions } from 'kea-subscriptions'
-
-export interface SceneTab {
-    id: string
-    pathname: string
-    search: string
-    hash: string
-    title: string
-    active: boolean
-}
 
 const TAB_STATE_KEY = 'scene-tabs-state'
 const persistTabs = (tabs: SceneTab[]): void => {
@@ -116,35 +108,61 @@ export const sceneLogic = kea<sceneLogicType>([
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
         else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
-        openScene: (scene: string, sceneKey: string | null, params: SceneParams, method: string) => ({
-            scene,
+        openScene: (
+            sceneId: string,
+            sceneKey: string | undefined,
+            tabId: string,
+            params: SceneParams,
+            method: string
+        ) => ({
+            sceneId,
             sceneKey,
             params,
             method,
+            tabId,
         }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
-        loadScene: (scene: string, sceneKey: string | null, params: SceneParams, method: string) => ({
-            scene,
+        loadScene: (
+            sceneId: string,
+            sceneKey: string | undefined,
+            tabId: string,
+            params: SceneParams,
+            method: string
+        ) => ({
+            sceneId,
             sceneKey,
             params,
             method,
+            tabId,
         }),
         // 3. Set the `scene` reducer
         setScene: (
-            scene: string,
-            sceneKey: string | null,
+            sceneId: string,
+            sceneKey: string | undefined,
+            tabId: string,
             params: SceneParams,
             scrollToTop: boolean = false,
-            loadedScene?: LoadedScene
+            exportedScene?: SceneExport
         ) => ({
-            scene,
+            sceneId,
             sceneKey,
+            tabId,
             params,
             scrollToTop,
-            loadedScene,
+            exportedScene,
         }),
-        setLoadedScene: (loadedScene: LoadedScene) => ({
-            loadedScene,
+        setExportedScene: (
+            exportedScene: SceneExport,
+            sceneId: string,
+            sceneKey: string | undefined,
+            tabId: string,
+            params: SceneParams
+        ) => ({
+            exportedScene,
+            sceneId,
+            sceneKey,
+            tabId,
+            params,
         }),
         reloadBrowserDueToImportError: true,
 
@@ -157,48 +175,7 @@ export const sceneLogic = kea<sceneLogicType>([
         cloneTab: (tab: SceneTab) => ({ tab }),
     }),
     reducers({
-        scene: [
-            null as string | null,
-            {
-                setScene: (_, payload) => payload.scene,
-            },
-        ],
-        sceneKey: [
-            null as string | null,
-            {
-                setScene: (_, payload) => payload.sceneKey,
-            },
-        ],
-        loadedScenes: [
-            preloadedScenes,
-            {
-                setScene: (state, { scene, params }) =>
-                    scene in state
-                        ? {
-                              ...state,
-                              [scene]: { ...state[scene], sceneParams: params, lastTouch: new Date().valueOf() },
-                          }
-                        : state,
-                setLoadedScene: (state, { loadedScene }) => ({
-                    ...state,
-                    [loadedScene.id]: { ...loadedScene, lastTouch: new Date().valueOf() },
-                }),
-            },
-        ],
-        loadingScene: [
-            null as string | null,
-            {
-                loadScene: (_, { scene }) => scene,
-                setScene: () => null,
-            },
-        ],
-        lastReloadAt: [
-            null as number | null,
-            { persist: true },
-            {
-                reloadBrowserDueToImportError: () => new Date().valueOf(),
-            },
-        ],
+        // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
         tabs: [
             [] as SceneTab[],
             {
@@ -269,23 +246,98 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                     return [...base.slice(0, idx + 1), cloned, ...base.slice(idx + 1)]
                 },
+                setScene: (state, { sceneId, sceneKey, tabId, params }) => {
+                    return state.map((tab) =>
+                        tab.id === tabId
+                            ? {
+                                  ...tab,
+                                  sceneId: sceneId,
+                                  sceneKey: sceneKey ?? undefined,
+                                  sceneParams: params,
+                              }
+                            : tab
+                    )
+                },
+                setExportedScene: (state, { sceneId, sceneKey, tabId, params }) => {
+                    return state.map((tab) =>
+                        tab.id === tabId
+                            ? {
+                                  ...tab,
+                                  sceneId: sceneId,
+                                  sceneKey: sceneKey,
+                                  sceneParams: params,
+                              }
+                            : tab
+                    )
+                },
+            },
+        ],
+
+        exportedScenes: [
+            preloadedScenes,
+            {
+                setScene: (state, { sceneId }) =>
+                    sceneId in state
+                        ? {
+                              ...state,
+                              [sceneId]: { ...state[sceneId], lastTouch: new Date().valueOf() }, // sceneParams: params,
+                          }
+                        : state,
+                setExportedScene: (state, { exportedScene, sceneId }) => ({
+                    ...state,
+                    [sceneId]: { ...exportedScene, lastTouch: new Date().valueOf() },
+                }),
+            },
+        ],
+        loadingScene: [
+            null as string | null,
+            {
+                loadScene: (_, { sceneId }) => sceneId,
+                setScene: () => null,
+            },
+        ],
+        lastReloadAt: [
+            null as number | null,
+            { persist: true },
+            {
+                reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
     }),
     selectors({
-        sceneConfig: [
-            (s) => [s.scene],
-            (scene: Scene): SceneConfig | null => {
-                return sceneConfigurations[scene] || null
+        activeTab: [
+            (s) => [s.tabs],
+            (tabs: SceneTab[]): SceneTab | null => {
+                return tabs.find((tab) => tab.active) || tabs[0] || null
             },
         ],
-        activeScene: [
-            (s) => [s.scene, teamLogic.selectors.isCurrentTeamUnavailable],
-            (scene, isCurrentTeamUnavailable) => {
+        activeTabId: [
+            (s) => [s.activeTab],
+            (activeTab: SceneTab | null): string | null => (activeTab ? activeTab.id : null),
+        ],
+        sceneId: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneId],
+        sceneKey: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneKey],
+        sceneConfig: [(s) => [s.sceneId], (sceneId: Scene): SceneConfig | null => sceneConfigurations[sceneId] || null],
+        sceneParams: [
+            (s) => [s.activeTab],
+            (activeTab): SceneParams => activeTab?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
+        ],
+        sceneParamsWithTabId: [
+            (s) => [s.sceneParams, s.activeExportedScene, s.activeTabId],
+            (sceneParams, activeExportedScene, activeTabId): Record<string, string> => {
+                return {
+                    ...sceneParams.params,
+                    tabId: activeTabId,
+                }
+            },
+        ],
+        activeSceneId: [
+            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable],
+            (sceneId, isCurrentTeamUnavailable) => {
                 const effectiveResourceAccessControl = window.POSTHOG_APP_CONTEXT?.effective_resource_access_control
 
                 // Get the access control resource type for the current scene
-                const sceneAccessControlResource = scene ? sceneToAccessControlResourceType[scene as Scene] : null
+                const sceneAccessControlResource = sceneId ? sceneToAccessControlResourceType[sceneId as Scene] : null
 
                 // Check if the user has effective access to this resource (includes specific object access)
                 if (
@@ -297,44 +349,44 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 return isCurrentTeamUnavailable &&
-                    scene &&
-                    sceneConfigurations[scene]?.projectBased &&
+                    sceneId &&
+                    sceneConfigurations[sceneId]?.projectBased &&
                     location.pathname !== urls.settings('user-danger-zone')
                     ? Scene.ErrorProjectUnavailable
-                    : scene
+                    : sceneId
+            },
+        ],
+        activeExportedScene: [
+            (s) => [s.activeSceneId, s.exportedScenes],
+            (activeSceneId, exportedScenes) => {
+                return activeSceneId ? exportedScenes[activeSceneId] : null
             },
         ],
         activeLoadedScene: [
-            (s) => [s.activeScene, s.loadedScenes],
-            (activeScene, loadedScenes) => (activeScene ? loadedScenes[activeScene] : null),
-        ],
-        sceneParams: [
-            (s) => [s.activeLoadedScene],
-            (activeLoadedScene): SceneParams =>
-                activeLoadedScene?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
+            (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams, s.activeTabId],
+            (activeSceneId, activeExportedScene, sceneParams, activeTabId): LoadedScene | null => {
+                return {
+                    ...(activeExportedScene ?? { component: () => 'Component not found' }),
+                    id: activeSceneId ?? Scene.Error404,
+                    tabId: activeTabId ?? undefined,
+                    sceneParams: sceneParams,
+                }
+            },
         ],
         activeSceneLogic: [
-            (s) => [s.activeLoadedScene, s.sceneParams, s.activeTabId],
-            (activeLoadedScene, sceneParams, activeTabId): BuiltLogic | null => {
-                if (activeLoadedScene?.logic) {
-                    const logicTabId = activeLoadedScene?.tabId
-                    if (!logicTabId || logicTabId === activeTabId) {
-                        return activeLoadedScene.logic.build({
-                            ...activeLoadedScene.paramsToProps?.(sceneParams),
-                            tabId: activeTabId,
-                        })
-                    }
+            (s) => [s.activeExportedScene, s.sceneParams, s.activeTabId],
+            (activeExportedScene, sceneParams, activeTabId): BuiltLogic | null => {
+                if (activeExportedScene?.logic) {
+                    // if (!logicTabId || logicTabId === activeTabId) {
+                    return activeExportedScene.logic.build({
+                        ...activeExportedScene.paramsToProps?.(sceneParams),
+                        tabId: activeTabId,
+                    })
+                    // }
                 }
 
                 return null
             },
-        ],
-        params: [
-            (s) => [s.sceneParams, s.activeLoadedScene],
-            (sceneParams, activeLoadedScene): Record<string, string> => ({
-                tabId: activeLoadedScene?.tabId,
-                ...sceneParams.params,
-            }),
         ],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
@@ -350,18 +402,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 return null
             },
         ],
-        activeTab: [
-            (s) => [s.tabs],
-            (tabs: SceneTab[]): SceneTab | null => {
-                return tabs.find((tab) => tab.active) || null
-            },
-        ],
-        activeTabId: [
-            (s) => [s.activeTab],
-            (activeTab: SceneTab | null): string | null => {
-                return activeTab ? activeTab.id : null
-            },
-        ],
+
         tabIds: [
             (s) => [s.tabs],
             (tabs: SceneTab[]): Record<string, boolean> => {
@@ -382,10 +423,11 @@ export const sceneLogic = kea<sceneLogicType>([
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         try {
-                            const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                            const activeExportedScene = sceneLogic.selectors.activeExportedScene(state, props)
+                            const sceneParams = sceneLogic.selectors.sceneParams(state, props)
                             const bc = activeSceneLogic.selectors.breadcrumbs(
                                 state,
-                                activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                                activeExportedScene?.paramsToProps?.(sceneParams) || props
                             )
                             return bc.length > 0 ? bc[bc.length - 1].name : '...'
                         } catch {
@@ -393,10 +435,10 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
 
-                    const activeScene = s.activeScene(state, props)
-                    if (activeScene) {
+                    const activeSceneId = s.activeSceneId(state, props)
+                    if (activeSceneId) {
                         const sceneConfig = s.sceneConfig(state, props)
-                        return sceneConfig?.name ?? identifierToHuman(activeScene)
+                        return sceneConfig?.name ?? identifierToHuman(activeSceneId)
                     }
                     return '...'
                 },
@@ -507,46 +549,41 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }
         },
-        setScene: ({ scene, loadedScene, params, scrollToTop }, _, __, previousState) => {
+        setScene: ({ tabId, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
 
             // if we clicked on a link, scroll to top
-            const previousScene = selectors.scene(previousState)
-            if (scrollToTop && scene !== previousScene) {
+            const previousScene = selectors.sceneId(previousState)
+            if (scrollToTop && sceneId !== previousScene) {
                 window.scrollTo(0, 0)
             }
 
-            const activeTabId = values.activeTabId
-            if (!activeTabId) {
-                console.warn('No active tab found when setting scene logic')
-                return
-            }
-            const unmount = cache.mountedTabLogic[activeTabId]
+            const unmount = cache.mountedTabLogic[tabId]
             if (unmount) {
                 window.setTimeout(unmount, 50)
-                delete cache.mountedTabLogic[activeTabId]
+                delete cache.mountedTabLogic[tabId]
             }
-            if (loadedScene?.logic) {
-                const props = loadedScene?.paramsToProps?.(params)
-                cache.mountedTabLogic[activeTabId] = loadedScene?.logic({ tabId: activeTabId, ...props }).mount()
+            if (exportedScene?.logic) {
+                const props = exportedScene?.paramsToProps?.(params)
+                cache.mountedTabLogic[tabId] = exportedScene?.logic({ tabId, ...props }).mount()
             }
         },
-        openScene: ({ scene, sceneKey, params, method }) => {
-            const sceneConfig = sceneConfigurations[scene] || {}
+        openScene: ({ tabId, sceneId, sceneKey, params, method }) => {
+            const sceneConfig = sceneConfigurations[sceneId] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
 
-            if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
+            if (sceneId === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
                 router.actions.replace(urls.login())
                 return
             }
-            if (scene === Scene.Login && preflight?.demo) {
+            if (sceneId === Scene.Login && preflight?.demo) {
                 // In the demo environment, there's only passwordless "login" via the signup scene
                 router.actions.replace(urls.signup())
                 return
             }
-            if (scene === Scene.MoveToPostHogCloud && preflight?.cloud) {
+            if (sceneId === Scene.MoveToPostHogCloud && preflight?.cloud) {
                 router.actions.replace(urls.projectHomepage())
                 return
             }
@@ -554,7 +591,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
-                    if (scene === Scene.Login) {
+                    if (sceneId === Scene.Login) {
                         handleLoginRedirect()
                     } else {
                         router.actions.replace(urls.default())
@@ -563,7 +600,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 // Redirect to org/project creation if there's no org/project respectively, unless using invite
-                if (scene !== Scene.InviteSignup) {
+                if (sceneId !== Scene.InviteSignup) {
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
@@ -642,30 +679,37 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            actions.loadScene(scene, sceneKey, params, method)
+            actions.loadScene(sceneId, sceneKey, tabId, params, method)
         },
-        loadScene: async ({ scene, sceneKey, params, method }, breakpoint) => {
+        loadScene: async ({ sceneId, sceneKey, tabId, params, method }, breakpoint) => {
             const clickedLink = method === 'PUSH'
-            if (values.scene === scene) {
-                actions.setScene(scene, sceneKey, params, clickedLink, values.loadedScenes[scene])
+            if (values.sceneId === sceneId && values.exportedScenes[sceneId]) {
+                actions.setScene(sceneId, sceneKey, tabId, params, clickedLink, values.exportedScenes[sceneId])
                 return
             }
 
-            if (!props.scenes?.[scene]) {
-                actions.setScene(Scene.Error404, null, emptySceneParams, clickedLink, values.loadedScenes[scene])
+            if (!props.scenes?.[sceneId]) {
+                actions.setScene(
+                    Scene.Error404,
+                    undefined,
+                    tabId,
+                    emptySceneParams,
+                    clickedLink,
+                    values.exportedScenes[sceneId]
+                )
                 return
             }
 
-            let loadedScene = values.loadedScenes[scene]
-            const wasNotLoaded = !loadedScene
+            let exportedScene = values.exportedScenes[sceneId]
+            const wasNotLoaded = !exportedScene
 
-            if (!loadedScene) {
+            if (!exportedScene) {
                 // if we can't load the scene in a second, show a spinner
-                const timeout = window.setTimeout(() => actions.setScene(scene, sceneKey, params, true), 500)
+                const timeout = window.setTimeout(() => actions.setScene(sceneId, sceneKey, tabId, params, true), 500)
                 let importedScene
                 try {
-                    window.ESBUILD_LOAD_CHUNKS?.(scene)
-                    importedScene = await props.scenes[scene]()
+                    window.ESBUILD_LOAD_CHUNKS?.(sceneId)
+                    importedScene = await props.scenes[sceneId]()
                 } catch (error: any) {
                     if (
                         error.name === 'ChunkLoadError' || // webpack
@@ -677,7 +721,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
                         ) {
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene(Scene.ErrorNetwork, null, emptySceneParams, clickedLink)
+                            actions.setScene(Scene.ErrorNetwork, undefined, tabId, emptySceneParams, clickedLink)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
                             actions.reloadBrowserDueToImportError()
@@ -688,49 +732,38 @@ export const sceneLogic = kea<sceneLogicType>([
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                if (values.scene !== scene) {
+                if (values.sceneId !== sceneId) {
                     breakpoint()
                 }
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
-                    loadedScene = {
-                        id: scene,
-                        tabId: values.activeTabId,
-                        ...(_scene as SceneExport),
-                        sceneParams: params,
-                    }
+                    exportedScene = _scene
                 } else if (defaultExport) {
-                    console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
-                    loadedScene = {
-                        id: scene,
-                        tabId: values.activeTabId,
+                    console.warn(`Scene ${sceneId} not yet converted to use SceneExport!`)
+                    exportedScene = {
                         component: defaultExport,
                         logic: logic,
-                        sceneParams: params,
                     }
                 } else {
-                    console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
-                    loadedScene = {
-                        id: scene,
-                        tabId: values.activeTabId,
+                    console.warn(`Scene ${sceneId} not yet converted to use SceneExport!`)
+                    exportedScene = {
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
-                                : values.loadedScenes[Scene.Error404].component,
+                                : values.exportedScenes[Scene.Error404].component,
                         logic: logic,
-                        sceneParams: params,
                     }
                     if (Object.keys(others).length > 1) {
                         console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
-                actions.setLoadedScene(loadedScene)
+                actions.setExportedScene(exportedScene, sceneId, sceneKey, tabId, params)
 
-                if (loadedScene.logic) {
+                if (exportedScene.logic) {
                     // initialize the logic and give it 50ms to load before opening the scene
-                    const props = { ...loadedScene.paramsToProps?.(params), tabId: values.activeTabId }
-                    const unmount = loadedScene.logic.build(props).mount()
+                    const props = { ...exportedScene.paramsToProps?.(params), tabId }
+                    const unmount = exportedScene.logic.build(props).mount()
                     try {
                         await breakpoint(50)
                     } catch (e) {
@@ -740,7 +773,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
             }
-            actions.setScene(scene, sceneKey, params, clickedLink || wasNotLoaded, loadedScene)
+            actions.setScene(sceneId, sceneKey, tabId, params, clickedLink || wasNotLoaded, exportedScene)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
@@ -772,7 +805,7 @@ export const sceneLogic = kea<sceneLogicType>([
         }
     }),
 
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const mapping: Record<
             string,
             (
@@ -797,12 +830,29 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         }
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
+            mapping[path] = (params, searchParams, hashParams, { method }) => {
+                if (!values.activeTabId) {
+                    actions.newTab()
+                }
+                actions.openScene(
+                    scene,
+                    sceneKey,
+                    values.activeTabId ?? '',
+                    {
+                        params,
+                        searchParams,
+                        hashParams,
+                    },
+                    method
+                )
+            }
         }
 
         mapping['/*'] = (_, __, { method }) => {
-            return actions.loadScene(Scene.Error404, null, emptySceneParams, method)
+            if (!values.activeTabId) {
+                actions.newTab()
+            }
+            return actions.loadScene(Scene.Error404, undefined, values.activeTabId ?? '', emptySceneParams, method)
         }
 
         return mapping

@@ -6,9 +6,11 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
-import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
+import { tabAwareScene } from 'lib/logic/scene-plugin/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scene-plugin/tabAwareUrlToAction'
+import { tabAwareActionToUrl } from 'lib/logic/scene-plugin/tabAwareActionToUrl'
 
 const defaultQuery = {
     kind: NodeKind.DataTableNode,
@@ -22,6 +24,7 @@ const defaultQuery = {
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
     path(['scenes', 'persons', 'personsSceneLogic']),
+    tabAwareScene(),
 
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
@@ -38,7 +41,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         },
     }),
 
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.persons(),
             {},
@@ -47,7 +50,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.persons()]: (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL

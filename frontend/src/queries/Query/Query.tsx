@@ -47,6 +47,7 @@ import {
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '../utils'
+import { BuiltLogic, Logic, LogicWrapper } from 'kea'
 
 export interface QueryProps<Q extends Node> {
     /** An optional key to identify the query */
@@ -73,6 +74,8 @@ export interface QueryProps<Q extends Node> {
     variablesOverride?: Record<string, HogQLVariable> | null
     /** Passed down if implemented by the query type to e.g. set data attr on a LemonTable in a data table */
     dataAttr?: string
+    /** Attach ourselves to another logic */
+    attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
@@ -118,6 +121,8 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     if (isDataTableNode(query)) {
         component = (
             <DataTable
+                attachTo={props.attachTo}
+                key={props.uniqueKey}
                 query={query}
                 setQuery={setQuery as unknown as (query: DataTableNode) => void}
                 context={queryContext}

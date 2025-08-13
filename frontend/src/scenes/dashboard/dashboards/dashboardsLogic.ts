@@ -1,6 +1,6 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
@@ -10,6 +10,9 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType } from '~/types'
 
 import type { dashboardsLogicType } from './dashboardsLogicType'
+import { tabAwareUrlToAction } from 'lib/logic/scene-plugin/tabAwareUrlToAction'
+import { tabAwareScene } from 'lib/logic/scene-plugin/tabAwareScene'
+import { tabAwareActionToUrl } from 'lib/logic/scene-plugin/tabAwareActionToUrl'
 
 export enum DashboardsTab {
     All = 'all',
@@ -38,6 +41,7 @@ export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
+    tabAwareScene(),
     connect(() => ({ values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']] })),
     actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
@@ -116,7 +120,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
     }),
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setCurrentTab: () => {
             const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
             if (router.values.searchParams['tab'] === tab) {
@@ -126,7 +130,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
     })),
-    urlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
             const tab = searchParams['tab'] || DashboardsTab.All
             actions.setCurrentTab(tab)

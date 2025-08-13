@@ -139,6 +139,19 @@ export interface LoadedScene extends SceneExport {
     sceneParams: SceneParams
 }
 
+export interface SceneTab {
+    id: string
+    pathname: string
+    search: string
+    hash: string
+    title: string
+    active: boolean
+
+    sceneId?: string
+    sceneKey?: string
+    sceneParams?: SceneParams
+}
+
 export interface SceneParams {
     params: Record<string, any>
     searchParams: Record<string, any>

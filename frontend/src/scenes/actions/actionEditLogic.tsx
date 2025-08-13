@@ -45,7 +45,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             tagsModel,
             ['loadTags'],
         ],
-        values: [sceneLogic, ['activeScene']],
+        values: [sceneLogic, ['activeSceneId']],
     })),
     actions({
         setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({

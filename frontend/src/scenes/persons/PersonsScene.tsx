@@ -17,10 +17,10 @@ export const scene: SceneExport = {
     logic: personsSceneLogic,
 }
 
-export function PersonsScene(): JSX.Element {
-    const { query } = useValues(personsSceneLogic)
-    const { setQuery } = useActions(personsSceneLogic)
-    const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
+export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    const { query } = useValues(personsSceneLogic({ tabId }))
+    const { setQuery } = useActions(personsSceneLogic({ tabId }))
+    const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic({ tabId }))
     const { currentTeam } = useValues(teamLogic)
 
     return (
@@ -60,6 +60,8 @@ export function PersonsScene(): JSX.Element {
                 }
             />
             <Query
+                uniqueKey={`persons-query-${tabId}`}
+                attachTo={personsSceneLogic({ tabId })}
                 query={query}
                 setQuery={setQuery}
                 context={{

@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -77,6 +77,7 @@ import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 import { groupViewLogic } from 'scenes/groups/groupViewLogic'
+import { useAttachedLogic } from 'lib/logic/scene-plugin/useAttachedLogic'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -102,6 +103,7 @@ interface DataTableProps {
      Set a data-attr on the LemonTable component
     */
     dataAttr?: string
+    attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
 const eventGroupTypes = [
@@ -122,6 +124,7 @@ export function DataTable({
     cachedResults,
     readOnly,
     dataAttr,
+    attachTo,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -178,6 +181,9 @@ export function DataTable({
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
+
+    useAttachedLogic(builtDataNodeLogic, attachTo)
+    useAttachedLogic(dataTableLogic(dataTableLogicProps), attachTo)
 
     const {
         showActions,
