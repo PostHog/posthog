@@ -11,7 +11,7 @@ from posthog.schema import (
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
 
 ORDER_BY_MONTH_ASC = ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")
 
@@ -23,7 +23,7 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # If there are no revenue views, we return a query that returns 0 for all values
-        if self.revenue_subqueries.invoice_item is None:
+        if self.revenue_subqueries.revenue_item is None:
             return ast.SelectQuery.empty(
                 columns=[
                     "month",
@@ -65,7 +65,7 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                         expr=ast.Call(
                             name="toStartOfMonth",
                             args=[
-                                ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])
+                                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])
                             ],
                         ),
                     ),
@@ -76,15 +76,15 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                 ],
                 select_from=self._append_joins(
                     ast.JoinExpr(
-                        alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                        table=self.revenue_subqueries.invoice_item,  # Guaranteed to be not None because we check for that in `to_query`
+                        alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                        table=self.revenue_subqueries.revenue_item,  # Guaranteed to be not None because we check for that in `to_query`
                     ),
-                    self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
+                    self.joins_for_properties(RevenueAnalyticsRevenueItemView),
                 ),
                 where=ast.And(
                     exprs=[
                         self.timestamp_where_clause(
-                            [RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
+                            [RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
                         ),
                         *self.where_property_exprs,
                     ]

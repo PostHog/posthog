@@ -27,7 +27,7 @@ from posthog.test.base import (
 from posthog.warehouse.models import ExternalDataSchema
 
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import (
+from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import (
     STRIPE_CHARGE_RESOURCE_NAME,
     STRIPE_INVOICE_RESOURCE_NAME,
 )

@@ -14,7 +14,7 @@ from posthog.schema import (
 from xml.etree import ElementTree as ET
 from posthog.clickhouse.query_tagging import Product, tags_context
 from langchain_core.agents import AgentAction
-from typing import Union, Any
+from typing import Union
 from functools import cached_property
 from typing import Optional, cast
 from collections.abc import Iterable
@@ -445,8 +445,6 @@ class TaxonomyAgentToolkit:
             result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)  # type: ignore
         elif tool_name == "ask_user_for_help":
             result = tool_input.arguments.request  # type: ignore
-        elif tool_name == "final_answer":
-            result = "Taxonomy finalized"
         else:
             raise TaxonomyToolNotFoundError(f"Tool {tool_name} not found in taxonomy toolkit.")
 
@@ -458,7 +456,7 @@ class TaxonomyAgentToolkit:
         except NotImplementedError:
             custom_tools = []
 
-        custom_tools_union: type[Any] = Union[tuple(custom_tools)] if custom_tools else BaseModel  # type: ignore
+        custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel
 
         class DynamicToolInput(TaxonomyTool[custom_tools_union]):  # type: ignore
             pass

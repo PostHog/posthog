@@ -13,6 +13,15 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
+class AIEventType(StrEnum):
+    FIELD_AI_GENERATION = "$ai_generation"
+    FIELD_AI_EMBEDDING = "$ai_embedding"
+    FIELD_AI_SPAN = "$ai_span"
+    FIELD_AI_TRACE = "$ai_trace"
+    FIELD_AI_METRIC = "$ai_metric"
+    FIELD_AI_FEEDBACK = "$ai_feedback"
+
+
 class AccessControlLevel(StrEnum):
     NONE = "none"
     MEMBER = "member"
@@ -858,8 +867,8 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
-    REVENUE_ANALYTICS_INVOICE_ITEM = "revenue_analytics_invoice_item"
     REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
+    REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
@@ -1614,7 +1623,7 @@ class LLMTraceEvent(BaseModel):
         extra="forbid",
     )
     createdAt: str
-    event: str
+    event: Union[AIEventType, str]
     id: str
     properties: dict[str, Any]
 

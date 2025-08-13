@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
 import React from 'react'
-import { NewActionButton } from 'scenes/actions/NewActionButton'
+import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 import { Annotations } from 'scenes/annotations'
 import { Comments } from 'scenes/data-management/comments/Comments'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
@@ -22,7 +22,7 @@ import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
-import { ActionsTable } from './actions/ActionsTable'
+import { ActionsTable } from 'products/actions/frontend/components/ActionsTable'
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'

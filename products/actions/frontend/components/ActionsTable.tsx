@@ -16,16 +16,16 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { actionsLogic } from 'scenes/actions/actionsLogic'
+import { actionsLogic } from '../logics/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
-import { NewActionButton } from '../../actions/NewActionButton'
-import { teamLogic } from '../../teamLogic'
-import { urls } from '../../urls'
+import { NewActionButton } from './NewActionButton'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
