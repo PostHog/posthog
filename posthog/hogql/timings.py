@@ -31,7 +31,7 @@ class HogQLTimingsBase(ABC):
         pass
 
     @abstractmethod
-    def to_list(self) -> list[QueryTiming]:
+    def to_list(self, back_out_stack=True) -> list[QueryTiming]:
         pass
 
 
@@ -54,7 +54,7 @@ class NoOpHogQLTimings(HogQLTimingsBase):
     def to_dict(self) -> dict[str, float]:
         return {}
 
-    def to_list(self) -> list[QueryTiming]:
+    def to_list(self, back_out_stack=True) -> list[QueryTiming]:
         return []
 
 
