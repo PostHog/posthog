@@ -125,9 +125,7 @@ export function HogFunctionInputs(): JSX.Element {
 
     return (
         <MaxTool
-            name="create_hog_function_inputs"
-            displayName="Generate and manage input variables"
-            description="Max can generate and manage input variables for your function"
+            identifier="create_hog_function_inputs"
             context={{
                 current_inputs_schema: configuration.inputs_schema ?? [],
                 hog_code: configuration.hog ?? '',

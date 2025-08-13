@@ -19,7 +19,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
 
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps } = useValues(insightLogic)
@@ -53,7 +53,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                         return formatBreakdownLabel(
                             item.breakdown_value,
                             breakdownFilter,
-                            cohorts?.results,
+                            allCohorts?.results,
                             formatPropertyValueForDisplay,
                             undefined,
                             item.label
@@ -74,7 +74,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         indexedResults,
         theme,
         breakdownFilter,
-        cohorts?.results,
+        allCohorts?.results,
         formatPropertyValueForDisplay,
         getTrendsColor,
         getTrendsHidden,
