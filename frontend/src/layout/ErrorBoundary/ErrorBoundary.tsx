@@ -9,17 +9,24 @@ import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'po
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
+// Constants
+const EXCEPTION_EVENT_NAME = '$exception'
+
 // Global variable to store the most recent exception event
 let globalLastExceptionEvent: { uuid: string; event: string; properties?: any } | null = null
 let globalExceptionListener: (() => void) | null = null
 
 // Set up global listener for exception events (only once)
 if (!globalExceptionListener && typeof window !== 'undefined') {
-    globalExceptionListener = posthog.on('eventCaptured', (event) => {
-        if (event.event === '$exception') {
-            globalLastExceptionEvent = event
-        }
-    })
+    try {
+        globalExceptionListener = posthog.on('eventCaptured', (event) => {
+            if (event.event === EXCEPTION_EVENT_NAME) {
+                globalLastExceptionEvent = event
+            }
+        })
+    } catch (error) {
+        console.warn('Failed to set up PostHog exception listener:', error)
+    }
 }
 
 interface ErrorBoundaryProps {
