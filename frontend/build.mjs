@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import {
     buildInParallel,
+    buildOrWatch,
     copyIndexHtml,
     copyPublicFolder,
     createHashlessEntrypoints,
     isDev,
+    reloadLiveServer,
+    server,
     startDevServer,
 } from '@posthog/esbuilder'
 import * as path from 'path'
