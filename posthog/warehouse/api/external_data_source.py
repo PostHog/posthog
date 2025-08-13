@@ -630,20 +630,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_period_end = parser.parse(billing_period["current_period_end"])
                 billing_period_type = "monthly"
             else:
-                billing_period_start = billing_period_end = None
+                billing_period_start = None
+                billing_period_end = None
                 billing_period_type = "all_time"
         except Exception as e:
             logger.exception("Could not retrieve billing information", exc_info=e)
-            billing_period_start = billing_period_end = None
+            billing_period_start = None
+            billing_period_end = None
             billing_period_type = "all_time"
 
         external_data_job_filters = {"team_id": self.team_id, "billable": True}
         data_modeling_job_filters = {"team_id": self.team_id}
 
         if billing_period_start and billing_period_end:
-            date_filter = {"created_at__gte": billing_period_start, "created_at__lt": billing_period_end}
-            external_data_job_filters.update(date_filter)
-            data_modeling_job_filters.update(date_filter)
+            external_data_job_filters["created_at__gte"] = billing_period_start
+            external_data_job_filters["created_at__lt"] = billing_period_end
+            data_modeling_job_filters["created_at__gte"] = billing_period_start
+            data_modeling_job_filters["created_at__lt"] = billing_period_end
 
         external_data_rows = (
             ExternalDataJob.objects.filter(**external_data_job_filters).aggregate(total=Sum("rows_synced"))["total"]
