@@ -4,7 +4,7 @@ from typing import Any
 import structlog
 import temporalio
 from dateutil import parser
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch, Q, Sum
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -33,6 +33,10 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+
+from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from ee.billing.billing_manager import BillingManager
+from posthog.cloud_utils import get_cached_instance_license
 
 logger = structlog.get_logger(__name__)
 
@@ -609,4 +613,43 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(
             status=status.HTTP_200_OK,
             data={str(key): value.model_dump() for key, value in configs.items()},
+        )
+
+    @action(methods=["GET"], detail=False)
+    def dwh_scene_stats(self, request: Request, *arg: Any, **kwargs: Any):
+        """
+        Endpoint that returns total rows processed in a single call.
+        Will be used to grab other data as needed for the data warehouse scene.
+        """
+
+        billing_manager = BillingManager(get_cached_instance_license())
+        org_billing = billing_manager.get_billing(organization=self.team.organization)
+
+        if org_billing and org_billing.get("billing_period"):
+            billing_period = org_billing["billing_period"]
+            billing_period_start = parser.parse(billing_period["current_period_start"])
+            billing_period_end = parser.parse(billing_period["current_period_end"])
+        else:
+            logger.error("No billing period available")
+            raise
+
+        # calculate total rows processed in billing period
+        external_data_jobs = ExternalDataJob.objects.filter(
+            team_id=self.team_id, billable=True, created_at__gte=billing_period_start, created_at__lt=billing_period_end
+        )
+
+        # TODO: double check if this is needed (do materialized views count towards billing limit?)
+        materialized_jobs = DataModelingJob.objects.filter(
+            team_id=self.team_id, created_at__gte=billing_period_start, created_at__lt=billing_period_end
+        )
+
+        external_rows = external_data_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
+        materialized_rows = materialized_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
+        billing_period_rows_processed = external_rows + materialized_rows
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "billingPeriodRowsProcessed": billing_period_rows_processed,
+            },
         )

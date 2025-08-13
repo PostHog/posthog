@@ -3324,6 +3324,11 @@ const api = {
                 .withQueryString({ before, after })
                 .get()
         },
+        async dwhSceneStats(options?: ApiMethodOptions): Promise<{
+            billingPeriodRowsProcessed: number
+        }> {
+            return await new ApiRequest().externalDataSources().withAction('dwh_scene_stats').get(options)
+        },
     },
 
     externalDataSchemas: {
