@@ -27,7 +27,6 @@ export const CategorySelect = ({
                         .map((category) => ({
                             label: category.name,
                             value: category.id,
-                            labelInMenu: <div className="flex items-center gap-2">{category.name}</div>,
                         })),
                 },
                 {
@@ -37,7 +36,6 @@ export const CategorySelect = ({
                         .map((category) => ({
                             label: category.name,
                             value: category.id,
-                            labelInMenu: <div className="flex items-center gap-2">{category.name}</div>,
                         })),
                 },
             ]}

@@ -67,71 +67,74 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
                 {Step?.renderConfiguration(selectedNode)}
             </ScrollableShadows>
 
-            <LemonDivider className="my-0" />
-
             {isOptOutEligibleAction(action) && (
-                <div className="flex flex-col p-2">
-                    <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
-                        <span>Message category</span>
-                        <div className="flex gap-2">
-                            {!categoriesLoading && !categories.length && (
-                                <LemonButton
-                                    to={urls.messaging('opt-outs')}
-                                    targetBlank
-                                    type="secondary"
-                                    icon={<IconExternal />}
-                                >
-                                    Configure
-                                </LemonButton>
-                            )}
-                            <CategorySelect
-                                onChange={(categoryId) => {
-                                    setCampaignAction(action.id, {
-                                        ...action,
-                                        config: {
-                                            ...action.config,
-                                            message_category_id: categoryId,
-                                        },
-                                    } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
-                                }}
-                                value={action.config.message_category_id}
-                            />
-                        </div>
-                    </LemonLabel>
-                </div>
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="flex flex-col p-2">
+                        <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
+                            <span>Message category</span>
+                            <div className="flex gap-2">
+                                {!categoriesLoading && !categories.length && (
+                                    <LemonButton
+                                        to={urls.messaging('opt-outs')}
+                                        targetBlank
+                                        type="secondary"
+                                        icon={<IconExternal />}
+                                    >
+                                        Configure
+                                    </LemonButton>
+                                )}
+                                <CategorySelect
+                                    onChange={(categoryId) => {
+                                        setCampaignAction(action.id, {
+                                            ...action,
+                                            config: {
+                                                ...action.config,
+                                                message_category_id: categoryId,
+                                            },
+                                        } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
+                                    }}
+                                    value={action.config.message_category_id}
+                                />
+                            </div>
+                        </LemonLabel>
+                    </div>
+                </>
             )}
 
-            <LemonDivider className="my-0" />
             {!['trigger', 'exit'].includes(action.type) && (
-                <div className="flex flex-col p-2">
-                    <LemonLabel htmlFor="conditions" className="flex gap-2 justify-between items-center">
-                        <span>Conditions</span>
-                        <LemonSwitch
-                            id="conditions"
-                            checked={!!action.filters}
-                            onChange={(checked) =>
-                                setCampaignAction(action.id, {
-                                    ...action,
-                                    filters: checked ? {} : null,
-                                })
-                            }
-                        />
-                    </LemonLabel>
-
-                    {action.filters && (
-                        <>
-                            <p className="mb-0">
-                                Add conditions to the step. If these conditions aren't met, the user will skip this step
-                                and continue to the next one.
-                            </p>
-                            <HogFlowFilters
-                                filters={action.filters ?? {}}
-                                setFilters={(filters) => setCampaignAction(action.id, { ...action, filters })}
-                                buttonCopy="Add filter conditions"
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="flex flex-col p-2">
+                        <LemonLabel htmlFor="conditions" className="flex gap-2 justify-between items-center">
+                            <span>Conditions</span>
+                            <LemonSwitch
+                                id="conditions"
+                                checked={!!action.filters}
+                                onChange={(checked) =>
+                                    setCampaignAction(action.id, {
+                                        ...action,
+                                        filters: checked ? {} : null,
+                                    })
+                                }
                             />
-                        </>
-                    )}
-                </div>
+                        </LemonLabel>
+
+                        {action.filters && (
+                            <>
+                                <p className="mb-0">
+                                    Add conditions to the step. If these conditions aren't met, the user will skip this
+                                    step and continue to the next one.
+                                </p>
+                                <HogFlowFilters
+                                    filters={action.filters ?? {}}
+                                    setFilters={(filters) => setCampaignAction(action.id, { ...action, filters })}
+                                    buttonCopy="Add filter conditions"
+                                />
+                            </>
+                        )}
+                    </div>
+                </>
             )}
         </div>
     )
