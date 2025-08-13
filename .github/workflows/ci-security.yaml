@@ -6,6 +6,9 @@ on:
 
 name: Security
 
+permissions:
+    contents: read
+
 jobs:
     ensure-pinned-actions:
         runs-on: ubuntu-latest
@@ -15,4 +18,11 @@ jobs:
             - name: Ensure SHA pinned actions
               uses: zgosalvez/github-actions-ensure-sha-pinned-actions@25ed13d0628a1601b4b44048e63cc4328ed03633 # v3
               with:
-                  allowlist: PostHog/ # It's a string, parsed by splitting on \r\n but we only have one entry
+                  allowlist: |
+                      actions/
+                      aws-actions/
+                      docker/
+                      github/
+                      hashicorp/
+                      PostHog/
+                      tailscale/
