@@ -219,7 +219,7 @@ export interface OpenQuestionProcessedResponses {
 
 export type QuestionProcessedResponses = ChoiceQuestionProcessedResponses | OpenQuestionProcessedResponses
 
-interface ResponsesByQuestion {
+export interface ResponsesByQuestion {
     [questionId: string]: QuestionProcessedResponses
 }
 

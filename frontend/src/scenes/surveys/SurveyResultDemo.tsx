@@ -5,23 +5,40 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useMemo } from 'react'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { ResponsesByQuestion, surveyLogic, SurveyRawResults } from 'scenes/surveys/surveyLogic'
 import { SurveyStatsSummaryWithData } from 'scenes/surveys/SurveyStatsSummary'
 
 import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'
 
+import { NewSurvey } from 'scenes/surveys/constants'
 import { processResultsForSurveyQuestions } from './surveyLogic'
 import { generateDemoSurveyResults, generateDemoSurveyStats } from './utils/demoDataGenerator'
 
+// Generate demo data once and reuse across all components
+const DEMO_STATS = generateDemoSurveyStats()
+const DEMO_RESPONSE_COUNT = DEMO_STATS.survey_sent.total_count
+
+// Function to get demo data for a specific survey
+function getDemoDataForSurvey(survey: Survey | NewSurvey): {
+    demoStats: ReturnType<typeof generateDemoSurveyStats>
+    demoResults: SurveyRawResults
+    demoProcessedResults: ResponsesByQuestion
+    responseCount: number
+} {
+    const demoResults = generateDemoSurveyResults(survey, DEMO_RESPONSE_COUNT)
+    const demoProcessedResults = processResultsForSurveyQuestions(survey.questions, demoResults)
+
+    return {
+        demoStats: DEMO_STATS,
+        demoResults,
+        demoProcessedResults,
+        responseCount: DEMO_RESPONSE_COUNT,
+    }
+}
+
 function SurveyResponsesByQuestionV2Demo(): JSX.Element {
     const { survey } = useValues(surveyLogic)
-
-    // Generate demo data
-    const demoResults = useMemo(() => generateDemoSurveyResults(survey), [survey])
-    const demoProcessedResults = useMemo(
-        () => processResultsForSurveyQuestions(survey.questions, demoResults),
-        [survey.questions, demoResults]
-    )
+    const { demoProcessedResults } = getDemoDataForSurvey(survey)
 
     return (
         <div className="flex flex-col gap-2">
@@ -48,7 +65,8 @@ function SurveyResponsesByQuestionV2Demo(): JSX.Element {
 }
 
 function DemoStatsSummary(): JSX.Element {
-    const demoStats = useMemo(() => generateDemoSurveyStats(), [])
+    const { survey } = useValues(surveyLogic)
+    const { demoStats } = getDemoDataForSurvey(survey)
 
     // Transform demo stats to match the expected format
     const processedDemoStats = useMemo(
@@ -108,9 +126,7 @@ function DemoStatsSummary(): JSX.Element {
 
 function DemoDataTable(): JSX.Element {
     const { survey } = useValues(surveyLogic)
-
-    // Generate demo data for the table
-    const demoResults = useMemo(() => generateDemoSurveyResults(survey as Survey, 10), [survey]) // Show 10 rows
+    const { demoResults } = getDemoDataForSurvey(survey)
 
     // Transform demo data into table format
     const tableData = useMemo(() => {
@@ -213,13 +229,7 @@ function DemoDataTable(): JSX.Element {
                     <span>This table shows example data structure. Launch your survey to see real responses here.</span>
                 </div>
             </LemonBanner>
-            <LemonTable
-                dataSource={tableData}
-                columns={columns}
-                rowKey="id"
-                pagination={{ pageSize: 10 }}
-                size="small"
-            />
+            <LemonTable dataSource={tableData} columns={columns} rowKey="id" size="small" />
         </div>
     )
 }
