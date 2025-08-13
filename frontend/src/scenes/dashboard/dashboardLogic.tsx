@@ -1620,6 +1620,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dashboardsModel.actions.updateDashboard({
                 id: props.id,
                 last_refresh: lastDashboardRefresh.toISOString(),
+                discardResult: true,
             })
         },
     })),

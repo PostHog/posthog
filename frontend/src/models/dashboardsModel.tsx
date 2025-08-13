@@ -111,7 +111,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             __default: null as null | DashboardType,
-            updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
+            updateDashboard: async ({ id, allowUndo, discardResult, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
                     return
                 }
@@ -150,7 +150,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         },
                     })
                 }
-                return getQueryBasedDashboard(response)
+
+                if (!discardResult) {
+                    return getQueryBasedDashboard(response)
+                }
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
                 const deleted = getQueryBasedDashboard(
