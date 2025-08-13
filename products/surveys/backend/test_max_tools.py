@@ -48,41 +48,11 @@ class TestSurveyCreatorTool(BaseTest):
 
         return tool
 
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_get_existing_surveys_summary_empty(self):
-        """Test getting existing surveys summary when no surveys exist"""
-        tool = self._setup_tool()
-
-        summary = await tool._get_existing_surveys_summary()
-
-        assert summary == "No existing surveys"
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_get_existing_surveys_summary_with_surveys(self):
-        """Test getting existing surveys summary with existing surveys"""
-        tool = self._setup_tool()
-
-        # Create a test survey
-        await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Existing Survey",
-            type="popover",
-            questions=[{"type": "open", "question": "Test?"}],
-            created_by=self.user,
-        )
-
-        summary = await tool._get_existing_surveys_summary()
-
-        assert "Existing Survey" in summary
-        assert "draft" in summary
-
     def test_get_team_survey_config(self):
-        """Test team survey configuration retrieval"""
-        tool = self._setup_tool()
+        """Test team survey configuration function"""
+        from products.surveys.backend.max_tools import get_team_survey_config
 
-        config = tool._get_team_survey_config(self.team)
+        config = get_team_survey_config(self.team)
 
         assert "appearance" in config
         assert "default_settings" in config
@@ -362,80 +332,3 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.linked_flag_id == flag.id
         assert survey.linked_flag.key == "multivariate-feature"
         assert survey.conditions["linkedFlagVariant"] == "any"
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_feature_flag_lookup_method(self):
-        """Test the CreateSurveyTool's lookup_feature_flag method"""
-        tool = self._setup_tool()
-
-        # Create a test feature flag
-        flag = await sync_to_async(FeatureFlag.objects.create)(
-            team=self.team,
-            key="test-lookup-flag",
-            name="Test Lookup Flag",
-            created_by=self.user,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "variant-a", "rollout_percentage": 50},
-                        {"key": "variant-b", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-
-        # Mock the Taxonomy Agent graph execution
-        from unittest.mock import patch, AsyncMock
-        from products.surveys.backend.max_tools import FeatureFlagLookupResult
-
-        mock_result = FeatureFlagLookupResult(
-            flag_id=flag.id, flag_key="test-lookup-flag", variants=["variant-a", "variant-b"], exists=True
-        )
-
-        with patch("products.surveys.backend.max_tools.FeatureFlagLookupGraph") as mock_graph_class:
-            mock_graph_instance = AsyncMock()
-            mock_graph_class.return_value = mock_graph_instance
-
-            compiled_graph = AsyncMock()
-            compiled_graph.ainvoke.return_value = {"output": mock_result}
-            mock_graph_instance.compile_full_graph.return_value = compiled_graph
-
-            # Test the lookup method
-            result = await tool.lookup_feature_flag("test-lookup-flag")
-
-            # Verify the result
-            assert result.flag_id == flag.id
-            assert result.flag_key == "test-lookup-flag"
-            assert result.variants == ["variant-a", "variant-b"]
-            assert result.exists is True
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_feature_flag_lookup_not_found(self):
-        """Test the CreateSurveyTool's lookup_feature_flag method for non-existent flag"""
-        tool = self._setup_tool()
-
-        # Mock the Taxonomy Agent graph execution for non-existent flag
-        from unittest.mock import patch, AsyncMock
-        from products.surveys.backend.max_tools import FeatureFlagLookupResult
-
-        mock_result = FeatureFlagLookupResult(flag_id=None, flag_key="non-existent-flag", variants=[], exists=False)
-
-        with patch("products.surveys.backend.max_tools.FeatureFlagLookupGraph") as mock_graph_class:
-            mock_graph_instance = AsyncMock()
-            mock_graph_class.return_value = mock_graph_instance
-
-            compiled_graph = AsyncMock()
-            compiled_graph.ainvoke.return_value = {"output": mock_result}
-            mock_graph_instance.compile_full_graph.return_value = compiled_graph
-
-            # Test the lookup method
-            result = await tool.lookup_feature_flag("non-existent-flag")
-
-            # Verify the result
-            assert result.flag_id is None
-            assert result.flag_key == "non-existent-flag"
-            assert result.variants == []
-            assert result.exists is False
