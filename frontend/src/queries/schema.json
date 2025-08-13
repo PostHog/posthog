@@ -85,7 +85,7 @@
         "ActorsPropertyTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
-                "group_type_index": {
+                "groupTypeIndex": {
                     "$ref": "#/definitions/integer"
                 },
                 "kind": {
@@ -99,8 +99,11 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
-                "property": {
-                    "type": "string"
+                "properties": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
@@ -113,7 +116,7 @@
                     "type": "number"
                 }
             },
-            "required": ["kind", "property"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "ActorsPropertyTaxonomyQueryResponse": {
@@ -141,7 +144,17 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -922,7 +935,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation"],
+            "enum": ["status", "message", "conversation", "notebook"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1594,7 +1607,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure"],
+            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/notebook"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -2541,7 +2554,17 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timezone": {
                     "type": "string"
@@ -15945,6 +15968,32 @@
             ],
             "type": "string"
         },
+        "NotebookUpdateMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/ProsemirrorJSONContent"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "notebook_id": {
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantToolCall"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "ai/notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "notebook_id", "content"],
+            "type": "object"
+        },
         "PageURL": {
             "additionalProperties": false,
             "properties": {
@@ -16508,6 +16557,41 @@
                 "flag_evaluates_to"
             ],
             "type": "string"
+        },
+        "ProsemirrorJSONContent": {
+            "properties": {
+                "attrs": {
+                    "type": "object"
+                },
+                "content": {
+                    "items": {
+                        "$ref": "#/definitions/ProsemirrorJSONContent"
+                    },
+                    "type": "array"
+                },
+                "marks": {
+                    "items": {
+                        "properties": {
+                            "attrs": {
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "QueryIndexUsage": {
             "enum": ["undecisive", "no", "partial", "yes"],
@@ -19962,7 +20046,17 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
-                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                                },
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            ]
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -21830,6 +21924,9 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "$ref": "#/definitions/NotebookUpdateMessage"
                 },
                 {
                     "additionalProperties": false,

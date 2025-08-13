@@ -70,9 +70,6 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
 #[instrument(skip_all, fields(
     team_id = %team_id,
     distinct_id = %distinct_id,
-    person_query_ms = tracing::field::Empty,
-    cohort_query_ms = tracing::field::Empty,
-    group_query_ms = tracing::field::Empty,
     cohort_ids = ?static_cohort_ids,
     group_type_indexes = ?group_type_indexes,
     group_keys = ?group_keys
@@ -97,7 +94,28 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         ),
     ];
     let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
-    let mut conn = reader.as_ref().get_connection().await?;
+    let conn_acquisition_start = Instant::now();
+    let conn_result = reader.as_ref().get_connection().await;
+    let conn_acquisition_duration = conn_acquisition_start.elapsed();
+
+    let mut conn = match conn_result {
+        Ok(conn) => {
+            info!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                "Database connection acquired"
+            );
+            conn
+        }
+        Err(e) => {
+            warn!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                error = ?e,
+                "Failed to acquire database connection"
+            );
+            conn_timer.fin();
+            return Err(FlagError::from(e));
+        }
+    };
     conn_timer.fin();
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
@@ -131,7 +149,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     person_query_timer.fin();
 
     let person_query_duration = person_query_start.elapsed();
-    tracing::Span::current().record("person_query_ms", person_query_duration.as_millis());
 
     if person_query_duration.as_millis() > 500 {
         warn!(
@@ -177,7 +194,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             cohort_timer.fin();
 
             let cohort_query_duration = cohort_query_start.elapsed();
-            tracing::Span::current().record("cohort_query_ms", cohort_query_duration.as_millis());
 
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
@@ -269,7 +285,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         group_query_timer.fin();
 
         let group_query_duration = group_query_start.elapsed();
-        tracing::Span::current().record("group_query_ms", group_query_duration.as_millis());
 
         if group_query_duration.as_millis() > 300 {
             warn!(
