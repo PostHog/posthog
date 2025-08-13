@@ -102,6 +102,9 @@ class RateLimit:
         task_id = self.get_task_id(*args, **kwargs)
         team_id: Optional[int] = kwargs.get("team_id", None)
 
+        # Static default
+        max_concurrency: int = self.max_concurrency
+
         # Determine max_concurrency with proper priority order
         in_beta = kwargs.get("is_api") and (team_id in settings.API_QUERIES_PER_TEAM)
 
@@ -113,10 +116,6 @@ class RateLimit:
             limit_value = kwargs.get("limit")
             if limit_value is not None:
                 max_concurrency = int(limit_value)
-
-        # Fallback to static default
-        if not max_concurrency:
-            max_concurrency = self.max_concurrency
 
         # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
