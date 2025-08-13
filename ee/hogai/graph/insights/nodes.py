@@ -37,19 +37,25 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic seri
 
 
 class InsightSearchNode(AssistantNode):
+    PAGE_SIZE = 50
+    MAX_SEARCH_ITERATIONS = 6
+    MAX_INSIGHTS_TO_RETURN = 3
+    MAX_EVALUATION_ITERATIONS = 3
+    INSIGHTS_CUTOFF_DAYS = 180
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._current_page = 0
-        self._page_size = 50
-        self._max_iterations = 6
+        self._page_size = self.PAGE_SIZE
+        self._max_iterations = self.MAX_SEARCH_ITERATIONS
         self._current_iteration = 0
         self._loaded_pages = {}
         self._total_insights_count = None
-        self._max_insights = 3
-        self._max_insights_evaluation_iterations = 3
+        self._max_insights = self.MAX_INSIGHTS_TO_RETURN
+        self._max_insights_evaluation_iterations = self.MAX_EVALUATION_ITERATIONS
         self._evaluation_selections = {}
         self._rejection_reason = None
-        self._cutoff_date_for_insights_in_days = 180
+        self._cutoff_date_for_insights_in_days = self.INSIGHTS_CUTOFF_DAYS
         self._query_cache = {}
 
     def _create_read_insights_tool(self):
