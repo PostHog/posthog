@@ -103,9 +103,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                     <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
                         {user?.uuid && (
                             <MaxTool
-                                name="create_survey"
-                                description="Max can create surveys to collect qualitative feedback from your users."
-                                displayName="Create with Max AI"
+                                identifier="create_survey"
                                 initialMaxPrompt="Create a survey to collect "
                                 suggestions={[
                                     'Create an NPS survey for customers who completed checkout',
