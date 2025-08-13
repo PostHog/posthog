@@ -54,49 +54,37 @@ function getSessionReplayLink(): string {
     return `\nSession: ${replayUrl}`
 }
 
-function getErrorTrackingLink(): string {
+function getErrorTrackingLink(exceptionUuid?: string): string {
+    const values = [
+        {
+            key: '$session_id',
+            value: [posthog.get_session_id()],
+            operator: 'exact',
+            type: 'event',
+        },
+    ]
+
+    if (exceptionUuid) {
+        values.push({
+            type: 'hogql',
+            key: `uuid = '${exceptionUuid}'`,
+            value: null,
+        } as any)
+    }
+
     const filterGroup = encodeURIComponent(
         JSON.stringify({
             type: 'AND',
             values: [
                 {
                     type: 'AND',
-                    values: [
-                        {
-                            key: '$session_id',
-                            value: [posthog.get_session_id()],
-                            operator: 'exact',
-                            type: 'event',
-                        },
-                    ],
+                    values,
                 },
             ],
         })
     )
 
     return `\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
-}
-
-function getExceptionEventLink(uuid: string): string {
-    const filterGroup = encodeURIComponent(
-        JSON.stringify({
-            type: 'AND',
-            values: [
-                {
-                    type: 'AND',
-                    values: [
-                        {
-                            type: 'hogql',
-                            key: `uuid = '${uuid}'`,
-                            value: null,
-                        },
-                    ],
-                },
-            ],
-        })
-    )
-
-    return `\nException Event: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
 }
 
 function parseExceptionEvent(event: any): { parsedData: string; uuid?: string } {
@@ -706,7 +694,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
-                            getErrorTrackingLink() +
+                            getErrorTrackingLink(exceptionUuid) +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,
@@ -722,8 +710,7 @@ export const supportLogic = kea<supportLogicType>([
                                   (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
                                       teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
                                       'unknown')
-                                : '') +
-                            (exceptionUuid ? getExceptionEventLink(exceptionUuid) : ''),
+                                : ''),
                     },
                 },
             }
