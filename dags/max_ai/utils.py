@@ -60,6 +60,13 @@ def compose_postgres_dump_path(project_id: int, file_name: str, code_version: st
     return f"{EVALS_S3_PREFIX}/postgres_models/{project_id}/{versioned_file_name}.avro"
 
 
+def compose_clickhouse_dump_path(project_id: int, file_name: str, code_version: str | None = None) -> str:
+    """Compose S3 path for ClickHouse dumps with consistent hashing"""
+    hash_suffix = get_consistent_hash_suffix(file_name, code_version=code_version)
+    versioned_file_name = f"{file_name}_{hash_suffix}"
+    return f"{EVALS_S3_PREFIX}/clickhouse_queries/{project_id}/{versioned_file_name}.avro"
+
+
 def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
     """Check if a file exists in S3"""
     try:
