@@ -35,6 +35,31 @@ import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/ty
 
 import type { activityLogLogicType } from './activityLogLogicType'
 
+// Define which scopes should be expanded to include multiple scopes
+const SCOPE_EXPANSIONS: Partial<Record<ActivityScope, ActivityScope[]>> = {
+    [ActivityScope.TAG]: [ActivityScope.TAG, ActivityScope.TAGGED_ITEM],
+}
+
+export const activityLogTransforms = {
+    expandListLegacyScopes: (
+        props: ActivityLogLogicProps
+    ): {
+        scope: ActivityScope | ActivityScope[]
+        id?: number | string
+    } => {
+        let scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
+
+        if (scopes.length === 1 && scopes[0] in SCOPE_EXPANSIONS) {
+            const expandedScopes = SCOPE_EXPANSIONS[scopes[0]]
+            if (expandedScopes) {
+                scopes = expandedScopes
+            }
+        }
+
+        return { scope: scopes, id: props.id }
+    },
+}
+
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
  * see https://github.com/PostHog/posthog/pull/12062
@@ -104,7 +129,8 @@ export const activityLogLogic = kea<activityLogLogicType>([
             { results: [], count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
                 fetchActivity: async () => {
-                    const response = await api.activity.listLegacy(props, values.page)
+                    const transformedProps = activityLogTransforms.expandListLegacyScopes(props)
+                    const response = await api.activity.listLegacy(transformedProps, values.page)
                     return { results: response.results, count: (response as any).total_count ?? response.count }
                 },
             },
