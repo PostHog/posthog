@@ -110,7 +110,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // We're not using this loader as a reducer per se, but just calling it `dashboard`
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
-            __default: null as null | DashboardType,
+            __default: null as null | DashboardType<QueryBasedInsightModel>,
             updateDashboard: async ({ id, allowUndo, discardResult, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
                     return
