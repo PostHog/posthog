@@ -15,10 +15,10 @@ class SQLSyntaxCorrectness(Scorer):
     def _name(self):
         return "sql_syntax_correctness"
 
-    async def _run_eval_async(self, output: str, **kwargs):
+    async def _run_eval_async(self, output: str, expected: str | None, **kwargs):
         return await sync_to_async(self._evaluate)(output)
 
-    def _run_eval_sync(self, output: str, **kwargs):
+    def _run_eval_sync(self, output: str, expected: str | None, **kwargs):
         return self._evaluate(output)
 
     def _evaluate(self, output: str):

@@ -10,6 +10,7 @@ from ee.hogai.eval.offline.conftest import EvaluationContext
 from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 from ee.hogai.graph import AssistantGraph
+from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.warehouse import serialize_database_schema
 from ee.models import Conversation
@@ -57,14 +58,14 @@ def call_graph(eval_ctx: EvaluationContext):
                 }
             },
         )
-        maybe_viz_message = state["messages"][-2]
-        if isinstance(maybe_viz_message, VisualizationMessage) and isinstance(
-            maybe_viz_message.answer, AssistantHogQLQuery
-        ):
+        maybe_viz_message = find_last_message_of_type(state["messages"], VisualizationMessage)
+        if maybe_viz_message:
             return EvalOutput(
                 database_schema=database_schema,
                 query_kind=maybe_viz_message.answer.kind,
-                sql_query=maybe_viz_message.answer.query,
+                sql_query=maybe_viz_message.answer.query
+                if isinstance(maybe_viz_message.answer, AssistantHogQLQuery)
+                else None,
             )
         return EvalOutput(database_schema=database_schema)
 
