@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
+import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
 import posthog from 'posthog-js'
 import api from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -85,47 +86,6 @@ function getErrorTrackingLink(exceptionUuid?: string): string {
     )
 
     return `\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
-}
-
-function parseExceptionEvent(event: any): { parsedData: string; uuid?: string } {
-    const uuid = event?.uuid || 'Unknown'
-    const commitSha = event?.properties?.commit_sha || 'Unknown'
-    const feature = event?.properties?.feature || 'Unknown'
-    const exceptionType = event?.properties?.$exception_list?.[0]?.type || 'Unknown'
-    const exceptionValue = event?.properties?.$exception_list?.[0]?.value || 'Unknown'
-
-    // Extract stack trace details for filtering/aggregation
-    let filename = 'Unknown'
-    let functionName = 'Unknown'
-    let lineNumber = 'Unknown'
-
-    const exceptionList = event?.properties?.$exception_list
-    if (exceptionList && Array.isArray(exceptionList) && exceptionList[0]) {
-        const exception = exceptionList[0]
-
-        // Check if there's a stack trace in the exception
-        if (exception.stacktrace && exception.stacktrace.frames) {
-            const frames = exception.stacktrace.frames
-            const appFrames = frames.filter((frame: any) => frame.in_app === true)
-            const componentFrame = appFrames[appFrames.length - 1]
-            if (componentFrame) {
-                filename = componentFrame.filename || 'Unknown'
-                functionName = componentFrame.function || 'Unknown'
-                lineNumber = componentFrame.lineno || 'Unknown'
-            }
-        }
-    }
-
-    const parsedData = `UUID: ${uuid}
-Commit SHA: ${commitSha}
-Feature: ${feature}
-Type: ${exceptionType}
-Value: ${exceptionValue}
-Filename: ${filename}
-Function: ${functionName}
-Line: ${lineNumber}`
-
-    return { parsedData, uuid: uuid !== 'Unknown' ? uuid : undefined }
 }
 
 function getDjangoAdminLink(
