@@ -58,6 +58,26 @@ export const activityLogTransforms = {
 
         return { scope: scopes, id: props.id }
     },
+
+    expandListScopes: (filters: { scope?: ActivityScope | string; [key: string]: any }) => {
+        if (!filters.scope) {
+            return filters
+        }
+
+        const scope = filters.scope as ActivityScope
+        if (scope in SCOPE_EXPANSIONS) {
+            const expandedScopes = SCOPE_EXPANSIONS[scope]
+            if (expandedScopes) {
+                return {
+                    ...filters,
+                    scopes: expandedScopes,
+                    scope: undefined,
+                }
+            }
+        }
+
+        return filters
+    },
 }
 
 /**

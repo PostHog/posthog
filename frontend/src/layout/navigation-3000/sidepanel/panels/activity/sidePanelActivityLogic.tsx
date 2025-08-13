@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { PaginatedResponse } from 'lib/api'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { describerFor, activityLogTransforms } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -82,7 +82,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             null as PaginatedResponse<ActivityLogItem> | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
-                    const response = await api.activity.list(values.filters ?? {})
+                    const filters = values.filters ?? {}
+                    const expandedFilters = activityLogTransforms.expandListScopes(filters)
+                    const response = await api.activity.list(expandedFilters)
 
                     breakpoint()
                     return response

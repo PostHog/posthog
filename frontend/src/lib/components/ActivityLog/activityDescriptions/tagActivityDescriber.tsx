@@ -12,7 +12,7 @@ const nameOrId = (name?: string | null, id?: string | null): string => {
     return id ? `Tag ${id}` : 'Unnamed tag'
 }
 
-const getRelatedObjectDescription = (context: any, preposition: 'to' | 'from' = 'to'): JSX.Element | null => {
+const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'): JSX.Element | null => {
     if (!context || !context.related_object_type || !context.related_object_id) {
         return null
     }
@@ -22,7 +22,8 @@ const getRelatedObjectDescription = (context: any, preposition: 'to' | 'from' = 
 
     return (
         <>
-            {preposition} {objectType} <strong>{objectName}</strong>
+            {preposition && `${preposition} `}
+            {objectType} <strong>{objectName}</strong>
         </>
     )
 }
@@ -36,7 +37,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the tag
+                    <strong>{userNameForLogItem(logItem)}</strong> created the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -47,7 +48,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the tag
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -58,7 +59,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated the tag
+                    <strong>{userNameForLogItem(logItem)}</strong> updated the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -71,7 +72,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     const context = logItem?.detail?.context
     const tagName = context?.tag_name || ''
-    const relatedObjectDesc = getRelatedObjectDescription(context, 'to')
+    const relatedObjectDesc = getRelatedObjectDescription(context) // No preposition for "tagged"
     const relatedObjectDescFrom = getRelatedObjectDescription(context, 'from')
 
     if (logItem.activity == 'created') {
