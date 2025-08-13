@@ -18,6 +18,34 @@ use bytes::Bytes;
 use tracing::Instrument;
 use uuid::Uuid;
 
+struct LogContext<'a> {
+    headers: &'a HeaderMap,
+    query_params: &'a FlagsQueryParams,
+    method: &'a Method,
+    path: &'a MatchedPath,
+    ip: &'a str,
+    request_id: Uuid,
+    is_from_decide: bool,
+    query_version: Option<i32>,
+    mapped_version: Option<i32>,
+}
+
+/// Maps decide endpoint versions to flags endpoint versions
+/// decide v3 -> flags v1
+/// decide v4 -> flags v2
+/// All other versions pass through unchanged
+fn map_decide_version(query_version: Option<i32>, is_from_decide: bool) -> Option<i32> {
+    if is_from_decide {
+        match query_version {
+            Some(3) => Some(1),
+            Some(4) => Some(2),
+            other => other,
+        }
+    } else {
+        query_version
+    }
+}
+
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 #[debug_handler]
@@ -41,22 +69,37 @@ pub async fn flags(
         body,
     };
 
-    let version = context
+    // Check if this request came through the decide proxy
+    let is_from_decide = headers
+        .get("X-Original-Endpoint")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "decide")
+        .unwrap_or(false);
+
+    // Parse version from query params
+    let query_version = context
         .meta
         .version
         .clone()
         .as_deref()
         .map(|v| v.parse::<i32>().unwrap_or(1));
 
+    // Apply version mapping for decide endpoint
+    let version = map_decide_version(query_version, is_from_decide);
+
     // Log request info at info level for visibility
-    log_request_info(
-        &headers,
-        &query_params,
-        &method,
-        &path,
-        &ip.to_string(),
+    let log_context = LogContext {
+        headers: &headers,
+        query_params: &query_params,
+        method: &method,
+        path: &path,
+        ip: &ip.to_string(),
         request_id,
-    );
+        is_from_decide,
+        query_version,
+        mapped_version: version,
+    };
+    log_request_info(log_context);
 
     // Create debug span for detailed tracing when debugging
     let _span = create_request_span(
@@ -88,22 +131,18 @@ pub async fn options() -> Result<Json<FlagsOptionsResponse>, FlagError> {
     }))
 }
 
-fn log_request_info(
-    headers: &HeaderMap,
-    query_params: &FlagsQueryParams,
-    method: &Method,
-    path: &MatchedPath,
-    ip: &str,
-    request_id: Uuid,
-) {
-    let user_agent = headers
+fn log_request_info(ctx: LogContext) {
+    let user_agent = ctx
+        .headers
         .get("user-agent")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = query_params
+    let content_encoding = ctx
+        .query_params
         .compression
         .as_ref()
         .map_or("none", |c| c.as_str());
-    let content_type = headers
+    let content_type = ctx
+        .headers
         .get("content-type")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
@@ -111,14 +150,17 @@ fn log_request_info(
         user_agent = %user_agent,
         content_encoding = %content_encoding,
         content_type = %content_type,
-        version = %query_params.version.as_deref().unwrap_or("unknown"),
-        lib_version = %query_params.lib_version.as_deref().unwrap_or("unknown"),
-        compression = %query_params.compression.as_ref().map_or("none", |c| c.as_str()),
-        method = %method.as_str(),
-        path = %path.as_str().trim_end_matches('/'),
-        ip = %ip,
-        sent_at = %query_params.sent_at.unwrap_or(0).to_string(),
-        request_id = %request_id,
+        version = %ctx.query_params.version.as_deref().unwrap_or("unknown"),
+        lib_version = %ctx.query_params.lib_version.as_deref().unwrap_or("unknown"),
+        compression = %ctx.query_params.compression.as_ref().map_or("none", |c| c.as_str()),
+        method = %ctx.method.as_str(),
+        path = %ctx.path.as_str().trim_end_matches('/'),
+        ip = %ctx.ip,
+        sent_at = %ctx.query_params.sent_at.unwrap_or(0).to_string(),
+        request_id = %ctx.request_id,
+        is_from_decide = %ctx.is_from_decide,
+        query_version = ?ctx.query_version,
+        mapped_version = ?ctx.mapped_version,
         "Processing request"
     );
 }
@@ -168,6 +210,30 @@ mod tests {
         extract::{FromRequest, Request},
         http::Uri,
     };
+
+    #[test]
+    fn test_map_decide_version() {
+        // Test decide v3 -> flags v1
+        assert_eq!(map_decide_version(Some(3), true), Some(1));
+
+        // Test decide v4 -> flags v2
+        assert_eq!(map_decide_version(Some(4), true), Some(2));
+
+        // Test non-decide v3 stays v3
+        assert_eq!(map_decide_version(Some(3), false), Some(3));
+
+        // Test non-decide v4 stays v4
+        assert_eq!(map_decide_version(Some(4), false), Some(4));
+
+        // Test decide with other versions unchanged
+        assert_eq!(map_decide_version(Some(1), true), Some(1));
+        assert_eq!(map_decide_version(Some(2), true), Some(2));
+        assert_eq!(map_decide_version(Some(5), true), Some(5));
+
+        // Test None version stays None
+        assert_eq!(map_decide_version(None, true), None);
+        assert_eq!(map_decide_version(None, false), None);
+    }
 
     #[tokio::test]
     async fn test_query_param_extraction() {
