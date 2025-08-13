@@ -60,6 +60,44 @@ export function compose(...fns: Array<(arg: any) => any>): (arg: any) => any {
 const isEventMetricSource = (source: ExperimentMetricSource): source is EventsNode =>
     source.kind === NodeKind.EventsNode
 
+/**
+ * Converts ExperimentMetricSource to the appropriate query node type
+ */
+const convertSourceToQueryNode = (source: ExperimentMetricSource): EventsNode | ActionsNode | DataWarehouseNode => {
+    return match(source)
+        .with(
+            { kind: NodeKind.EventsNode },
+            (event): EventsNode => ({
+                kind: NodeKind.EventsNode,
+                event: event.event,
+                name: event.name,
+                properties: event.properties,
+            })
+        )
+        .with(
+            { kind: NodeKind.ActionsNode },
+            (action): ActionsNode => ({
+                kind: NodeKind.ActionsNode,
+                id: action.id,
+                name: action.name,
+                properties: action.properties,
+            })
+        )
+        .with(
+            { kind: NodeKind.ExperimentDataWarehouseNode },
+            (dataWarehouse): DataWarehouseNode => ({
+                kind: NodeKind.DataWarehouseNode,
+                id: dataWarehouse.table_name,
+                name: dataWarehouse.name,
+                table_name: dataWarehouse.table_name,
+                timestamp_field: dataWarehouse.timestamp_field,
+                distinct_id_field: dataWarehouse.events_join_key,
+                id_field: dataWarehouse.data_warehouse_join_key,
+            })
+        )
+        .exhaustive()
+}
+
 const defaultTrendsFilter: TrendsFilter = {
     display: ChartDisplayType.ActionsLineGraph,
 }
@@ -160,38 +198,7 @@ export const getQuery =
                     trendsFilter,
                     series: [
                         {
-                            ...match(source)
-                                .with(
-                                    { kind: NodeKind.EventsNode },
-                                    (event): EventsNode => ({
-                                        kind: NodeKind.EventsNode,
-                                        event: event.event,
-                                        name: event.name,
-                                        properties: event.properties,
-                                    })
-                                )
-                                .with(
-                                    { kind: NodeKind.ActionsNode },
-                                    (action): ActionsNode => ({
-                                        kind: NodeKind.ActionsNode,
-                                        id: action.id,
-                                        name: action.name,
-                                        properties: action.properties,
-                                    })
-                                )
-                                .with(
-                                    { kind: NodeKind.ExperimentDataWarehouseNode },
-                                    (dataWarehouse): DataWarehouseNode => ({
-                                        kind: NodeKind.DataWarehouseNode,
-                                        id: dataWarehouse.table_name,
-                                        name: dataWarehouse.name,
-                                        table_name: dataWarehouse.table_name,
-                                        timestamp_field: dataWarehouse.timestamp_field,
-                                        distinct_id_field: dataWarehouse.events_join_key,
-                                        id_field: dataWarehouse.data_warehouse_join_key,
-                                    })
-                                )
-                                .exhaustive(),
+                            ...convertSourceToQueryNode(source),
                             ...getMathProperties(source),
                         },
                     ],
@@ -240,34 +247,35 @@ const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | Ac
 }
 
 /**
+ * Creates an empty filter structure
+ */
+const createEmptyFilter = (): FilterType => ({
+    events: [],
+    actions: [],
+    data_warehouse: [],
+})
+
+/**
  * Helper function to create a filter from a single source
  */
 export const createFilterForSource = (source: ExperimentMetricSource): FilterType => {
-    if (source.kind === NodeKind.EventsNode) {
-        return {
-            events: [createSourceNode(source)],
+    return match(source)
+        .with({ kind: NodeKind.EventsNode }, (eventSource) => ({
+            events: [createSourceNode(eventSource)],
             actions: [],
             data_warehouse: [],
-        }
-    } else if (source.kind === NodeKind.ActionsNode) {
-        return {
+        }))
+        .with({ kind: NodeKind.ActionsNode }, (actionSource) => ({
             events: [],
-            actions: [createSourceNode(source)],
+            actions: [createSourceNode(actionSource)],
             data_warehouse: [],
-        }
-    } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
-        return {
+        }))
+        .with({ kind: NodeKind.ExperimentDataWarehouseNode }, (dwSource) => ({
             events: [],
             actions: [],
-            data_warehouse: [createSourceNode(source)],
-        }
-    }
-
-    return {
-        events: [],
-        actions: [],
-        data_warehouse: [],
-    }
+            data_warehouse: [createSourceNode(dwSource)],
+        }))
+        .otherwise(() => createEmptyFilter())
 }
 
 /**
@@ -275,35 +283,7 @@ export const createFilterForSource = (source: ExperimentMetricSource): FilterTyp
  */
 export const getFilter = (metric: ExperimentMetric): FilterType => {
     return match(metric)
-        .with({ metric_type: ExperimentMetricType.MEAN }, (meanMetric) => {
-            const source = meanMetric.source
-
-            if (source.kind === NodeKind.EventsNode) {
-                return {
-                    events: [createSourceNode(source)],
-                    actions: [],
-                    data_warehouse: [],
-                }
-            } else if (source.kind === NodeKind.ActionsNode) {
-                return {
-                    events: [],
-                    actions: [createSourceNode(source)],
-                    data_warehouse: [],
-                }
-            } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
-                return {
-                    events: [],
-                    actions: [],
-                    data_warehouse: [createSourceNode(source)],
-                }
-            }
-
-            return {
-                events: [],
-                actions: [],
-                data_warehouse: [],
-            }
-        })
+        .with({ metric_type: ExperimentMetricType.MEAN }, (meanMetric) => createFilterForSource(meanMetric.source))
         .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
             /**
              * we create a source node for each step on the funnel series.
@@ -336,11 +316,7 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
                 ],
             }
         })
-        .otherwise(() => ({
-            events: [],
-            actions: [],
-            data_warehouse: [],
-        }))
+        .otherwise(() => createEmptyFilter())
 }
 
 /**
@@ -587,15 +563,10 @@ export const addExposureToQuery =
     (exposureEvent: EventsNode | ActionsNode) =>
     (query: FunnelsQuery | TrendsQuery | undefined): FunnelsQuery | TrendsQuery | undefined =>
         query
-            ? query.kind === NodeKind.FunnelsQuery
-                ? {
-                      ...query,
-                      series: [exposureEvent, ...query.series],
-                  }
-                : {
-                      ...query,
-                      series: [exposureEvent, ...query.series],
-                  }
+            ? {
+                  ...query,
+                  series: [exposureEvent, ...query.series],
+              }
             : undefined
 
 type InsightVizNodeOptions = {
