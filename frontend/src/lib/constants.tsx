@@ -329,9 +329,7 @@ export const RETENTION_MEAN_NONE = 'none' as const
 // Cohort types
 export enum CohortTypeEnum {
     Static = 'static',
-    PersonProperty = 'person_property',
-    Behavioral = 'behavioral',
-    Analytical = 'analytical',
+    Dynamic = 'dynamic',
 }
 
 /**

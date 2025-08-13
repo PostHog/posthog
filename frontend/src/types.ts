@@ -9,7 +9,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ReactNode } from 'react'
 import {
     BIN_COUNT_AUTO,
-    CohortTypeEnum,
     DashboardPrivilegeLevel,
     DashboardRestrictionLevel,
     ENTITY_MATCH_TYPE,
@@ -1481,7 +1480,6 @@ export interface CohortType {
     errors_calculating?: number
     last_calculation?: string
     is_static?: boolean
-    cohort_type?: CohortTypeEnum
     name?: string
     csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
