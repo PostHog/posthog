@@ -31,15 +31,18 @@ export function SessionRecordingLoading(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
-    const { recordingProps, recordingTimestamp } = useValues(sessionTabLogic)
+    const { recordingProps, recordingTimestamp, isNotFound, sessionPlayerMetaDataLoading } = useValues(sessionTabLogic)
     const { seekToTimestamp, setPlay } = useActions(sessionTabLogic)
 
     useEffect(() => {
+        if (sessionPlayerMetaDataLoading || isNotFound) {
+            return
+        }
         if (recordingTimestamp) {
             seekToTimestamp(recordingTimestamp)
         }
         setPlay()
-    }, [seekToTimestamp, recordingTimestamp, setPlay])
+    }, [seekToTimestamp, recordingTimestamp, setPlay, isNotFound, sessionPlayerMetaDataLoading])
 
     return (
         <div className="max-h-[500px] h-[500px] flex justify-center items-center">
