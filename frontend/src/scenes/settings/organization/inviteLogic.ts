@@ -11,7 +11,6 @@ import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepa
 import { AccessControlLevel, OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
-import { urls } from 'scenes/urls'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 export interface InviteRowState {
@@ -223,14 +222,7 @@ export const inviteLogic = kea<inviteLogicType>([
             if (values.preflight?.email_service_available) {
                 lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
             } else {
-                lemonToast.success('Team invite links generated', {
-                    button: {
-                        label: 'View invites',
-                        action: () => {
-                            router.actions.push(urls.settings('organization', 'invites'))
-                        },
-                    },
-                })
+                lemonToast.success('Team invite links generated')
             }
 
             organizationLogic.actions.loadCurrentOrganization()
