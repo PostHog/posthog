@@ -45,6 +45,9 @@ class BatchImport(UUIDModel):
     state = models.JSONField(null=True, blank=True)
     import_config = models.JSONField()
     secrets = EncryptedJSONStringField()
+    # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
+    backoff_attempt = models.IntegerField(default=0)
+    backoff_until = models.DateTimeField(null=True, blank=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

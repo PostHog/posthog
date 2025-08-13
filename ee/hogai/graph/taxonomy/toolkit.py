@@ -431,22 +431,20 @@ class TaxonomyAgentToolkit:
         # Here we handle the tool execution for base taxonomy tools.
         if tool_name == "retrieve_entity_property_values":
             result = self.retrieve_entity_property_values(
-                tool_input.arguments.entity,
-                tool_input.arguments.property_name,
+                tool_input.arguments.entity,  # type: ignore
+                tool_input.arguments.property_name,  # type: ignore
             )
         elif tool_name == "retrieve_entity_properties":
-            result = self.retrieve_entity_properties(tool_input.arguments.entity)
+            result = self.retrieve_entity_properties(tool_input.arguments.entity)  # type: ignore
         elif tool_name == "retrieve_event_property_values":
             result = self.retrieve_event_or_action_property_values(
-                tool_input.arguments.event_name,
-                tool_input.arguments.property_name,
+                tool_input.arguments.event_name,  # type: ignore
+                tool_input.arguments.property_name,  # type: ignore
             )
         elif tool_name == "retrieve_event_properties":
-            result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)
+            result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)  # type: ignore
         elif tool_name == "ask_user_for_help":
-            result = tool_input.arguments.request
-        elif tool_name == "final_answer":
-            result = "Taxonomy finalized"
+            result = tool_input.arguments.request  # type: ignore
         else:
             raise TaxonomyToolNotFoundError(f"Tool {tool_name} not found in taxonomy toolkit.")
 
@@ -460,7 +458,7 @@ class TaxonomyAgentToolkit:
 
         custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel
 
-        class DynamicToolInput(TaxonomyTool[custom_tools_union]):
+        class DynamicToolInput(TaxonomyTool[custom_tools_union]):  # type: ignore
             pass
 
         return DynamicToolInput.model_validate({"name": action.tool, "arguments": action.tool_input})

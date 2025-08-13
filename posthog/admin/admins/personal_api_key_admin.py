@@ -31,7 +31,7 @@ class PersonalAPIKeyAdmin(admin.ModelAdmin):
         "user",
         "roll_action",
     )
-    list_display = ("id", "label", "mask_value", "user_link", "created_at", "last_used_at", "scopes", "roll_action")
+    list_display = ("id", "label", "mask_value", "user_link", "created_at", "last_used_at", "scopes")
     list_display_links = ("id", "label")
     list_select_related = ("user",)
     search_fields = ("id", "user__email", "scopes")
