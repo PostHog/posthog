@@ -1,31 +1,31 @@
 # serializer version: 1
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -57,28 +57,28 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`
-     UNION ALL SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_item_id AS invoice_item_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
-                      `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
-                      `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
-                      `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
-                      `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.subscription_id AS subscription_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.revenue_item_revenue_view`.created_at AS created_at,
+                      `stripe.posthog_test.revenue_item_revenue_view`.is_recurring AS is_recurring,
+                      `stripe.posthog_test.revenue_item_revenue_view`.product_id AS product_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.customer_id AS customer_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_id AS invoice_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.subscription_id AS subscription_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.session_id AS session_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.event_name AS event_name,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon AS coupon,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon_id AS coupon_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_amount AS original_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
      FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -143,8 +143,8 @@
                            'GBP' AS currency,
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'America/Los_Angeles'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'America/Los_Angeles'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'America/Los_Angeles'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles'))), 0))
+        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item
+  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles'))), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -159,31 +159,31 @@
 # ---
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.1
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -215,28 +215,28 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`
-     UNION ALL SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_item_id AS invoice_item_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
-                      `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
-                      `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
-                      `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
-                      `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.subscription_id AS subscription_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.revenue_item_revenue_view`.created_at AS created_at,
+                      `stripe.posthog_test.revenue_item_revenue_view`.is_recurring AS is_recurring,
+                      `stripe.posthog_test.revenue_item_revenue_view`.product_id AS product_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.customer_id AS customer_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_id AS invoice_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.subscription_id AS subscription_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.session_id AS session_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.event_name AS event_name,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon AS coupon,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon_id AS coupon_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_amount AS original_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
      FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -301,8 +301,8 @@
                            'GBP' AS currency,
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))
+        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item
+  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -317,31 +317,31 @@
 # ---
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_no_crash_when_no_data
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -373,8 +373,8 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`) AS revenue_analytics_invoice_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`) AS revenue_analytics_revenue_item
+  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -389,31 +389,31 @@
 # ---
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_with_data
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -445,28 +445,28 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`
-     UNION ALL SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_item_id AS invoice_item_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
-                      `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
-                      `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
-                      `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
-                      `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.subscription_id AS subscription_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.revenue_item_revenue_view`.created_at AS created_at,
+                      `stripe.posthog_test.revenue_item_revenue_view`.is_recurring AS is_recurring,
+                      `stripe.posthog_test.revenue_item_revenue_view`.product_id AS product_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.customer_id AS customer_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_id AS invoice_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.subscription_id AS subscription_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.session_id AS session_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.event_name AS event_name,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon AS coupon,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon_id AS coupon_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_amount AS original_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
      FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -531,8 +531,8 @@
                            'GBP' AS currency,
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
+        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item
+  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -547,31 +547,31 @@
 # ---
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_with_data_and_empty_interval
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -603,28 +603,28 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`
-     UNION ALL SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_item_id AS invoice_item_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
-                      `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
-                      `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
-                      `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
-                      `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.subscription_id AS subscription_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.revenue_item_revenue_view`.created_at AS created_at,
+                      `stripe.posthog_test.revenue_item_revenue_view`.is_recurring AS is_recurring,
+                      `stripe.posthog_test.revenue_item_revenue_view`.product_id AS product_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.customer_id AS customer_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_id AS invoice_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.subscription_id AS subscription_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.session_id AS session_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.event_name AS event_name,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon AS coupon,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon_id AS coupon_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_amount AS original_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
      FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -689,8 +689,8 @@
                            'GBP' AS currency,
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-01-02 23:59:59', 'UTC'))), 0))
+        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item
+  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-01-02 23:59:59', 'UTC'))), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -705,31 +705,31 @@
 # ---
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_with_events_data
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -761,28 +761,28 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`
-     UNION ALL SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_item_id AS invoice_item_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
-                      `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
-                      `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
-                      `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
-                      `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.subscription_id AS subscription_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.revenue_item_revenue_view`.created_at AS created_at,
+                      `stripe.posthog_test.revenue_item_revenue_view`.is_recurring AS is_recurring,
+                      `stripe.posthog_test.revenue_item_revenue_view`.product_id AS product_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.customer_id AS customer_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_id AS invoice_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.subscription_id AS subscription_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.session_id AS session_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.event_name AS event_name,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon AS coupon,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon_id AS coupon_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_amount AS original_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
      FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -847,7 +847,7 @@
                            'GBP' AS currency,
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
+        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT `revenue_analytics.events.purchase.customer_events_revenue_view`.id AS id,
             `revenue_analytics.events.purchase.customer_events_revenue_view`.source_label AS source_label,
@@ -908,8 +908,8 @@
               GROUP BY person.id
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1))) AS events ON equals(persons.id, events.person_id)
-        ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_invoice_item.customer_id, revenue_analytics_customer.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.source_label, 'revenue_analytics.events.purchase'), 0))
+        ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
+  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.source_label, 'revenue_analytics.events.purchase'), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -924,31 +924,31 @@
 # ---
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_with_events_data_and_currency_aware_divider
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -981,28 +981,28 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`
-     UNION ALL SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_item_id AS invoice_item_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
-                      `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
-                      `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
-                      `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
-                      `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.subscription_id AS subscription_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.revenue_item_revenue_view`.created_at AS created_at,
+                      `stripe.posthog_test.revenue_item_revenue_view`.is_recurring AS is_recurring,
+                      `stripe.posthog_test.revenue_item_revenue_view`.product_id AS product_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.customer_id AS customer_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_id AS invoice_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.subscription_id AS subscription_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.session_id AS session_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.event_name AS event_name,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon AS coupon,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon_id AS coupon_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_amount AS original_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
      FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -1067,7 +1067,7 @@
                            'GBP' AS currency,
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
+        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT `revenue_analytics.events.purchase.customer_events_revenue_view`.id AS id,
             `revenue_analytics.events.purchase.customer_events_revenue_view`.source_label AS source_label,
@@ -1128,8 +1128,8 @@
               GROUP BY person.id
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
-        ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_invoice_item.customer_id, revenue_analytics_customer.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.source_label, 'revenue_analytics.events.purchase'), 0))
+        ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
+  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.source_label, 'revenue_analytics.events.purchase'), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1144,31 +1144,31 @@
 # ---
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_with_property_filter
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -1200,28 +1200,28 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`
-     UNION ALL SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_item_id AS invoice_item_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
-                      `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
-                      `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
-                      `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
-                      `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.subscription_id AS subscription_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.revenue_item_revenue_view`.created_at AS created_at,
+                      `stripe.posthog_test.revenue_item_revenue_view`.is_recurring AS is_recurring,
+                      `stripe.posthog_test.revenue_item_revenue_view`.product_id AS product_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.customer_id AS customer_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_id AS invoice_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.subscription_id AS subscription_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.session_id AS session_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.event_name AS event_name,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon AS coupon,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon_id AS coupon_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_amount AS original_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
      FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -1286,7 +1286,7 @@
                            'GBP' AS currency,
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
+        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT `revenue_analytics.events.purchase.product_events_revenue_view`.id AS id,
             `revenue_analytics.events.purchase.product_events_revenue_view`.source_label AS source_label,
@@ -1307,8 +1307,8 @@
        (SELECT posthog_test_stripe_product.id AS id,
                'stripe.posthog_test' AS source_label,
                posthog_test_stripe_product.name AS name
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_invoice_item.product_id, revenue_analytics_product.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
+  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1323,31 +1323,31 @@
 # ---
 # name: TestRevenueAnalyticsOverviewQueryRunner.test_with_property_filter_multiple_values
   '''
-  SELECT accurateCastOrNull(sum(revenue_analytics_invoice_item.amount), 'Decimal64(10)') AS revenue,
-         count(DISTINCT revenue_analytics_invoice_item.customer_id) AS paying_customer_count,
+  SELECT accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count,
          if(ifNull(equals(paying_customer_count, 0), 0), 0, ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0)) AS avg_revenue_per_customer
   FROM
-    (SELECT `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.id AS id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.currency AS currency,
-            `revenue_analytics.events.purchase.invoice_item_events_revenue_view`.amount AS amount
+    (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at AS created_at,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+            `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
      FROM
        (SELECT toString(events.uuid) AS id,
                toString(events.uuid) AS invoice_item_id,
@@ -1379,28 +1379,28 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.invoice_item_events_revenue_view`
-     UNION ALL SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_item_id AS invoice_item_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
-                      `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
-                      `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
-                      `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
-                      `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.subscription_id AS subscription_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
-                      `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                      `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
-                      `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.revenue_item_revenue_view`.created_at AS created_at,
+                      `stripe.posthog_test.revenue_item_revenue_view`.is_recurring AS is_recurring,
+                      `stripe.posthog_test.revenue_item_revenue_view`.product_id AS product_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.customer_id AS customer_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.invoice_id AS invoice_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.subscription_id AS subscription_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.session_id AS session_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.event_name AS event_name,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon AS coupon,
+                      `stripe.posthog_test.revenue_item_revenue_view`.coupon_id AS coupon_id,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.original_amount AS original_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                      `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
+                      `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
      FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -1465,7 +1465,7 @@
                            'GBP' AS currency,
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
+        WHERE and(or(isNull(posthog_test_stripe_charge.invoice), empty(posthog_test_stripe_charge.invoice)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT `revenue_analytics.events.purchase.product_events_revenue_view`.id AS id,
             `revenue_analytics.events.purchase.product_events_revenue_view`.source_label AS source_label,
@@ -1486,8 +1486,8 @@
        (SELECT posthog_test_stripe_product.id AS id,
                'stripe.posthog_test' AS source_label,
                posthog_test_stripe_product.name AS name
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_invoice_item.product_id, revenue_analytics_product.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), in(revenue_analytics_product.name, tuple('Product A', 'Product C')))
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
+  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), in(revenue_analytics_product.name, tuple('Product A', 'Product C')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

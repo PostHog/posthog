@@ -660,7 +660,7 @@ class RootNodeTools(AssistantNode):
                         ui_payload={tool_call.name: result.artifact},
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
-                        visible=True,
+                        visible=tool_class.show_tool_call_message,
                     )
                 ],
                 root_tool_calls_count=tool_call_count + 1,
