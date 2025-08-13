@@ -132,36 +132,5 @@ impl Config {
         Duration::from_secs(self.s3_timeout_secs)
     }
 
-    /// Convert to custom ConsumerConfig for the kafka module
-    pub fn to_consumer_config(&self) -> crate::kafka::config::ConsumerConfig {
-        crate::kafka::config::ConsumerConfig::new(
-            self.kafka_hosts.clone(),
-            self.kafka_consumer_group.clone(),
-            vec![self.kafka_consumer_topic.clone()],
-        )
-        .with_max_in_flight_messages(self.max_in_flight_messages)
-        .with_max_in_flight_messages_per_partition(self.max_in_flight_messages_per_partition)
-        .with_max_memory(self.max_memory_bytes)
-        .with_worker_threads(self.worker_threads)
-        .with_poll_timeout(self.poll_timeout())
-        .with_shutdown_timeout(self.shutdown_timeout())
-        .with_kafka_config(
-            "auto.offset.reset".to_string(),
-            self.kafka_consumer_offset_reset.clone(),
-        )
-    }
 
-    /// Convert to checkpoint config (for compatibility with existing checkpoint code)
-    pub fn to_checkpoint_config(&self) -> crate::checkpoint::config::CheckpointConfig {
-        crate::checkpoint::config::CheckpointConfig {
-            checkpoint_interval: self.checkpoint_interval(),
-            local_checkpoint_dir: self.local_checkpoint_dir.clone(),
-            s3_bucket: self.s3_bucket.clone().unwrap_or_default(),
-            s3_key_prefix: self.s3_key_prefix.clone(),
-            full_upload_interval: self.full_upload_interval,
-            aws_region: self.aws_region.clone(),
-            max_local_checkpoints: self.max_local_checkpoints,
-            s3_timeout: self.s3_timeout(),
-        }
-    }
 }

@@ -148,16 +148,6 @@ async fn main() -> Result<()> {
         }
         _ = shutdown_signal => {
             info!("Shutting down gracefully...");
-
-            // Log final statistics
-            let stats = processor.get_store_stats().await;
-            info!("Final store statistics: {} active stores", stats.len());
-            for ((topic, partition), (memory, processed, duplicates)) in stats {
-                info!(
-                    "Store {}:{} - Memory: {} bytes, Processed: {}, Duplicates: {}",
-                    topic, partition, memory, processed, duplicates
-                );
-            }
         }
     }
 

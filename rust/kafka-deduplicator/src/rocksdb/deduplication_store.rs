@@ -1,15 +1,29 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use anyhow::Result;
+use common_types::RawEvent;
 use rocksdb::{ColumnFamilyDescriptor, Options};
-use std::time::Instant;
 use tracing::{error, info};
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::dedup_metadata::{MetadataVersion, VersionedMetadata};
 use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
-use common_types::RawEvent;
+
+/// Extract library name and version from RawEvent properties
+fn extract_library_info(event: &RawEvent) -> (String, String) {
+    let lib_name = event.properties.get("$lib")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    let lib_version = event.properties.get("$lib_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    (lib_name, lib_version)
+}
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStoreConfig {
@@ -170,9 +184,8 @@ impl DeduplicationStore {
             .store
             .multi_get(DeduplicationStore::RECORDS_CF, keys.clone())?;
 
-        let mut duplicate_count = 0u64;
-
-        // Return only keys that don't exist (None results) and count duplicates
+        // Return only keys that don't exist (None results)
+        // Note: Duplicate metrics are now emitted per-event in handle_event_with_raw
         let non_duplicated: Vec<&[u8]> = keys
             .into_iter()
             .zip(results)
@@ -181,20 +194,11 @@ impl DeduplicationStore {
                     // Key doesn't exist - not a duplicate
                     Some(key)
                 } else {
-                    // Key exists - it's a duplicate
-                    // Let's add some metrics here
-                    duplicate_count += 1;
+                    // Key exists - it's a duplicate (metrics handled elsewhere)
                     None
                 }
             })
             .collect();
-
-        // Emit metrics for duplicate events found
-        if duplicate_count > 0 {
-            self.metrics
-                .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
-                .increment(duplicate_count);
-        }
 
         Ok(non_duplicated)
     }
@@ -219,6 +223,14 @@ impl DeduplicationStore {
 
             // Log the duplicate metrics using trait method
             info!("Duplicate detected: {}", metadata.get_metrics_summary());
+
+            // Extract library info and emit duplicate metric with labels
+            let (lib_name, lib_version) = extract_library_info(raw_event);
+            self.metrics
+                .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
+                .with_label("lib", &lib_name)
+                .with_label("lib_version", &lib_version)
+                .increment(1);
 
             // Store updated metrics
             let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
@@ -245,92 +257,7 @@ impl DeduplicationStore {
         Ok(true) // New event
     }
 
-    // Keep the old method for backward compatibility but mark as deprecated
-    #[deprecated(note = "Use handle_event_with_raw instead")]
-    pub fn handle_event(&self, raw_event: RawEvent) -> Result<bool> {
-        self.handle_event_with_raw(&raw_event)
-    }
 
-    pub fn handle_event_batch(&self, events: Vec<RawEvent>) -> Result<()> {
-        let start_time = Instant::now();
-        let batch_size = events.len();
-
-        if events.is_empty() {
-            return Ok(());
-        }
-
-        // Emit batch size metric
-        self.metrics
-            .histogram(BATCH_SIZE_HISTOGRAM)
-            .record(batch_size as f64);
-
-        // Create map of raw key bytes -> serialized metadata for O(1) lookup
-        let mut key_bytes_metadata_map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-        let mut key_bytes_list: Vec<Vec<u8>> = Vec::new();
-
-        for event in events.iter() {
-            let key = DeduplicationKey::from(event);
-            let key_bytes = key.as_ref().to_vec();
-            let composite_key = key.formatted_key.clone();
-
-            let metadata_v1 =
-                crate::rocksdb::dedup_metadata::MetadataV1::new(event.clone(), composite_key);
-            let metadata = VersionedMetadata::V1(metadata_v1);
-            let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata);
-            if let Ok(serialized_metadata) = serialized_metadata {
-                key_bytes_metadata_map.insert(key_bytes.clone(), serialized_metadata);
-                key_bytes_list.push(key_bytes);
-            } else {
-                error!("Failed to serialize metadata for event: {:?}", event.event);
-            }
-        }
-
-        // Extract keys for deduplication check (now we can use references)
-        let key_bytes_refs: Vec<&[u8]> = key_bytes_list.iter().map(|k| k.as_slice()).collect();
-
-        // Get only non-duplicated keys
-        let non_duplicated_key_bytes = self.get_non_duplicated_keys(key_bytes_refs)?;
-        let unique_count = non_duplicated_key_bytes.len();
-        let duplicate_count = batch_size - unique_count;
-
-        // Build entries to store using O(1) HashMap lookup
-        let entries_to_store: Vec<(&[u8], &[u8])> = non_duplicated_key_bytes
-            .into_iter()
-            .filter_map(|key_bytes| {
-                // O(1) HashMap lookup using the raw bytes
-                key_bytes_metadata_map
-                    .get(key_bytes)
-                    .map(|metadata| (key_bytes, metadata.as_slice()))
-            })
-            .collect();
-
-        // Store all non-duplicated entries in batch
-        if !entries_to_store.is_empty() {
-            self.store
-                .put_batch(DeduplicationStore::RECORDS_CF, entries_to_store)?;
-        }
-
-        // Emit metrics
-        let duration = start_time.elapsed();
-
-        self.metrics
-            .histogram(BATCH_PROCESSING_DURATION_HISTOGRAM)
-            .record(duration.as_secs_f64());
-        self.metrics
-            .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
-            .increment(unique_count as u64);
-
-        // Calculate and emit duplicate rate percentage
-        if batch_size > 0 {
-            let duplicate_rate = (duplicate_count as f64 / batch_size as f64) * 100.0;
-            self.metrics.gauge(DUPLICATE_RATE_GAUGE).set(duplicate_rate);
-        }
-
-        // Update database metrics periodically
-        self.store.update_db_metrics(Self::RECORDS_CF).ok();
-
-        Ok(())
-    }
 
     pub fn cleanup_old_entries(&self) -> Result<u64> {
         let start_time = Instant::now();
@@ -535,14 +462,18 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_event_batch_empty() {
+    fn test_handle_event_with_raw_empty_batch() {
         let (store, _temp_dir) = create_test_store(None);
-        let result = store.handle_event_batch(vec![]);
-        assert!(result.is_ok());
+        let events: Vec<RawEvent> = vec![];
+        // Empty batch - nothing to process
+        for event in events {
+            let result = store.handle_event_with_raw(&event);
+            assert!(result.is_ok());
+        }
     }
 
     #[test]
-    fn test_handle_event_batch_new_events() {
+    fn test_handle_events_new_events() {
         let (store, _temp_dir) = create_test_store(None);
 
         let events = vec![
@@ -550,8 +481,12 @@ mod tests {
             create_test_raw_event("user2", "token1", "event2"),
         ];
 
-        let result = store.handle_event_batch(events);
-        assert!(result.is_ok());
+        // Process events individually
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Verify events were stored by checking they're now duplicates
         let events_again = [
@@ -571,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_event_batch_mixed_duplicates() {
+    fn test_handle_events_mixed_duplicates() {
         let (store, _temp_dir) = create_test_store(None);
 
         // First batch
@@ -579,14 +514,21 @@ mod tests {
             create_test_raw_event("user1", "token1", "event1"),
             create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(first_batch).unwrap();
+        for event in &first_batch {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Second batch with one duplicate and one new
         let second_batch = vec![
             create_test_raw_event("user1", "token1", "event1"), // duplicate
             create_test_raw_event("user3", "token1", "event3"), // new
         ];
-        store.handle_event_batch(second_batch).unwrap();
+        let results: Vec<bool> = second_batch.iter()
+            .map(|event| store.handle_event_with_raw(event).unwrap())
+            .collect();
+        assert_eq!(results, vec![false, true]); // first duplicate, second new
 
         // Verify only the new event was stored
         let test_event = create_test_raw_event("user3", "token1", "event3");
@@ -627,12 +569,16 @@ mod tests {
         let is_duplicate = store.handle_event_with_raw(&duplicate_event).unwrap();
         assert!(!is_duplicate); // Should be a duplicate (returns false for new)
 
-        // Test batch processing works without errors - using different events to avoid serialization
+        // Test individual event processing works without errors - using different events to avoid serialization
         let batch_events = vec![
             create_test_raw_event("user2", "token1", "event2"),
             create_test_raw_event("user3", "token1", "event3"),
         ];
-        store.handle_event_batch(batch_events).unwrap();
+        for event in &batch_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Test that the new events work with individual processing
         let new_event = create_test_raw_event("user4", "token1", "event4");
@@ -665,7 +611,11 @@ mod tests {
             create_test_raw_event("user1", "token1", "event1"),
             create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(events).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Cleanup should do nothing when max_capacity is 0
         let bytes_freed = store.cleanup_old_entries().unwrap();
@@ -678,7 +628,11 @@ mod tests {
 
         // Add a small amount of data
         let events = vec![create_test_raw_event("user1", "token1", "event1")];
-        store.handle_event_batch(events).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Should be under capacity, no cleanup needed
         let bytes_freed = store.cleanup_old_entries().unwrap();
@@ -721,7 +675,11 @@ mod tests {
                 )
             })
             .collect();
-        store.handle_event_batch(events).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            // Don't assert true since we might have duplicates due to the large number of events
+        }
 
         // Force data to SST files
         store
@@ -777,8 +735,11 @@ mod tests {
         );
 
         // Add old event first
-        store.handle_event_batch(vec![old_event.clone()]).unwrap();
-        // Add many more events to exceed capacityc
+        let result = store.handle_event_with_raw(&old_event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should be new
+        
+        // Add many more events to exceed capacity
         for i in 0..10 {
             let event = create_test_raw_event_with_timestamp(
                 base_timestamp + i,
@@ -786,10 +747,14 @@ mod tests {
                 "token1",
                 &format!("event{i}"),
             );
-            store.handle_event_batch(vec![event]).unwrap();
+            let result = store.handle_event_with_raw(&event);
+            assert!(result.is_ok());
+            // Don't assert true as some events might be duplicates due to timestamp logic
         }
         // Add new event last
-        store.handle_event_batch(vec![new_event.clone()]).unwrap();
+        let result = store.handle_event_with_raw(&new_event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should be new
 
         // Run cleanup
         let bytes_freed = store.cleanup_old_entries().unwrap();
@@ -824,7 +789,11 @@ mod tests {
             create_test_raw_event("user1", "token1", "event1"),
             create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(events).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create checkpoint
         let checkpoint_dir = tempfile::TempDir::new().unwrap();
@@ -859,9 +828,11 @@ mod tests {
             let original_store =
                 DeduplicationStore::new(config, "test_topic".to_string(), 0).unwrap();
 
-            original_store
-                .handle_event_batch(original_events.clone())
-                .unwrap();
+            for event in &original_events {
+                let result = original_store.handle_event_with_raw(event);
+                assert!(result.is_ok());
+                assert!(result.unwrap()); // All events should be new
+            }
 
             // Create checkpoint
             original_store.create_checkpoint(&checkpoint_path).unwrap();
@@ -905,7 +876,11 @@ mod tests {
             create_test_raw_event("user1", "token1", "event1"),
             create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(initial_events.to_vec()).unwrap();
+        for event in &initial_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create first checkpoint
         store.create_checkpoint(&checkpoint1_path).unwrap();
@@ -915,9 +890,11 @@ mod tests {
             create_test_raw_event("user3", "token1", "event3"),
             create_test_raw_event("user4", "token1", "event4"),
         ];
-        store
-            .handle_event_batch(additional_events.to_vec())
-            .unwrap();
+        for event in &additional_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create second checkpoint (incremental - contains all data up to this point)
         store.create_checkpoint(&checkpoint2_path).unwrap();
@@ -1007,7 +984,11 @@ mod tests {
             create_test_raw_event("user1", "token1", "event1"),
             create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(initial_events.to_vec()).unwrap();
+        for event in &initial_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create checkpoint with SST file tracking
         let sst_files_checkpoint1 = store
@@ -1019,9 +1000,11 @@ mod tests {
             create_test_raw_event("user3", "token1", "event3"),
             create_test_raw_event("user4", "token1", "event4"),
         ];
-        store
-            .handle_event_batch(additional_events.to_vec())
-            .unwrap();
+        for event in &additional_events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Create second checkpoint with SST file tracking
         let sst_files_checkpoint2 = store
@@ -1064,7 +1047,11 @@ mod tests {
             create_test_raw_event("user1", "token1", "event1"),
             create_test_raw_event("user2", "token1", "event2"),
         ];
-        store.handle_event_batch(events.to_vec()).unwrap();
+        for event in &events {
+            let result = store.handle_event_with_raw(event);
+            assert!(result.is_ok());
+            assert!(result.unwrap()); // All events should be new
+        }
 
         // Force flush to create SST files
         store

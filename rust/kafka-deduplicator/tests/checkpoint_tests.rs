@@ -241,7 +241,11 @@ async fn test_manual_checkpoint() {
         create_test_raw_event("user1", "token1", "event1"),
         create_test_raw_event("user2", "token1", "event2"),
     ];
-    store.handle_event_batch(events).unwrap();
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
@@ -350,7 +354,11 @@ async fn test_checkpoint_with_mock_uploader() {
         create_test_raw_event("user1", "token1", "event1"),
         create_test_raw_event("user2", "token1", "event2"),
     ];
-    store.handle_event_batch(events).unwrap();
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
@@ -387,7 +395,11 @@ async fn test_incremental_vs_full_upload() {
     let (store, _store_temp) = create_test_dedup_store();
 
     let events = vec![create_test_raw_event("user1", "token1", "event1")];
-    store.handle_event_batch(events).unwrap();
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
@@ -448,7 +460,11 @@ async fn test_unavailable_uploader() {
     let (store, _store_temp) = create_test_dedup_store();
 
     let events = vec![create_test_raw_event("user1", "token1", "event1")];
-    store.handle_event_batch(events).unwrap();
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),

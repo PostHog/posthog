@@ -1,7 +1,6 @@
 pub mod checkpoint;
 pub mod config;
 pub mod deduplication_processor;
-pub mod deduplication_rebalance_handler;
 pub mod duplicate_metrics;
 pub mod kafka;
 pub mod metrics;

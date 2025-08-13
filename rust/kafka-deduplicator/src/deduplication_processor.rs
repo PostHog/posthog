@@ -276,25 +276,6 @@ impl MessageProcessor for DeduplicationProcessor {
 }
 
 impl DeduplicationProcessor {
-    /// Get statistics for all stores
-    pub async fn get_store_stats(&self) -> HashMap<(String, i32), (usize, u64, u64)> {
-        let stores = self.stores.read().await;
-        let mut stats = HashMap::new();
-
-        for ((topic, partition), _store) in stores.iter() {
-            // Get basic stats from the store - you may need to implement these methods
-            let memory_usage = 0; // TODO: implement memory usage tracking
-            let processed_events = 0; // TODO: implement event counter
-            let duplicate_events = 0; // TODO: implement duplicate counter
-
-            stats.insert(
-                (topic.clone(), *partition),
-                (memory_usage, processed_events, duplicate_events),
-            );
-        }
-
-        stats
-    }
 
     /// Get the number of active stores
     pub async fn get_active_store_count(&self) -> usize {

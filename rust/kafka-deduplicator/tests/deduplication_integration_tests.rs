@@ -344,8 +344,12 @@ async fn test_deduplication_store_direct() -> Result<()> {
         create_test_raw_event(None, "user2", "token1", "click", Some(now), None),
     ];
 
-    // Test handle_event_batch
-    store.handle_event_batch(events.clone())?;
+    // Process events individually instead of batch
+    for event in &events {
+        let result = store.handle_event_with_raw(event)?;
+        // First event should be stored (new), second event should be duplicate (false), third should be stored (new)
+        println!("Event processed, is_new: {result}");
+    }
 
     // Test individual event handling for duplicates
     // Note: handle_event returns true when event is stored (not duplicate), false when duplicate
@@ -400,9 +404,6 @@ async fn test_processor_statistics() -> Result<()> {
     // Initial state
     let initial_store_count = processor.get_active_store_count().await;
     assert_eq!(initial_store_count, 0, "Should start with no active stores");
-
-    let initial_stats = processor.get_store_stats().await;
-    assert!(initial_stats.is_empty(), "Should start with empty stats");
 
     Ok(())
 }
@@ -1389,9 +1390,6 @@ async fn test_rebalance_handler_with_processor_statistics() -> Result<()> {
     // Test that rebalance operations properly interact with processor statistics
 
     // Initial state
-    let initial_stats = processor.get_store_stats().await;
-    assert!(initial_stats.is_empty(), "Should start with empty stats");
-
     let initial_count = processor.get_active_store_count().await;
     assert_eq!(initial_count, 0, "Should start with zero active stores");
 
@@ -1415,10 +1413,6 @@ async fn test_rebalance_handler_with_processor_statistics() -> Result<()> {
     // Test pre-rebalance statistics
     rebalance_handler.on_pre_rebalance().await?;
 
-    let pre_rebalance_stats = processor.get_store_stats().await;
-    // Stats structure should be accessible even if empty
-    assert_eq!(pre_rebalance_stats.len(), 0, "No stores active yet");
-
     // Test post-rebalance statistics
     rebalance_handler.on_post_rebalance().await?;
 
@@ -1432,12 +1426,6 @@ async fn test_rebalance_handler_with_processor_statistics() -> Result<()> {
     assert_eq!(
         post_revoke_count, 0,
         "Count should remain zero after revocation"
-    );
-
-    let post_revoke_stats = processor.get_store_stats().await;
-    assert!(
-        post_revoke_stats.is_empty(),
-        "Stats should be empty after revocation"
     );
 
     Ok(())
