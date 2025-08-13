@@ -239,6 +239,37 @@ const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | Ac
 }
 
 /**
+ * Helper function to create a filter from a single source
+ */
+const createFilterForSource = (source: ExperimentMetricSource): FilterType => {
+    if (source.kind === NodeKind.EventsNode) {
+        return {
+            events: [createSourceNode(source)],
+            actions: [],
+            data_warehouse: [],
+        }
+    } else if (source.kind === NodeKind.ActionsNode) {
+        return {
+            events: [],
+            actions: [createSourceNode(source)],
+            data_warehouse: [],
+        }
+    } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
+        return {
+            events: [],
+            actions: [],
+            data_warehouse: [createSourceNode(source)],
+        }
+    }
+
+    return {
+        events: [],
+        actions: [],
+        data_warehouse: [],
+    }
+}
+
+/**
  * takes a metric and returns a filter that can be used as part of a query.
  */
 export const getFilter = (metric: ExperimentMetric): FilterType => {
@@ -290,14 +321,18 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
                 data_warehouse: [], // datawarehouse nodes are not supported for funnel metrics yet
             }
         })
-        .with({ metric_type: ExperimentMetricType.RATIO }, () => {
-            // For ratio metrics, we don't use this filter structure
-            // since they have separate numerator and denominator events
-            // This is handled directly in ExperimentMetricForm
+        .with({ metric_type: ExperimentMetricType.RATIO }, (ratioMetric) => {
+            // For ratio metrics, we need to combine numerator and denominator filters
+            const numeratorFilter = createFilterForSource(ratioMetric.numerator)
+            const denominatorFilter = createFilterForSource(ratioMetric.denominator)
+
             return {
-                events: [],
-                actions: [],
-                data_warehouse: [],
+                events: [...(numeratorFilter.events || []), ...(denominatorFilter.events || [])],
+                actions: [...(numeratorFilter.actions || []), ...(denominatorFilter.actions || [])],
+                data_warehouse: [
+                    ...(numeratorFilter.data_warehouse || []),
+                    ...(denominatorFilter.data_warehouse || []),
+                ],
             }
         })
         .otherwise(() => ({

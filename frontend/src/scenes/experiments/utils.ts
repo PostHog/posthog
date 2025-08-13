@@ -14,6 +14,7 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMeanMetricTypeProps,
     ExperimentMetric,
+    ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
@@ -109,7 +110,7 @@ function seriesToFilterLegacy(
     return null
 }
 
-function seriesToFilter(series: AnyEntityNode): UniversalFiltersGroupValue | null {
+function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): UniversalFiltersGroupValue | null {
     if (series.kind === NodeKind.EventsNode) {
         return {
             id: series.event ?? null,
@@ -124,6 +125,14 @@ function seriesToFilter(series: AnyEntityNode): UniversalFiltersGroupValue | nul
             id: series.id,
             name: series.name,
             type: 'actions',
+        }
+    }
+
+    if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
+        return {
+            id: series.table_name,
+            name: series.name,
+            type: 'data_warehouse',
         }
     }
 
@@ -692,6 +701,57 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
 }
 
 /**
+ * Converts filter data to a metric source (EventsNode, ActionsNode, or ExperimentDataWarehouseNode)
+ * Used for ratio metrics to support all source types
+ */
+export function filterToMetricSource(
+    actions: Record<string, any>[] | undefined,
+    events: Record<string, any>[] | undefined,
+    data_warehouse: Record<string, any>[] | undefined
+): ExperimentMetricSource | null {
+    if (events?.[0]) {
+        return {
+            kind: NodeKind.EventsNode,
+            event: events[0].id,
+            name: events[0].name,
+            math: events[0].math || ExperimentMetricMathType.TotalCount,
+            math_property: events[0].math_property,
+            math_hogql: events[0].math_hogql,
+            properties: events[0].properties,
+        }
+    }
+
+    if (actions?.[0]) {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: actions[0].id,
+            name: actions[0].name,
+            math: actions[0].math || ExperimentMetricMathType.TotalCount,
+            math_property: actions[0].math_property,
+            math_hogql: actions[0].math_hogql,
+            properties: actions[0].properties,
+        }
+    }
+
+    if (data_warehouse?.[0]) {
+        return {
+            kind: NodeKind.ExperimentDataWarehouseNode,
+            name: data_warehouse[0].name,
+            table_name: data_warehouse[0].id,
+            timestamp_field: data_warehouse[0].timestamp_field,
+            events_join_key: data_warehouse[0].events_join_key,
+            data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
+            math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
+            math_property: data_warehouse[0].math_property,
+            math_hogql: data_warehouse[0].math_hogql,
+            properties: data_warehouse[0].properties,
+        }
+    }
+
+    return null
+}
+
+/**
  * Check if a query is a legacy experiment metric.
  *
  * We use `unknown` here because in some cases, the query is not typed.
@@ -804,6 +864,32 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
                     kind: NodeKind.EventsNode,
                     name: numerator.event || undefined,
                     event: numerator.event || undefined,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(numerator.properties &&
+                        numerator.properties.length > 0 && { properties: numerator.properties }),
+                },
+            ]
+        } else if (numerator.kind === NodeKind.ActionsNode) {
+            series = [
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: numerator.id,
+                    name: numerator.name,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(numerator.properties &&
+                        numerator.properties.length > 0 && { properties: numerator.properties }),
+                },
+            ]
+        } else if (numerator.kind === NodeKind.ExperimentDataWarehouseNode) {
+            series = [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: numerator.table_name,
+                    id_field: numerator.data_warehouse_join_key,
+                    table_name: numerator.table_name,
+                    timestamp_field: numerator.timestamp_field,
+                    distinct_id_field: numerator.events_join_key,
+                    name: numerator.name,
                     math: ExperimentMetricMathType.TotalCount,
                     ...(numerator.properties &&
                         numerator.properties.length > 0 && { properties: numerator.properties }),
