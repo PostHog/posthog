@@ -284,11 +284,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                               ? variant.tiers?.[0]?.up_to || 0
                                                                               : 0,
                                                                   },
-                                                                  variant.projectedUsage &&
-                                                                      variant.projectedUsage > variant.usage && {
+                                                                  variant.projected_usage &&
+                                                                      variant.projected_usage > variant.usage && {
                                                                           type: BillingGaugeItemKind.ProjectedUsage,
                                                                           text: 'Projected',
-                                                                          value: variant.projectedUsage || 0,
+                                                                          value: variant.projected_usage || 0,
                                                                       },
                                                                   {
                                                                       type: BillingGaugeItemKind.CurrentUsage,

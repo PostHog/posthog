@@ -23,19 +23,19 @@ import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
 
-interface ProductVariant {
+export interface ProductVariant {
     key: string
     name: string
-    icon?: string
+    icon: string | null | undefined
     currentAmount: string
     projectedAmount: string
     usage: number
-    projectedUsage?: number
-    tiers?: BillingTierType[]
+    projected_usage?: number | null
+    tiers?: BillingTierType[] | null
     product: BillingProductV2Type | BillingProductV2AddonType
 }
 
-interface MonetaryDisplay {
+export interface MonetaryDisplay {
     currentTotal: string
     projectedTotal: string
     billingLimit?: number
@@ -408,14 +408,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return product.projected_amount_usd || '0'
                 }
 
-                const totalProjected = parseFloat(product.projected_amount_usd || '0')
+                // Type guard: only main products have addons
+                const mainProduct = product as BillingProductV2Type
+                const totalProjected = parseFloat(mainProduct.projected_amount_usd || '0')
 
-                if (!product.addons?.length) {
+                if (!mainProduct.addons?.length) {
                     return totalProjected.toFixed(2)
                 }
 
-                const addonProjected = product.addons.reduce(
-                    (sum, addon) => sum + parseFloat(addon.projected_amount_usd || '0'),
+                const addonProjected = mainProduct.addons.reduce(
+                    (sum: number, addon: BillingProductV2AddonType) =>
+                        sum + parseFloat(addon.projected_amount_usd || '0'),
                     0
                 )
 
@@ -429,19 +432,23 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return null
                 }
 
-                const mobileReplay = product.addons?.find((a) => a.type === 'mobile_replay')
+                // Type guard: only main products have addons and current_amount_usd_before_addons
+                const mainProduct = product as BillingProductV2Type
+                const mobileReplay = mainProduct.addons?.find(
+                    (a: BillingProductV2AddonType) => a.type === 'mobile_replay'
+                )
 
                 const variants: ProductVariant[] = [
                     {
                         key: 'session_replay',
                         name: 'Session Replay (Web)',
-                        icon: product.icon_key,
-                        currentAmount: product.current_amount_usd_before_addons || '0',
+                        icon: mainProduct.icon_key,
+                        currentAmount: mainProduct.current_amount_usd_before_addons || '0',
                         projectedAmount: sessionProjectedAmount,
-                        usage: product.current_usage || 0,
-                        projectedUsage: product.projected_usage,
-                        tiers: product.tiers,
-                        product,
+                        usage: mainProduct.current_usage || 0,
+                        projected_usage: mainProduct.projected_usage,
+                        tiers: mainProduct.tiers,
+                        product: mainProduct,
                     },
                 ]
 
@@ -453,7 +460,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         currentAmount: mobileReplay.current_amount_usd || '0',
                         projectedAmount: mobileReplay.projected_amount_usd || '0',
                         usage: mobileReplay.current_usage || 0,
-                        projectedUsage: mobileReplay.projected_usage,
+                        projected_usage: mobileReplay.projected_usage,
                         tiers: mobileReplay.tiers,
                         product: mobileReplay,
                     })
@@ -464,12 +471,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         variantMonetaryDisplay: [
             (s, p) => [s.customLimitUsd, p.product, s.billing],
-            (limit, product, billing): MonetaryDisplay => ({
-                currentTotal: product.current_amount_usd || '0',
-                projectedTotal: product.projected_amount_usd_with_limit || '0',
-                billingLimit: limit || undefined,
-                discountPercent: billing?.discount_percent || 0,
-            }),
+            (limit, product, billing): MonetaryDisplay => {
+                // Type guard: only main products have projected_amount_usd_with_limit
+                const mainProduct = product as BillingProductV2Type
+                return {
+                    currentTotal: mainProduct.current_amount_usd || '0',
+                    projectedTotal: mainProduct.projected_amount_usd_with_limit || '0',
+                    billingLimit: limit || undefined,
+                    discountPercent: billing?.discount_percent || 0,
+                }
+            },
         ],
         variantGaugeItems: [
             (s) => [s.variantMonetaryDisplay],
