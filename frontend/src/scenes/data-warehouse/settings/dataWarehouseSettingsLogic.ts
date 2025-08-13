@@ -115,12 +115,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
         computedAllSources: [
-            (s) => [
-                s.dataWarehouseSources,
-                s.recentActivity,
-                s.selfManagedTables,
-                availableSourcesDataLogic.selectors.availableSources,
-            ],
+            (s) => [s.dataWarehouseSources, s.recentActivity, s.selfManagedTables],
             (
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
                 recentActivity: UnifiedRecentActivity[],

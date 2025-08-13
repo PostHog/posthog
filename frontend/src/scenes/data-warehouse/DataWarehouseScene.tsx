@@ -7,7 +7,7 @@ import { useValues, useActions } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { urls } from 'scenes/urls'
 import { LemonButton, LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { IconPlusSmall, IconCheckCircle, IconInfo } from '@posthog/icons'
@@ -39,45 +39,48 @@ export function DataWarehouseScene(): JSX.Element {
     const sourcesPagination = usePagination(computedAllSources, { pageSize: LIST_SIZE }, 'sources')
     const viewsPagination = usePagination(materializedViews || [], { pageSize: LIST_SIZE }, 'views')
 
-    const sourceColumns: any[] = [
+    const sourceColumns: LemonTableColumns<DashboardDataSource> = [
         {
             title: 'Name',
             key: 'name',
-            render: (_: any, source: DashboardDataSource) => (
+            render: (_, source) => (
                 <div className="flex items-center gap-1">
                     <StatusIcon status={source.status ?? undefined} />
                     {source.url ? <LemonTableLink to={source.url} title={source.name} /> : <span>{source.name}</span>}
                 </div>
             ),
         },
-        { title: 'Type', dataIndex: 'type', key: 'type' },
+        {
+            title: 'Type',
+            key: 'type',
+            render: (_, source) => source.type,
+        },
         {
             title: 'Last sync',
             key: 'lastSync',
-            render: (_: any, source: DashboardDataSource) =>
-                source.lastSync ? <TZLabel time={source.lastSync} /> : '—',
+            tooltip: 'Time of the last successful data synchronization',
+            render: (_, source) => (source.lastSync ? <TZLabel time={source.lastSync} /> : '—'),
         },
         {
             title: 'Rows',
             key: 'rowCount',
             align: 'right',
-            render: (_: any, source: DashboardDataSource) =>
-                source.rowCount !== null ? source.rowCount.toLocaleString() : '0',
+            tooltip: 'Total number of rows in this data source',
+            render: (_, source) => (source.rowCount !== null ? source.rowCount.toLocaleString() : '0'),
         },
         {
             title: 'Status',
             key: 'status',
             align: 'right',
-            render: (_: any, source: DashboardDataSource) =>
-                source.status ? <StatusTag status={source.status} /> : '—',
+            render: (_, source) => (source.status ? <StatusTag status={source.status} /> : '—'),
         },
     ]
 
-    const viewColumns: any[] = [
+    const viewColumns: LemonTableColumns<any> = [
         {
             title: 'Name',
             key: 'name',
-            render: (_: any, view: any) => (
+            render: (_, view) => (
                 <div className="flex items-center gap-1">
                     <StatusIcon status={view.status} />
                     <LemonTableLink to={urls.sqlEditor(undefined, view.id)} title={view.name} />
@@ -87,28 +90,30 @@ export function DataWarehouseScene(): JSX.Element {
         {
             title: 'Last run',
             key: 'last_run_at',
-            render: (_: any, view: any) => (view.last_run_at ? <TZLabel time={view.last_run_at} /> : 'Never'),
+            tooltip: 'Time of the last materialization run',
+            render: (_, view) => (view.last_run_at ? <TZLabel time={view.last_run_at} /> : 'Never'),
         },
         {
             title: 'Rows',
             key: 'row_count',
             align: 'right',
-            render: (_: any, view: any) =>
+            tooltip: 'Number of rows in the materialized view',
+            render: (_, view) =>
                 view.row_count !== undefined && view.row_count !== null ? view.row_count.toLocaleString() : '0',
         },
         {
             title: 'Status',
             key: 'status',
             align: 'right',
-            render: (_: any, view: any) => <StatusTag status={view.status} />,
+            render: (_, view) => <StatusTag status={view.status} />,
         },
     ]
 
-    const activityColumns: any[] = [
+    const activityColumns: LemonTableColumns<UnifiedRecentActivity> = [
         {
             title: 'Activity',
             key: 'name',
-            render: (_: any, activity: UnifiedRecentActivity) => (
+            render: (_, activity) => (
                 <div className="flex items-center gap-1">
                     <StatusIcon status={activity.status} />
                     {activity.sourceName && <span>{activity.sourceName}</span>}
@@ -122,20 +127,21 @@ export function DataWarehouseScene(): JSX.Element {
         {
             title: 'When',
             key: 'created_at',
-            render: (_: any, activity: UnifiedRecentActivity) => <TZLabel time={activity.created_at} />,
+            tooltip: 'Time when this job was created',
+            render: (_, activity) => <TZLabel time={activity.created_at} />,
         },
         {
             title: 'Rows',
             key: 'rowCount',
             align: 'right',
-            render: (_: any, activity: UnifiedRecentActivity) =>
-                activity.rowCount !== null ? activity.rowCount.toLocaleString() : '0',
+            tooltip: 'Number of rows processed in this job',
+            render: (_, activity) => (activity.rowCount !== null ? activity.rowCount.toLocaleString() : '0'),
         },
         {
             title: 'Status',
             key: 'status',
             align: 'right',
-            render: (_: any, activity: UnifiedRecentActivity) => <StatusTag status={activity.status} />,
+            render: (_, activity) => <StatusTag status={activity.status} />,
         },
     ]
 
