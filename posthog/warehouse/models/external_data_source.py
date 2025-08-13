@@ -6,6 +6,7 @@ import temporalio
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.cache import CacheManager
 from posthog.models.team import Team
 from posthog.models.utils import (
     CreatedMetaFields,
@@ -20,6 +21,8 @@ logger = structlog.get_logger(__name__)
 
 
 class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+    objects: CacheManager = CacheManager()
+
     class Type(models.TextChoices):
         STRIPE = "Stripe", "Stripe"
         HUBSPOT = "Hubspot", "Hubspot"

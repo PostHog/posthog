@@ -1,5 +1,7 @@
 from typing import Optional
 from django.db.models import Prefetch
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 from posthog.models.team.team import Team
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -21,6 +23,8 @@ class RevenueAnalyticsBaseView(SavedQuery):
 
     @classmethod
     def for_team(cls, team: "Team", timings: HogQLTimings) -> list["RevenueAnalyticsBaseView"]:
+        from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
         with timings.measure("for_events"):
             for_events = cls.for_events(team)
 
@@ -29,6 +33,7 @@ class RevenueAnalyticsBaseView(SavedQuery):
                 ExternalDataSource.objects.filter(team_id=team.pk, source_type__in=SUPPORTED_SOURCES)
                 .exclude(deleted=True)
                 .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+                .fetch_cached(team_id=team.pk, key_prefix=CACHE_KEY_PREFIX)
             )
 
             for_schema_sources = [
@@ -117,3 +122,13 @@ def events_expr_for_team(team: Team) -> ast.Expr:
         return exprs[0]
     else:
         return ast.And(exprs=exprs)
+
+
+@receiver(post_save, sender=ExternalDataSource)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    ExternalDataSource.objects.invalidate_cache(instance.team_id)
+
+
+@receiver(post_delete, sender=ExternalDataSource)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    ExternalDataSource.objects.invalidate_cache(instance.team_id)
