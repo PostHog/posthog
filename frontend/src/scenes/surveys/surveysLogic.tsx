@@ -22,6 +22,7 @@ import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import { sanitizeSurvey } from 'scenes/surveys/utils'
 import type { surveysLogicType } from './surveysLogicType'
 
 export enum SurveysTabs {
@@ -124,7 +125,6 @@ export const surveysLogic = kea<surveysLogicType>([
         setTab: (tab: SurveysTabs) => ({ tab }),
         loadNextPage: true,
         loadNextSearchPage: true,
-        createSurveyFromTemplate: (surveyTemplate: SurveyTemplate) => ({ surveyTemplate }),
     }),
     loaders(({ values, actions }) => ({
         data: {
@@ -208,13 +208,13 @@ export const surveysLogic = kea<surveysLogicType>([
                     searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
                 }
             },
-            createSurveyFromTemplate: async ({ surveyTemplate }) => {
-                const surveyPayload = {
-                    ...surveyTemplate,
-                    name: surveyTemplate.templateType,
-                }
-
-                const response = await api.surveys.create(surveyPayload)
+            createSurveyFromTemplate: async (surveyTemplate: SurveyTemplate) => {
+                const response = await api.surveys.create(
+                    sanitizeSurvey({
+                        ...surveyTemplate,
+                        name: surveyTemplate.templateType,
+                    })
+                )
 
                 actions.addProductIntent({
                     product_type: ProductKey.SURVEYS,

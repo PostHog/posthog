@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
+import { toast } from 'react-toastify'
 import MaxTool from 'scenes/max/MaxTool'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -59,7 +60,10 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
         try {
             await createSurveyFromTemplate(survey)
         } catch (error) {
-            console.error('Failed to create survey from template:', error)
+            posthog.captureException('Failed to create survey from template', {
+                error,
+            })
+            toast.error('Error while creating survey from template. Please try again.')
         }
     }
 
