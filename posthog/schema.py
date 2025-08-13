@@ -4463,7 +4463,7 @@ class SessionBatchEventsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -5081,7 +5081,7 @@ class ActorsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: int
     missing_actors_count: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -5678,7 +5678,7 @@ class CachedActorsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
     limit: int
@@ -5784,7 +5784,7 @@ class CachedEventsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
     limit: Optional[int] = None
@@ -5916,7 +5916,7 @@ class CachedGroupsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     last_refresh: datetime
@@ -6400,7 +6400,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: datetime
     limit: Optional[int] = None
@@ -7202,7 +7202,7 @@ class Response(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -7231,7 +7231,7 @@ class Response1(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: int
     missing_actors_count: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -7261,7 +7261,7 @@ class Response2(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -8023,7 +8023,7 @@ class EventsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -8434,7 +8434,7 @@ class GroupsQueryResponse(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -8805,7 +8805,7 @@ class QueryResponseAlternative1(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -8834,7 +8834,7 @@ class QueryResponseAlternative2(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: int
     missing_actors_count: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -8864,7 +8864,7 @@ class QueryResponseAlternative3(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -9290,7 +9290,7 @@ class QueryResponseAlternative32(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -9319,7 +9319,7 @@ class QueryResponseAlternative33(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     limit: int
     missing_actors_count: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -9349,7 +9349,7 @@ class QueryResponseAlternative34(BaseModel):
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     kind: Literal["GroupsQuery"] = "GroupsQuery"
     limit: int
     modifiers: Optional[HogQLQueryModifiers] = Field(

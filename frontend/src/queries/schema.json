@@ -342,7 +342,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "limit", "offset", "results"],
+            "required": ["columns", "limit", "offset", "results"],
             "type": "object"
         },
         "AggregationAxisFormat": {
@@ -2675,7 +2675,6 @@
             "required": [
                 "cache_key",
                 "columns",
-                "hogql",
                 "is_cached",
                 "last_refresh",
                 "limit",
@@ -3087,7 +3086,6 @@
             "required": [
                 "cache_key",
                 "columns",
-                "hogql",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -3737,7 +3735,6 @@
             "required": [
                 "cache_key",
                 "columns",
-                "hogql",
                 "is_cached",
                 "kind",
                 "last_refresh",
@@ -5274,7 +5271,6 @@
             "required": [
                 "cache_key",
                 "columns",
-                "hogql",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -7437,7 +7433,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "results", "types"],
+                            "required": ["columns", "results", "types"],
                             "type": "object"
                         },
                         {
@@ -7500,7 +7496,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "limit", "offset", "results"],
+                            "required": ["columns", "limit", "offset", "results"],
                             "type": "object"
                         },
                         {
@@ -7564,7 +7560,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
+                            "required": ["columns", "kind", "limit", "offset", "results", "types"],
                             "type": "object"
                         },
                         {
@@ -10750,7 +10746,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "results", "types"],
+            "required": ["columns", "results", "types"],
             "type": "object"
         },
         "ExperimentDataWarehouseNode": {
@@ -12996,7 +12992,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
+            "required": ["columns", "kind", "limit", "offset", "results", "types"],
             "type": "object"
         },
         "HasPropertiesNode": {
@@ -16708,7 +16704,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "results", "types"],
+                    "required": ["columns", "results", "types"],
                     "type": "object"
                 },
                 {
@@ -16771,7 +16767,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results"],
+                    "required": ["columns", "limit", "offset", "results"],
                     "type": "object"
                 },
                 {
@@ -16835,7 +16831,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
+                    "required": ["columns", "kind", "limit", "offset", "results", "types"],
                     "type": "object"
                 },
                 {
@@ -18319,7 +18315,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "results", "types"],
+                    "required": ["columns", "results", "types"],
                     "type": "object"
                 },
                 {
@@ -18382,7 +18378,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results"],
+                    "required": ["columns", "limit", "offset", "results"],
                     "type": "object"
                 },
                 {
@@ -18446,7 +18442,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
+                    "required": ["columns", "kind", "limit", "offset", "results", "types"],
                     "type": "object"
                 },
                 {
@@ -22430,7 +22426,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "results", "types"],
+            "required": ["columns", "results", "types"],
             "type": "object"
         },
         "SessionEventsItem": {

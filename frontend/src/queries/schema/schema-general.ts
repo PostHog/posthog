@@ -682,7 +682,6 @@ export interface QueryTiming {
 export interface EventsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
     columns: any[]
     types: string[]
-    hogql: string
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1645,7 +1644,6 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
 export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
     columns: any[]
     types?: string[]
-    hogql: string
     hasMore?: boolean
     limit: integer
     offset: integer
@@ -1674,7 +1672,6 @@ export interface GroupsQueryResponse extends AnalyticsQueryResponseBase<any[][]>
     kind: NodeKind.GroupsQuery
     columns: any[]
     types: string[]
-    hogql: string
     hasMore?: boolean
     limit: integer
     offset: integer
