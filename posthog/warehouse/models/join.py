@@ -2,6 +2,8 @@ from typing import Optional, cast
 from warnings import warn
 from datetime import datetime
 from django.db import models
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
@@ -9,6 +11,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
+from posthog.models.cache import CacheManager
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -35,6 +38,8 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
 
 class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+    objects: CacheManager = CacheManager()
+
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     source_table_name = models.CharField(max_length=400)
     source_table_key = models.CharField(max_length=400)
@@ -236,3 +241,13 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
         return expr
+
+
+@receiver(post_save, sender=DataWarehouseJoin)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    DataWarehouseJoin.objects.invalidate_cache(instance.team_id)
+
+
+@receiver(post_delete, sender=DataWarehouseJoin)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    DataWarehouseJoin.objects.invalidate_cache(instance.team_id)

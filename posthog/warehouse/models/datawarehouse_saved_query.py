@@ -7,10 +7,13 @@ from urllib.parse import urlparse
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
+from posthog.models.cache import CacheManager
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
 from posthog.schema import HogQLQueryModifiers
@@ -85,6 +88,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 name="posthog_datawarehouse_saved_query_unique_name",
             )
         ]
+
+    objects: CacheManager = CacheManager()
 
     @property
     def name_chain(self) -> list[str]:
@@ -238,3 +243,13 @@ def asave_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
 @database_sync_to_async
 def aget_table_by_saved_query_id(saved_query_id: str, team_id: int):
     return DataWarehouseSavedQuery.objects.exclude(deleted=True).get(id=saved_query_id, team_id=team_id).table
+
+
+@receiver(post_save, sender=DataWarehouseSavedQuery)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    DataWarehouseSavedQuery.objects.invalidate_cache(instance.team_id)
+
+
+@receiver(post_delete, sender=DataWarehouseSavedQuery)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    DataWarehouseSavedQuery.objects.invalidate_cache(instance.team_id)

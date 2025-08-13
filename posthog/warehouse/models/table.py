@@ -6,6 +6,8 @@ from uuid import UUID
 import chdb
 from django.db import models
 from django.db.models import Q
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
@@ -17,6 +19,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.database.s3_table import S3Table, build_function_call
+from posthog.models.cache import CacheManager
 from posthog.models.team import Team
 from posthog.models.utils import (
     CreatedMetaFields,
@@ -73,7 +76,7 @@ ExtractErrors = {
 DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
 
 
-class DataWarehouseTableManager(models.Manager):
+class DataWarehouseTableManager(CacheManager):
     def get_queryset(self):
         return (
             super()
@@ -413,3 +416,13 @@ def acreate_datawarehousetable(**kwargs):
 @database_sync_to_async
 def asave_datawarehousetable(table: DataWarehouseTable) -> None:
     table.save()
+
+
+@receiver(post_save, sender=DataWarehouseTable)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    DataWarehouseTable.objects.invalidate_cache(instance.team_id)
+
+
+@receiver(post_delete, sender=DataWarehouseTable)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    DataWarehouseTable.objects.invalidate_cache(instance.team_id)

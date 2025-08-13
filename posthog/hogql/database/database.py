@@ -16,6 +16,7 @@ from django.db.models import Prefetch, Q
 from pydantic import BaseModel, ConfigDict
 
 from posthog.exceptions_capture import capture_exception
+from posthog.git import get_git_commit_short
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -407,6 +408,16 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 TableStore = dict[str, Table | TableGroup]
 
 
+def get_commit_cache_key(team_id: int, model_name: str) -> str:
+    current_sha = get_git_commit_short()
+
+    # cache key based on sha to invalidate cache on deploys in case of migrations
+    return f"hogql_database:{team_id}:{current_sha}:{model_name}"
+
+
+CACHE_KEY_PREFIX = "hogql_database"
+
+
 def create_hogql_database(
     team_id: Optional[int] = None,
     *,
@@ -501,7 +512,10 @@ def create_hogql_database(
         _use_virtual_fields(database, modifiers, timings)
 
     with timings.measure("group_type_mapping"):
-        for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
+        group_type_mapping_queryset = GroupTypeMapping.objects.filter(project_id=team.project_id).fetch_cached(
+            team_id=team_id or team.pk, key_prefix=CACHE_KEY_PREFIX
+        )
+        for mapping in group_type_mapping_queryset:
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
@@ -512,7 +526,11 @@ def create_hogql_database(
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
-            saved_queries = list(DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True))
+            saved_queries = list(
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .exclude(deleted=True)
+                .fetch_cached(team_id=team_id or team.pk, key_prefix=CACHE_KEY_PREFIX)
+            )
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)
@@ -545,6 +563,7 @@ def create_hogql_database(
                 DataWarehouseTable.objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
                 .select_related("credential", "external_data_source")
+                .fetch_cached(team_id=team_id or team.pk, key_prefix=CACHE_KEY_PREFIX)
             )
 
         for table in tables:
@@ -714,7 +733,11 @@ def create_hogql_database(
     database.add_views(**views)
 
     with timings.measure("data_warehouse_joins"):
-        for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+        for join in (
+            DataWarehouseJoin.objects.filter(team_id=team.pk)
+            .exclude(deleted=True)
+            .fetch_cached(team_id=team_id or team.pk, key_prefix=CACHE_KEY_PREFIX)
+        ):
             # Skip if either table is not present. This can happen if the table was deleted after the join was created.
             # User will be prompted on UI to resolve missing tables underlying the JOIN
             if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
