@@ -41,8 +41,8 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            () => [(_, props) => props],
-            ({ tab }): Breadcrumb[] => {
+            (_, p) => [p.tab],
+            (tab): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Messaging,

@@ -8,17 +8,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<ActionLogicProps> = {
     logic: actionLogic,
     component: Action,
-    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: id ? parseInt(id) : undefined }),
+    paramsToProps: ({ params: { id } }) => ({ id: parseInt(id) }),
 }
 
-export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
+export function Action({ id }: ActionLogicProps): JSX.Element {
     const { action, actionLoading, isComplete } = useValues(actionLogic)
 
     if (actionLoading) {

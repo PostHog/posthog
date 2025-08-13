@@ -348,10 +348,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
-        availableSources: [
-            () => [(_, props) => props.availableSources],
-            (availableSources): Record<string, SourceConfig> => availableSources,
-        ],
+        availableSources: [(_, p) => [p.availableSources], (availableSources) => availableSources],
         breadcrumbs: [
             (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {

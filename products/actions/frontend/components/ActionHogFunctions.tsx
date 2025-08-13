@@ -7,7 +7,7 @@ import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
     const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
-        actionEditLogic({ id: action?.id, action })
+        actionEditLogic({ id: action.id, action })
     )
     if (!action) {
         return null

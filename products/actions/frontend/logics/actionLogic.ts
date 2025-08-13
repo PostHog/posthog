@@ -12,7 +12,7 @@ import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
 
 export interface ActionLogicProps {
-    id?: ActionType['id']
+    id: ActionType['id']
 }
 
 export const actionLogic = kea<actionLogicType>([

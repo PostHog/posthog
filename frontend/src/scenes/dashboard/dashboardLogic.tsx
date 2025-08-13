@@ -1034,7 +1034,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
         apiUrl: [
-            () => [(_, props) => props.id],
+            (_, p) => [p.id],
             (id) => {
                 return (
                     refresh?: RefreshType,

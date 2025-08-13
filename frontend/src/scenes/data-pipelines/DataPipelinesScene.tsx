@@ -44,8 +44,8 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            () => [(_, props) => props],
-            ({ kind }): Breadcrumb[] => {
+            (_, p) => [p.kind],
+            (kind): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.DataPipelines,
