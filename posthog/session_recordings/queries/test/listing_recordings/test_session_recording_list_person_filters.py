@@ -19,7 +19,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.models.cohort import Cohort
-from posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_base import (
+from posthog.session_recordings.queries.test.listing_recordings.base_test_session_recordings_list import (
     BaseTestSessionRecordingsList,
 )
 

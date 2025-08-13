@@ -6,7 +6,7 @@ from freezegun import freeze_time
 from posthog.models import Cohort, Person
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import create_event
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_base import (
+from posthog.session_recordings.queries.test.listing_recordings.base_test_session_recordings_list import (
     BaseTestSessionRecordingsList,
 )
 from posthog.test.base import also_test_with_materialized_columns, snapshot_clickhouse_queries
