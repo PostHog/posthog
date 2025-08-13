@@ -22,6 +22,8 @@ services:
             - --set redpanda.empty_seed_starts_cluster=false
             - --seeds kafka:33145
             - --set redpanda.auto_create_topics_enabled=true
+            - --set redpanda.log_segment_size=16777216
+            - --set redpanda.retention_bytes=536870912
         environment:
             ALLOW_PLAINTEXT_LISTENER: 'true'
         healthcheck:
