@@ -95,12 +95,27 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     ];
     let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
     let conn_acquisition_start = Instant::now();
-    let mut conn = reader.as_ref().get_connection().await?;
+    let conn_result = reader.as_ref().get_connection().await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
-    info!(
-        conn_acquisition_ms = conn_acquisition_duration.as_millis(),
-        "Database connection acquired"
-    );
+    
+    let mut conn = match conn_result {
+        Ok(conn) => {
+            info!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                "Database connection acquired"
+            );
+            conn
+        }
+        Err(e) => {
+            warn!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                error = ?e,
+                "Failed to acquire database connection"
+            );
+            conn_timer.fin();
+            return Err(FlagError::from(e));
+        }
+    };
     conn_timer.fin();
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
