@@ -169,7 +169,7 @@ class ErrorTrackingIssueImpactTool(MaxTool):
     name: str = "find_error_tracking_event_list"
     description: str = "Find events that relate a user query about impactful issues."
     thinking_message: str = "Finding related issues"
-    root_system_prompt_template: str = "The user wants to find a list of events that impacted by issues."
+    root_system_prompt_template: str = "The user wants to find a list of events that impact issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
     async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
