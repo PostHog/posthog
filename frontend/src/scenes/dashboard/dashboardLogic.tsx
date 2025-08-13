@@ -863,7 +863,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         effectiveVariablesAndAssociatedInsights: [
             (s) => [s.dashboard, s.variables],
-            (dashboard: DashboardType, variables: Variable[]): { variable: Variable; insights: string[] }[] => {
+            (dashboard: DashboardType, variables: Variable[]): { variable: Variable; insightNames: string[] }[] => {
                 const dataVizNodes = (dashboard?.tiles ?? [])
                     .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
                     .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
@@ -905,9 +905,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             })
                             .map((n) => n.title)
 
-                        return { variable: resultVar, insights: insightsUsingVariable }
+                        return { variable: resultVar, insightNames: insightsUsingVariable }
                     })
-                    .filter((n): n is { variable: Variable; insights: string[] } => Boolean(n?.variable))
+                    .filter((n): n is { variable: Variable; insightNames: string[] } => Boolean(n?.variable))
 
                 return effectiveVariables
             },
