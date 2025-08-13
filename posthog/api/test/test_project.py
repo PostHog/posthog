@@ -51,7 +51,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
-            "You must upgrade your PostHog plan to be able to create and manage more projects.",
+            "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
 
     def test_project_creation_without_feature(self):
@@ -66,7 +66,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
-            "You must upgrade your PostHog plan to be able to create and manage more projects.",
+            "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
 
     def test_project_creation_with_limited_feature(self):
@@ -91,7 +91,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
-            "You must upgrade your PostHog plan to be able to create and manage more projects.",
+            "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
 
     def test_project_creation_with_unlimited_feature(self):
@@ -137,7 +137,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
-            "You must upgrade your PostHog plan to be able to create and manage more projects.",
+            "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
 
     def test_demo_projects_not_counted_toward_limit(self):
