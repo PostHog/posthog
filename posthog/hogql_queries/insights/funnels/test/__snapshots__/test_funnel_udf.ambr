@@ -402,6 +402,7 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.1
   '''
+  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,

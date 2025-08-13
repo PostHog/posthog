@@ -1,4 +1,4 @@
-import { IconAIText, IconChat, IconGear, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import { IconAIText, IconChat, IconCopy, IconGear, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -53,6 +53,7 @@ import {
     removeMilliseconds,
 } from './utils'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { exportTraceToClipboard } from './traceExportUtils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -90,7 +91,10 @@ function TraceSceneWrapper(): JSX.Element {
                             metricEvents={metricEvents as LLMTraceEvent[]}
                             feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                         />
-                        <DisplayOptionsButton />
+                        <div className="flex gap-2">
+                            <CopyTraceButton trace={trace} tree={enrichedTree} />
+                            <DisplayOptionsButton />
+                        </div>
                     </div>
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
@@ -694,6 +698,24 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
         >
             {eventType}
         </LemonTag>
+    )
+}
+
+function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
+    const handleCopyTrace = async (): Promise<void> => {
+        await exportTraceToClipboard(trace, tree)
+    }
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconCopy />}
+            onClick={handleCopyTrace}
+            tooltip="Copy trace to clipboard"
+        >
+            Copy Trace
+        </LemonButton>
     )
 }
 

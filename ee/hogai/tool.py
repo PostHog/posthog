@@ -124,6 +124,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+    show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]
     _config: RunnableConfig
