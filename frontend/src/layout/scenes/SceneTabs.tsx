@@ -99,7 +99,7 @@ interface SceneTabProps {
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const canRemoveTab = true
-    const { clickOnTab, removeTab } = useActions(sceneLogic)
+    const { clickOnTab, removeTab, renameTab } = useActions(sceneLogic)
     return (
         <Link
             onClick={(e) => {
@@ -107,6 +107,13 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 e.preventDefault()
                 if (!isDragging) {
                     clickOnTab(tab)
+                }
+            }}
+            onDoubleClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                if (!isDragging) {
+                    renameTab(tab)
                 }
             }}
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
@@ -120,7 +127,9 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 className
             )}
         >
-            <div className="flex-grow text-left whitespace-pre">{tab.title}</div>
+            <div className={cn('flex-grow text-left whitespace-pre', tab.customTitle && 'italic')}>
+                {tab.customTitle || tab.title}
+            </div>
             {canRemoveTab && (
                 <ButtonPrimitive
                     onClick={(e) => {

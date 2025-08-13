@@ -146,6 +146,7 @@ export interface SceneTab {
     hash: string
     title: string
     active: boolean
+    customTitle?: string
 
     sceneId?: string
     sceneKey?: string

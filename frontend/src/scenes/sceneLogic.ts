@@ -172,7 +172,8 @@ export const sceneLogic = kea<sceneLogicType>([
         activateTab: (tab: SceneTab) => ({ tab }),
         clickOnTab: (tab: SceneTab) => ({ tab }),
         reorderTabs: (activeId: string, overId: string) => ({ activeId, overId }),
-        cloneTab: (tab: SceneTab) => ({ tab }),
+        duplicateTab: (tab: SceneTab) => ({ tab }),
+        renameTab: (tab: SceneTab) => ({ tab }),
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -229,7 +230,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                     return arrayMove(state, oldIndex, newIndex)
                 },
-                cloneTab: (state, { tab }) => {
+                duplicateTab: (state, { tab }) => {
                     const idx = state.findIndex((t) => t === tab || t.id === tab.id)
                     const base = state.map((t) => (t.active ? { ...t, active: false } : t))
                     const source = idx !== -1 ? state[idx] : tab
@@ -245,6 +246,20 @@ export const sceneLogic = kea<sceneLogicType>([
                         return [...base, cloned]
                     }
                     return [...base.slice(0, idx + 1), cloned, ...base.slice(idx + 1)]
+                },
+                renameTab: (state, { tab }) => {
+                    const newName = prompt('Rename tab', tab.customTitle || tab.title)
+                    if (newName === null) {
+                        return state // User cancelled
+                    }
+                    return state.map((t) =>
+                        t.id === tab.id
+                            ? {
+                                  ...t,
+                                  customTitle: newName.trim() === '' ? undefined : newName.trim(),
+                              }
+                            : t
+                    )
                 },
                 setScene: (state, { sceneId, sceneKey, tabId, params }) => {
                     return state.map((tab) =>
