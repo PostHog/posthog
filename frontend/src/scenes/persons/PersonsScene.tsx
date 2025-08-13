@@ -68,8 +68,8 @@ export function PersonsScene(): JSX.Element {
             {newSceneLayout && (
                 <>
                     <SceneTitleSection
-                        name="Persons"
-                        description="A catalog of users behind your events"
+                        name="People"
+                        description="A catalog of all the people behind your events"
                         resourceType={{
                             type: 'person',
                             typePlural: 'persons',
