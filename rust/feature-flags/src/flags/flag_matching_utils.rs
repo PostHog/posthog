@@ -67,7 +67,16 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns void if it succeeds.
-#[instrument(skip_all, fields(team_id = %team_id, distinct_id = %distinct_id, person_query_ms, cohort_query_ms, group_query_ms, cohort_ids = ?static_cohort_ids, group_type_indexes = ?group_type_indexes, group_keys = ?group_keys))]
+#[instrument(skip_all, fields(
+    team_id = %team_id,
+    distinct_id = %distinct_id,
+    person_query_ms = tracing::field::Empty,
+    cohort_query_ms = tracing::field::Empty,
+    group_query_ms = tracing::field::Empty,
+    cohort_ids = ?static_cohort_ids,
+    group_type_indexes = ?group_type_indexes,
+    group_keys = ?group_keys
+))]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,

@@ -72,8 +72,9 @@ const GROSS_REVENUE_TOOLTIP = (
         Gross revenue is the total amount of revenue generated from all sources, including all products and services.
         <br />
         <br />
-        We're automatically calculating deferred revenue which implies you might see revenue in the future if you've
-        created an invoice item with a <code>period.start</code> and <code>period.end</code> that spans several months.
+        For Stripe sources, we're automatically calculating deferred revenue which implies you might see revenue in the
+        future if you've created an invoice item with a <code>period.start</code> and <code>period.end</code> that spans
+        several months.
     </span>
 )
 
