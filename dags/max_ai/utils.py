@@ -29,6 +29,7 @@ def get_consistent_hash_suffix(file_name: str, date: datetime | None = None, cod
     Args:
         file_name: The base filename to hash
         date: Optional date for testing, defaults to current date
+        code_version: Optional code version for hash consistency
 
     Returns:
         A short hash string (8 characters) that's consistent within each half-month period
