@@ -330,22 +330,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
-                            } else if (
-                                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                                values.threadRaw.length === 0
-                            ) {
-                                actions.addMessage({
-                                    ...parsedResponse,
-                                    status: !parsedResponse.id ? 'loading' : 'completed',
-                                })
-                            } else if (parsedResponse) {
-                                actions.replaceMessage(values.threadRaw.length - 1, {
-                                    ...parsedResponse,
-                                    status: !parsedResponse.id ? 'loading' : 'completed',
-                                })
-                            }
-                            if (isNotebookUpdateMessage(parsedResponse)) {
-                                actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
+                            } else {
+                                if (isNotebookUpdateMessage(parsedResponse)) {
+                                    actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
+                                    if (!parsedResponse.id) {
+                                        // we do not want to show partial notebook update messages
+                                        return
+                                    }
+                                }
+                                if (
+                                    values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
+                                    values.threadRaw.length === 0
+                                ) {
+                                    actions.addMessage({
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                } else if (parsedResponse) {
+                                    actions.replaceMessage(values.threadRaw.length - 1, {
+                                        ...parsedResponse,
+                                        status: !parsedResponse.id ? 'loading' : 'completed',
+                                    })
+                                }
                             }
                         } else if (event === AssistantEventType.Status) {
                             const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
