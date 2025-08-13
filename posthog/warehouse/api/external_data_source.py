@@ -620,6 +620,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Returns aggregated statistics for the data warehouse scene including total rows processed.
         Used by the frontend data warehouse scene to display usage information.
         """
+        external_data_job_filters = {"team_id": self.team_id, "billable": True}
+        data_modeling_job_filters = {"team_id": self.team_id}
+        billing_period_type = "lifetime"
+
         try:
             billing_manager = BillingManager(get_cached_instance_license())
             org_billing = billing_manager.get_billing(organization=self.team.organization)
@@ -629,24 +633,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_period_start = parser.parse(billing_period["current_period_start"])
                 billing_period_end = parser.parse(billing_period["current_period_end"])
                 billing_period_type = "monthly"
-            else:
-                billing_period_start = None
-                billing_period_end = None
-                billing_period_type = "all_time"
+
+                external_data_job_filters["created_at__gte"] = billing_period_start
+                external_data_job_filters["created_at__lt"] = billing_period_end
+                data_modeling_job_filters["created_at__gte"] = billing_period_start
+                data_modeling_job_filters["created_at__lt"] = billing_period_end
         except Exception as e:
             logger.exception("Could not retrieve billing information", exc_info=e)
-            billing_period_start = None
-            billing_period_end = None
-            billing_period_type = "all_time"
-
-        external_data_job_filters = {"team_id": self.team_id, "billable": True}
-        data_modeling_job_filters = {"team_id": self.team_id}
-
-        if billing_period_start and billing_period_end:
-            external_data_job_filters["created_at__gte"] = billing_period_start
-            external_data_job_filters["created_at__lt"] = billing_period_end
-            data_modeling_job_filters["created_at__gte"] = billing_period_start
-            data_modeling_job_filters["created_at__lt"] = billing_period_end
 
         external_data_rows = (
             ExternalDataJob.objects.filter(**external_data_job_filters).aggregate(total=Sum("rows_synced"))["total"]
