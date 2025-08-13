@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 
 from posthog.test.base import APIBaseTest
 from posthog.hogql_queries.query_cache_s3 import S3QueryCacheManager
+from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.cache_utils import OrjsonJsonSerializer
 import zstd
 
@@ -111,7 +112,7 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
 
     @patch("posthog.redis.get_client")
     def test_stale_insights_uses_redis(self, mock_redis_client):
-        """Test that stale insights tracking uses Redis (inherited from base class)."""
+        """Test that stale insights tracking uses Redis with S3-specific key prefix."""
         mock_redis = MagicMock()
         mock_redis_client.return_value = mock_redis
         mock_redis.zrevrangebyscore.return_value = [b"123:456", b"789:012"]
@@ -121,11 +122,17 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
         self.assertEqual(len(stale_insights), 2)
         self.assertIn("123:456", stale_insights)
         self.assertIn("789:012", stale_insights)
-        mock_redis.zrevrangebyscore.assert_called_once()
+        mock_redis.zrevrangebyscore.assert_called_once_with(
+            name=f"s3_cache_timestamps:{self.team_id}",
+            max=mock_redis.zrevrangebyscore.call_args[1]["max"],
+            min="-inf",
+            start=0,
+            num=5,
+        )
 
     @patch("posthog.redis.get_client")
     def test_cleanup_stale_insights_uses_redis(self, mock_redis_client):
-        """Test that cleanup uses Redis (inherited from base class)."""
+        """Test that cleanup uses Redis with S3-specific key prefix."""
         mock_redis = MagicMock()
         mock_redis_client.return_value = mock_redis
 
@@ -133,5 +140,11 @@ class TestS3QueryCacheManagerSimple(APIBaseTest):
         S3QueryCacheManager.clean_up_stale_insights(team_id=self.team_id, threshold=threshold)
 
         mock_redis.zremrangebyscore.assert_called_once_with(
-            f"cache_timestamps:{self.team_id}", "-inf", threshold.timestamp()
+            f"s3_cache_timestamps:{self.team_id}", "-inf", threshold.timestamp()
         )
+
+    def test_redis_key_prefix_override(self):
+        """Test that S3 cache uses different Redis key prefix than Django cache."""
+        self.assertEqual(S3QueryCacheManager._redis_key_prefix(), "s3_cache_timestamps")
+        # Verify Django cache still uses the original prefix
+        self.assertEqual(DjangoCacheQueryCacheManager._redis_key_prefix(), "cache_timestamps")

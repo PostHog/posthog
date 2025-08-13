@@ -32,8 +32,13 @@ class QueryCacheManagerBase(ABC):
         """Unique identifier for tracking insight freshness."""
         return f"{self.insight_id}:{self.dashboard_id or ''}"
 
-    @staticmethod
-    def get_stale_insights(*, team_id: int, limit: Optional[int] = None) -> list[str]:
+    @classmethod
+    def _redis_key_prefix(cls) -> str:
+        """Redis key prefix for cache timestamps. Can be overridden by subclasses."""
+        return "cache_timestamps"
+
+    @classmethod
+    def get_stale_insights(cls, *, team_id: int, limit: Optional[int] = None) -> list[str]:
         """
         Use redis sorted set to get stale insights. We sort by the timestamp and get the insights that are
         stale compared to the current time.
@@ -50,24 +55,24 @@ class QueryCacheManagerBase(ABC):
         first calculation to refresh it will refresh all of them.
         """
         current_time = datetime.now(UTC)
+        redis_key = f"{cls._redis_key_prefix()}:{team_id}"
         # get least stale insights first
         if limit is not None:
             insights = redis.get_client().zrevrangebyscore(
-                name=f"cache_timestamps:{team_id}", max=current_time.timestamp(), min="-inf", start=0, num=limit
+                name=redis_key, max=current_time.timestamp(), min="-inf", start=0, num=limit
             )
         else:
-            insights = redis.get_client().zrevrangebyscore(
-                name=f"cache_timestamps:{team_id}", max=current_time.timestamp(), min="-inf"
-            )
+            insights = redis.get_client().zrevrangebyscore(name=redis_key, max=current_time.timestamp(), min="-inf")
         return [insight.decode("utf-8") for insight in insights]
 
-    @staticmethod
-    def clean_up_stale_insights(*, team_id: int, threshold: datetime) -> None:
+    @classmethod
+    def clean_up_stale_insights(cls, *, team_id: int, threshold: datetime) -> None:
         """
         Remove all stale insights that are older than the given timestamp.
         """
+        redis_key = f"{cls._redis_key_prefix()}:{team_id}"
         redis.get_client().zremrangebyscore(
-            f"cache_timestamps:{team_id}",
+            redis_key,
             "-inf",
             threshold.timestamp(),
         )
@@ -77,8 +82,9 @@ class QueryCacheManagerBase(ABC):
         if not self.insight_id:
             return
 
+        redis_key = f"{self._redis_key_prefix()}:{self.team_id}"
         self.redis_client.zadd(
-            f"cache_timestamps:{self.team_id}",
+            redis_key,
             {self.identifier: target_age.timestamp()},
         )
 
@@ -87,7 +93,8 @@ class QueryCacheManagerBase(ABC):
         if not self.insight_id:
             return
 
-        self.redis_client.zrem(f"cache_timestamps:{self.team_id}", self.identifier)
+        redis_key = f"{self._redis_key_prefix()}:{self.team_id}"
+        self.redis_client.zrem(redis_key, self.identifier)
 
     @abstractmethod
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:

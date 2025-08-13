@@ -19,10 +19,13 @@ class S3QueryCacheManager(QueryCacheManagerBase):
 
     Cache structure:
     - Cache data: S3 'query_cache/{team_id}/{cache_key}' -> query_results (JSON)
-    - Stale insights tracking: Redis sorted sets (inherited from base class)
+    - Stale insights tracking: Redis sorted sets with s3_cache_timestamps prefix
 
     TTL is implemented using S3 lifecycle rules that automatically expire objects.
     Since S3 lifecycle rules work in days, TTLs are rounded up to the nearest day.
+
+    Uses a different Redis key prefix (s3_cache_timestamps) to avoid conflicts with
+    the Django cache query cache implementation.
     """
 
     def __init__(
@@ -45,6 +48,11 @@ class S3QueryCacheManager(QueryCacheManagerBase):
     def _cache_object_key(self) -> str:
         """Generate S3 object key for cache data."""
         return f"{settings.OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{self.team_id}/{self.cache_key}"
+
+    @classmethod
+    def _redis_key_prefix(cls) -> str:
+        """Redis key prefix for S3 cache timestamps to avoid conflicts with Django cache."""
+        return "s3_cache_timestamps"
 
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
         """Store query results in S3 with lifecycle-based TTL."""
