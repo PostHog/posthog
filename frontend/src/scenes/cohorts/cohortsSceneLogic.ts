@@ -180,16 +180,18 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.cohorts()]: (_, searchParams) => {
             const { page, search } = searchParams
-            const filtersFromUrl: Partial<CohortFilters> = {
-                search,
+            const filtersFromUrl: Partial<CohortFilters> = {}
+
+            if (search != null) {
+                filtersFromUrl.search = search
             }
 
             filtersFromUrl.page = page !== undefined ? parseInt(page) : undefined
 
-            actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl })
+            actions.setCohortFilters({ ...values.cohortFilters, ...filtersFromUrl })
         },
     })),
     beforeUnmount(({ values }) => {
