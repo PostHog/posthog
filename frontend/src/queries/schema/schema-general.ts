@@ -2091,7 +2091,9 @@ export interface ErrorTrackingIssueFilteringToolOutput
     filterTestAccounts?: boolean
 }
 
-export interface ErrorTrackingIssueImpactToolOutput extends Pick<ErrorTrackingIssueCorrelationQuery, 'issues'> {}
+export interface ErrorTrackingIssueImpactToolOutput {
+    events: string[]
+}
 
 export interface ErrorTrackingIssueAssignee {
     type: 'user' | 'role'

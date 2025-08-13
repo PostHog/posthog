@@ -9982,14 +9982,14 @@
         "ErrorTrackingIssueImpactToolOutput": {
             "additionalProperties": false,
             "properties": {
-                "issues": {
+                "events": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingIssue"
+                        "type": "string"
                     },
                     "type": "array"
                 }
             },
-            "required": ["issues"],
+            "required": ["events"],
             "type": "object"
         },
         "ErrorTrackingQuery": {

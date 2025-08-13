@@ -1078,6 +1078,13 @@ class Status2(StrEnum):
     ALL = "all"
 
 
+class ErrorTrackingIssueImpactToolOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[str]
+
+
 class Status4(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -7817,13 +7824,6 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
     removedFilterIndexes: Optional[list[int]] = None
     searchQuery: Optional[str] = None
     status: Optional[Status2] = None
-
-
-class ErrorTrackingIssueImpactToolOutput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    issues: list[ErrorTrackingIssue]
 
 
 class ErrorTrackingQueryResponse(BaseModel):
