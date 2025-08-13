@@ -12,7 +12,6 @@ import unittest.mock
 import uuid
 
 import pytest
-from django.test import override_settings
 from google.cloud import bigquery
 
 from posthog.batch_exports.service import (
@@ -219,24 +218,23 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         elif batch_export_model.name == "sessions":
             sort_key = "session_id"
 
-    with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
-        await _run_activity(
-            activity_environment,
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            team=ateam,
-            table_id=f"test_insert_activity_table_{ateam.pk}",
-            dataset_id=bigquery_dataset.dataset_id,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            exclude_events=exclude_events,
-            use_json_type=use_json_type,
-            batch_export_schema=batch_export_schema,
-            batch_export_model=batch_export_model,
-            bigquery_config=bigquery_config,
-            sort_key=sort_key,
-            use_internal_stage=use_internal_stage,
-        )
+    await _run_activity(
+        activity_environment,
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        use_json_type=use_json_type,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        bigquery_config=bigquery_config,
+        sort_key=sort_key,
+        use_internal_stage=use_internal_stage,
+    )
 
 
 @pytest.mark.parametrize(
@@ -276,23 +274,22 @@ async def test_insert_into_bigquery_activity_inserts_sessions_data_into_bigquery
     batch_export_model = model
     sort_key = "session_id"
 
-    with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
-        await _run_activity(
-            activity_environment,
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            team=ateam,
-            table_id=f"test_insert_activity_table_{ateam.pk}",
-            dataset_id=bigquery_dataset.dataset_id,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            exclude_events=exclude_events,
-            use_json_type=use_json_type,
-            batch_export_model=batch_export_model,
-            bigquery_config=bigquery_config,
-            sort_key=sort_key,
-            use_internal_stage=use_internal_stage,
-        )
+    await _run_activity(
+        activity_environment,
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        use_json_type=use_json_type,
+        batch_export_model=batch_export_model,
+        bigquery_config=bigquery_config,
+        sort_key=sort_key,
+        use_internal_stage=use_internal_stage,
+    )
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
@@ -375,25 +372,24 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
     elif model is not None:
         batch_export_schema = model
 
-    with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
-        await _run_activity(
-            activity_environment,
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            team=ateam,
-            table_id=f"test_insert_activity_table_{ateam.pk}",
-            dataset_id=bigquery_dataset.dataset_id,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            exclude_events=exclude_events,
-            include_events=None,
-            use_json_type=use_json_type,
-            batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
-            bigquery_config=bigquery_config,
-            sort_key="event",
-            use_internal_stage=use_internal_stage,
-        )
+    await _run_activity(
+        activity_environment,
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        include_events=None,
+        use_json_type=use_json_type,
+        batch_export_model=batch_export_model,
+        batch_export_schema=batch_export_schema,
+        bigquery_config=bigquery_config,
+        sort_key="event",
+        use_internal_stage=use_internal_stage,
+    )
 
 
 @pytest.mark.parametrize("use_json_type", [True], indirect=True)
@@ -478,21 +474,20 @@ async def test_insert_into_bigquery_activity_merges_persons_data_in_follow_up_ru
     model = BatchExportModel(name="persons", schema=None)
     table_id = f"test_insert_activity_mutability_table_persons_{ateam.pk}"
 
-    with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
-        await _run_activity(
-            activity_environment,
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            team=ateam,
-            table_id=table_id,
-            dataset_id=bigquery_dataset.dataset_id,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            batch_export_model=model,
-            bigquery_config=bigquery_config,
-            sort_key="person_id",
-            use_internal_stage=use_internal_stage,
-        )
+    await _run_activity(
+        activity_environment,
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_id=table_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        bigquery_config=bigquery_config,
+        sort_key="person_id",
+        use_internal_stage=use_internal_stage,
+    )
 
     _, persons_to_export_created = generate_test_data
 
