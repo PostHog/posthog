@@ -21,7 +21,14 @@ from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
-from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming, SessionPropertyFilter
+from posthog.schema import (
+    HogQLFilters,
+    EventPropertyFilter,
+    DateRange,
+    QueryTiming,
+    SessionPropertyFilter,
+    HogQLQueryModifiers,
+)
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
@@ -139,6 +146,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
                 pretty=False,
+                modifiers=HogQLQueryModifiers(debug=True),
             )
             assert response.timings is not None
             assert isinstance(response.timings, list)

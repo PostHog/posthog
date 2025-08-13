@@ -28,9 +28,16 @@ def pretty_print_in_tests(query: str | None, team_id: int) -> str:
 
 
 def pretty_print_response_in_tests(response: Any, team_id: int) -> str:
-    clickhouse = response.clickhouse
-    hogql = response.hogql
-    query = "-- ClickHouse\n" + clickhouse + "\n\n-- HogQL\n" + hogql
+    clickhouse = response.clickhouse or ""
+    hogql = response.hogql or ""
+
+    parts = []
+    if clickhouse:
+        parts.append("-- ClickHouse\n" + clickhouse)
+    if hogql:
+        parts.append("-- HogQL\n" + hogql)
+
+    query = "\n\n".join(parts) if parts else ""
     return clean_varying_query_parts(pretty_print_in_tests(query, team_id), False)
 
 

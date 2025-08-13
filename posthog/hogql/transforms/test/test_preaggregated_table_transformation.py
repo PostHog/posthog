@@ -782,7 +782,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
         response = execute_hogql_query(
             parse_select("select count(), uniq(person_id) from events where equals(event, '$pageview')"),
             team=self.team,
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, debug=True),
         )
         assert response.hogql and "web_stats_daily" in response.hogql
         assert response.results == [(1, 1)]
@@ -797,7 +797,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
                 "select count() as c, uniq(person_id) as p, uniq($session_id) as s, toStartOfDay(timestamp) as t, properties.utm_source as u from events where equals(event, '$pageview') and properties.utm_campaign == '' group by t, u, properties.utm_medium having c > 0 and u == ''"
             ),
             team=self.team,
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, debug=True),
         )
         assert response.hogql and "web_stats_daily" in response.hogql
         assert len(response.results) == 1

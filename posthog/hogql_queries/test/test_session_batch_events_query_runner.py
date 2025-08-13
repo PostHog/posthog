@@ -11,6 +11,7 @@ from posthog.hogql_queries.ai.session_batch_events_query_runner import (
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedSessionBatchEventsQueryResponse,
+    HogQLQueryModifiers,
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
 )
@@ -286,7 +287,9 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 after="2025-01-10T00:00:00",
                 select=["event", "timestamp", "properties.page", "properties.$session_id"],
             )
-            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            runner = SessionBatchEventsQueryRunner(
+                query=query, team=self.team, modifiers=HogQLQueryModifiers(debug=True)
+            )
             response = runner.run()
             # Validate response
             assert isinstance(response, CachedSessionBatchEventsQueryResponse)
@@ -322,7 +325,9 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 after="2025-01-10T00:00:00",
                 select=["event", "timestamp", "properties.page", "properties.$session_id"],
             )
-            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            runner = SessionBatchEventsQueryRunner(
+                query=query, team=self.team, modifiers=HogQLQueryModifiers(debug=True)
+            )
             # Get both responses
             calculate_response = runner.calculate()
             cached_response = runner.run()

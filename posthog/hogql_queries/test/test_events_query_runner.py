@@ -489,11 +489,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        runner_regular = EventsQueryRunner(query=query, team=self.team)
+        runner_regular = EventsQueryRunner(query=query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
         response_regular = runner_regular.run()
 
         runner_presorted = EventsQueryRunner(
-            query=query, team=self.team, modifiers=HogQLQueryModifiers(usePresortedEventsTable=True)
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(usePresortedEventsTable=True, debug=True)
         )
         response_presorted = runner_presorted.run()
 
