@@ -857,7 +857,9 @@
                 "search_error_tracking_issues",
                 "experiment_results_summary",
                 "create_survey",
-                "search_docs"
+                "search_docs",
+                "search_insights",
+                "session_summarization"
             ],
             "type": "string"
         },

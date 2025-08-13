@@ -2,8 +2,8 @@ import type { MaxUIContext } from 'scenes/max/maxTypes'
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { AssistantContextualTool } from 'scenes/max/max-constants'
 
-// re-export the below to make them available in the schema
-export type { MaxBillingContext, AssistantContextualTool }
+// re-export MaxBillingContext to make it available in the schema
+export type { MaxBillingContext }
 
 import {
     AssistantFunnelsQuery,
@@ -116,6 +116,23 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     content: string
     tool_call_id: string
 }
+
+export type AssistantContextualTool =
+    | 'search_session_recordings'
+    | 'generate_hogql_query'
+    | 'fix_hogql_query'
+    | 'analyze_user_interviews'
+    | 'create_and_query_insight'
+    | 'create_hog_transformation_function'
+    | 'create_hog_function_filters'
+    | 'create_hog_function_inputs'
+    | 'navigate'
+    | 'search_error_tracking_issues'
+    | 'experiment_results_summary'
+    | 'create_survey'
+    | 'search_docs'
+    | 'search_insights'
+    | 'session_summarization'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
