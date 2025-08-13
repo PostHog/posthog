@@ -343,7 +343,7 @@ def get_experiment_exposure_query(
     )
 
 
-def build_source_events_query(
+def get_source_events_query(
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
     exposure_query: ast.SelectQuery,
     team: Team,
@@ -457,31 +457,6 @@ def build_source_events_query(
             )
 
 
-def get_source_events_query(
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
-    exposure_query: ast.SelectQuery,
-    team: Team,
-    entity_key: str,
-    experiment: Experiment,
-    date_range_query: QueryDateRange,
-    conversion_window: int | None = None,
-    conversion_window_unit=None,
-) -> ast.SelectQuery:
-    """
-    Backward compatibility wrapper for build_source_events_query.
-    """
-    return build_source_events_query(
-        source,
-        exposure_query,
-        team,
-        entity_key,
-        date_range_query,
-        conversion_window,
-        conversion_window_unit,
-        experiment,
-    )
-
-
 def get_metric_events_query(
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
     exposure_query: ast.SelectQuery,
@@ -496,38 +471,31 @@ def get_metric_events_query(
     Columns: timestamp, entity_identifier, variant, value
     For ratio metrics, source_type can be "numerator" or "denominator".
     """
-    # For ratio metrics, determine which source to use and delegate to source-based function
-    if isinstance(metric, ExperimentRatioMetric):
-        source = metric.numerator if source_type == "numerator" else metric.denominator
-        return get_source_events_query(
-            source,
-            exposure_query,
-            team,
-            entity_key,
-            experiment,
-            date_range_query,
-            metric.conversion_window,
-            metric.conversion_window_unit,
-        )
-    # For mean metrics, delegate to source-based function
-    elif isinstance(metric, ExperimentMeanMetric):
-        assert source_type is None
-        return get_source_events_query(
-            metric.source,
-            exposure_query,
-            team,
-            entity_key,
-            experiment,
-            date_range_query,
-            metric.conversion_window,
-            metric.conversion_window_unit,
-        )
-    # For funnel metrics, use the existing logic
-    else:
+
+    if isinstance(metric, ExperimentFunnelMetric):
         assert source_type is None
         return _get_metric_events_for_funnel_metric(
-            metric, exposure_query, team, entity_key, experiment, date_range_query, None
+            metric, exposure_query, team, entity_key, experiment, date_range_query
         )
+
+    # For ratio metrics, determine which source to use and delegate to source-based function
+    if isinstance(metric, ExperimentRatioMetric):
+        assert source_type is not None
+        source = metric.numerator if source_type == "numerator" else metric.denominator
+    else:
+        assert source_type is None
+        source = metric.source
+
+    return get_source_events_query(
+        source,
+        exposure_query,
+        team,
+        entity_key,
+        date_range_query,
+        metric.conversion_window,
+        metric.conversion_window_unit,
+        experiment,
+    )
 
 
 def _get_metric_events_for_funnel_metric(
@@ -537,7 +505,6 @@ def _get_metric_events_for_funnel_metric(
     entity_key: str,
     experiment: Experiment,
     date_range_query: QueryDateRange,
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, None],
 ) -> ast.SelectQuery:
     """
     Get metric events for a funnel metric.
