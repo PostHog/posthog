@@ -153,12 +153,11 @@ class CreateSurveyTool(MaxTool):
         return survey_data
 
 
-class FeatureFlagToolkit(TaxonomyAgentToolkit):
-    """Toolkit for feature flag lookup operations."""
+class SurveyToolkit(TaxonomyAgentToolkit):
+    """Toolkit for survey creation and feature flag lookup operations."""
 
     def __init__(self, team: Team):
         super().__init__(team)
-        self._last_lookup_result: FeatureFlagLookupResult | None = None
 
     def get_tools(self) -> list:
         """Get all tools (default + custom). Override in subclasses to add custom tools."""
@@ -191,7 +190,7 @@ class FeatureFlagToolkit(TaxonomyAgentToolkit):
         """Look up feature flag information by key."""
         try:
             # Look up the feature flag by key for the current team
-            feature_flag = FeatureFlag.objects.select_related("team").get(key=flag_key, team_id=self._team.id)
+            feature_flag = FeatureFlag.objects.get(key=flag_key, team_id=self._team.id)
 
             # Get available variants
             variants = [variant["key"] for variant in feature_flag.variants]
@@ -215,7 +214,7 @@ class FeatureFlagToolkit(TaxonomyAgentToolkit):
 class FeatureFlagLookupNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[FeatureFlagLookupResult]]):
     """Node for feature flag lookup operations."""
 
-    def __init__(self, team: Team, user: User, toolkit_class: type[FeatureFlagToolkit]):
+    def __init__(self, team: Team, user: User, toolkit_class: type[SurveyToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     async def _get_existing_surveys_summary(self) -> str:
@@ -266,7 +265,7 @@ class FeatureFlagLookupNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentS
 class FeatureFlagLookupToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Tools node for feature flag lookup operations."""
 
-    def __init__(self, team: Team, user: User, toolkit_class: type[FeatureFlagToolkit]):
+    def __init__(self, team: Team, user: User, toolkit_class: type[SurveyToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
 
@@ -279,5 +278,5 @@ class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentStat
             user,
             loop_node_class=FeatureFlagLookupNode,
             tools_node_class=FeatureFlagLookupToolsNode,
-            toolkit_class=FeatureFlagToolkit,
+            toolkit_class=SurveyToolkit,
         )
