@@ -1785,6 +1785,7 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.1
   '''
+  /* cohort_calculation: */
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
          sum(metric_events.value) AS total_sum,
@@ -1862,6 +1863,7 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.2
   '''
+  /* cohort_calculation: */
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
          sum(metric_events.value) AS total_sum,

@@ -11,7 +11,7 @@ from posthog.schema import (
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
 
 
 class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
@@ -57,9 +57,9 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
     def inner_query(self) -> ast.SelectQuery:
-        # Empty query because there are no invoice items, but still include the right columns
+        # Empty query because there are no revenue items, but still include the right columns
         # to make sure the outer query works
-        if self.revenue_subqueries.invoice_item is None:
+        if self.revenue_subqueries.revenue_item is None:
             return ast.SelectQuery.empty(columns=["name", "customer_id", "month", "amount"])
 
         query = ast.SelectQuery(
@@ -67,35 +67,35 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
                 ast.Alias(alias="name", expr=ast.Constant(value=None)),
                 ast.Alias(
                     alias="customer_id",
-                    expr=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "customer_id"]),
+                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]),
                 ),
                 ast.Alias(
                     alias="month",
                     expr=ast.Call(
                         name="toStartOfMonth",
-                        args=[ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])],
+                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])],
                     ),
                 ),
                 ast.Alias(
                     alias="amount",
                     expr=ast.Call(
                         name="sum",
-                        args=[ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])],
+                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])],
                     ),
                 ),
             ],
             select_from=self._append_joins(
                 ast.JoinExpr(
-                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                    table=self.revenue_subqueries.invoice_item,
+                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    table=self.revenue_subqueries.revenue_item,
                 ),
-                self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
+                self.joins_for_properties(RevenueAnalyticsRevenueItemView),
             ),
             where=ast.And(
                 exprs=[
                     self.timestamp_where_clause(
                         [
-                            RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                            RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
                             "timestamp",
                         ]
                     ),
@@ -110,7 +110,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
 
         # If there's a way to join with the customer table, then do it
         if self.revenue_subqueries.customer is not None:
-            join = self._create_customer_join(RevenueAnalyticsInvoiceItemView, self.revenue_subqueries.customer)
+            join = self._create_customer_join(RevenueAnalyticsRevenueItemView, self.revenue_subqueries.customer)
             if join is not None:
                 query.select[0] = ast.Alias(
                     alias="name", expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "name"])
