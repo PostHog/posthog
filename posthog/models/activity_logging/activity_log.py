@@ -88,6 +88,15 @@ class Trigger:
 
 
 @dataclasses.dataclass(frozen=True)
+class ActivityContextBase:
+    """
+    Extend this class in specific implementations to add context-specific fields.
+    """
+
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class Detail:
     # The display name of the item in question
     name: Optional[str] = None
@@ -96,11 +105,12 @@ class Detail:
     type: Optional[str] = None
     changes: Optional[list[Change]] = None
     trigger: Optional[Trigger] = None
+    context: Optional[ActivityContextBase] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, Detail | Change | Trigger):
+        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
             return obj.__dict__
         if isinstance(obj, datetime):
             return obj.isoformat()

@@ -32,6 +32,12 @@ from posthog.models.group import Group
 from posthog.models.group.util import raw_create_group_ch, create_group
 from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
 from posthog.models.notebook import ResourceNotebook
+from posthog.models.notebook.util import (
+    create_bullet_list,
+    create_heading_with_text,
+    create_text_content,
+    create_empty_paragraph,
+)
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -641,9 +647,25 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     @transaction.atomic
     def _create_notebook_for_group(self, group: Group):
         group_name = group.group_properties.get("name", "")
+        notebook_title = f"{group_name} Notes" if group_name else "Notes"
+        notebook_content = [
+            create_heading_with_text(text=notebook_title, level=1),
+            create_text_content(
+                text="This is a place for you and your team to write collaborative notes about this group"
+            ),
+            create_empty_paragraph(),
+            create_text_content(text="Here's a template to get you started", is_italic=True),
+            create_heading_with_text(text="Quick context", level=2),
+            create_bullet_list(items=["Industry: ", "Key contacts: ", "Tech stack: "]),
+            create_heading_with_text(text="Usage patterns", level=2),
+            create_bullet_list(items=["Main use cases: ", "Power features: ", "Blockers: "]),
+            create_heading_with_text(text="Last interaction", level=2),
+            create_bullet_list(items=["Date: ", "Context: ", "Next steps: "]),
+        ]
         notebook = Notebook.objects.create(
             team=self.team,
-            title=f"{group_name} Notes" if group_name else "Notes",
+            title=notebook_title,
+            content=notebook_content,
             visibility=Notebook.Visibility.INTERNAL,
         )
         ResourceNotebook.objects.create(notebook=notebook, group=group)
