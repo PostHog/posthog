@@ -198,18 +198,41 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <BillingGauge items={combinedGaugeItems} product={{ ...product, unit: '$' }} />
                                 </div>
                                 <div className="flex gap-8 flex-wrap items-end shrink-0">
-                                    <div className="flex flex-col items-center">
-                                        <div className="font-bold text-3xl leading-7">
-                                            {humanFriendlyCurrency(combinedMonetaryData.currentTotal)}
+                                    <Tooltip
+                                        title={`The current ${
+                                            billing?.discount_percent ? 'discounted ' : ''
+                                        }amount you have been billed for this ${
+                                            billing?.billing_period?.interval
+                                        } so far. This number updates once daily.`}
+                                    >
+                                        <div className="flex flex-col items-center">
+                                            <div className="font-bold text-3xl leading-7">
+                                                {humanFriendlyCurrency(combinedMonetaryData.currentTotal)}
+                                            </div>
+                                            <span className="text-xs text-secondary">
+                                                Month-to-date <IconInfo className="text-muted text-sm" />
+                                            </span>
                                         </div>
-                                        <span className="text-xs text-secondary">Month-to-date</span>
-                                    </div>
-                                    <div className="flex flex-col items-center">
-                                        <div className="font-bold text-secondary text-lg leading-5">
-                                            {humanFriendlyCurrency(combinedMonetaryData.projectedTotal)}
+                                    </Tooltip>
+                                    <Tooltip
+                                        title={`This is roughly calculated based on your current bill${
+                                            billing?.discount_percent ? ', discounts on your account,' : ''
+                                        } and the remaining time left in this billing period. This number updates once daily.${
+                                            combinedMonetaryData.billingLimit &&
+                                            combinedMonetaryData.projectedTotal >= combinedMonetaryData.billingLimit
+                                                ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit.`
+                                                : ''
+                                        }`}
+                                    >
+                                        <div className="flex flex-col items-center">
+                                            <div className="font-bold text-secondary text-lg leading-5">
+                                                {humanFriendlyCurrency(combinedMonetaryData.projectedTotal)}
+                                            </div>
+                                            <span className="text-xs text-secondary">
+                                                Projected <IconInfo className="text-muted text-sm" />
+                                            </span>
                                         </div>
-                                        <span className="text-xs text-secondary">Projected</span>
-                                    </div>
+                                    </Tooltip>
                                 </div>
                             </div>
                         </div>
