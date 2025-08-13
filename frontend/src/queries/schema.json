@@ -1589,7 +1589,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "notebook"],
+            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/notebook"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -15952,7 +15952,7 @@
                     "type": "array"
                 },
                 "type": {
-                    "const": "notebook",
+                    "const": "ai/notebook",
                     "type": "string"
                 }
             },

@@ -34,7 +34,7 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
-    Notebook = 'notebook',
+    Notebook = 'ai/notebook',
 }
 
 export interface BaseAssistantMessage {

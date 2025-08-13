@@ -191,7 +191,7 @@ class AssistantMessageType(StrEnum):
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
-    NOTEBOOK = "notebook"
+    AI_NOTEBOOK = "ai/notebook"
 
 
 class AssistantNavigateUrls(StrEnum):
@@ -3986,7 +3986,7 @@ class NotebookUpdateMessage(BaseModel):
     id: Optional[str] = None
     notebook_id: str
     tool_calls: Optional[list[AssistantToolCall]] = None
-    type: Literal["notebook"] = "notebook"
+    type: Literal["ai/notebook"] = "ai/notebook"
 
 
 class PathsFilter(BaseModel):

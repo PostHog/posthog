@@ -557,7 +557,8 @@ class Assistant:
 
         serializer = NotebookSerializer()
         json_content = serializer.from_markdown_to_json(content)
-        return NotebookUpdateMessage(id=str(uuid4()), notebook_id=self._state.notebook_id, content=json_content)
+        # NOTE: this shouldn't have an id, because it's a partial update chunk, not the final message
+        return NotebookUpdateMessage(notebook_id=self._state.notebook_id, content=json_content)
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
