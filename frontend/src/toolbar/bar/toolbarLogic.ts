@@ -1,7 +1,5 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
-import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -12,19 +10,13 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+import { HedgehogActor } from 'lib/components/HedgehogMode/types'
 
 const MARGIN = 2
+const HEDGEHOG_OFFSET = 80
 
-export type MenuState =
-    | 'none'
-    | 'heatmap'
-    | 'actions'
-    | 'flags'
-    | 'inspect'
-    | 'hedgehog'
-    | 'debugger'
-    | 'experiments'
-    | 'web-vitals'
+export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'debugger' | 'experiments' | 'web-vitals'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -41,7 +33,7 @@ export const TOOLBAR_FIXED_POSITION_HITBOX = 100
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
     connect(() => ({
-        values: [toolbarConfigLogic, ['posthog']],
+        values: [toolbarConfigLogic, ['posthog'], hedgehogModeLogic, ['hedgehogMode']],
         actions: [
             actionsTabLogic,
             [
@@ -73,10 +65,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
     actions(() => ({
         toggleTheme: (theme?: 'light' | 'dark') => ({ theme }),
         toggleMinimized: (minimized?: boolean) => ({ minimized }),
-        setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
+        setHedgehogModeEnabled: (hedgehogModeEnabled: boolean) => ({ hedgehogModeEnabled }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
-        setHedgehogActor: (actor: HedgehogActor | null) => ({ actor }),
         syncWithHedgehog: true,
+        openHedgehogOptions: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
@@ -112,8 +104,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             'none' as MenuState,
             {
                 setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
-                setHedgehogMode: (state, { hedgehogMode }) =>
-                    hedgehogMode ? 'hedgehog' : state === 'hedgehog' ? 'none' : state,
             },
         ],
         minimized: [
@@ -162,17 +152,11 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 setFixedPosition: (_, { position }) => position,
             },
         ],
-        hedgehogMode: [
+        hedgehogModeEnabled: [
             false,
             { persist: true },
             {
-                setHedgehogMode: (_, { hedgehogMode }) => hedgehogMode,
-            },
-        ],
-        hedgehogActor: [
-            null as HedgehogActor | null,
-            {
-                setHedgehogActor: (_, { actor }) => actor,
+                setHedgehogModeEnabled: (_, { hedgehogModeEnabled }) => hedgehogModeEnabled,
             },
         ],
         isEmbeddedInApp: [
@@ -297,6 +281,20 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 }
             },
         ],
+
+        getHedgehogActor: [
+            (s) => [s.hedgehogMode],
+            (hedgehogMode): (() => HedgehogActor | null) => {
+                return () => {
+                    const player = hedgehogMode?.stateManager?.getPlayerHedgehogActor()
+                    if (!player || !player.rigidBody) {
+                        return null
+                    }
+
+                    return player
+                }
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
@@ -306,18 +304,14 @@ export const toolbarLogic = kea<toolbarLogicType>([
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
-                values.hedgehogActor?.setOnFire(1)
+                values.getHedgehogActor()?.setOnFire(1)
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
-                values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'experiments') {
                 actions.showButtonExperiments()
-                values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'flags') {
-                values.hedgehogActor?.setAnimation('flag')
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
-                values.hedgehogActor?.setAnimation('inspect')
             }
         },
 
@@ -391,21 +385,30 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         },
 
-        setDragging: ({ dragging }) => {
-            if (values.hedgehogActor) {
-                values.hedgehogActor.isDragging = dragging
-                values.hedgehogActor.update()
-            }
-        },
-
         syncWithHedgehog: () => {
-            const actor = values.hedgehogActor
-            if (!values.hedgehogMode || !actor) {
+            const player = values.getHedgehogActor()
+
+            if (!values.hedgehogModeEnabled || !player) {
                 return
             }
 
-            const newX = actor.x + SPRITE_SIZE * 0.5
-            const newY = values.windowHeight - actor.y - SPRITE_SIZE - 20
+            if (values.minimized !== values.hedgehogMode?.gameUI?.visible) {
+                actions.toggleMinimized(values.hedgehogMode?.gameUI?.visible)
+            }
+
+            if (values.isDragging) {
+                // Set the hedgehog position instead
+                player.setPosition({
+                    x: values.position.x,
+                    y: values.position.y + HEDGEHOG_OFFSET,
+                })
+
+                return
+            }
+
+            const { x, y } = player.rigidBody.position
+            const newX = x
+            const newY = y - HEDGEHOG_OFFSET
             actions.setDragPosition(newX, newY)
         },
 
@@ -425,6 +428,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     '*'
                 )
             }
+        },
+        openHedgehogOptions: () => {
+            values.hedgehogMode?.gameUI?.show({
+                screen: 'configuration',
+                messages: [],
+                actor: values.getHedgehogActor() ?? undefined,
+            })
         },
     })),
     afterMount(({ actions, values, cache }) => {
@@ -492,9 +502,15 @@ export const toolbarLogic = kea<toolbarLogicType>([
             // we check if we're in an iframe before this setup to avoid logging warnings to the console
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
         }
+
+        cache.syncHedgehogLoop = setInterval(() => {
+            actions.syncWithHedgehog()
+        }, 20)
     }),
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)
         window.removeEventListener('message', cache.iframeEventListener, false)
+
+        clearInterval(cache.syncHedgehogLoop)
     }),
 ])

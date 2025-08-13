@@ -1,41 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
-import { useEffect } from 'react'
+import { useValues } from 'kea'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 
-import { heatmapToolbarMenuLogic } from '../elements/heatmapToolbarMenuLogic'
+import { HedgehogMode } from 'lib/components/HedgehogMode/HedgehogMode'
 
-export function HedgehogButton(): JSX.Element {
-    const { hedgehogMode, hedgehogActor } = useValues(toolbarLogic)
-    const { syncWithHedgehog, setHedgehogActor, toggleMinimized } = useActions(toolbarLogic)
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { heatmapEnabled } = useValues(heatmapToolbarMenuLogic)
+export function HedgehogButton(): JSX.Element | null {
+    const { hedgehogModeEnabled } = useValues(toolbarLogic)
 
-    useEffect(() => {
-        if (heatmapEnabled) {
-            hedgehogActor?.setOnFire(1)
-        }
-    }, [heatmapEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    useEffect(() => {
-        return hedgehogActor?.setupKeyboardListeners()
-    }, [hedgehogActor])
-
-    return (
-        <>
-            {hedgehogMode && (
-                <HedgehogBuddy
-                    hedgehogConfig={hedgehogConfig}
-                    onClose={() => {}}
-                    onActorLoaded={setHedgehogActor}
-                    onPositionChange={() => {
-                        syncWithHedgehog()
-                    }}
-                    onClick={() => toggleMinimized()}
-                />
-            )}
-        </>
-    )
+    return <HedgehogMode enabledOverride={hedgehogModeEnabled} />
 }

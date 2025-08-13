@@ -3,11 +3,28 @@ const path = require('path')
 const webpack = require('webpack')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+const fs = require('fs-extra')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
 
 function createEntry(entry) {
+    // Copy hedgehog-mode assets to dist
+    const hedgehogModeSrc = path.resolve(
+        __dirname,
+        '..',
+        '..',
+        'frontend',
+        'node_modules',
+        '@posthog',
+        'hedgehog-mode',
+        'assets'
+    )
+    const hedgehogModeDest = path.resolve(__dirname, 'dist', 'hedgehog-mode')
+    if (fs.existsSync(hedgehogModeSrc)) {
+        fs.copySync(hedgehogModeSrc, hedgehogModeDest, { overwrite: true })
+    }
+
     const commonLoadersForSassAndLess = [
         {
             loader: 'style-loader',
@@ -29,8 +46,8 @@ function createEntry(entry) {
             process.env.GENERATE_SOURCEMAP === 'false'
                 ? false
                 : process.env.NODE_ENV === 'production'
-                ? 'source-map'
-                : 'inline-source-map',
+                  ? 'source-map'
+                  : 'inline-source-map',
         entry: {
             [entry]: entry === 'main' || entry === 'cypress' ? './src/index.tsx' : null,
         },
@@ -43,8 +60,8 @@ function createEntry(entry) {
             publicPath: process.env.JS_URL
                 ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
                 : process.env.NODE_ENV === 'production'
-                ? '/static/'
-                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
+                  ? '/static/'
+                  : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
             extensions: ['.js', '.jsx', '.ts', '.tsx'],
@@ -207,13 +224,13 @@ function createEntry(entry) {
                       new HtmlWebpackHarddiskPlugin(),
                   ]
                 : entry === 'cypress'
-                ? [
-                      new HtmlWebpackHarddiskPlugin(),
-                      new webpack.ProvidePlugin({
-                          process: 'process/browser',
-                      }),
-                  ]
-                : []
+                  ? [
+                        new HtmlWebpackHarddiskPlugin(),
+                        new webpack.ProvidePlugin({
+                            process: 'process/browser',
+                        }),
+                    ]
+                  : []
         ),
     }
 }

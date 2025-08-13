@@ -8,7 +8,14 @@ process.env.TZ = process.env.TZ || 'UTC'
  * https://jestjs.io/docs/en/configuration.html
  */
 
-const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor']
+const esmModules = [
+    'query-selector-shadow-dom',
+    'react-syntax-highlighter',
+    '@react-hook',
+    '@medv',
+    'monaco-editor',
+    '@posthog/hedgehog-mode',
+]
 const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
 function rootDirectories(): string[] {
     const rootDirectories = ['<rootDir>/src', '<rootDir>/../products']
@@ -201,7 +208,7 @@ const config: Config = {
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation
-    transformIgnorePatterns: [`node_modules/(?!(?:.pnpm/)?(${esmModules.join('|')}))`],
+    transformIgnorePatterns: [`node_modules/(?!.*(${esmModules.join('|')}))`],
 
     // An array of regexp pattern strings that are matched against all modules before the module loader will automatically return a mock for them
     // unmockedModulePathPatterns: undefined,
