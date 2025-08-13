@@ -28,6 +28,7 @@ import { CopyToClipboardInline } from '../CopyToClipboard'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { JSONViewer } from '../JSONViewer'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -334,10 +335,17 @@ export function PropertiesTable({
                                 ),
                                 fullWidth: true,
                                 render: function Value(_, item: any): JSX.Element {
+                                    const arrayItem = item[1]
+                                    const isComplexStructure =
+                                        Array.isArray(arrayItem) || (isObject(arrayItem) && arrayItem !== null)
+
+                                    if (isComplexStructure) {
+                                        return <JSONViewer src={arrayItem} collapsed={true} />
+                                    }
                                     return (
-                                        <PropertiesTable
+                                        <ValueDisplay
                                             type={type}
-                                            properties={item[1]}
+                                            value={arrayItem}
                                             nestingLevel={nestingLevel + 1}
                                             useDetectedPropertyType={
                                                 ['$set', '$set_once'].some((s) => s === rootKey)
@@ -387,6 +395,11 @@ export function PropertiesTable({
                 key: 'value',
                 title: 'Value',
                 render: function Value(_, item: any): JSX.Element {
+                    const isComplexStructure = Array.isArray(item[1]) || (isObject(item[1]) && item[1] !== null)
+
+                    if (isComplexStructure) {
+                        return <JSONViewer src={item[1]} collapsed={true} />
+                    }
                     return (
                         <PropertiesTable
                             type={type}
