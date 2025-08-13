@@ -232,20 +232,23 @@ export const sceneLogic = kea<sceneLogicType>([
                 },
                 duplicateTab: (state, { tab }) => {
                     const idx = state.findIndex((t) => t === tab || t.id === tab.id)
-                    const base = state.map((t) => (t.active ? { ...t, active: false } : t))
                     const source = idx !== -1 ? state[idx] : tab
 
                     const cloned: SceneTab = {
-                        ...source,
                         id: generateTabId(),
-                        active: true,
+                        pathname: source.pathname,
+                        search: source.search,
+                        hash: source.hash,
+                        title: source.title,
+                        customTitle: source.customTitle,
+                        active: false,
                     }
 
                     if (idx === -1) {
                         // If for some reason we didn't find the tab, just append
-                        return [...base, cloned]
+                        return [...state, cloned]
                     }
-                    return [...base.slice(0, idx + 1), cloned, ...base.slice(idx + 1)]
+                    return [...state.slice(0, idx + 1), cloned, ...state.slice(idx + 1)]
                 },
                 renameTab: (state, { tab }) => {
                     const newName = prompt('Rename tab', tab.customTitle || tab.title)
