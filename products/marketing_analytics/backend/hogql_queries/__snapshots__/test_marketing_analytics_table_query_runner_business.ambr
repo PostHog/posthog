@@ -264,20 +264,6 @@
       FROM
               (
       SELECT
-                  toString(campaign3) AS campaign,
-                  toString(source3) AS source,
-                  toFloat(coalesce(impressions3, 0)) AS impressions,
-                  toFloat(coalesce(clicks3, 0)) AS clicks,
-                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost
-              
-      FROM
-                  `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table
-              
-      WHERE
-                  and(greaterOrEquals(toDateTime(date3), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date3), toDateTime('2024-12-31 23:59:59')))
-              UNION ALL
-              
-      SELECT
                   toString(campaign1) AS campaign,
                   toString(source1) AS source,
                   toFloat(coalesce(impressions1, 0)) AS impressions,
@@ -302,7 +288,21 @@
                   `bigquery.posthog_test.posthog_test_tiktok_ads_table` AS posthog_test_tiktok_ads_table
               
       WHERE
-                  and(greaterOrEquals(toDateTime(date2), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date2), toDateTime('2024-12-31 23:59:59'))))
+                  and(greaterOrEquals(toDateTime(date2), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date2), toDateTime('2024-12-31 23:59:59')))
+              UNION ALL
+              
+      SELECT
+                  toString(campaign3) AS campaign,
+                  toString(source3) AS source,
+                  toFloat(coalesce(impressions3, 0)) AS impressions,
+                  toFloat(coalesce(clicks3, 0)) AS clicks,
+                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost
+              
+      FROM
+                  `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table
+              
+      WHERE
+                  and(greaterOrEquals(toDateTime(date3), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date3), toDateTime('2024-12-31 23:59:59'))))
           
       GROUP BY
               campaign,
