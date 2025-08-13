@@ -897,7 +897,7 @@ describe('Hog Executor', () => {
             })
 
             // Set a very short timeout
-            hub.CDP_FETCH_TIMEOUT_MS = 100
+            hub.EXTERNAL_REQUEST_TIMEOUT_MS = 100
 
             const result = await executor.executeFetch(invocation)
 

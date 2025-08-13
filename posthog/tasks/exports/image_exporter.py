@@ -142,7 +142,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             url_to_render = absolute_uri(f"/exporter?token={access_token}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
-        elif exported_asset.export_context and exported_asset.export_context.get("replay_id"):
+        elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = absolute_uri(
                 f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
@@ -153,7 +153,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
             logger.info(
                 "exporting_replay",
-                replay_id=exported_asset.export_context.get("replay_id"),
+                session_recording_id=exported_asset.export_context.get("session_recording_id"),
                 timestamp=exported_asset.export_context.get("timestamp"),
                 url_to_render=url_to_render,
                 css_selector=wait_for_css_selector,
@@ -207,19 +207,28 @@ def _screenshot_asset(
         # Set initial window size with a more reasonable height to prevent initial rendering issues
         driver.set_window_size(screenshot_width, screenshot_height)
         driver.get(url_to_render)
-        WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
-        # Also wait until nothing is loading
+        posthoganalytics.tag("url_to_render", url_to_render)
+
         try:
+            WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+        except TimeoutException:
+            with posthoganalytics.new_context():
+                posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
+                try:
+                    driver.save_screenshot(image_path)
+                    posthoganalytics.tag("image_path", image_path)
+                except Exception:
+                    pass
+                capture_exception()
+
+            raise Exception(f"Timeout while waiting for the page to load")
+
+        try:
+            # Also wait until nothing is loading
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element(By.CLASS_NAME, "Spinner"))
         except TimeoutException:
-            logger.exception(
-                "image_exporter.timeout",
-                url_to_render=url_to_render,
-                wait_for_css_selector=wait_for_css_selector,
-                image_path=image_path,
-            )
             with posthoganalytics.new_context():
-                posthoganalytics.tag("url_to_render", url_to_render)
+                posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
                 try:
                     driver.save_screenshot(image_path)
                     posthoganalytics.tag("image_path", image_path)

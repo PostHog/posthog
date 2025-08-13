@@ -36,6 +36,7 @@ from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
+from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.utils import render_template
 from posthog.jwt import encode_jwt, PosthogJwtAudience
 from posthog.exceptions_capture import capture_exception
@@ -60,9 +61,6 @@ def check_can_edit_sharing_configuration(
     if request.method in SAFE_METHODS:
         return True
 
-    if sharing.dashboard and not view.user_permissions.dashboard(sharing.dashboard).can_edit:
-        raise PermissionDenied("You don't have edit permissions for this dashboard.")
-
     # Check if organization allows publicly shared resources
     if (
         request.data.get("enabled")
@@ -70,6 +68,23 @@ def check_can_edit_sharing_configuration(
         and not sharing.team.organization.allow_publicly_shared_resources
     ):
         raise PermissionDenied("Public sharing is disabled for this organization.")
+
+    user_access_control = UserAccessControl(cast(User, request.user), team=view.team)
+
+    if sharing.dashboard:
+        # Legacy check: remove once all users are on the new access control
+        if sharing.dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+            if not view.user_permissions.dashboard(sharing.dashboard).can_edit:
+                raise PermissionDenied("You don't have edit permissions for this dashboard.")
+        else:
+            access_level = user_access_control.get_user_access_level(sharing.dashboard)
+            if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, "editor"):
+                raise PermissionDenied("You don't have edit permissions for this dashboard.")
+
+    if sharing.insight:
+        access_level = user_access_control.get_user_access_level(sharing.insight)
+        if not access_level or not access_level_satisfied_for_resource("insight", access_level, "editor"):
+            raise PermissionDenied("You don't have edit permissions for this insight.")
 
     return True
 
@@ -386,24 +401,23 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif (
-            isinstance(resource, ExportedAsset) and resource.export_context and resource.export_context.get("replay_id")
+            isinstance(resource, ExportedAsset)
+            and resource.export_context
+            and resource.export_context.get("session_recording_id")
         ):
             # Handle replay export via export_context
-            replay_id = resource.export_context.get("replay_id")
+            session_recording_id = resource.export_context.get("session_recording_id")
             timestamp = resource.export_context.get("timestamp")
 
-            if not replay_id:
-                raise NotFound("Invalid replay export - missing replay_id")
+            if not session_recording_id:
+                raise NotFound("Invalid replay export - missing session_recording_id")
 
             # Create a SessionRecording object for the replay
             try:
                 # First, try to get existing recording from database
-                try:
-                    recording = SessionRecording.objects.get(session_id=replay_id, team=resource.team)
-                except SessionRecording.DoesNotExist:
-                    # If not found, create it properly
-                    recording = SessionRecording(session_id=replay_id, team=resource.team)
-                    recording.save()  # This ensures it exists in PostgreSQL
+                recording, _ = SessionRecording.objects.get_or_create(
+                    session_id=session_recording_id, team=resource.team
+                )
 
                 # Create a JWT for the recording
                 export_access_token = ""
@@ -415,7 +429,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     )
 
                 asset_title = "Session Recording"
-                asset_description = f"Recording {replay_id}"
+                asset_description = f"Recording {session_recording_id}"
 
                 recording_data = SessionRecordingSerializer(recording, context=context).data
 
@@ -424,7 +438,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "type": "replay_export",
                         "recording": recording_data,
                         "timestamp": timestamp,
-                        "replay_id": replay_id,
+                        "session_recording_id": session_recording_id,
                         "exportToken": export_access_token,
                         "noBorder": True,
                         "autoplay": True,
@@ -433,13 +447,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 )
 
             except Exception:
-                raise NotFound()
+                raise NotFound("No recording found")
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
             exported_data.update({"recording": recording_data})
         else:
-            raise NotFound()
+            raise NotFound("No resource found")
 
         # Get sharing settings using Pydantic model for validation and defaults
         settings_data = getattr(resource, "settings", {}) or {}

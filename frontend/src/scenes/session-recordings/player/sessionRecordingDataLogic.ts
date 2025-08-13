@@ -216,8 +216,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
-                    const blob_v2_lts = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY]
+                    const blob_v2 =
+                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] || !!props.accessToken
+                    const blob_v2_lts =
+                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY] || !!props.accessToken
                     const response = await api.recordings.listSnapshotSources(
                         props.sessionRecordingId,
                         {

@@ -96,7 +96,7 @@ function Screenshot(): JSX.Element {
     return (
         <SettingsMenu
             icon={<IconLlmPromptEvaluation />}
-            data-attr="screenshot"
+            data-attr="replay-screenshot"
             items={[
                 {
                     label: <div className="flex w-full deprecated-space-x-2 justify-between">PNG</div>,
@@ -166,11 +166,11 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                         />
                     </FlaggedFeature>
                     {noInspector ? null : (
-                        <FlaggedFeature match={true} flag={FEATURE_FLAGS.REPLAY_SCREENSHOT}>
+                        <>
                             <Screenshot />
-                        </FlaggedFeature>
+                            <InspectDOM />
+                        </>
                     )}
-                    {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>
             </div>

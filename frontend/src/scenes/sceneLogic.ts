@@ -154,6 +154,7 @@ export const sceneLogic = kea<sceneLogicType>([
         activateTab: (tab: SceneTab) => ({ tab }),
         clickOnTab: (tab: SceneTab) => ({ tab }),
         reorderTabs: (activeId: string, overId: string) => ({ activeId, overId }),
+        cloneTab: (tab: SceneTab) => ({ tab }),
     }),
     reducers({
         scene: [
@@ -251,6 +252,23 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                     return arrayMove(state, oldIndex, newIndex)
                 },
+                cloneTab: (state, { tab }) => {
+                    const idx = state.findIndex((t) => t === tab || t.id === tab.id)
+                    const base = state.map((t) => (t.active ? { ...t, active: false } : t))
+                    const source = idx !== -1 ? state[idx] : tab
+
+                    const cloned: SceneTab = {
+                        ...source,
+                        id: generateTabId(),
+                        active: true,
+                    }
+
+                    if (idx === -1) {
+                        // If for some reason we didn't find the tab, just append
+                        return [...base, cloned]
+                    }
+                    return [...base.slice(0, idx + 1), cloned, ...base.slice(idx + 1)]
+                },
             },
         ],
     }),
@@ -264,16 +282,16 @@ export const sceneLogic = kea<sceneLogicType>([
         activeScene: [
             (s) => [s.scene, teamLogic.selectors.isCurrentTeamUnavailable],
             (scene, isCurrentTeamUnavailable) => {
-                const resourceAccessControl = window.POSTHOG_APP_CONTEXT?.resource_access_control
+                const effectiveResourceAccessControl = window.POSTHOG_APP_CONTEXT?.effective_resource_access_control
 
                 // Get the access control resource type for the current scene
                 const sceneAccessControlResource = scene ? sceneToAccessControlResourceType[scene as Scene] : null
 
-                // Check if the user has access to this resource
+                // Check if the user has effective access to this resource (includes specific object access)
                 if (
                     sceneAccessControlResource &&
-                    resourceAccessControl &&
-                    resourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
+                    effectiveResourceAccessControl &&
+                    effectiveResourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
                 ) {
                     return Scene.ErrorAccessDenied
                 }
@@ -793,9 +811,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title } : tab))
                 actions.setTabs(newTabs)
             }
-            // When the title changes, trigger a history REPLACE event to persist the new title in the browser
-            const { currentLocation } = router.values
-            router.actions.replace(currentLocation.pathname, currentLocation.search, currentLocation.hash)
+            if (!process?.env?.STORYBOOK) {
+                // This persists the changed tab titles in location.history without a replace/push action
+                // Somehow it messes up storybook.
+                router.actions.refreshRouterState()
+            }
         },
         tabs: () => {
             const { tabIds } = values

@@ -1,9 +1,10 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 
@@ -20,13 +21,13 @@ export interface ValidatedTokenResponseType extends ResponseType {
 
 export const verifyEmailLogic = kea<verifyEmailLogicType>([
     path(['scenes', 'authentication', 'verifyEmailLogic']),
+    connect({ values: [userLogic, ['user']] }),
     actions({
         setView: (view: 'verify' | 'pending' | 'invalid' | 'success' | null) => ({ view }),
         setUuid: (uuid: string | null) => ({ uuid }),
         requestVerificationLink: (uuid: string) => ({ uuid }),
-        validateEmailTokenSuccess: (response: ValidatedTokenResponseType) => ({ response }),
     }),
-    loaders(({ actions }) => ({
+    loaders(({ actions, values }) => ({
         validatedEmailToken: [
             null as ValidatedTokenResponseType | null,
             {
@@ -41,6 +42,19 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         location.href = nextUrl || '/'
                         return { success: true, token, uuid }
                     } catch (e: any) {
+                        // If the token is invalid but the user is already logged in and verified,
+                        // treat this as success (likely a page refresh after the first successful POST)
+                        const user = (values as any).user
+                        if (user?.is_email_verified) {
+                            actions.setView('success')
+                            await breakpoint(1000)
+                            const nextUrl = getRelativeNextPath(
+                                new URLSearchParams(location.search).get('next'),
+                                location
+                            )
+                            location.href = nextUrl || '/'
+                            return { success: true, token, uuid }
+                        }
                         actions.setView('invalid')
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }

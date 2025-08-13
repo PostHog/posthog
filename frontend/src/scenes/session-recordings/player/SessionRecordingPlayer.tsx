@@ -256,8 +256,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {!isScreenshotMode && (!noMeta || isFullScreen) ? <PlayerMeta /> : null}
-
+                                            {isScreenshotMode || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
                                             <div
                                                 className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
