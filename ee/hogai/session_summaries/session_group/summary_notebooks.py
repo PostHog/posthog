@@ -21,7 +21,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
 
 
 def create_summary_notebook(
-    session_ids: list[str], user: User, team: Team, summary: EnrichedSessionGroupSummaryPatternsList | None
+    session_ids: list[str], user: User, team: Team, summary: EnrichedSessionGroupSummaryPatternsList
 ) -> Notebook:
     """Create a notebook with session summary patterns."""
     notebook_content = _generate_notebook_content_from_summary(
@@ -38,15 +38,9 @@ def create_summary_notebook(
 
 
 def _generate_notebook_content_from_summary(
-    summary: EnrichedSessionGroupSummaryPatternsList | None, session_ids: list[str], project_name: str, team_id: int
+    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], project_name: str, team_id: int
 ) -> TipTapNode:
     """Convert summary data to notebook structure."""
-    if not summary:
-        # If no summary provided, return empty notebook
-        return {
-            "type": "doc",
-            "content": [],
-        }
     patterns = summary.patterns
     total_sessions = len(session_ids)
     if not patterns:

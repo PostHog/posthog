@@ -59,47 +59,31 @@ class SessionSummarizationNode(AssistantNode):
         writer(("session_summarization_node", "messages", message))
         return
 
-    def _stream_notebook_messages(self, markdown_content: str, state: AssistantState, writer: StreamWriter | None) -> None:
+    def _stream_notebook_messages(
+        self, markdown_content: str, state: AssistantState, writer: StreamWriter | None
+    ) -> None:
         """Stream markdown content to a notebook if notebook_id is present in state."""
         if not writer:
             self.logger.warning("Stream writer not available for notebook update")
             return
-
         # Check if we have a notebook_id in the state
         if not state.notebook_id:
             self.logger.debug("No notebook_id in state, skipping notebook update")
             return
-
         try:
             # Convert markdown to Prosemirror JSON
-            # TODO: Use `acreate` instead of asgrief
-            serializer = NotebookSerializer()
+            serializer = NotebookSerializer()  # TODO Create on a node level?
             json_content = serializer.from_markdown_to_json(markdown_content)
-
-            # Create the notebook update message
-            # Note: Not providing id to count is as a partial message on FE
-            # TODO: The last update should include the id (the final-ish state, processing finished)
-            # TODO: Ensure you use short ID and update docs/commments
-            notebook_message = NotebookUpdateMessage(
-                notebook_id=str(state.notebook_id),
-                content=json_content
-            )
-
+            # Create the notebook update message, not providing id to count is as a partial message on FE
+            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=json_content)
             # Stream the notebook update
             message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
             writer(("session_summarization_node", "messages", message))
-
             self.logger.info(
-                "Streamed content to notebook",
-                notebook_id=state.notebook_id,
-                content_length=len(markdown_content)
+                "Streamed content to notebook", notebook_id=state.notebook_id, content_length=len(markdown_content)
             )
         except Exception as e:
-            self.logger.error(
-                "Failed to stream to notebook",
-                notebook_id=state.notebook_id,
-                error=str(e)
-            )
+            self.logger.exception("Failed to stream to notebook", notebook_id=state.notebook_id, error=str(e))
 
     async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
         """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
@@ -189,7 +173,9 @@ class SessionSummarizationNode(AssistantNode):
         self._stream_progress(progress_message=f"Generating a summary, almost there", writer=writer)
         return "\n".join(summaries)
 
-    async def _summarize_sessions_as_group(self, session_ids: list[str], state: AssistantState, writer: StreamWriter | None) -> str:
+    async def _summarize_sessions_as_group(
+        self, session_ids: list[str], state: AssistantState, writer: StreamWriter | None
+    ) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
 
@@ -226,9 +212,10 @@ class SessionSummarizationNode(AssistantNode):
         if summary:
             # Stream final summary to notebook
             final_notebook_content = f"# Analysis Complete\n\n**Processed {len(session_ids)} sessions**\n\n"
-            final_notebook_content += f"## Key Patterns Identified\n\n{summary.model_dump_json(exclude_none=True, indent=2)}\n\n"
+            final_notebook_content += (
+                f"## Key Patterns Identified\n\n{summary.model_dump_json(exclude_none=True, indent=2)}\n\n"
+            )
             self._stream_notebook_messages(final_notebook_content, state, writer)
-
             await database_sync_to_async(create_summary_notebook)(
                 session_ids=session_ids, user=self._user, team=self._team, summary=summary
             )
@@ -242,11 +229,14 @@ class SessionSummarizationNode(AssistantNode):
         writer = self._get_stream_writer()
         # Check if the notebook is provided, create a notebook to fill if not
         if not state.notebook_id:
-            notebook = await database_sync_to_async(create_summary_notebook)(
-                session_ids=[], user=self._user, team=self._team, summary=None
+            notebook = await Notebook.objects.acreate(
+                team=self._team,
+                # TODO: Define a proper name
+                title=f"Progress - Session Summaries Report - {self._team.name} ({datetime.now().strftime('%Y-%m-%d')})",
+                content="",
+                created_by=self._user,
+                last_modified_by=self._user,
             )
-            # TODO: Is it ok to modify the state directly?
-            # MENTAL REMINDER
             state.notebook_id = notebook.short_id
         # If query was not provided for some reason
         if not state.session_summarization_query:
@@ -297,13 +287,17 @@ class SessionSummarizationNode(AssistantNode):
                     writer=writer,
                 )
                 summaries_content = await self._summarize_sessions_as_group(
-                    session_ids=session_ids,
-                    state=state,
-                    writer=writer
+                    session_ids=session_ids, state=state, writer=writer
                 )
             return PartialAssistantState(
                 # TODO: Add final notebook update message here, before the tool call message, ensure to include the id
                 messages=[
+                    # TODO: Put actual content there
+                    NotebookUpdateMessage(
+                        id=str(uuid4()),
+                        notebook_id=state.notebook_id,
+                        content="",
+                    ),
                     AssistantToolCallMessage(
                         content=summaries_content,
                         tool_call_id=state.root_tool_call_id or "unknown",
