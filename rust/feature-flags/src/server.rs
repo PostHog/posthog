@@ -142,22 +142,9 @@ where
         }
     };
 
-    let redis_cookieless_client =
-        match RedisClient::new(config.get_redis_cookieless_url().to_string()).await {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                tracing::error!(
-                    "Failed to create Redis cookieless client for URL {}: {}",
-                    config.get_redis_cookieless_url(),
-                    e
-                );
-                return;
-            }
-        };
-
     let cookieless_manager = Arc::new(CookielessManager::new(
         config.get_cookieless_config(),
-        redis_cookieless_client.clone(),
+        redis_reader_client.clone(), // NB: the cookieless manager only reads from redis, so it's safe to just use the reader client
     ));
 
     let app = router::router(
