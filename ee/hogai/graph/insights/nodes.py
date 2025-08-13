@@ -1,38 +1,35 @@
+import logging
 import re
+import warnings
+from datetime import timedelta
 from typing import Literal
 from uuid import uuid4
-import warnings
 
-from langchain_core.runnables import RunnableConfig
+from django.db.models import Max
+from django.utils import timezone
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-
 from langchain_openai import ChatOpenAI
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import (
-    AssistantToolCallMessage,
-    VisualizationMessage,
-)
-from ee.hogai.graph.base import AssistantNode
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Insight
+from posthog.schema import AssistantToolCallMessage, VisualizationMessage
+
 from .prompts import (
+    EMPTY_DATABASE_ERROR_MESSAGE,
+    HYPERLINK_USAGE_INSTRUCTIONS,
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
     ITERATIVE_SEARCH_USER_PROMPT,
-    PAGINATION_INSTRUCTIONS_TEMPLATE,
-    HYPERLINK_USAGE_INSTRUCTIONS,
-    TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
     NO_INSIGHTS_FOUND_MESSAGE,
+    PAGINATION_INSTRUCTIONS_TEMPLATE,
     SEARCH_ERROR_INSTRUCTIONS,
-    EMPTY_DATABASE_ERROR_MESSAGE,
+    TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
 )
-
-from posthog.models import Insight
-from django.db.models import Max
-from django.utils import timezone
-from datetime import timedelta
-import logging
 
 logger = logging.getLogger(__name__)
 # Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
@@ -168,6 +165,7 @@ class InsightSearchNode(AssistantNode):
                 )
 
         except Exception as e:
+            capture_exception(e)
             logger.error(f"Error in InsightSearchNode: {e}", exc_info=True)
             return self._create_error_response(
                 SEARCH_ERROR_INSTRUCTIONS,
@@ -262,7 +260,8 @@ class InsightSearchNode(AssistantNode):
                     selected_insights = self._parse_insight_ids(content)
                     break
 
-            except Exception:
+            except Exception as e:
+                capture_exception(e)
                 break
 
         if not selected_insights:
@@ -341,10 +340,12 @@ class InsightSearchNode(AssistantNode):
                 query_result_dict = query_executor._execute_query(query_obj)
                 formatted_results = query_executor._compress_results(query_obj, query_result_dict)
             except Exception as e:
+                capture_exception(e)
                 logger.warning(f"Failed to execute query for insight {insight_id}: {e}")
                 formatted_results = "Query execution failed"
 
         except Exception as e:
+            capture_exception(e)
             logger.warning(f"Failed to process query for insight {insight_id}: {e}")
             formatted_results = "Query processing failed"
 
@@ -392,7 +393,8 @@ class InsightSearchNode(AssistantNode):
                 query_source = query_dict.get("source", {})
                 insight_type = query_source.get("kind", "Unknown")
                 query_info = self._get_basic_query_info_from_insight(query_source)
-            except Exception:
+            except Exception as e:
+                capture_exception(e)
                 pass
 
         insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
@@ -441,7 +443,8 @@ class InsightSearchNode(AssistantNode):
 
             return " | ".join(info_parts) if info_parts else None
 
-        except Exception:
+        except Exception as e:
+            capture_exception(e)
             return None
 
     def _create_visualization_message_for_insight(self, insight: Insight) -> VisualizationMessage | None:
@@ -464,6 +467,7 @@ class InsightSearchNode(AssistantNode):
             return viz_message
 
         except Exception as e:
+            capture_exception(e)
             logger.error(f"Error creating visualization message for insight {insight.id}: {e}", exc_info=True)
             return None
 
