@@ -6,10 +6,9 @@ import { ErrorTrackingIssueImpactToolOutput } from '~/queries/schema/schema-gene
 import { errorTrackingImpactSceneLogic } from '../impact/errorTrackingImpactSceneLogic'
 
 export function ErrorTrackingIssueImpactTool(): JSX.Element {
-    const { setEvent } = useActions(errorTrackingImpactSceneLogic)
-
     const callback = (toolOutput: ErrorTrackingIssueImpactToolOutput): void => {
-        setEvent(toolOutput.issues[0])
+        // setEvent(toolOutput.issues[0])
+
         router.actions.push(urls.errorTrackingImpact())
     }
 
