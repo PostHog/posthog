@@ -13,6 +13,7 @@ from posthog.constants import (
 )
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import (
     Action,
     Cohort,
@@ -181,14 +182,16 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Weekly signups",
-            filters={
-                "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
-                "actions": [],
-                "display": TRENDS_LINEAR,
-                "insight": INSIGHT_TRENDS,
-                "interval": "week",
-                "date_from": "-8w",
-            },
+            query=filter_to_query(
+                {
+                    "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
+                    "actions": [],
+                    "display": TRENDS_LINEAR,
+                    "insight": INSIGHT_TRENDS,
+                    "interval": "week",
+                    "date_from": "-8w",
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=23),
             last_modified_by=user,
         )
@@ -215,15 +218,17 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Last month's signups by country",
-            filters={
-                "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
-                "actions": [],
-                "display": TRENDS_WORLD_MAP,
-                "insight": INSIGHT_TRENDS,
-                "breakdown_type": "event",
-                "breakdown": "$geoip_country_code",
-                "date_from": "-1m",
-            },
+            query=filter_to_query(
+                {
+                    "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
+                    "actions": [],
+                    "display": TRENDS_WORLD_MAP,
+                    "insight": INSIGHT_TRENDS,
+                    "breakdown_type": "event",
+                    "breakdown": "$geoip_country_code",
+                    "date_from": "-1m",
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=6),
             last_modified_by=user,
         )
@@ -249,38 +254,40 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Activation",
-            filters={
-                "events": [
-                    {
-                        "custom_name": "Signed up",
-                        "id": EVENT_SIGNED_UP,
-                        "name": EVENT_SIGNED_UP,
-                        "type": "events",
-                        "order": 2,
-                    },
-                    {
-                        "custom_name": "Upgraded plan",
-                        "id": EVENT_UPGRADED_PLAN,
-                        "name": EVENT_UPGRADED_PLAN,
-                        "type": "events",
-                        "order": 4,
-                    },
-                ],
-                "actions": [
-                    {
-                        "id": interacted_with_file_action.pk,
-                        "name": interacted_with_file_action.name,
-                        "type": "actions",
-                        "order": 3,
-                    }
-                ],
-                "display": "FunnelViz",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "funnel_viz_type": "steps",
-                "filter_test_accounts": True,
-                "date_from": "-1m",
-            },
+            query=filter_to_query(
+                {
+                    "events": [
+                        {
+                            "custom_name": "Signed up",
+                            "id": EVENT_SIGNED_UP,
+                            "name": EVENT_SIGNED_UP,
+                            "type": "events",
+                            "order": 2,
+                        },
+                        {
+                            "custom_name": "Upgraded plan",
+                            "id": EVENT_UPGRADED_PLAN,
+                            "name": EVENT_UPGRADED_PLAN,
+                            "type": "events",
+                            "order": 4,
+                        },
+                    ],
+                    "actions": [
+                        {
+                            "id": interacted_with_file_action.pk,
+                            "name": interacted_with_file_action.name,
+                            "type": "actions",
+                            "order": 3,
+                        }
+                    ],
+                    "display": "FunnelViz",
+                    "insight": "FUNNELS",
+                    "interval": "day",
+                    "funnel_viz_type": "steps",
+                    "filter_test_accounts": True,
+                    "date_from": "-1m",
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=19),
             last_modified_by=user,
         )
@@ -306,41 +313,43 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="New user retention",
-            filters={
-                "period": "Week",
-                "display": "ActionsTable",
-                "insight": "RETENTION",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": "is_set",
-                                    "operator": "is_set",
-                                }
-                            ],
-                        }
-                    ],
-                },
-                "target_entity": {
-                    "id": EVENT_SIGNED_UP,
-                    "name": EVENT_SIGNED_UP,
-                    "type": "events",
-                    "order": 0,
-                },
-                "retention_type": RETENTION_FIRST_TIME,
-                "total_intervals": 9,
-                "returning_entity": {
-                    "id": interacted_with_file_action.pk,
-                    "name": interacted_with_file_action.name,
-                    "type": "actions",
-                    "order": 0,
-                },
-            },
+            query=filter_to_query(
+                {
+                    "period": "Week",
+                    "display": "ActionsTable",
+                    "insight": "RETENTION",
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "is_set",
+                                        "operator": "is_set",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "target_entity": {
+                        "id": EVENT_SIGNED_UP,
+                        "name": EVENT_SIGNED_UP,
+                        "type": "events",
+                        "order": 0,
+                    },
+                    "retention_type": RETENTION_FIRST_TIME,
+                    "total_intervals": 9,
+                    "returning_entity": {
+                        "id": interacted_with_file_action.pk,
+                        "name": interacted_with_file_action.name,
+                        "type": "actions",
+                        "order": 0,
+                    },
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=34),
             last_modified_by=user,
         )
@@ -367,27 +376,29 @@ class HedgeboxMatrix(Matrix):
             saved=True,
             name="Active user lifecycle",
             description="An active user being defined by interaction with files.",
-            filters={
-                "events": [],
-                "actions": [
-                    {
-                        "id": interacted_with_file_action.pk,
-                        "math": "total",
-                        "name": interacted_with_file_action.name,
-                        "type": "actions",
-                        "order": 0,
-                    }
-                ],
-                "compare": False,
-                "display": "ActionsLineGraph",
-                "insight": "LIFECYCLE",
-                "interval": "day",
-                "shown_as": "Lifecycle",
-                "date_from": "-8w",
-                "new_entity": [],
-                "properties": [],
-                "filter_test_accounts": True,
-            },
+            query=filter_to_query(
+                {
+                    "events": [],
+                    "actions": [
+                        {
+                            "id": interacted_with_file_action.pk,
+                            "math": "total",
+                            "name": interacted_with_file_action.name,
+                            "type": "actions",
+                            "order": 0,
+                        }
+                    ],
+                    "compare": False,
+                    "display": "ActionsLineGraph",
+                    "insight": "LIFECYCLE",
+                    "interval": "day",
+                    "shown_as": "Lifecycle",
+                    "date_from": "-8w",
+                    "new_entity": [],
+                    "properties": [],
+                    "filter_test_accounts": True,
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=34),
             last_modified_by=user,
         )
@@ -413,36 +424,38 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Weekly file volume",
-            filters={
-                "events": [
-                    {
-                        "custom_name": "Uploaded bytes",
-                        "id": EVENT_UPLOADED_FILE,
-                        "math": "sum",
-                        "name": EVENT_UPLOADED_FILE,
-                        "type": "events",
-                        "order": 0,
-                        "math_property": "file_size_b",
-                    },
-                    {
-                        "custom_name": "Deleted bytes",
-                        "id": EVENT_DELETED_FILE,
-                        "math": "sum",
-                        "name": EVENT_DELETED_FILE,
-                        "type": "events",
-                        "order": 1,
-                        "math_property": "file_size_b",
-                    },
-                ],
-                "actions": [],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "week",
-                "date_from": "-8w",
-                "new_entity": [],
-                "properties": [],
-                "filter_test_accounts": True,
-            },
+            query=filter_to_query(
+                {
+                    "events": [
+                        {
+                            "custom_name": "Uploaded bytes",
+                            "id": EVENT_UPLOADED_FILE,
+                            "math": "sum",
+                            "name": EVENT_UPLOADED_FILE,
+                            "type": "events",
+                            "order": 0,
+                            "math_property": "file_size_b",
+                        },
+                        {
+                            "custom_name": "Deleted bytes",
+                            "id": EVENT_DELETED_FILE,
+                            "math": "sum",
+                            "name": EVENT_DELETED_FILE,
+                            "type": "events",
+                            "order": 1,
+                            "math_property": "file_size_b",
+                        },
+                    ],
+                    "actions": [],
+                    "display": "ActionsLineGraph",
+                    "insight": "TRENDS",
+                    "interval": "week",
+                    "date_from": "-8w",
+                    "new_entity": [],
+                    "properties": [],
+                    "filter_test_accounts": True,
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=18),
             last_modified_by=user,
         )
@@ -471,22 +484,24 @@ class HedgeboxMatrix(Matrix):
             dashboard=revenue_dashboard,
             saved=True,
             name="Monthly app revenue",
-            filters={
-                "events": [
-                    {
-                        "id": EVENT_PAID_BILL,
-                        "type": "events",
-                        "order": 0,
-                        "math": "sum",
-                        "math_property": "amount_usd",
-                    }
-                ],
-                "actions": [],
-                "display": TRENDS_LINEAR,
-                "insight": INSIGHT_TRENDS,
-                "interval": "month",
-                "date_from": "-6m",
-            },
+            query=filter_to_query(
+                {
+                    "events": [
+                        {
+                            "id": EVENT_PAID_BILL,
+                            "type": "events",
+                            "order": 0,
+                            "math": "sum",
+                            "math_property": "amount_usd",
+                        }
+                    ],
+                    "actions": [],
+                    "display": TRENDS_LINEAR,
+                    "insight": INSIGHT_TRENDS,
+                    "interval": "month",
+                    "date_from": "-6m",
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
@@ -512,27 +527,29 @@ class HedgeboxMatrix(Matrix):
             dashboard=revenue_dashboard,
             saved=True,
             name="Bills paid",
-            filters={
-                "events": [
-                    {
-                        "id": EVENT_PAID_BILL,
-                        "math": "unique_group",
-                        "name": "paid_bill",
-                        "type": "events",
-                        "order": 0,
-                        "math_group_type_index": 0,
-                    }
-                ],
-                "actions": [],
-                "compare": True,
-                "date_to": None,
-                "display": "BoldNumber",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
-                "properties": [],
-                "filter_test_accounts": True,
-            },
+            query=filter_to_query(
+                {
+                    "events": [
+                        {
+                            "id": EVENT_PAID_BILL,
+                            "math": "unique_group",
+                            "name": "paid_bill",
+                            "type": "events",
+                            "order": 0,
+                            "math_group_type_index": 0,
+                        }
+                    ],
+                    "actions": [],
+                    "compare": True,
+                    "date_to": None,
+                    "display": "BoldNumber",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "date_from": "-30d",
+                    "properties": [],
+                    "filter_test_accounts": True,
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
@@ -561,14 +578,16 @@ class HedgeboxMatrix(Matrix):
             dashboard=website_dashboard,
             saved=True,
             name="Daily unique visitors over time",
-            filters={
-                "events": [{"id": PAGEVIEW_EVENT, "type": "events", "order": 0, "math": "dau"}],
-                "actions": [],
-                "display": TRENDS_LINEAR,
-                "insight": INSIGHT_TRENDS,
-                "interval": "day",
-                "date_from": "-6m",
-            },
+            query=filter_to_query(
+                {
+                    "events": [{"id": PAGEVIEW_EVENT, "type": "events", "order": 0, "math": "dau"}],
+                    "actions": [],
+                    "display": TRENDS_LINEAR,
+                    "insight": INSIGHT_TRENDS,
+                    "interval": "day",
+                    "date_from": "-6m",
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
@@ -594,40 +613,42 @@ class HedgeboxMatrix(Matrix):
             dashboard=website_dashboard,
             saved=True,
             name="Most popular pages",
-            filters={
-                "events": [
-                    {
-                        "id": PAGEVIEW_EVENT,
-                        "math": "total",
-                        "type": "events",
-                        "order": 0,
-                    }
-                ],
-                "actions": [],
-                "display": "ActionsTable",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$current_url",
-                "date_from": "-6m",
-                "new_entity": [],
-                "properties": {
-                    "type": "AND",
-                    "values": [
+            query=filter_to_query(
+                {
+                    "events": [
                         {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$current_url",
-                                    "type": "event",
-                                    "value": "/files/",
-                                    "operator": "not_icontains",
-                                }
-                            ],
+                            "id": PAGEVIEW_EVENT,
+                            "math": "total",
+                            "type": "events",
+                            "order": 0,
                         }
                     ],
-                },
-                "breakdown_type": "event",
-            },
+                    "actions": [],
+                    "display": "ActionsTable",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "breakdown": "$current_url",
+                    "date_from": "-6m",
+                    "new_entity": [],
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$current_url",
+                                        "type": "event",
+                                        "value": "/files/",
+                                        "operator": "not_icontains",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "breakdown_type": "event",
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=26),
             last_modified_by=user,
         )
@@ -654,54 +675,56 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="Homepage view to signup conversion",
-            filters={
-                "events": [
-                    {
-                        "custom_name": "Viewed homepage",
-                        "id": "$pageview",
-                        "name": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "properties": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": URL_HOME,
-                                "operator": "exact",
-                            }
-                        ],
-                    },
-                    {
-                        "custom_name": "Viewed signup page",
-                        "id": "$pageview",
-                        "name": "$pageview",
-                        "type": "events",
-                        "order": 1,
-                        "properties": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": URL_SIGNUP,
-                                "operator": "regex",
-                            }
-                        ],
-                    },
-                    {
-                        "custom_name": "Signed up",
-                        "id": "signed_up",
-                        "name": "signed_up",
-                        "type": "events",
-                        "order": 2,
-                    },
-                ],
-                "actions": [],
-                "display": "FunnelViz",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "funnel_viz_type": "steps",
-                "filter_test_accounts": True,
-                "date_from": "-1m",
-            },
+            query=filter_to_query(
+                {
+                    "events": [
+                        {
+                            "custom_name": "Viewed homepage",
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "value": URL_HOME,
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                        {
+                            "custom_name": "Viewed signup page",
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 1,
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "value": URL_SIGNUP,
+                                    "operator": "regex",
+                                }
+                            ],
+                        },
+                        {
+                            "custom_name": "Signed up",
+                            "id": "signed_up",
+                            "name": "signed_up",
+                            "type": "events",
+                            "order": 2,
+                        },
+                    ],
+                    "actions": [],
+                    "display": "FunnelViz",
+                    "insight": "FUNNELS",
+                    "interval": "day",
+                    "funnel_viz_type": "steps",
+                    "filter_test_accounts": True,
+                    "date_from": "-1m",
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=19),
             last_modified_by=user,
         )
@@ -709,20 +732,22 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="User paths starting at homepage",
-            filters={
-                "date_to": None,
-                "insight": "PATHS",
-                "date_from": "-30d",
-                "edge_limit": 50,
-                "properties": {"type": "AND", "values": []},
-                "step_limit": 5,
-                "start_point": URL_HOME,
-                "funnel_filter": {},
-                "exclude_events": [],
-                "path_groupings": ["/files/*"],
-                "include_event_types": ["$pageview"],
-                "local_path_cleaning_filters": [],
-            },
+            query=filter_to_query(
+                {
+                    "date_to": None,
+                    "insight": "PATHS",
+                    "date_from": "-30d",
+                    "edge_limit": 50,
+                    "properties": {"type": "AND", "values": []},
+                    "step_limit": 5,
+                    "start_point": URL_HOME,
+                    "funnel_filter": {},
+                    "exclude_events": [],
+                    "path_groupings": ["/files/*"],
+                    "include_event_types": ["$pageview"],
+                    "local_path_cleaning_filters": [],
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=9),
             last_modified_by=user,
         )
@@ -730,18 +755,20 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="File interactions",
-            filters={
-                "events": [
-                    {"id": EVENT_UPLOADED_FILE, "type": "events", "order": 0},
-                    {"id": EVENT_DELETED_FILE, "type": "events", "order": 2},
-                    {"id": EVENT_DOWNLOADED_FILE, "type": "events", "order": 1},
-                ],
-                "actions": [],
-                "display": TRENDS_LINEAR,
-                "insight": INSIGHT_TRENDS,
-                "interval": "day",
-                "date_from": "-30d",
-            },
+            query=filter_to_query(
+                {
+                    "events": [
+                        {"id": EVENT_UPLOADED_FILE, "type": "events", "order": 0},
+                        {"id": EVENT_DELETED_FILE, "type": "events", "order": 2},
+                        {"id": EVENT_DOWNLOADED_FILE, "type": "events", "order": 1},
+                    ],
+                    "actions": [],
+                    "display": TRENDS_LINEAR,
+                    "insight": INSIGHT_TRENDS,
+                    "interval": "day",
+                    "date_from": "-30d",
+                }
+            ),
             last_modified_at=self.now - dt.timedelta(days=13),
             last_modified_by=user,
         )
