@@ -139,7 +139,7 @@ class TestSessionRecordingListDateTimeFilters(BaseTestSessionRecordingsList):
         ]
 
     def test_ttl_days(self):
-        # hooby is 21 days
+        # hobby is 21 days
         assert ttl_days(self.team) == 21
 
         with self.is_cloud(True):
