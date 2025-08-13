@@ -621,9 +621,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Used by the frontend data warehouse scene to display usage information.
         """
         billing_period_type = "lifetime"
-
-        external_data_jobs = ExternalDataJob.objects.filter(team_id=self.team_id, billable=True)
-        data_modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id)
+        external_data_rows = 0
+        data_modeling_rows = 0
 
         try:
             billing_manager = BillingManager(get_cached_instance_license())
@@ -633,19 +632,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_period = org_billing["billing_period"]
                 billing_period_start = parser.parse(billing_period["current_period_start"])
                 billing_period_end = parser.parse(billing_period["current_period_end"])
-                billing_period_type = "monthly"
+                billing_period_type = billing_period.get("interval", "monthly")
 
-                external_data_jobs = external_data_jobs.filter(
-                    created_at__gte=billing_period_start, created_at__lt=billing_period_end
+                external_data_jobs = ExternalDataJob.objects.filter(
+                    team_id=self.team_id,
+                    billable=True,
+                    created_at__gte=billing_period_start,
+                    created_at__lt=billing_period_end,
                 )
-                data_modeling_jobs = data_modeling_jobs.filter(
-                    created_at__gte=billing_period_start, created_at__lt=billing_period_end
+                data_modeling_jobs = DataModelingJob.objects.filter(
+                    team_id=self.team_id, created_at__gte=billing_period_start, created_at__lt=billing_period_end
                 )
+
+                external_data_rows = external_data_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
+                data_modeling_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
         except Exception as e:
             logger.exception("Could not retrieve billing information", exc_info=e)
-
-        external_data_rows = external_data_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
-        data_modeling_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
         return Response(
             status=status.HTTP_200_OK,
