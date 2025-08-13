@@ -417,6 +417,88 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     return changelogPromise
                                 }
 
+                                // Special handling for React Native SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'react-native') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/react-native/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // Extract version numbers using the same regex as test files
+                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) => match.replace(/^## /, ''))
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
+                                // Special handling for Node.js SDK: use CHANGELOG.md instead of GitHub releases
+                                if (sdkType === 'node') {
+                                    const changelogPromise = fetch(
+                                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
+                                    )
+                                        .then((r) => {
+                                            if (!r.ok) {
+                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
+                                            }
+                                            return r.text()
+                                        })
+                                        .then((changelogText) => {
+                                            // Node.js CHANGELOG.md format: "## 5.6.0 – 2025-07-15"
+                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+) –/gm)
+
+                                            if (versionMatches) {
+                                                const versions = versionMatches
+                                                    .map((match) => match.replace(/^## /, '').replace(/ –.*$/, '')) // Remove "## " and " – date" parts
+                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+                                                if (versions.length > 0) {
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
+                                                        versions.slice(0, 5)
+                                                    )
+                                                    console.info(
+                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
+                                                    )
+                                                    return {
+                                                        sdkType,
+                                                        versions: versions,
+                                                        latestVersion: versions[0],
+                                                    }
+                                                }
+                                            }
+                                            return null
+                                        })
+
+                                    return changelogPromise
+                                }
+
                                 // For other SDKs, use GitHub releases API
                                 const cacheBuster = Date.now()
                                 const tagsPromise = fetch(
@@ -1354,6 +1436,15 @@ function checkVersionAgainstLatest(
     if (type === 'web' && latestVersionsData.web) {
         console.info(`[SDK Doctor] Web SDK latestVersion: "${latestVersionsData.web.latestVersion}"`)
         console.info(`[SDK Doctor] Web SDK first 5 versions:`, latestVersionsData.web.versions.slice(0, 5))
+    }
+
+    // Log Node.js SDK data specifically for debugging
+    if (type === 'node' && latestVersionsData.node) {
+        console.info(`[SDK Doctor] Node.js SDK latestVersion: "${latestVersionsData.node.latestVersion}"`)
+        console.info(`[SDK Doctor] Node.js SDK first 5 versions:`, latestVersionsData.node.versions.slice(0, 5))
+    } else if (type === 'node') {
+        console.warn(`[SDK Doctor] No Node.js SDK data available in latestVersionsData!`)
+        console.info(`[SDK Doctor] Available types:`, Object.keys(latestVersionsData))
     }
 
     // Convert type to lib name for consistency
