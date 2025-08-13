@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BuiltLogic, Logic, LogicWrapper, useMountedLogic } from 'kea'
+import { beforeUnmount, BuiltLogic, Logic, LogicWrapper, useMountedLogic } from 'kea'
 
 /**
  * Attach a logic to another logic. The logics stay connected even if the React component unmounts.
@@ -15,12 +15,16 @@ export function useAttachedLogic(logic: BuiltLogic<Logic>, attachTo?: BuiltLogic
     const builtAttachTo = useMountedLogic(attachTo) // eslint-disable-line react-hooks/rules-of-hooks
     useEffect(() => {
         if (attachTo && builtAttachTo) {
-            // connect(logic)(builtAttachTo)
-            // logic.mount()
-            // beforeUnmount(() => {
-            //     // debugger
-            //     unmount()
-            // })(builtAttachTo)
+            if (!('attachments' in attachTo)) {
+                ;(attachTo as any).attachments = {} as Record<string, () => void>
+            }
+            if (!(attachTo as any).attachments[logic.pathString]) {
+                const unmount = logic.mount()
+                ;(attachTo as any).attachments[logic.pathString] = unmount
+                beforeUnmount(() => {
+                    unmount()
+                })(builtAttachTo)
+            }
         }
-    }, [attachTo, builtAttachTo]) // eslint-disable-line react-hooks/rules-of-hooks
+    }, [attachTo, builtAttachTo, logic.pathString, logic]) // eslint-disable-line react-hooks/rules-of-hooks
 }

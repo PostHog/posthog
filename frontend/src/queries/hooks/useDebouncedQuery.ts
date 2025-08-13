@@ -16,7 +16,6 @@ export function useDebouncedQuery<T extends Node = Node, V extends string = stri
     const queryRef = useRef(query)
     useEffect(() => {
         queryRef.current = query
-        setLocalValue(getValueFromQuery(query))
     }, [query, getValueFromQuery])
 
     const timeoutRef = useRef<number>()
