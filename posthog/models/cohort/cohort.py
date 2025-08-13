@@ -359,7 +359,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 # Use existing if available
                 cohort_type = cohort.cohort_type
             else:
-                # Otherwise, use the determined cohort type determine type
+                # Otherwise, determine the cohort type based on the filters
                 cohort_type = cohort.determine_cohort_type(visited)
 
             # Update max_type based on hierarchy: ANALYTICAL > BEHAVIORAL > PERSON_PROPERTY > STATIC
@@ -392,7 +392,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         try:
             required_type = self.determine_cohort_type()
         except ValueError as e:
-            return False, str(e)
+            logger.warning("Cohort validation error", error=str(e))
+            return False, "Cohort validation failed due to invalid references or circular dependencies."
 
         # Check for exact match
         if provided_type_enum != required_type:
