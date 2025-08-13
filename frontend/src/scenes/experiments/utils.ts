@@ -593,70 +593,24 @@ export function filterToMetricConfig(
         }
     }
 
-    const getEventMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.MEAN || !events?.[0]) {
+    const getMeanMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
+        if (metricType !== ExperimentMetricType.MEAN) {
+            return undefined
+        }
+
+        const source = filterToMetricSource(actions, events, data_warehouse)
+        if (!source) {
             return undefined
         }
 
         return {
             metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.EventsNode,
-                event: events[0].id,
-                name: events[0].name,
-                math: events[0].math || ExperimentMetricMathType.TotalCount,
-                math_property: events[0].math_property,
-                math_hogql: events[0].math_hogql,
-                properties: events[0].properties,
-            },
-        }
-    }
-
-    const getActionMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.MEAN || !actions?.[0]) {
-            return undefined
-        }
-
-        return {
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.ActionsNode,
-                id: actions[0].id,
-                name: actions[0].name,
-                math: actions[0].math || ExperimentMetricMathType.TotalCount,
-                math_property: actions[0].math_property,
-                math_hogql: actions[0].math_hogql,
-                properties: actions[0].properties,
-            },
-        }
-    }
-
-    const getDataWarehouseMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
-        if (metricType !== ExperimentMetricType.MEAN || !data_warehouse?.[0]) {
-            return undefined
-        }
-
-        return {
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.ExperimentDataWarehouseNode,
-                name: data_warehouse[0].name,
-                table_name: data_warehouse[0].id,
-                timestamp_field: data_warehouse[0].timestamp_field,
-                events_join_key: data_warehouse[0].events_join_key,
-                data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
-                math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
-                math_property: data_warehouse[0].math_property,
-                math_hogql: data_warehouse[0].math_hogql,
-                properties: data_warehouse[0].properties,
-            },
+            source,
         }
     }
 
     // Return the first non-undefined configuration
-    return (
-        getFunnelMetricConfig() || getEventMetricConfig() || getActionMetricConfig() || getDataWarehouseMetricConfig()
-    )
+    return getFunnelMetricConfig() || getMeanMetricConfig()
 }
 
 /**
