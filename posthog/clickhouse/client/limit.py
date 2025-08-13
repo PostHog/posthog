@@ -350,14 +350,13 @@ def limit_concurrency(
     return decorator
 
 
-def get_org_concurrency_limit(org_id: uuid.UUID) -> Optional[int]:
+def get_org_app_concurrency_limit(org_id: uuid.UUID) -> Optional[int]:
     """
-    Get organization concurrency limit with Redis caching.
+    Get organization concurrency limit for app queries from
+    feature entitlements. Using Redis for quicker lookups.
     Returns None if no org-specific limit is found.
-    This is used as a helper to pass to the RateLimit class
-    as a callable max_concurrency.
     """
-    cache_key = f"org_concurrency_limit:{org_id}"
+    cache_key = f"org_app_concurrency_limit:{org_id}"
     cached_limit = redis.get_client().get(cache_key)
     if cached_limit:
         return int(cached_limit)
@@ -366,7 +365,7 @@ def get_org_concurrency_limit(org_id: uuid.UUID) -> Optional[int]:
         from posthog.models.organization import Organization
 
         org = Organization.objects.get(id=org_id)
-        feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
+        feature = org.get_available_feature(AvailableFeature.ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT)
         if feature and isinstance(feature.get("limit"), int):
             limit = feature["limit"]
             # Cache for 1 hour
