@@ -58,6 +58,7 @@ class InsightSearchNode(AssistantNode):
         self._rejection_reason = None
         self._cutoff_date_for_insights_in_days = self.INSIGHTS_CUTOFF_DAYS
         self._query_cache = {}
+        self._insight_id_cache = {}
 
     def _create_page_reader_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
@@ -226,6 +227,10 @@ class InsightSearchNode(AssistantNode):
         page_insights = list(insights_qs)
 
         self._loaded_pages[page_number] = page_insights
+
+        for insight in page_insights:
+            self._insight_id_cache[insight.id] = insight
+
         return page_insights
 
     def _search_insights_iteratively(self, search_query: str) -> list[int]:
@@ -335,12 +340,8 @@ class InsightSearchNode(AssistantNode):
         return all_ids
 
     def _find_insight_by_id(self, insight_id: int) -> Insight | None:
-        """Find an insight by ID across all loaded pages."""
-        for page_insights in self._loaded_pages.values():
-            for insight in page_insights:
-                if insight.id == insight_id:
-                    return insight
-        return None
+        """Find an insight by ID across all loaded pages (with cache)."""
+        return self._insight_id_cache.get(insight_id)
 
     def _process_insight_query(self, insight: Insight) -> tuple[object | None, str | None]:
         """
