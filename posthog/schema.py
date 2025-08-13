@@ -83,6 +83,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    SEARCH_DOCS = "search_docs"
 
 
 class AssistantDateRange(BaseModel):
@@ -856,8 +857,8 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
-    REVENUE_ANALYTICS_INVOICE_ITEM = "revenue_analytics_invoice_item"
     REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
+    REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
@@ -10084,6 +10085,7 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 8
 
@@ -11251,7 +11253,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compareFilter: Optional[CompareFilter] = None
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None

@@ -1,5 +1,5 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
@@ -52,14 +52,11 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         setIsRenderingXml: (isRenderingXml: boolean) => ({ isRenderingXml }),
         toggleXmlRendering: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
-        setInputMessageShowStates: (states: boolean[]) => ({ states }),
-        setOutputMessageShowStates: (states: boolean[]) => ({ states }),
-        toggleInputMessage: (index: number) => ({ index }),
-        toggleOutputMessage: (index: number) => ({ index }),
-        showAllInputMessages: true,
-        hideAllInputMessages: true,
-        showAllOutputMessages: true,
-        hideAllOutputMessages: true,
+        initializeMessageStates: (inputCount: number, outputCount: number) => ({ inputCount, outputCount }),
+        toggleMessage: (type: 'input' | 'output', index: number) => ({ type, index }),
+        showAllMessages: (type: 'input' | 'output') => ({ type }),
+        hideAllMessages: (type: 'input' | 'output') => ({ type }),
+        applySearchResults: (inputMatches: boolean[], outputMatches: boolean[]) => ({ inputMatches, outputMatches }),
         showDisplayOptionsModal: true,
         hideDisplayOptionsModal: true,
         setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
@@ -69,7 +66,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         dateFrom: [null as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
-        searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => searchQuery }],
+        searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => String(searchQuery || '') }],
         isRenderingMarkdown: [
             true as boolean,
             {
@@ -84,22 +81,43 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                 toggleXmlRendering: (state) => !state,
             },
         ],
-        inputMessageShowStates: [
-            [] as boolean[],
+        // Single source of truth for message visibility
+        messageShowStates: [
+            { input: [] as boolean[], output: [] as boolean[] },
             {
-                setInputMessageShowStates: (_, { states }) => states,
-                toggleInputMessage: (state, { index }) => state.map((show, i) => (i === index ? !show : show)),
-                showAllInputMessages: (state) => state.map(() => true),
-                hideAllInputMessages: (state) => state.map(() => false),
-            },
-        ],
-        outputMessageShowStates: [
-            [] as boolean[],
-            {
-                setOutputMessageShowStates: (_, { states }) => states,
-                toggleOutputMessage: (state, { index }) => state.map((show, i) => (i === index ? !show : show)),
-                showAllOutputMessages: (state) => state.map(() => true),
-                hideAllOutputMessages: (state) => state.map(() => false),
+                initializeMessageStates: (_, { inputCount, outputCount }) => {
+                    // Will be initialized based on display option in listener
+                    const inputStates = new Array(inputCount).fill(false)
+                    const outputStates = new Array(outputCount).fill(true)
+                    return { input: inputStates, output: outputStates }
+                },
+                toggleMessage: (state, { type, index }) => {
+                    const newStates = { ...state }
+                    newStates[type] = [...state[type]]
+                    newStates[type][index] = !newStates[type][index]
+                    return newStates
+                },
+                showAllMessages: (state, { type }) => {
+                    const newStates = { ...state }
+                    newStates[type] = state[type].map(() => true)
+                    return newStates
+                },
+                hideAllMessages: (state, { type }) => {
+                    const newStates = { ...state }
+                    newStates[type] = state[type].map(() => false)
+                    return newStates
+                },
+                applySearchResults: (_, { inputMatches, outputMatches }) => {
+                    // When search results come in, expand messages with matches
+                    return {
+                        input: inputMatches,
+                        output: outputMatches,
+                    }
+                },
+                setSearchQuery: (state) => {
+                    // Keep current state when search query changes (will be updated by applySearchResults)
+                    return state
+                },
             },
         ],
         displayOptionsModalVisible: [
@@ -118,6 +136,9 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     selectors({
+        // Direct access to message states (no computation needed!)
+        inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
+        outputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.output],
         query: [
             (s) => [s.traceId, s.dateFrom],
             (traceId, dateFrom): DataTableNode => {
@@ -166,7 +187,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         ],
     }),
 
-    listeners(({ values }) => ({
+    listeners(({ actions, values }) => ({
         setIsRenderingMarkdown: ({ isRenderingMarkdown }) => {
             localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(isRenderingMarkdown))
         },
@@ -181,6 +202,48 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         },
         setDisplayOption: ({ displayOption }) => {
             localStorage.setItem('llm-observability-display-option', JSON.stringify(displayOption))
+        },
+        initializeMessageStates: ({ inputCount, outputCount }) => {
+            // Apply display option when initializing
+            const displayOption = values.displayOption
+            const inputStates = new Array(inputCount).fill(false).map((_, i) => {
+                if (displayOption === DisplayOption.ExpandAll) {
+                    return true
+                }
+                // For collapse except output and last input, only show last input
+                return i === inputCount - 1
+            })
+            const outputStates = new Array(outputCount).fill(true)
+
+            // Update the states directly
+            actions.applySearchResults(inputStates, outputStates)
+        },
+        setSearchQuery: ({ searchQuery }) => {
+            // Only update URL if the search query actually changed
+            // This prevents infinite loop when setSearchQuery is called from urlToAction
+            const currentUrl = window.location.search
+            const urlParams = new URLSearchParams(currentUrl)
+            const currentSearchInUrl = urlParams.get('search') || ''
+
+            if (searchQuery !== currentSearchInUrl) {
+                // Update the URL with the search query
+                const { traceId, eventId, dateFrom } = values
+                if (traceId) {
+                    const params: any = {}
+                    if (eventId) {
+                        params.event = eventId
+                    }
+                    if (dateFrom) {
+                        params.timestamp = dateFrom
+                    }
+                    if (searchQuery) {
+                        params.search = searchQuery
+                    }
+
+                    // Use router to update URL
+                    router.actions.replace(urls.llmObservabilityTrace(traceId, params))
+                }
+            }
         },
     })),
 
@@ -217,10 +280,12 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        [urls.llmObservabilityTrace(':id')]: ({ id }, { event, timestamp }) => {
+        [urls.llmObservabilityTrace(':id')]: ({ id }, { event, timestamp, search }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
             actions.setDateFrom(timestamp || null)
+            // Set search from URL param if provided, otherwise clear it
+            actions.setSearchQuery(search || '')
         },
     })),
 ])

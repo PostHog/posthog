@@ -11,7 +11,7 @@ from posthog.schema import (
 )
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsInvoiceItemView, RevenueAnalyticsSubscriptionView
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView, RevenueAnalyticsSubscriptionView
 
 from .revenue_analytics_query_runner import (
     RevenueAnalyticsQueryRunner,
@@ -309,10 +309,10 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
                     expr=ast.Call(
                         name="sumIf",
                         args=[
-                            ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"]),
+                            ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
                             self._period_eq_expr(
                                 ast.Field(
-                                    chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
+                                    chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
                                 ),
                                 ast.Field(chain=["period_start"]),
                             ),
@@ -325,8 +325,8 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
                     alias=RevenueAnalyticsSubscriptionView.get_generic_view_alias(),
                     table=self.revenue_subqueries.subscription,
                     next_join=ast.JoinExpr(
-                        alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                        table=self.revenue_subqueries.invoice_item,
+                        alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                        table=self.revenue_subqueries.revenue_item,
                         join_type="LEFT JOIN",
                         constraint=ast.JoinConstraint(
                             constraint_type="ON",
@@ -334,7 +334,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
                                 right=ast.Field(
-                                    chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "subscription_id"]
+                                    chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]
                                 ),
                             ),
                         ),
@@ -370,14 +370,14 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
     def _parsed_where_property_exprs(self) -> list[ast.Expr]:
         where_property_exprs = self.where_property_exprs
 
-        # We can't join from a subscription back to the invoice item table,
-        # so let's remove any where property exprs that are comparing to the invoice item table
+        # We can't join from a subscription back to the revenue item view,
+        # so let's remove any where property exprs that are comparing to the revenue item view
         return [
             expr
             for expr in where_property_exprs
             if isinstance(expr, ast.CompareOperation)
             and isinstance(expr.left, ast.Field)
-            and expr.left.chain[0] != RevenueAnalyticsInvoiceItemView.get_generic_view_alias()
+            and expr.left.chain[0] != RevenueAnalyticsRevenueItemView.get_generic_view_alias()
         ]
 
     def _dates_expr(self) -> ast.Expr:

@@ -569,3 +569,12 @@ export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string
         (row: { distinct_id: string }) => row.distinct_id
     )
 }
+
+export async function resetCountersDatabase(db: PostgresRouter): Promise<void> {
+    await db.query(
+        PostgresUse.COUNTERS_RW,
+        'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
+        undefined,
+        'reset-counters-db'
+    )
+}

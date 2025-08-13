@@ -139,4 +139,5 @@ export function GroupsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: GroupsScene,
     logic: groupsSceneLogic,
+    settingSectionId: 'environment-crm',
 }

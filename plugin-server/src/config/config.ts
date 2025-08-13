@@ -114,7 +114,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKAJS_LOG_LEVEL: 'WARN',
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         CLOUD_DEPLOYMENT: null,
-        EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        EXTERNAL_REQUEST_TIMEOUT_MS: 3000, // 3 seconds
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
@@ -189,7 +190,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
-        CDP_FETCH_TIMEOUT_MS: 3000, // 3 seconds
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
@@ -273,6 +273,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: 0,
+        // DB constraint check uses pg_column_size(properties); default 512kb + 128kb = 655360 bytes
+        PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: 655360,
+        // Trim target is the customer-facing limit (512kb)
+        PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
