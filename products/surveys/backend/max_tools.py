@@ -69,7 +69,12 @@ class CreateSurveyTool(MaxTool):
         if isinstance(result["output"], SurveyCreationSchema):
             return result["output"]
         else:
-            return SurveyCreationSchema(questions=[], should_launch=False)
+            surveyCreationScheme = SurveyCreationSchema(questions=[], should_launch=False)
+            capture_exception(
+                Exception(f"Survey creation graph returned unexpected output type: {type(result.get('output'))}"),
+                {"team_id": self._team.id, "user_id": self._user.id, "result": str(result)},
+            )
+            return surveyCreationScheme
 
     async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
         """
@@ -112,7 +117,7 @@ class CreateSurveyTool(MaxTool):
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"❌ Failed to create survey: {str(e)}", {"error": str(e)}
+            return f"❌ Failed to create survey", {"error": str(e)}
 
     def _prepare_survey_data(self, survey_schema: SurveyCreationSchema, team: Team) -> dict[str, Any]:
         """Prepare survey data with appearance defaults applied."""
@@ -207,8 +212,7 @@ class SurveyToolkit(TaxonomyAgentToolkit):
             return f"Feature flag '{flag_key}' not found in the team's feature flags."
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id})
-
-            return f"Error looking up feature flag: {str(e)}"
+            return f"Error looking up feature flag: '{flag_key}'", {"error": str(e)}
 
 
 class FeatureFlagLookupNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[FeatureFlagLookupResult]]):
@@ -232,8 +236,8 @@ class FeatureFlagLookupNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentS
 
             return "\n".join(summaries)
         except Exception as e:
-            capture_exception(e, {"team_id": self._team.id})
-            return "Unable to load existing surveys"
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return f"Unable to load existing surveys", {"error": str(e)}
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get system prompts for feature flag lookup."""
