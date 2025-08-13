@@ -171,31 +171,32 @@ def handle_tag_change(sender, scope, before_update, after_update, activity, user
 def handle_tagged_item_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
-    if after_update and after_update.tag:
-        related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(after_update)
+    # Use after_update for create/update, before_update for delete
+    tagged_item = after_update or before_update
+
+    if tagged_item and tagged_item.tag:
+        related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
 
         context = TaggedItemContext(
-            tag_name=after_update.tag.name,
-            tag_id=str(after_update.tag.id),
-            team_id=after_update.tag.team_id,
+            tag_name=tagged_item.tag.name,
+            tag_id=str(tagged_item.tag.id),
+            team_id=tagged_item.tag.team_id,
             related_object_type=related_object_type,
             related_object_id=related_object_id,
             related_object_name=related_object_name,
         )
 
         log_activity(
-            organization_id=after_update.tag.team.organization_id
-            if after_update.tag and after_update.tag.team
-            else None,
-            team_id=after_update.tag.team_id if after_update.tag else None,
+            organization_id=tagged_item.tag.team.organization_id if tagged_item.tag and tagged_item.tag.team else None,
+            team_id=tagged_item.tag.team_id if tagged_item.tag else None,
             user=user,
             was_impersonated=was_impersonated,
-            item_id=after_update.id,
+            item_id=tagged_item.id,
             scope=scope,
             activity=activity,
             detail=Detail(
                 changes=changes_between(scope, previous=before_update, current=after_update),
-                name=after_update.tag.name if after_update.tag else None,
+                name=tagged_item.tag.name if tagged_item.tag else None,
                 context=context,
             ),
         )

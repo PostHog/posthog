@@ -118,8 +118,8 @@ class TaggedItem(ModelActivityMixin, UUIDModel):
         model_activity_signal.send(
             sender=self.__class__,
             scope=self.__class__.__name__,
-            before_update=None,
-            after_update=self,
+            before_update=self,
+            after_update=None,
             activity="deleted",
             user=get_current_user(),
             was_impersonated=get_was_impersonated(),
