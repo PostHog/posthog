@@ -112,6 +112,7 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
     thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
+    show_tool_call_message: bool = False
 
     async def _arun_impl(self, instructions: str) -> tuple[str, str]:
         current_query: str | None = self.context.get("current_query", "")
@@ -131,8 +132,10 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
             try:
                 result = await graph.ainvoke(graph_context)
                 if result.get("intermediate_steps"):
-                    result = result["intermediate_steps"][-1][0].tool_input
-                    return "I need more information to generate the query.", ""
+                    if result["intermediate_steps"][-1]:
+                        return result["intermediate_steps"][-1][0].tool_input, ""
+                    else:
+                        return "I need more information to generate the query.", ""
                 else:
                     result = await self._parse_output(FinalAnswerArgs.model_validate(result["output"]))
                     return "```sql\n" + result + "\n```", result
