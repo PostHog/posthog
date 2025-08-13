@@ -42,6 +42,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentDataWarehouseNode,
     ExperimentMeanMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
@@ -89,10 +90,16 @@ class ExperimentQueryRunner(QueryRunner):
             interval=IntervalType.DAY,
             now=datetime.now(),
         )
-        self.is_data_warehouse_query = (
-            isinstance(self.query.metric, ExperimentMeanMetric)
-            and self.query.metric.source.kind == "ExperimentDataWarehouseNode"
-        )
+        # Check if this is a data warehouse query
+        if isinstance(self.query.metric, ExperimentMeanMetric):
+            self.is_data_warehouse_query = self.query.metric.source.kind == "ExperimentDataWarehouseNode"
+        elif isinstance(self.query.metric, ExperimentRatioMetric):
+            # For ratio metrics, check if either numerator or denominator uses data warehouse
+            numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
+            denominator_is_dw = isinstance(self.query.metric.denominator, ExperimentDataWarehouseNode)
+            self.is_data_warehouse_query = numerator_is_dw or denominator_is_dw
+        else:
+            self.is_data_warehouse_query = False
         self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
@@ -209,7 +216,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     right=parse_expr("toString(metric_events.entity_identifier)"),
                                     op=ast.CompareOperationOp.Eq,
                                 )
-                                if self.is_data_warehouse_query
+                                if isinstance(ratio_metric.numerator, ExperimentDataWarehouseNode)
                                 else ast.CompareOperation(
                                     left=parse_expr("toString(exposures.entity_id)"),
                                     right=parse_expr("toString(metric_events.entity_id)"),
@@ -252,7 +259,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     right=parse_expr("toString(denominator_events.entity_identifier)"),
                                     op=ast.CompareOperationOp.Eq,
                                 )
-                                if self.is_data_warehouse_query
+                                if isinstance(ratio_metric.denominator, ExperimentDataWarehouseNode)
                                 else ast.CompareOperation(
                                     left=parse_expr("toString(exposures.entity_id)"),
                                     right=parse_expr("toString(denominator_events.entity_id)"),

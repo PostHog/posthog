@@ -13,6 +13,7 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.base import 
 from posthog.schema import (
     ActionsNode,
     EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
@@ -714,6 +715,98 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum, 11)  # 4 + 2 + 5 = 11 pageviews
 
         # Check that ratio-specific fields exist
+        self.assertIsNotNone(control_variant.denominator_sum_squares)
+        self.assertIsNotNone(test_variant.denominator_sum_squares)
+        self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
+        self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
+
+    @snapshot_clickhouse_queries
+    def test_ratio_metric_with_data_warehouse_sources(self):
+        """Test ratio metric with ExperimentDataWarehouseNode for both numerator and denominator"""
+        from datetime import datetime
+
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create a ratio metric using data warehouse for both numerator and denominator
+        # This tests support for ExperimentDataWarehouseNode in ratio metrics
+        metric = ExperimentRatioMetric(
+            numerator=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.SUM,
+                math_property="usage",
+            ),
+            denominator=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.TOTAL,
+                math_property=None,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events - these users correspond to data warehouse records
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        # Verify that both numerator and denominator use data warehouse sources
+        # This confirms ExperimentDataWarehouseNode support works in ratio metrics
+        self.assertIsNotNone(control_variant.sum)  # Numerator: sum of usage
+        self.assertIsNotNone(test_variant.sum)
+        self.assertTrue(control_variant.number_of_samples > 0)
+        self.assertTrue(test_variant.number_of_samples > 0)
+
+        self.assertIsNotNone(control_variant.denominator_sum)  # Denominator: count of records
+        self.assertIsNotNone(test_variant.denominator_sum)
+
+        # Check that ratio-specific statistical fields are populated
         self.assertIsNotNone(control_variant.denominator_sum_squares)
         self.assertIsNotNone(test_variant.denominator_sum_squares)
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)

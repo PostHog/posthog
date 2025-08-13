@@ -47,6 +47,12 @@ def get_data_warehouse_metric_source(
 ) -> ExperimentDataWarehouseNode | None:
     if isinstance(metric, ExperimentMeanMetric) and isinstance(metric.source, ExperimentDataWarehouseNode):
         return metric.source
+    elif isinstance(metric, ExperimentRatioMetric):
+        # For ratio metrics, return a data warehouse source if either numerator or denominator uses data warehouse
+        if isinstance(metric.numerator, ExperimentDataWarehouseNode):
+            return metric.numerator
+        elif isinstance(metric.denominator, ExperimentDataWarehouseNode):
+            return metric.denominator
     return None
 
 
