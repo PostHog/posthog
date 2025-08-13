@@ -607,3 +607,9 @@ export const SCALE_OPTIONS = {
         },
     ],
 }
+
+export enum SURVEY_CREATED_SOURCE {
+    FEATURE_FLAGS = 'feature_flags',
+    MAX_AI = 'max_ai',
+    SURVEY_FORM = 'survey_form',
+}

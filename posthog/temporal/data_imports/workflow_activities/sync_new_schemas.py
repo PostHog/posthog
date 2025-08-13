@@ -50,7 +50,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     # TODO: this could cause a race condition where each schema worker creates the missing schema
 
-    schemas_created = sync_old_schemas_with_new_schemas(
+    schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
         schemas_to_sync,
         source_id=inputs.source_id,
         team_id=inputs.team_id,
@@ -60,3 +60,8 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         logger.info(f"Added new schemas: {', '.join(schemas_created)}")
     else:
         logger.info("No new schemas to create")
+
+    if len(schemas_deleted) > 0:
+        logger.info(f"Deleted schemas: {', '.join(schemas_deleted)}")
+    else:
+        logger.info("No schemas to delete")

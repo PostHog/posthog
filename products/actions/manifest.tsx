@@ -14,6 +14,34 @@ export const manifest: ProductManifest = {
         action: (id: string | number): string => `/data-management/actions/${id}`,
         actions: (): string => '/data-management/actions',
     },
+    scenes: {
+        Actions: {
+            name: 'Actions',
+            import: () => import('./frontend/pages/Actions'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data/actions',
+            activityScope: 'Action',
+        },
+        Action: {
+            name: 'Action',
+            import: () => import('./frontend/pages/Action'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data/actions',
+            activityScope: 'Action',
+        },
+        ActionNew: {
+            name: 'ActionNew',
+            import: () => import('./frontend/pages/Action'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data/actions',
+            activityScope: 'Action',
+        },
+    },
+    routes: {
+        '/data-management/actions': ['Actions', 'actions'],
+        '/data-management/actions/new': ['ActionNew', 'actionNew'],
+        '/data-management/actions/:id': ['Action', 'action'],
+    },
     fileSystemTypes: {
         action: {
             name: 'Action',

@@ -203,28 +203,26 @@ remoteConfigPayload, err := ${clientSuffix}GetRemoteConfigPayload("${flagKey}")`
     const localEvalAddition = localEvaluation
         ? groupType
             ? `
-        // add group properties used in the flag to ensure the flag
-        // is evaluated locally, vs. going to our servers
-        groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("${propertyName}", "value").Set("name", "xyz")}`
+    // add group properties used in the flag to ensure the flag
+    // is evaluated locally, vs. going to our servers
+    groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("${propertyName}", "value").Set("name", "xyz")}`
             : `
-        // add person properties used in the flag to ensure the flag
-        // is evaluated locally, vs. going to our servers
-        PersonProperties: posthog.NewProperties().Set("${propertyName}", "value")`
+    // add person properties used in the flag to ensure the flag
+    // is evaluated locally, vs. going to our servers
+    PersonProperties: posthog.NewProperties().Set("${propertyName}", "value")`
         : ''
 
     const flagSnippet = groupType
-        ? `${clientSuffix}${flagFunction}(
-    FeatureFlagPayload{
+        ? `${clientSuffix}${flagFunction}(posthog.FeatureFlagPayload{
         Key:        "${flagKey}",
         DistinctId: "distinct-id",
         Groups:     Groups{'${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>'},${localEvalAddition}
     }
 )`
-        : `${clientSuffix}${flagFunction}(
-    FeatureFlagPayload{
-        Key:        '${flagKey}',
-        DistinctId: "distinct-id",${localEvalAddition}
-    })`
+        : `${clientSuffix}${flagFunction}(posthog.FeatureFlagPayload{
+    Key:        '${flagKey}',
+    DistinctId: "distinct-id",${localEvalAddition}
+})`
     const variableName = multivariant ? 'enabledVariant, err' : 'isMyFlagEnabledForUser, err'
 
     const conditional = multivariant ? `enabledVariant == 'example-variant'` : `isMyFlagEnabledForUser`
@@ -233,7 +231,9 @@ remoteConfigPayload, err := ${clientSuffix}GetRemoteConfigPayload("${flagKey}")`
         <>
             <CodeSnippet language={Language.Go} wrap>
                 {`${localEvaluation ? '// ' + LOCAL_EVAL_REMINDER : ''}${variableName} := ${flagSnippet}
-
+if err != nil {
+    // Handle error (e.g. capture error and fallback to default behaviour)
+}
 if ${conditional} {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
 }`}

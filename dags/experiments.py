@@ -10,6 +10,8 @@ This module defines:
 import dagster
 from typing import Any
 from posthog.models.experiment import Experiment
+from posthog.hogql_queries.experiments.experiment_timeseries import ExperimentTimeseries
+from posthog.schema import ExperimentMeanMetric, ExperimentFunnelMetric
 from dags.common import JobOwners
 from datetime import datetime, UTC
 
@@ -111,35 +113,67 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
     except Experiment.DoesNotExist:
         raise dagster.Failure(f"Experiment {experiment_id} not found or deleted")
 
-    # TODO: Replace this placeholder with actual timeseries analysis logic
-    placeholder_results = {
-        "placeholder": True,
-        "message": "Timeseries calculation logic to be implemented",
-        "metric_name": metric.get("name", f"Metric {metric_uuid}"),
-    }
+    metric_type = metric.get("metric_type")
+    if metric_type == "mean":
+        metric_obj = ExperimentMeanMetric(**metric)
+    elif metric_type == "funnel":
+        metric_obj = ExperimentFunnelMetric(**metric)
+    else:
+        raise dagster.Failure(f"Unknown metric type: {metric_type}")
 
-    # Add metadata for Dagster UI display
-    context.add_output_metadata(
-        metadata={
+    try:
+        timeseries_calculator = ExperimentTimeseries(experiment, metric_obj)
+        timeseries_results = timeseries_calculator.get_result()
+
+        # Add metadata for Dagster UI display
+        context.add_output_metadata(
+            metadata={
+                "experiment_id": experiment_id,
+                "metric_uuid": metric_uuid,
+                "metric_type": metric_type,
+                "metric_name": metric.get("name", f"Metric {metric_uuid}"),
+                "experiment_name": experiment.name,
+                "metric_definition": str(metric),
+                "computed_at": datetime.now(UTC).isoformat(),
+                "results_status": "success",
+                "results_count": len(timeseries_results),
+                "timeseries": timeseries_results,
+            }
+        )
+
+        results = {
             "experiment_id": experiment_id,
             "metric_uuid": metric_uuid,
-            "metric_type": metric.get("kind"),
-            "metric_name": metric.get("name", f"Metric {metric_uuid}"),
-            "experiment_name": experiment.name,
-            "metric_definition": str(metric),
+            "metric_definition": metric,
+            "timeseries": timeseries_results,
             "computed_at": datetime.now(UTC).isoformat(),
-            "results_status": "placeholder",
-            "results_message": placeholder_results["message"],
         }
-    )
 
-    results = {
-        "experiment_id": experiment_id,
-        "metric_uuid": metric_uuid,
-        "metric_definition": metric,
-        "results": placeholder_results,
-        "computed_at": datetime.now(UTC).isoformat(),
-    }
+    except Exception as e:
+        context.log.exception("Failed to calculate timeseries")
+
+        # Add error metadata for Dagster UI display
+        context.add_output_metadata(
+            metadata={
+                "experiment_id": experiment_id,
+                "metric_uuid": metric_uuid,
+                "metric_type": metric_type,
+                "metric_name": metric.get("name", f"Metric {metric_uuid}"),
+                "experiment_name": experiment.name,
+                "metric_definition": str(metric),
+                "computed_at": datetime.now(UTC).isoformat(),
+                "results_status": "error",
+                "error_message": str(e),
+            }
+        )
+
+        results = {
+            "experiment_id": experiment_id,
+            "metric_uuid": metric_uuid,
+            "metric_definition": metric,
+            "error": str(e),
+            "computed_at": datetime.now(UTC).isoformat(),
+        }
 
     return results
 

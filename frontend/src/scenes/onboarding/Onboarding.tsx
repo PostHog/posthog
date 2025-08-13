@@ -240,6 +240,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
 const WebAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
+    const { selectedProducts } = useValues(productsLogic)
 
     const options: ProductConfigOption[] = [
         {
@@ -275,7 +276,8 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
             title: 'Enable session recordings',
             description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
             teamProperty: 'session_recording_opt_in',
-            value: currentTeam?.session_recording_opt_in ?? true,
+            value:
+                (currentTeam?.session_recording_opt_in || selectedProducts.includes(ProductKey.SESSION_REPLAY)) ?? true,
             type: 'toggle',
             visible: true,
         },

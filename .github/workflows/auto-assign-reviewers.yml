@@ -3,7 +3,7 @@ name: Auto Assign Reviewers
 on:
     pull_request:
         # Only opened or when clicking ready otherwise you can never remove the reviewers
-        types: [opened, ready_for_review] 
+        types: [opened, ready_for_review]
 
 permissions:
     contents: read

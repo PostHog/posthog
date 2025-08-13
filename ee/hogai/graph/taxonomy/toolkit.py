@@ -1,6 +1,20 @@
+from collections.abc import Iterable
+from functools import cached_property
+from typing import Optional, Union, cast
+from xml.etree import ElementTree as ET
+
+import yaml
+from langchain_core.agents import AgentAction
+from pydantic import BaseModel
+
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
-from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import (
+    ActorsPropertyTaxonomyQueryRunner,
+)
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import (
+    EventTaxonomyQueryRunner,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action, Team
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -11,24 +25,16 @@ from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyQuery,
 )
-from xml.etree import ElementTree as ET
-from posthog.clickhouse.query_tagging import Product, tags_context
-from langchain_core.agents import AgentAction
-from typing import Union
-from functools import cached_property
-from typing import Optional, cast
-from collections.abc import Iterable
-from pydantic import BaseModel
-import yaml
-from .tools import TaxonomyTool
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
 from .tools import (
+    TaxonomyTool,
+    ask_user_for_help,
     retrieve_entity_properties,
     retrieve_entity_property_values,
     retrieve_event_properties,
     retrieve_event_property_values,
-    ask_user_for_help,
 )
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class TaxonomyToolNotFoundError(Exception):
@@ -325,21 +331,21 @@ class TaxonomyAgentToolkit:
         if entity == "session":
             return self._retrieve_session_properties(property_name)
         if entity == "person":
-            query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=25)
+            query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=25)
         elif entity == "event":
-            query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=50)
+            query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=50)
         else:
             group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
             if group_index is None:
                 return TaxonomyErrorMessages.entity_not_found(entity)
             query = ActorsPropertyTaxonomyQuery(
-                group_type_index=group_index, property=property_name, maxPropertyValues=25
+                groupTypeIndex=group_index, properties=[property_name], maxPropertyValues=25
             )
 
         try:
-            if query.group_type_index is not None:
+            if query.groupTypeIndex is not None:
                 prop_type = PropertyDefinition.Type.GROUP
-                group_type_index = query.group_type_index
+                group_type_index = query.groupTypeIndex
             elif entity == "event":
                 prop_type = PropertyDefinition.Type.EVENT
                 group_type_index = None
@@ -366,9 +372,15 @@ class TaxonomyAgentToolkit:
         if not response.results:
             return TaxonomyErrorMessages.property_values_not_found(property_name, entity)
 
+        # TRICKY. Remove when the toolkit supports multiple results.
+        if isinstance(response.results, list):
+            unpacked_results = response.results[0]
+        else:
+            unpacked_results = response.results
+
         return self._format_property_values(
-            response.results.sample_values,
-            response.results.sample_count,
+            unpacked_results.sample_values,
+            unpacked_results.sample_count,
             format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
         )
 
@@ -431,22 +443,20 @@ class TaxonomyAgentToolkit:
         # Here we handle the tool execution for base taxonomy tools.
         if tool_name == "retrieve_entity_property_values":
             result = self.retrieve_entity_property_values(
-                tool_input.arguments.entity,
-                tool_input.arguments.property_name,
+                tool_input.arguments.entity,  # type: ignore
+                tool_input.arguments.property_name,  # type: ignore
             )
         elif tool_name == "retrieve_entity_properties":
-            result = self.retrieve_entity_properties(tool_input.arguments.entity)
+            result = self.retrieve_entity_properties(tool_input.arguments.entity)  # type: ignore
         elif tool_name == "retrieve_event_property_values":
             result = self.retrieve_event_or_action_property_values(
-                tool_input.arguments.event_name,
-                tool_input.arguments.property_name,
+                tool_input.arguments.event_name,  # type: ignore
+                tool_input.arguments.property_name,  # type: ignore
             )
         elif tool_name == "retrieve_event_properties":
-            result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)
+            result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)  # type: ignore
         elif tool_name == "ask_user_for_help":
-            result = tool_input.arguments.request
-        elif tool_name == "final_answer":
-            result = "Taxonomy finalized"
+            result = tool_input.arguments.request  # type: ignore
         else:
             raise TaxonomyToolNotFoundError(f"Tool {tool_name} not found in taxonomy toolkit.")
 
@@ -460,7 +470,7 @@ class TaxonomyAgentToolkit:
 
         custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel
 
-        class DynamicToolInput(TaxonomyTool[custom_tools_union]):
+        class DynamicToolInput(TaxonomyTool[custom_tools_union]):  # type: ignore
             pass
 
         return DynamicToolInput.model_validate({"name": action.tool, "arguments": action.tool_input})
