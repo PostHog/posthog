@@ -301,35 +301,9 @@ impl DateRangeExportSource {
 
         info!("Downloading and preparing key: {}", key);
 
-        let mut retries = self.retries;
-        loop {
-            match self
-                .download_and_prepare_part_data_inner(key, start, end)
-                .await
-            {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    // Check if this is a rate limit error by looking for a 429 status in the error chain
-                    let is_rate_limit_error = e.chain().any(|err| {
-                        if let Some(reqwest_err) = err.downcast_ref::<ReqwestError>() {
-                            reqwest_err
-                                .status()
-                                .is_some_and(|status| status.as_u16() == 429)
-                        } else {
-                            false
-                        }
-                    });
-
-                    if is_rate_limit_error && retries > 0 {
-                        info!("Rate limit hit (429), sleeping for {:?} before retry. Retries remaining: {retries}", self.retry_delay);
-                        tokio::time::sleep(self.retry_delay).await;
-                        retries -= 1;
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        }
+        // Let errors (including 429 wrapped as RateLimitedError) bubble up to job-level backoff
+        self.download_and_prepare_part_data_inner(key, start, end)
+            .await
     }
 
     async fn download_and_prepare_part_data_inner(
