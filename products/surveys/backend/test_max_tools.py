@@ -5,6 +5,7 @@ Simple async test for the survey creation MaxTool.
 import os
 from unittest.mock import patch
 
+import django.utils.timezone
 import pytest
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
@@ -18,7 +19,7 @@ from posthog.schema import (
 )
 from posthog.test.base import BaseTest
 
-from .max_tools import CreateSurveyTool
+from .max_tools import CreateSurveyTool, FeatureFlagLookupNode, SurveyToolkit
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -332,3 +333,117 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.linked_flag_id == flag.id
         assert survey.linked_flag.key == "multivariate-feature"
         assert survey.conditions["linkedFlagVariant"] == "any"
+
+
+class TestFeatureFlagLookupNode(BaseTest):
+    def setUp(self):
+        super().setUp()
+
+    def _setup_node(self):
+        """Helper to create a FeatureFlagLookupNode instance"""
+        return FeatureFlagLookupNode(team=self.team, user=self.user, toolkit_class=SurveyToolkit)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_get_existing_surveys_summary_empty(self):
+        """Test getting existing surveys summary when no surveys exist"""
+        node = self._setup_node()
+
+        summary = await node._get_existing_surveys_summary()
+
+        assert summary == "No existing surveys"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_get_existing_surveys_summary_with_surveys(self):
+        """Test getting existing surveys summary with existing surveys"""
+        node = self._setup_node()
+
+        # Create test surveys
+        await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Draft Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+            created_by=self.user,
+        )
+
+        # Create an active survey (with start_date but no end_date)
+        await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Active Survey",
+            type="email",
+            questions=[{"type": "rating", "question": "How satisfied?", "scale": 5}],
+            created_by=self.user,
+            start_date=django.utils.timezone.now(),
+        )
+
+        summary = await node._get_existing_surveys_summary()
+
+        # Verify both surveys are included
+        assert "Draft Survey" in summary
+        assert "Active Survey" in summary
+        assert "draft" in summary
+        assert "active" in summary
+        assert "popover" in summary
+        assert "email" in summary
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_get_existing_surveys_summary_excludes_archived(self):
+        """Test that archived surveys are excluded from the summary"""
+        node = self._setup_node()
+
+        # Create a regular survey
+        await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Regular Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+            created_by=self.user,
+        )
+
+        # Create an archived survey (should be excluded)
+        await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Archived Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+            created_by=self.user,
+            archived=True,
+        )
+
+        summary = await node._get_existing_surveys_summary()
+
+        # Only the non-archived survey should be included
+        assert "Regular Survey" in summary
+        assert "Archived Survey" not in summary
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_get_existing_surveys_summary_limits_to_five(self):
+        """Test that the summary is limited to 5 surveys"""
+        node = self._setup_node()
+
+        # Create 6 surveys
+        survey_names = []
+        for i in range(6):
+            name = f"Survey {i+1}"
+            survey_names.append(name)
+            await sync_to_async(Survey.objects.create)(
+                team=self.team,
+                name=name,
+                type="popover",
+                questions=[{"type": "open", "question": "Test?"}],
+                created_by=self.user,
+            )
+
+        summary = await node._get_existing_surveys_summary()
+
+        # Count the number of survey entries (lines starting with "- '")
+        summary_lines = [line for line in summary.split("\n") if line.strip().startswith("- '")]
+        assert len(summary_lines) == 5  # Should be limited to 5
+
+        # Verify it contains survey information
+        assert "Survey" in summary
+        assert "draft" in summary
