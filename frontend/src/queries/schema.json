@@ -13403,6 +13403,7 @@
                     "type": "array"
                 },
                 "debug": {
+                    "description": "Include debug information (error details, timings, and HogQL) in responses. Defaults to false.",
                     "type": "boolean"
                 },
                 "formatCsvAllowDoubleQuotes": {

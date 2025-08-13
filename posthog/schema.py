@@ -3830,7 +3830,10 @@ class HogQLQueryModifiers(BaseModel):
     convertToProjectTimezone: Optional[bool] = None
     customChannelTypeRules: Optional[list[CustomChannelRule]] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
-    debug: Optional[bool] = None
+    debug: Optional[bool] = Field(
+        default=None,
+        description="Include debug information (error details, timings, and HogQL) in responses. Defaults to false.",
+    )
     formatCsvAllowDoubleQuotes: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
