@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import os
 
 import dagster
-from dagster import DailyPartitionsDefinition, BackfillPolicy, RunsFilter, DagsterRunStatus, SkipReason
+from dagster import DailyPartitionsDefinition, BackfillPolicy
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     CLICKHOUSE_SETTINGS,
@@ -14,6 +14,7 @@ from dags.web_preaggregated_utils import (
     WEB_ANALYTICS_CONFIG_SCHEMA,
     swap_partitions_from_staging,
     web_analytics_retry_policy_def,
+    check_for_concurrent_runs,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -157,22 +158,9 @@ web_pre_aggregate_job = dagster.define_asset_job(
 )
 def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationContext):
     # Check for existing runs of the same job to prevent concurrent execution
-    run_records = context.instance.get_run_records(
-        RunsFilter(
-            job_name="web_pre_aggregate_job",
-            statuses=[
-                DagsterRunStatus.QUEUED,
-                DagsterRunStatus.NOT_STARTED,
-                DagsterRunStatus.STARTING,
-                DagsterRunStatus.STARTED,
-            ],
-        )
-    )
-    
-    if len(run_records) > 0:
-        return SkipReason(
-            "Skipping historical web analytics run because another run of the same job is already active"
-        )
+    skip_reason = check_for_concurrent_runs(context, "web_pre_aggregate_job")
+    if skip_reason:
+        return skip_reason
 
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
 
@@ -189,22 +177,9 @@ def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationCon
 )
 def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationContext):
     # Check for existing runs of the same job to prevent concurrent execution
-    run_records = context.instance.get_run_records(
-        RunsFilter(
-            job_name="web_pre_aggregate_job",
-            statuses=[
-                DagsterRunStatus.QUEUED,
-                DagsterRunStatus.NOT_STARTED,
-                DagsterRunStatus.STARTING,
-                DagsterRunStatus.STARTED,
-            ],
-        )
-    )
-    
-    if len(run_records) > 0:
-        return SkipReason(
-            "Skipping current day web analytics run because another run of the same job is already active"
-        )
+    skip_reason = check_for_concurrent_runs(context, "web_pre_aggregate_job")
+    if skip_reason:
+        return skip_reason
 
     return dagster.RunRequest(
         partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),

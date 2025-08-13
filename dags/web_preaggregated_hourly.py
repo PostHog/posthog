@@ -2,7 +2,7 @@ from datetime import datetime, UTC, timedelta
 from collections.abc import Callable
 
 import dagster
-from dagster import Field, RunsFilter, DagsterRunStatus, SkipReason
+from dagster import Field
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
@@ -10,6 +10,7 @@ from dags.web_preaggregated_utils import (
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
     web_analytics_retry_policy_def,
+    check_for_concurrent_runs,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -166,22 +167,9 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
     """
 
     # Check for existing runs of the same job to prevent concurrent execution
-    run_records = context.instance.get_run_records(
-        RunsFilter(
-            job_name="web_pre_aggregate_current_day_hourly_job",
-            statuses=[
-                DagsterRunStatus.QUEUED,
-                DagsterRunStatus.NOT_STARTED,
-                DagsterRunStatus.STARTING,
-                DagsterRunStatus.STARTED,
-            ],
-        )
-    )
-    
-    if len(run_records) > 0:
-        return SkipReason(
-            "Skipping hourly web analytics run because another run of the same job is already active"
-        )
+    skip_reason = check_for_concurrent_runs(context, "web_pre_aggregate_current_day_hourly_job")
+    if skip_reason:
+        return skip_reason
 
     return dagster.RunRequest(
         run_config={

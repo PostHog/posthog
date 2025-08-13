@@ -5,7 +5,7 @@ from functools import partial
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
 from typing import Optional
-from dagster import Backoff, Field, Array, Jitter, RetryPolicy
+from dagster import Backoff, Field, Array, Jitter, RetryPolicy, RunsFilter, DagsterRunStatus, SkipReason
 
 TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS = os.getenv("TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS", 1 if DEBUG else 2)
 
@@ -115,3 +115,22 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
         description="Additional ClickHouse execution settings to merge with defaults",
     ),
 }
+
+
+def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext, job_name: str) -> Optional[SkipReason]:
+    run_records = context.instance.get_run_records(
+        RunsFilter(
+            job_name=job_name,
+            statuses=[
+                DagsterRunStatus.QUEUED,
+                DagsterRunStatus.NOT_STARTED,
+                DagsterRunStatus.STARTING,
+                DagsterRunStatus.STARTED,
+            ],
+        )
+    )
+
+    if len(run_records) > 0:
+        return SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
+
+    return None
