@@ -474,7 +474,7 @@ def login_from_new_device_notification(
     else:
         enabled = posthoganalytics.feature_enabled(
             key="login-from-new-device-notification",
-            distinct_id=user.distinct_id,
+            distinct_id=str(user.distinct_id),
             groups={"organization": str(user.current_organization.id)},
         )
 
