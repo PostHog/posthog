@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { groupsModel } from '~/models/groupsModel'
 
@@ -12,6 +12,7 @@ export interface UsageMetric {
     interval: string
     display: string
     events: string[]
+    group_type_index: number
 }
 
 export interface NewUsageMetricFormData {
@@ -21,6 +22,7 @@ export interface NewUsageMetricFormData {
     interval: string
     display: string
     events: string[]
+    group_type_index?: number
 }
 
 const NEW_USAGE_METRIC = {
@@ -37,6 +39,7 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
 
     actions(() => ({
         setIsEditing: (isEditing: boolean) => ({ isEditing }),
+        setCurrentGroupTypeIndex: (groupTypeIndex: number) => ({ groupTypeIndex }),
         addUsageMetric: (metric: NewUsageMetricFormData) => ({ metric }),
         updateUsageMetric: (metric: NewUsageMetricFormData) => ({ metric }),
         removeUsageMetric: (id: string) => ({ id }),
@@ -44,32 +47,8 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
 
     reducers(() => ({
         isEditing: [false, { setIsEditing: (_, { isEditing }) => isEditing }],
+        currentGroupTypeIndex: [0, { setCurrentGroupTypeIndex: (_, { groupTypeIndex }) => groupTypeIndex }],
     })),
-
-    forms(({ actions }) => ({
-        usageMetric: {
-            defaults: NEW_USAGE_METRIC,
-            errors: ({ name }) => ({
-                name: !name ? 'Name is required' : undefined,
-            }),
-            submit: (formData) => {
-                if (formData?.id) {
-                    actions.updateUsageMetric(formData)
-                } else {
-                    actions.addUsageMetric(formData)
-                }
-            },
-        },
-    })),
-
-    listeners(({ actions }) => ({
-        submitUsageMetricSuccess: () => {
-            actions.setIsEditing(false)
-            actions.resetUsageMetric()
-        },
-    })),
-
-    afterMount(({ actions }) => actions.loadUsageMetrics()),
 
     loaders(({ values }) => ({
         usageMetrics: [
@@ -86,6 +65,7 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
                             display: 'number',
                             interval: '7d',
                             events: [],
+                            group_type_index: 0,
                         },
                         {
                             id: '2',
@@ -94,6 +74,16 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
                             display: 'sparkline',
                             interval: '7d',
                             events: [],
+                            group_type_index: 0,
+                        },
+                        {
+                            id: '3',
+                            name: 'API Calls',
+                            format: 'numeric',
+                            display: 'number',
+                            interval: '30d',
+                            events: [],
+                            group_type_index: 1,
                         },
                     ] as UsageMetric[]
                 },
@@ -105,6 +95,7 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
                     const newMetric = {
                         id: newId,
                         ...metric,
+                        group_type_index: metric.group_type_index ?? values.currentGroupTypeIndex,
                     }
                     return [...values.usageMetrics, newMetric]
                 },
@@ -124,4 +115,42 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
             },
         ],
     })),
+
+    selectors({
+        currentGroupTypeUsageMetrics: [
+            (s) => [s.usageMetrics, s.currentGroupTypeIndex],
+            (usageMetrics, currentGroupTypeIndex) =>
+                usageMetrics.filter((metric) => metric.group_type_index === currentGroupTypeIndex),
+        ],
+        availableGroupTypes: [(s) => [s.groupTypes], (groupTypes) => Array.from(groupTypes.values())],
+    }),
+
+    forms(({ actions, values }) => ({
+        usageMetric: {
+            defaults: NEW_USAGE_METRIC,
+            errors: ({ name }) => ({
+                name: !name ? 'Name is required' : undefined,
+            }),
+            submit: (formData) => {
+                const formDataWithGroupType = {
+                    ...formData,
+                    group_type_index: formData.group_type_index ?? values.currentGroupTypeIndex,
+                }
+                if (formData?.id) {
+                    actions.updateUsageMetric(formDataWithGroupType)
+                } else {
+                    actions.addUsageMetric(formDataWithGroupType)
+                }
+            },
+        },
+    })),
+
+    listeners(({ actions }) => ({
+        submitUsageMetricSuccess: () => {
+            actions.setIsEditing(false)
+            actions.resetUsageMetric()
+        },
+    })),
+
+    afterMount(({ actions }) => actions.loadUsageMetrics()),
 ])
