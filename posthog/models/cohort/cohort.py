@@ -370,6 +370,53 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         return max_type
 
+    def validate_cohort_type(self, explicit_type: Optional[str] = None) -> tuple[bool, Optional[str]]:
+        """
+        Validate that the provided cohort type matches the filters.
+        Returns (is_valid, error_message)
+        """
+        if explicit_type is None:
+            explicit_type = self.cohort_type
+
+        if not explicit_type:
+            # No type specified, validation passes
+            return True, None
+
+        try:
+            explicit_cohort_type = CohortType(explicit_type)
+        except ValueError:
+            return False, f"Invalid cohort type: {explicit_type}"
+
+        # Determine the actual required type based on filters
+        try:
+            calculated_type = self.determine_cohort_type()
+        except ValueError as e:
+            return False, str(e)
+
+        # Type hierarchy: ANALYTICAL > BEHAVIORAL > PERSON_PROPERTY > STATIC
+        type_hierarchy = {
+            CohortType.STATIC: 0,
+            CohortType.PERSON_PROPERTY: 1,
+            CohortType.BEHAVIORAL: 2,
+            CohortType.ANALYTICAL: 3,
+        }
+
+        explicit_level = type_hierarchy[explicit_cohort_type]
+        calculated_level = type_hierarchy[calculated_type]
+
+        # The explicit type must be at least as complex as the calculated type
+        if explicit_level < calculated_level:
+            return (
+                False,
+                f"Cohort type '{explicit_type}' is not sufficient for the provided filters. Minimum required type: '{calculated_type}'",
+            )
+
+        # For exact match requirement (optional - can be made configurable)
+        # if explicit_cohort_type != calculated_type:
+        #     return False, f"Cohort type '{explicit_type}' does not match the filters. Expected type: '{calculated_type}'"
+
+        return True, None
+
     def get_analytics_metadata(self):
         return {
             "filters": self.properties.to_dict(),

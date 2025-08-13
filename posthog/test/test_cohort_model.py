@@ -583,3 +583,78 @@ class TestCohort(BaseTest):
         with self.assertRaises(ValueError) as cm:
             cohort.determine_cohort_type()
         self.assertIn("no valid filters found", str(cm.exception))
+
+    def test_validate_cohort_type_valid_match(self):
+        """Should pass validation when cohort type matches filters"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[Property(type="person", key="email", operator="icontains", value="@posthog.com")],
+                ).to_dict()
+            },
+        )
+
+        is_valid, error_msg = cohort.validate_cohort_type("person_property")
+        self.assertTrue(is_valid)
+        self.assertIsNone(error_msg)
+
+    def test_validate_cohort_type_insufficient_complexity(self):
+        """Should fail validation when provided type is less complex than required"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        Property(
+                            type="behavioral",
+                            key="performed_event",
+                            value=BehavioralPropertyType.PERFORMED_EVENT,
+                            operator="exact",
+                            event_type="events",
+                            time_interval="day",
+                            time_value="1",
+                        )
+                    ],
+                ).to_dict()
+            },
+        )
+
+        is_valid, error_msg = cohort.validate_cohort_type("person_property")
+        self.assertFalse(is_valid)
+        self.assertIn("not sufficient for the provided filters", error_msg)
+        self.assertIn("Minimum required type: 'behavioral'", error_msg)
+
+    def test_validate_cohort_type_higher_complexity_allowed(self):
+        """Should pass validation when provided type is more complex than required"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[Property(type="person", key="email", operator="icontains", value="@posthog.com")],
+                ).to_dict()
+            },
+        )
+
+        is_valid, error_msg = cohort.validate_cohort_type("behavioral")
+        self.assertTrue(is_valid)
+        self.assertIsNone(error_msg)
+
+    def test_validate_cohort_type_invalid_type(self):
+        """Should fail validation for invalid cohort type strings"""
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+
+        is_valid, error_msg = cohort.validate_cohort_type("invalid_type")
+        self.assertFalse(is_valid)
+        self.assertIn("Invalid cohort type: invalid_type", error_msg)
+
+    def test_validate_cohort_type_none_type_passes(self):
+        """Should pass validation when no type is specified"""
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+
+        is_valid, error_msg = cohort.validate_cohort_type(None)
+        self.assertTrue(is_valid)
+        self.assertIsNone(error_msg)

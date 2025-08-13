@@ -55,6 +55,7 @@ from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
@@ -213,7 +214,6 @@ class CohortSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "is_calculating",
-            "cohort_type",
             "created_by",
             "created_at",
             "last_calculation",
@@ -248,11 +248,17 @@ class CohortSerializer(serializers.ModelSerializer):
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
+        # Check if cohort_type was explicitly provided
+        explicit_cohort_type = validated_data.get("cohort_type")
+
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
-        # Determine and set the cohort type for new cohorts
-        cohort.cohort_type = cohort.determine_cohort_type()
-        cohort.save(update_fields=["cohort_type"])
+        # Validate explicit cohort type if provided
+        if explicit_cohort_type:
+            is_valid, error_msg = cohort.validate_cohort_type(explicit_cohort_type)
+            if not is_valid:
+                cohort.delete()  # Clean up the created cohort
+                raise ValidationError(error_msg)
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data)
@@ -303,6 +309,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
         self._validate_feature_flag_constraints(raw)  # keep your side-rules
         return raw
+
+    def validate_cohort_type(self, cohort_type: Optional[str]) -> Optional[str]:
+        """Validate that the cohort_type is valid"""
+        if cohort_type and cohort_type not in [ct.value for ct in CohortType]:
+            raise ValidationError(f"Invalid cohort type: {cohort_type}")
+        return cohort_type
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
@@ -372,9 +384,14 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
 
-        # Recalculate cohort type when filters change
-        if "filters" in validated_data or "is_static" in validated_data or "query" in validated_data:
-            cohort.cohort_type = cohort.determine_cohort_type()
+        # Handle explicit cohort_type update
+        explicit_cohort_type = validated_data.get("cohort_type")
+        if explicit_cohort_type:
+            cohort.cohort_type = explicit_cohort_type
+            # Validate that the explicit type matches the filters
+            is_valid, error_msg = cohort.validate_cohort_type(explicit_cohort_type)
+            if not is_valid:
+                raise ValidationError(error_msg)
 
         deleted_state = validated_data.get("deleted", None)
 
