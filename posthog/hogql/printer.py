@@ -23,7 +23,6 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
-from posthog.hogql.database.models import GroupKeyDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.query_log import RawQueryLogTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
@@ -58,7 +57,6 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.surveys.util import (
     filter_survey_sent_events_by_unique_submission,
     get_survey_response_clickhouse_query,
@@ -1470,9 +1468,6 @@ class _Printer(Visitor[str]):
                 else:
                     field_sql = "person_props"
             else:
-                if isinstance(resolved_field, GroupKeyDatabaseField):
-                    return self._handle_group_key_field(resolved_field)
-
                 # this errors because resolved_field is of type ast.Alias and not a field - what's the best way to solve?
                 field_sql = self._print_identifier(resolved_field.name)
                 if self.context.within_non_hogql_query and type_with_name_in_scope == type:
@@ -1504,34 +1499,6 @@ class _Printer(Visitor[str]):
             raise ImpossibleASTError(error)
 
         return field_sql
-
-    def _handle_group_key_field(self, resolved_field) -> str:
-        """
-        Handle group key fields by generating conditional logic.
-        Returns: if(event.timestamp < groupTypeMapping.created_at, '', $group_N)
-        Only applies special logic for ClickHouse dialect, otherwise returns normal field access.
-        """
-        group_index = resolved_field.group_index
-
-        # Only apply filtering logic for ClickHouse dialect
-        if self.dialect != "clickhouse":
-            return self._print_identifier(f"$group_{group_index}")
-
-        team = self.context.team
-
-        try:
-            group_mapping = GroupTypeMapping.objects.get(team=team, group_type_index=group_index)
-            if group_mapping.created_at is None:
-                # If no created_at, just return the regular field access
-                return self._print_identifier(f"$group_{group_index}")
-
-            created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
-
-            return f"if(events.timestamp < '{created_at_str}', '', {self._print_identifier(f'$group_{group_index}')})"
-
-        except GroupTypeMapping.DoesNotExist:
-            # If no mapping exists, always return empty string
-            return "''"
 
     def __get_materialized_property_source_for_property_type(
         self, type: ast.PropertyType

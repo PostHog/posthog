@@ -79,19 +79,6 @@ class StringJSONDatabaseField(DatabaseField):
         return StringType(nullable=self.is_nullable())
 
 
-class GroupKeyDatabaseField(StringDatabaseField):
-    """
-    This field allows us to delete group_types by returning '' for all group_keys that were written before the group_type was created.
-    For $group_N fields, this returns:
-    - Empty string if no GroupTypeMapping exists for that index
-    - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    group_index: int
-
-
 class StringArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringType

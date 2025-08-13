@@ -29,40 +29,51 @@ class TestGroupKeyFiltering(APIBaseTest):
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
+        self.database = create_hogql_database(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        self.assertIn("if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`) AS `$group_0`", sql)
+        # Check that it contains the full conditional logic pattern
+        self.assertIn("if(less(toTimeZone(events.timestamp,", sql)
+        self.assertIn("), %(hogql_val_1)s), %(hogql_val_2)s, events.`$group_0`) AS `$group_0`", sql)
 
     def test_group_field_without_mapping(self):
         """Test that $group_0 returns empty string when no GroupTypeMapping exists"""
+        self.database = create_hogql_database(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        self.assertIn("'' AS `$group_0`", sql)
+        # Should return an empty string constant (parameterized)
+        self.assertIn("SELECT %(hogql_val_0)s AS `$group_0` FROM events WHERE equals(events.team_id,", sql)
 
-    def test_group_field_with_mapping_no_created_at(self):
-        """Test that $group_0 works normally when GroupTypeMapping exists but has no created_at"""
+    def test_group_field_with_mapping_auto_created_at(self):
+        """Test that $group_0 gets filtering when GroupTypeMapping is created (auto_now_add=True)"""
         GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="company",
             group_type_index=0,
-            created_at=None,
+            # created_at will be automatically set due to auto_now_add=True
         )
+        self.database = create_hogql_database(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        self.assertIn("`$group_0` AS `$group_0`", sql)
+        # Should apply filtering since created_at is automatically set
+        self.assertIn("SELECT if(less(toTimeZone(events.timestamp,", sql)
+        self.assertIn("), %(hogql_val_1)s), %(hogql_val_2)s, events.`$group_0`) AS `$group_0`", sql)
 
     def test_multiple_group_fields(self):
         """Test filtering with multiple group type mappings"""
@@ -81,6 +92,8 @@ class TestGroupKeyFiltering(APIBaseTest):
             group_type_index=1,
             created_at=datetime(2023, 2, 1, 10, 0, 0, tzinfo=UTC),
         )
+        self.database = create_hogql_database(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
         # Parse a query that references multiple group fields
         query = "SELECT $group_0, $group_1, $group_2 FROM events"
@@ -88,10 +101,11 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        # Should have conditional logic for groups 0 and 1
-        self.assertIn("if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`) AS `$group_0`", sql)
-        self.assertIn("if(events.timestamp < '2023-02-01 10:00:00', '', `$group_1`) AS `$group_1`", sql)
-        self.assertIn("'' AS `$group_2`", sql)
+        # Should have conditional logic for groups 0 and 1, empty string for group 2
+        self.assertIn("if(less(toTimeZone(events.timestamp,", sql)
+        self.assertIn("events.`$group_0`) AS `$group_0`", sql)
+        self.assertIn("events.`$group_1`) AS `$group_1`", sql)
+        self.assertIn("%(hogql_val_", sql)  # Group 2 should be parameterized empty string
 
     def test_group_field_in_where_clause(self):
         """Test that group filtering works in WHERE clauses"""
@@ -102,13 +116,17 @@ class TestGroupKeyFiltering(APIBaseTest):
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
+        self.database = create_hogql_database(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
         query = "SELECT event FROM events WHERE $group_0 = 'acme'"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        self.assertIn("equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`), %(hogql_val_0)s)", sql)
+        # Should use the conditional logic in WHERE clause
+        self.assertIn("equals(if(less(toTimeZone(events.timestamp,", sql)
+        self.assertIn("events.`$group_0`), %(hogql_val_", sql)
 
     def test_group_join_with_filtering(self):
         """Test that group_1.properties access includes filtering for $group_1"""
@@ -119,13 +137,16 @@ class TestGroupKeyFiltering(APIBaseTest):
             group_type_index=1,
             created_at=datetime(2023, 2, 1, 10, 0, 0, tzinfo=UTC),
         )
+        self.database = create_hogql_database(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
         query = "SELECT group_1.properties FROM events"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        self.assertIn("ON equals(if(events.timestamp < '2023-02-01 10:00:00', '', `$group_1`)", sql)
+        self.assertIn("ON equals(if(less(toTimeZone(events.timestamp,", sql)
+        self.assertIn("events.`$group_1`), events__group_1.key)", sql)
 
     def test_multiple_group_joins_with_mixed_mappings(self):
         """Test joins to multiple groups with some having filtering and others not"""
@@ -138,14 +159,18 @@ class TestGroupKeyFiltering(APIBaseTest):
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
         # No mapping for group_1
+        self.database = create_hogql_database(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
         query = "SELECT group_0.properties, group_1.properties FROM events"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        self.assertIn("ON equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`)", sql)
-        self.assertIn("ON equals('', events__group_1.key)", sql)
+        self.assertIn("ON equals(if(less(toTimeZone(events.timestamp,", sql)
+        self.assertIn("events.`$group_0`), events__group_0.key)", sql)
+        # Group 1 should use empty string since no mapping exists
+        self.assertIn("ON equals(%(hogql_val_", sql)
 
     def test_non_clickhouse_dialect_no_filtering(self):
         """Test that non-ClickHouse dialects don't get filtering"""
@@ -156,14 +181,15 @@ class TestGroupKeyFiltering(APIBaseTest):
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
+        self.database = create_hogql_database(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
 
         sql = print_ast(parsed, context=self.context, dialect="hogql")
 
-        self.assertIn("$group_0", sql)
-        self.assertNotIn("if(", sql.lower())
+        self.assertIn("SELECT $group_0 FROM", sql)
 
     def test_group_alias_with_filtering(self):
         """Test that group aliases (e.g., 'company' for $group_0) work with filtering"""
@@ -182,7 +208,10 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        self.assertIn("ON equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`)", sql)
+        self.assertIn(
+            "ON equals(if(less(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s), %(hogql_val_4)s, events.`$group_0`), events__group_0.key)",
+            sql,
+        )
 
     def test_group_alias_in_where_clause(self):
         """Test that group aliases work with filtering in WHERE clauses"""
@@ -201,4 +230,5 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
-        self.assertIn("ON equals(if(events.timestamp < '2023-01-15 12:00:00', '', `$group_0`)", sql)
+        self.assertIn("ON equals(if(less(toTimeZone(events.timestamp,", sql)
+        self.assertIn("), %(hogql_val_3)s), %(hogql_val_4)s, events.`$group_0`), events__group_0.key)", sql)
