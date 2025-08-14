@@ -3,13 +3,14 @@ from django.db.models import Prefetch
 from posthog.models.team.team import Team
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.hogql import ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.database.models import SavedQuery
 from posthog.schema import DatabaseSchemaManagedViewTableKind
 import re
 
-SUPPORTED_SOURCES: list[ExternalDataSource.Type] = [ExternalDataSource.Type.STRIPE]
+SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE]
 
 
 class RevenueAnalyticsBaseView(SavedQuery):
