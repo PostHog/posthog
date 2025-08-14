@@ -342,13 +342,13 @@ impl EphemeralTopic {
 impl Drop for EphemeralTopic {
     fn drop(&mut self) {
         info!("dropping EphemeralTopic {}...", self.topic_name);
-        
+
         // First unsubscribe to stop any ongoing polls
         self.consumer.unsubscribe();
-        
+
         // Give some time for any ongoing polls to complete
         std::thread::sleep(Duration::from_millis(100));
-        
+
         // Then delete the topic
         match futures::executor::block_on(timeout(
             Duration::from_secs(10),
