@@ -1159,7 +1159,7 @@ class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
     def calculate(self) -> R:
         response = self._calculate()
         if not self.modifiers.timings:
-            del response["timings"]
+            response.timings = None
         return response
 
 
