@@ -13,10 +13,10 @@ def combine_session_id_filters(
     if comment_session_ids is None and existing_ids is None:
         return None
 
-    if comment_session_ids is None:
+    if comment_session_ids is None and existing_ids is not None:
         return list(set(existing_ids))
 
-    if existing_ids is None:
+    if existing_ids is None and comment_session_ids is not None:
         return list(set(comment_session_ids))
 
     return list(set(comment_session_ids).intersection(set(existing_ids)))

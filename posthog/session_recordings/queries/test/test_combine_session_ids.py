@@ -30,4 +30,5 @@ class TestCombineSessionIds:
         if expected is None:
             assert result is None
         else:
-            assert sorted(result) == sorted(expected)
+            # include an assertion it is not None to help mypy
+            assert result is not None and sorted(result) == sorted(expected)
