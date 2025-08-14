@@ -180,9 +180,18 @@ describe('S3SessionBatchFileStorage', () => {
 
                 expect(uploadedData.toString()).toBe(testData.toString())
                 expect(result.bytesWritten).toBe(testData.length)
-                expect(result.url).toMatch(
-                    new RegExp(`s3://test-bucket/test-prefix/${retentionPeriod}/\\d+-[a-z0-9]+\\?range=bytes=0-\\d+$`)
-                )
+
+                if (retentionPeriod === 'legacy') {
+                    expect(result.url).toMatch(
+                        new RegExp(`s3://test-bucket/session_recording_batches/\\d+-[a-z0-9]+\\?range=bytes=0-\\d+$`)
+                    )
+                } else {
+                    expect(result.url).toMatch(
+                        new RegExp(
+                            `s3://test-bucket/test-prefix/${retentionPeriod}/\\d+-[a-z0-9]+\\?range=bytes=0-\\d+$`
+                        )
+                    )
+                }
 
                 // Reset mocks before next iteration
                 jest.clearAllMocks()

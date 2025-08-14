@@ -153,6 +153,12 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private generateKey(): string {
         const timestamp = Date.now()
         const suffix = randomBytes(8).toString('hex')
+
+        // TODO: Remove this code path when all teams have adopted the new retention mechanism
+        if (this.retentionPeriod === 'legacy') {
+            return `session_recording_batches/${timestamp}-${suffix}`
+        }
+
         return `${this.prefix}/${this.retentionPeriod}/${timestamp}-${suffix}`
     }
 }
