@@ -5,7 +5,7 @@ from uuid import UUID
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingIssueCorrelationQueryResponse,
@@ -27,7 +27,7 @@ class VolumeOptions:
     resolution: int
 
 
-class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
+class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner):
     query: ErrorTrackingIssueCorrelationQuery
     response: ErrorTrackingIssueCorrelationQueryResponse
     cached_response: CachedErrorTrackingIssueCorrelationQueryResponse

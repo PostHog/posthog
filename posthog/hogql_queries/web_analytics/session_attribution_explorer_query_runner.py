@@ -2,7 +2,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     CachedSessionAttributionExplorerQueryResponse,
     SessionAttributionExplorerQuery,
@@ -47,7 +47,7 @@ AD_IDS_PREFIXES_SESSIONS_V2 = [
 ]
 
 
-class SessionAttributionExplorerQueryRunner(QueryRunner):
+class SessionAttributionExplorerQueryRunner(AnalyticsQueryRunner):
     query: SessionAttributionExplorerQuery
     response: SessionAttributionExplorerQueryResponse
     cached_response: CachedSessionAttributionExplorerQueryResponse

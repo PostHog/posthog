@@ -6,7 +6,7 @@ from posthog.api.element import ElementSerializer
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.element.element import chain_to_elements
 from posthog.schema import (
     EventType,
@@ -18,7 +18,7 @@ from posthog.schema import (
 from posthog.utils import relative_date_parse
 
 
-class SessionsTimelineQueryRunner(QueryRunner):
+class SessionsTimelineQueryRunner(AnalyticsQueryRunner):
     """
     ## How does the sessions timeline work?
 

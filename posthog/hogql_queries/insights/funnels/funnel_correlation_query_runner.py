@@ -25,7 +25,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     get_funnel_actor_class,
     use_udf,
 )
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Team
 from posthog.models.property.util import get_property_string_expr
 from posthog.queries.util import correct_result_for_sampling
@@ -83,7 +83,7 @@ class EventContingencyTable:
 PRIOR_COUNT = 1
 
 
-class FunnelCorrelationQueryRunner(QueryRunner):
+class FunnelCorrelationQueryRunner(AnalyticsQueryRunner):
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
     ELEMENTS_DIVIDER = "__~~__"
     AUTOCAPTURE_EVENT_TYPE = "$event_type"

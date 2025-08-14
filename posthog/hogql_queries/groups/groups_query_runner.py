@@ -3,11 +3,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_order_expr, parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import GroupsQuery, GroupsQueryResponse, CachedGroupsQueryResponse
 
 
-class GroupsQueryRunner(QueryRunner):
+class GroupsQueryRunner(AnalyticsQueryRunner):
     query: GroupsQuery
     response: GroupsQueryResponse
     cached_response: CachedGroupsQueryResponse

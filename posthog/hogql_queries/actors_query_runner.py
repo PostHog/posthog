@@ -14,7 +14,7 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner, QueryRunner
 from posthog.schema import (
     ActorsQuery,
     ActorsQueryResponse,
@@ -26,7 +26,7 @@ from posthog.schema import (
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
 
-class ActorsQueryRunner(QueryRunner):
+class ActorsQueryRunner(AnalyticsQueryRunner):
     query: ActorsQuery
     response: ActorsQueryResponse
     cached_response: CachedActorsQueryResponse
