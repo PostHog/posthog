@@ -74,7 +74,6 @@ export class PersonCreateService {
                         return [existingPerson, false]
                     }
                 }
-                console.log('throwing conflict error')
 
                 // If we still can't find the person, something is wrong
                 throw new Error(
