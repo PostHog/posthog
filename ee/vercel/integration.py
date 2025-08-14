@@ -3,7 +3,7 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
-from rest_framework import exceptions, serializers
+from rest_framework import exceptions
 import structlog
 from posthog.exceptions_capture import capture_exception
 
@@ -11,8 +11,9 @@ from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
 from posthog.models import ProductIntent
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
+from django.db import transaction
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.event_usage import report_user_signed_up
 from posthog.utils import absolute_uri
@@ -130,47 +131,68 @@ class VercelIntegration:
     @staticmethod
     def upsert_installation(installation_id: str, payload: dict[str, Any]) -> None:
         logger.info("vercel_installation_upsert_started", installation_id=installation_id)
-        try:
-            # TODO: Not sure if this is the best move because users might be confused
-            # by the default project created here and their "Resource" project.
-            organization, _, user = User.objects.bootstrap(
-                is_staff=False,
-                is_email_verified=False,
-                role_at_organization="admin",
-                email=payload["account"]["contact"]["email"],
-                first_name=payload["account"]["contact"].get("name", ""),
-                organization_name=payload["account"].get("name", f"Vercel Installation {installation_id}"),
-                password=None,  # SSO instead of password. Users will still be able to reset their password.
-            )
-        except IntegrityError as e:
-            logger.exception("vercel_installation_email_conflict", email=payload["account"]["contact"]["email"])
-            capture_exception(e)
-            raise exceptions.ValidationError(
-                {"email": "There is already an account with this email address."},
-                code="unique",
-            )
 
-        report_user_signed_up(
-            user,
-            is_instance_first_user=False,
-            is_organization_first_user=True,  # Always true because we're always creating a new organization
-            backend_processor="VercelInstallationViewSet",
-            user_analytics_metadata=user.get_analytics_metadata(),
-            org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
-            social_provider="vercel",
-            referral_source="vercel",
-        )
+        with transaction.atomic():
+            try:
+                existing_installation = OrganizationIntegration.objects.get(
+                    kind=Integration.IntegrationKind.VERCEL, integration_id=installation_id
+                )
+                organization = existing_installation.organization
+                user = organization.members.filter(is_active=True).first()
+                logger.info("vercel_installation_found_existing", installation_id=installation_id)
+            except OrganizationIntegration.DoesNotExist:
+                try:
+                    user = User.objects.create_user(
+                        email=payload["account"]["contact"]["email"],
+                        password=None,
+                        first_name=payload["account"]["contact"].get("name", ""),
+                        is_staff=False,
+                        is_email_verified=False,
+                    )
+                    organization = Organization.objects.create(
+                        name=payload["account"].get("name", f"Vercel Installation {installation_id}")
+                    )
+                    Team.objects.create_with_data(initiating_user=user, organization=organization)
+                    user.join(organization=organization, level=OrganizationMembership.Level.OWNER)
+                    logger.info("vercel_installation_created_new", installation_id=installation_id)
+                except IntegrityError as e:
+                    logger.exception("vercel_installation_email_conflict", email=payload["account"]["contact"]["email"])
+                    capture_exception(e)
+                    raise exceptions.ValidationError(
+                        {"email": "There is already an account with this email address."},
+                        code="unique",
+                    )
 
-        OrganizationIntegration.objects.create(
+                report_user_signed_up(
+                    user,
+                    is_instance_first_user=False,
+                    is_organization_first_user=True,
+                    backend_processor="VercelInstallationViewSet",
+                    user_analytics_metadata=user.get_analytics_metadata(),
+                    org_analytics_metadata=organization.get_analytics_metadata(),
+                    social_provider="vercel",
+                    referral_source="vercel",
+                )
+
+        installation, created = OrganizationIntegration.objects.get_or_create(
             organization=organization,
             kind=Integration.IntegrationKind.VERCEL,
             integration_id=installation_id,
-            config={
+            defaults={
+                "config": {
+                    **payload,
+                    "billing_plan_id": "free",
+                },
+                "created_by": user,
+            },
+        )
+
+        if not created:
+            installation.config = {
                 **payload,
                 "billing_plan_id": "free",
-            },
-            created_by=user,
-        )
+            }
+            installation.save()
 
         logger.info("vercel_installation_created", installation_id=installation_id, organization_id=organization.id)
 
@@ -278,8 +300,14 @@ class VercelIntegration:
 
     @staticmethod
     def delete_resource(resource_id: str) -> None:
-        # TODO: Implement resource deletion logic
-        raise serializers.MethodNotAllowed("DELETE")
+        logger.info("vercel_resource_delete_started", resource_id=resource_id)
+        try:
+            resource = Integration.objects.get(pk=resource_id)
+            resource.delete()
+            logger.info("vercel_resource_deleted", resource_id=resource_id)
+        except Integration.DoesNotExist:
+            logger.exception("vercel_resource_not_found", resource_id=resource_id)
+            raise exceptions.NotFound("Resource not found")
 
     @staticmethod
     def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
@@ -288,7 +316,7 @@ class VercelIntegration:
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
 
         return {
-            "id": str(resource.pk),
+            "id": str(resource.pk),  # TODO: Should this be resource.pk or resource.team.uuid
             "productId": resource.config.get("productId", ""),
             "name": resource.config.get("name", resource.team.name),
             "metadata": resource.config.get("metadata", {}),
