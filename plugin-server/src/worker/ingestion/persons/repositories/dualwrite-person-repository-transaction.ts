@@ -5,7 +5,6 @@ import { TopicMessage } from '~/kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/utils/db/db'
 import { TransactionClient } from '~/utils/db/postgres'
-import { logger } from '~/utils/logger'
 
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
@@ -29,34 +28,38 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
-        const [p, s] = await Promise.all([
-            this.primaryRepo.createPerson(
-                createdAt,
-                properties,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation,
-                teamId,
-                isUserId,
-                isIdentified,
-                uuid,
-                distinctIds,
-                this.lTx
-            ),
-            this.secondaryRepo.createPerson(
-                createdAt,
-                properties,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation,
-                teamId,
-                isUserId,
-                isIdentified,
-                uuid,
-                distinctIds,
-                this.rTx
-            ),
-        ])
-        if (!p.success || !s.success) {
-            throw new Error(`DualWrite TX createPerson mismatch: primary=${p.success}, secondary=${s.success}`)
+        const p = await this.primaryRepo.createPerson(
+            createdAt,
+            properties,
+            propertiesLastUpdatedAt,
+            propertiesLastOperation,
+            teamId,
+            isUserId,
+            isIdentified,
+            uuid,
+            distinctIds,
+            this.lTx
+        )
+        if (!p.success) {
+            throw new Error(`DualWrite primary create failed`)
+        }
+        // force same ID on secondary
+        const forcedId = Number(p.person.id)
+        const s = await this.secondaryRepo.createPerson(
+            createdAt,
+            properties,
+            propertiesLastUpdatedAt,
+            propertiesLastOperation,
+            teamId,
+            isUserId,
+            isIdentified,
+            uuid,
+            distinctIds,
+            this.rTx,
+            forcedId
+        )
+        if (!s.success) {
+            throw new Error(`DualWrite secondary create failed`)
         }
         return p
     }
@@ -66,9 +69,16 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
         update: Partial<InternalPerson>,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const p = await this.primaryRepo.updatePerson(person, { ...update }, tag, this.lTx)
-        await this.secondaryRepo.updatePerson(person, { ...update }, tag ? `${tag}-secondary` : undefined, this.rTx)
-        return p
+        // Enforce version parity across primary/secondary: run primary first, then set secondary to primary's new version
+        const primaryOut = await this.primaryRepo.updatePerson(person, { ...update }, tag, this.lTx)
+        const primaryUpdated = primaryOut[0]
+        await this.secondaryRepo.updatePerson(
+            person,
+            { ...update, version: primaryUpdated.version },
+            tag ? `${tag}-secondary` : undefined,
+            this.rTx
+        )
+        return primaryOut
     }
 
     async deletePerson(person: InternalPerson): Promise<TopicMessage[]> {
@@ -93,19 +103,16 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
             this.secondaryRepo.moveDistinctIds(source, target, this.rTx),
         ])
         if (!p.success || !s.success) {
-            throw new Error(`DualWrite TX moveDistinctIds mismatch: primary=${p.success}, secondary=${s.success}`)
+            throw new Error(`DualWrite moveDistinctIds mismatch: primary=${p.success}, secondary=${s.success}`)
         }
         return p
     }
 
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        const [p, s] = await Promise.all([
+        const [p, _s] = await Promise.all([
             this.primaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, this.lTx),
             this.secondaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, this.rTx),
         ])
-        if (p !== s) {
-            logger.warn('DualWrite TX addPersonlessDistinctIdForMerge mismatch', { primary: p, secondary: s })
-        }
         return p
     }
 

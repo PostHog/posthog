@@ -6,7 +6,7 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team 
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
-import { logger } from '../../../../utils/logger'
+import { logger as _logger } from '../../../../utils/logger'
 import { PersonUpdate } from '../person-update-batch'
 import { DualWritePersonRepositoryTransaction } from './dualwrite-person-repository-transaction'
 import { PersonRepository } from './person-repository'
@@ -50,7 +50,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     ): Promise<CreatePersonResult> {
         let primaryResult!: CreatePersonResult
         await this.coordinator.run('createPerson', async (leftTx, rightTx) => {
-            // serial: create on primary first
+            // create is serial: create on primary first, then use returned id the DB generated on secondary
             const p = await this.primaryRepo.createPerson(
                 createdAt,
                 properties,
@@ -115,9 +115,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         return primaryOut
     }
 
-    // currently doesn't use txs from the coordinator because the updatePersonAssertVersion
-    // is not transactional.
-    // if we want to support this method, we'll have to address this
+    // No 2PC for this method, pretty sure its disabled in production
     async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
         let primaryOut!: [number | undefined, TopicMessage[]]
         await this.coordinator.run('updatePersonAssertVersion', async () => {
@@ -176,33 +174,27 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     }
 
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        // One-off non-transactional write; still do both but no 2PC wrapper.
-        // If you need strict guarantees here too, wrap in coordinator like others.
-        const [p, s] = await Promise.all([
-            this.primaryRepo.addPersonlessDistinctId(teamId, distinctId),
-            this.secondaryRepo.addPersonlessDistinctId(teamId, distinctId),
-        ])
-        if (p !== s) {
-            logger.warn('DualWrite addPersonlessDistinctId mismatch', { primary: p, secondary: s })
-        }
-        return p
+        let isMerged!: boolean
+        await this.coordinator.run('addPersonlessDistinctIds', async (lTx, rTx) => {
+            const [p, _s] = await Promise.all([
+                this.primaryRepo.addPersonlessDistinctId(teamId, distinctId, lTx),
+                this.secondaryRepo.addPersonlessDistinctId(teamId, distinctId, rTx),
+            ])
+            isMerged = p
+        })
+        return isMerged
     }
 
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        let inserted!: boolean
+        let isMerged!: boolean
         await this.coordinator.run('addPersonlessDistinctIdForMerge', async (lTx, rTx) => {
-            const [p, s] = await Promise.all([
+            const [p, _s] = await Promise.all([
                 this.primaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, lTx),
                 this.secondaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, rTx),
             ])
-            if (p !== s) {
-                // mismatch is not fatal, but log and keep primary
-                logger.warn('DualWrite addPersonlessDistinctIdForMerge mismatch', { primary: p, secondary: s })
-            }
-            inserted = p
-            return true
+            isMerged = p
         })
-        return inserted
+        return isMerged
     }
 
     async personPropertiesSize(personId: string): Promise<number> {

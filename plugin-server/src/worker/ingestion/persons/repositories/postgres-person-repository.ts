@@ -248,6 +248,12 @@ export class PostgresPersonRepository
         }
     }
 
+    /*
+     *
+     * to support dual-write, we need to be able to create a person with a specified id
+     * this is to keep the id drift between the primary and secondary as we create persons
+     *
+     */
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -614,9 +620,9 @@ export class PostgresPersonRepository
         return rows.map((row) => row.distinct_id)
     }
 
-    async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
+    async addPersonlessDistinctId(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean> {
         const result = await this.postgres.query(
-            PostgresUse.PERSONS_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
@@ -633,7 +639,7 @@ export class PostgresPersonRepository
 
         // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
         const existingResult = await this.postgres.query(
-            PostgresUse.PERSONS_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
                 SELECT is_merged
                 FROM posthog_personlessdistinctid
