@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import uuid
 from datetime import datetime
 from typing import cast, Any
@@ -28,7 +29,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models import Action, Element, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
@@ -164,10 +164,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
         def _create_groups(self):
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
             )
 
@@ -3756,10 +3756,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
         def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
             )
 

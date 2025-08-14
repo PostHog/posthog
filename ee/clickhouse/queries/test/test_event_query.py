@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -8,7 +9,6 @@ from posthog.models.element import Element
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.test.base import (
@@ -418,10 +418,10 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _create_groups_test_data(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

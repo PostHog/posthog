@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -26,7 +27,6 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -955,7 +955,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             filter["value"] = cohort.pk
         elif name == "group":
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
             create_group(
@@ -1457,7 +1457,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             filter["value"] = cohort.pk
         elif name == "group":
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
             create_group(

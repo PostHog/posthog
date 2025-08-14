@@ -389,7 +389,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -460,7 +461,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -756,7 +758,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -827,7 +830,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1461,7 +1465,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1559,7 +1564,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1908,7 +1914,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1979,7 +1986,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -2443,7 +2451,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -2514,7 +2523,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -3012,7 +3022,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -3083,7 +3094,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -4366,7 +4378,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -4381,7 +4394,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -4396,7 +4410,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''

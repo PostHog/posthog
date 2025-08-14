@@ -21,7 +21,7 @@ from posthog.hogql_queries.insights.retention_query_runner import RetentionQuery
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models import Action
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.models.person import Person
 from posthog.schema import RetentionQuery
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -3224,7 +3224,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         _create_person(team_id=self.team.pk, distinct_ids=["person3"])
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team_id=self.team.pk,
             project_id=self.team.project_id,
             group_type="organization",
@@ -3505,10 +3505,10 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         return runner.calculate().model_dump()["results"]
 
     def _create_groups_and_events(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

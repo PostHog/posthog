@@ -78,7 +78,7 @@
             exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
-       (SELECT events.`$group_0` AS entity_id,
+       (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
@@ -86,18 +86,18 @@
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.`$group_0` AS entity_id,
+               if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
         INNER JOIN
-          (SELECT events.`$group_0` AS entity_id,
+          (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-           GROUP BY entity_id) AS exposure_data ON equals(events.`$group_0`, exposure_data.entity_id)
+           GROUP BY entity_id) AS exposure_data ON equals(if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -125,7 +125,7 @@
             exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
-       (SELECT events.`$group_0` AS entity_id,
+       (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
@@ -133,18 +133,18 @@
         GROUP BY entity_id) AS exposures
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.`$group_0` AS entity_id,
+               if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
                accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
         FROM events
         INNER JOIN
-          (SELECT events.`$group_0` AS entity_id,
+          (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
-           GROUP BY entity_id) AS exposure_data ON equals(events.`$group_0`, exposure_data.entity_id)
+           GROUP BY entity_id) AS exposure_data ON equals(if(less(toTimeZone(events.timestamp, 'UTC'), '2020-01-01 12:00:00'), '', events.`$group_0`), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')), equals(events.event, 'purchase'))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events

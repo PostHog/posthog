@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from django.core.management import call_command
 from django.test import TestCase
 from io import StringIO
@@ -46,7 +47,7 @@ class TestFixDefinitionProjectIds(TestCase):
         )
 
         # Create misaligned GroupTypeMapping
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.detached_team,
             group_type="organization",
             group_type_index=0,
@@ -100,7 +101,7 @@ class TestFixDefinitionProjectIds(TestCase):
         )
 
         # Create misaligned GroupTypeMapping
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.detached_team,
             group_type="organization",
             group_type_index=0,
@@ -114,7 +115,7 @@ class TestFixDefinitionProjectIds(TestCase):
             project_id=self.main_project.id,  # Correct project_id
         )
 
-        correct_group_type = GroupTypeMapping.objects.create(
+        correct_group_type = create_group_type_mapping_without_created_at(
             team=self.staging_env,
             group_type="company",
             group_type_index=1,
@@ -165,7 +166,7 @@ class TestFixDefinitionProjectIds(TestCase):
             project_id=self.main_project.id,  # Correct project_id
         )
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.staging_env,
             group_type="organization",
             group_type_index=0,
@@ -355,14 +356,14 @@ class TestFixDefinitionProjectIds(TestCase):
         wrong_project1 = Team.objects.create(organization=self.organization, name="Wrong Project 1")
         wrong_project2 = Team.objects.create(organization=self.organization, name="Wrong Project 2")
 
-        gtm1 = GroupTypeMapping.objects.create(
+        gtm1 = create_group_type_mapping_without_created_at(
             team=team1,
             group_type="organization",
             group_type_index=0,
             project_id=wrong_project1.id,  # Wrong project_id
         )
 
-        gtm2 = GroupTypeMapping.objects.create(
+        gtm2 = create_group_type_mapping_without_created_at(
             team=team2,
             group_type="organization",
             group_type_index=0,
@@ -370,7 +371,7 @@ class TestFixDefinitionProjectIds(TestCase):
         )
 
         # Also create one with different group_type_index
-        gtm3 = GroupTypeMapping.objects.create(
+        gtm3 = create_group_type_mapping_without_created_at(
             team=team1,
             group_type="company",
             group_type_index=1,

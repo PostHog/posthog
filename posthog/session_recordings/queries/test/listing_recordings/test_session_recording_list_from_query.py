@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from datetime import datetime, timedelta
 from typing import Literal
 from unittest.mock import ANY
@@ -12,7 +13,7 @@ from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
-from posthog.models import GroupTypeMapping, Person
+from posthog.models import Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
@@ -3576,7 +3577,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
         )
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=0
         )
         create_group(
@@ -3586,7 +3587,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "project one"},
         )
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=1
         )
         create_group(
