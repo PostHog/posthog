@@ -33,7 +33,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         pauseStream: true,
         resumeStream: true,
         setCurEventProperties: (curEventProperties) => ({ curEventProperties }),
-        setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
+        setClientSideFilters: (clientSideFilters: Record<string, any>) => ({ clientSideFilters }),
         pollStats: true,
         setStats: (stats) => ({ stats }),
         addEventHost: (eventHost) => ({ eventHost }),
@@ -59,7 +59,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
         clientSideFilters: [
-            {},
+            {} as Record<string, any>,
             {
                 setClientSideFilters: (_, { clientSideFilters }) => clientSideFilters,
             },
@@ -110,10 +110,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         eventCount: [() => [selectors.events], (events: any) => events.length],
         filteredEvents: [
             (s) => [s.events, s.clientSideFilters],
-            (events, clientSideFilters) => {
+            (events: LiveEvent[], clientSideFilters: Record<string, any>) => {
                 return events.filter((event) => {
                     return Object.entries(clientSideFilters).every(([key, value]) => {
-                        return event[key] === value
+                        return key in event && event[key] === value
                     })
                 })
             },
