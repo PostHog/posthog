@@ -17,6 +17,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="grouptypemapping",
             name="created_at",
-            field=models.DateTimeField(auto_now_add=True),
+            field=models.DateTimeField(null=True, blank=True),
         ),
     ]
