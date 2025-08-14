@@ -238,7 +238,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                     {/* Product variants display (session replay + mobile replay) */}
                     {sessionReplayVariants && product.subscribed && !isUnlicensedDebug ? (
-                        <div className="space-y-4 mt-6">
+                        <div className="space-y-4 mt-4">
                             {sessionReplayVariants.map(
                                 (variant: {
                                     key: string
@@ -256,7 +256,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                                     return (
                                         <div key={variant.key}>
-                                            <div className="grid grid-cols-[24px_1fr_130px_100px] gap-4 items-center">
+                                            <div className="grid grid-cols-[auto_1fr_130px_100px] gap-4 items-center">
                                                 <LemonButton
                                                     icon={
                                                         variantExpandedStates?.[variant.key] ? (
