@@ -2,12 +2,26 @@ from typing import Optional
 from django.core import serializers
 from django.db.models import QuerySet, Manager
 import posthoganalytics
+from prometheus_client import Counter
+
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.redis import get_client
 from posthog.settings import TEST
 
 TEST_OVERRIDE = False
+
+DATABASE_CACHE_COUNTER = Counter(
+    "posthog_get_model_cache",
+    "Metric tracking whether a database query was fetched from cache or not",
+    labelnames=["result", "model"],
+)
+
+DATABASE_INVALIDATION_COUNTER = Counter(
+    "posthog_invalidate_model_cache",
+    "Metric tracking whether a database query was invalidated",
+    labelnames=["model"],
+)
 
 
 # temporary for rollout purposes
@@ -64,14 +78,16 @@ class CachedQuerySet(QuerySet):
 
                 data = redis_client.get(key)
                 if data is not None:
+                    DATABASE_CACHE_COUNTER.labels(result="hit_redis", model=self.model.__name__).inc()
                     return [deserialized.object for deserialized in serializers.deserialize("json", data)]
 
                 data = serializers.serialize("json", self)
 
                 redis_client.set(key, data, ex=timeout)
-
+                DATABASE_CACHE_COUNTER.labels(result="hit_db", model=self.model.__name__).inc()
             except Exception as e:
                 capture_exception(e)
+                DATABASE_CACHE_COUNTER.labels(result="error", model=self.model.__name__).inc()
 
         return list(self)
 
@@ -79,7 +95,9 @@ class CachedQuerySet(QuerySet):
         try:
             redis_client = get_client()
             key = self.get_commit_cache_key(team_id=team_id, key_prefix=key_prefix)
-            redis_client.delete(key)
+            deleted_count = redis_client.delete(key)
+            if deleted_count > 0:
+                DATABASE_INVALIDATION_COUNTER.labels(model=self.model.__name__).inc()
         except Exception as e:
             capture_exception(e)
 
