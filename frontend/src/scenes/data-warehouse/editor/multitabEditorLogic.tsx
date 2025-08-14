@@ -535,6 +535,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
+            // If there's no active tab, create one first to ensure Monaco Editor is available
+            if (!values.activeModelUri || values.allTabs.length === 0) {
+                actions.createTab(suggestedQueryInput)
+                return
+            }
+
             if (values.queryInput) {
                 actions._setSuggestionPayload({
                     suggestedValue: suggestedQueryInput,
@@ -910,7 +916,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                 actions.setTabs(newModels)
 
-                if (activeModelUri) {
+                if (activeModelUri && newModels.length) {
                     const uri = props.monaco?.Uri.parse(activeModelUri)
                     const activeModel = props.monaco?.editor
                         .getModels()
@@ -1028,7 +1034,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query,
                 variables: Object.fromEntries(
                     Object.entries(values.sourceQuery.source.variables ?? {}).filter(([_, variable]) =>
-                        query.includes(`{variables.${variable.code_name}}`)
+                        query.includes(`variables.${variable.code_name}`)
                     )
                 ),
             }

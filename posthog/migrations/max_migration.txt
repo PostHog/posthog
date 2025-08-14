@@ -1,1 +1,1 @@
-0820_organization_allow_publicly_shared_resources
+0822_person_properties_size_constraint

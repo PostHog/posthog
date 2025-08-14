@@ -410,13 +410,13 @@ class SQLSemanticsCorrectness(LLMClassifier):
     async def _run_eval_async(
         self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
     ):
-        if not output:
+        if not output or output.strip() == "":
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
         return await super()._run_eval_async(output, expected, database_schema=database_schema, **kwargs)
 
     def _run_eval_sync(
         self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
     ):
-        if not output:
+        if not output or output.strip() == "":
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
         return super()._run_eval_sync(output, expected, database_schema=database_schema, **kwargs)

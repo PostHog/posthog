@@ -7,8 +7,7 @@ import typing
 import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
-from posthog.models import Integration
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
+from posthog.models.integration import Integration, ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.warehouse.types import IncrementalFieldType

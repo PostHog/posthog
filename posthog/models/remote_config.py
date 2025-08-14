@@ -23,6 +23,8 @@ from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
+from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -103,6 +105,21 @@ class RemoteConfig(UUIDModel):
     config = models.JSONField()
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
+
+    @classmethod
+    def get_hypercache(cls):
+        def load_config(token):
+            try:
+                return RemoteConfig.objects.select_related("team").get(team__api_token=token).build_config()
+            except RemoteConfig.DoesNotExist:
+                return HyperCacheStoreMissing()
+
+        return HyperCache(
+            namespace="array",
+            value="config.json",
+            token_based=True,  # We store and load via the team token
+            load_fn=load_config,
+        )
 
     def build_config(self):
         from posthog.models.feature_flag import FeatureFlag
@@ -384,6 +401,12 @@ class RemoteConfig(UUIDModel):
             self.config = config
             self.synced_at = timezone.now()
             self.save()
+
+            try:
+                RemoteConfig.get_hypercache().update_cache(self.team.api_token)
+            except Exception as e:
+                logger.exception(f"Failed to update hypercache for team {self.team_id}")
+                capture_exception(e)
 
             # Update the redis cache key for the config
             cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)

@@ -28,6 +28,7 @@ from ee.hogai.graph import (
 )
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
+from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import (
@@ -68,6 +69,7 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
+    NotebookUpdateMessage,
     ReasoningMessage,
     VisualizationMessage,
 )
@@ -93,6 +95,7 @@ STREAMING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
     TaxonomyNodeName.LOOP_NODE,
+    AssistantNodeName.SESSION_SUMMARIZATION,
 }
 """Nodes that can stream messages to the client."""
 
@@ -107,6 +110,7 @@ VERBOSE_NODES: set[AssistantNodeName | TaxonomyNodeName] = STREAMING_NODES | {
 THINKING_NODES: set[AssistantNodeName | TaxonomyNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
     TaxonomyNodeName.LOOP_NODE,
+    AssistantNodeName.SESSION_SUMMARIZATION,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -434,6 +438,8 @@ class Assistant:
                 if ui_context and (ui_context.dashboards or ui_context.insights):
                     return ReasoningMessage(content="Calculating context")
                 return None
+            case AssistantNodeName.SESSION_SUMMARIZATION:
+                return ReasoningMessage(content="Summarizing session recordings")
             case _:
                 return None
 
@@ -542,6 +548,17 @@ class Assistant:
         if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
             return None
         return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
+
+    def _create_notebook_update_message(self, content: str) -> Optional[NotebookUpdateMessage]:
+        """Create a notebook update message from markdown content."""
+        if not self._state or not self._state.notebook_id:
+            logger.debug("No notebook id found in state", state=self._state)
+            return None
+
+        serializer = NotebookSerializer()
+        json_content = serializer.from_markdown_to_json(content)
+        # NOTE: this shouldn't have an id, because it's a partial update chunk, not the final message
+        return NotebookUpdateMessage(notebook_id=self._state.notebook_id, content=json_content)
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""

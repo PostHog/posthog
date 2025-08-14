@@ -3,7 +3,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { errorTrackingImpactSceneLogic } from './errorTrackingImpactSceneLogic'
 import { useActions, useValues } from 'kea'
-import { LemonEventName } from 'scenes/actions/EventName'
+import { EventName } from 'products/actions/frontend/components/EventName'
 import { Spinner } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -19,7 +19,7 @@ export function ErrorTrackingImpactScene(): JSX.Element | null {
 
     return hasIssueCorrelation ? (
         <ErrorTrackingSetupPrompt>
-            <LemonEventName value={event} onChange={setEvent} allEventsOption="clear" />
+            <EventName value={event} onChange={setEvent} allEventsOption="clear" />
             {issuesLoading ? <Spinner /> : <div>{JSON.stringify(issues)}</div>}
         </ErrorTrackingSetupPrompt>
     ) : null

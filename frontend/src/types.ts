@@ -51,6 +51,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
@@ -2964,7 +2965,7 @@ export interface ChartParams {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     /** allows overriding by queries, e.g. setting empty state text*/
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
 }
 
 export interface HistogramGraphDatum {
@@ -3025,6 +3026,7 @@ export interface SurveyDisplayConditions {
     urlMatchType?: SurveyMatchType
     deviceTypes?: string[]
     deviceTypesMatchType?: SurveyMatchType
+    linkedFlagVariant?: string
     actions: {
         values: {
             id: number
@@ -3280,6 +3282,7 @@ export interface FeatureFlagGroupType {
     variant?: string | null
     users_affected?: number
     sort_key?: string | null // Client-side only stable id for sorting.
+    description?: string | null
 }
 
 export interface MultivariateFlagVariant {
@@ -3867,6 +3870,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
+    effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
@@ -4262,7 +4266,7 @@ export enum ExporterFormat {
 export type LocalExportContext = {
     localData: string
     filename: string
-    mediaType: ExporterFormat
+    mediaType?: ExporterFormat
 }
 
 export type OnlineExportContext = {
@@ -4278,7 +4282,16 @@ export type QueryExportContext = {
     filename?: string
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
+export interface ReplayExportContext {
+    session_recording_id: string
+    timestamp?: number
+    css_selector?: string
+    width?: number
+    height?: number
+    filename?: string
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
 
 export interface ExportedAssetType {
     id: number
@@ -4483,6 +4496,8 @@ export type PromptFlag = {
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
     ACTION = 'Action',
+    ALERT_CONFIGURATION = 'AlertConfiguration',
+    ANNOTATION = 'Annotation',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     GROUP = 'Group',
@@ -5108,6 +5123,7 @@ export type CyclotronJobInputSchemaType = {
         | 'integration'
         | 'integration_field'
         | 'email'
+        | 'native_email'
     key: string
     label: string
     choices?: { value: string; label: string }[]

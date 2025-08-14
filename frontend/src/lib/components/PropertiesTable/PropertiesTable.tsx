@@ -28,6 +28,9 @@ import { CopyToClipboardInline } from '../CopyToClipboard'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { JSONViewer } from '../JSONViewer'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -224,6 +227,7 @@ export function PropertiesTable({
     const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const objectProperties = useMemo(() => {
         if (!properties || Array.isArray(properties) || !isObject(properties)) {
@@ -334,10 +338,32 @@ export function PropertiesTable({
                                 ),
                                 fullWidth: true,
                                 render: function Value(_, item: any): JSX.Element {
+                                    const arrayItem = item[1]
+                                    const isComplexStructure =
+                                        Array.isArray(arrayItem) || (isObject(arrayItem) && arrayItem !== null)
+                                    if (!featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
+                                        return (
+                                            <PropertiesTable
+                                                type={type}
+                                                properties={item[1]}
+                                                nestingLevel={nestingLevel + 1}
+                                                useDetectedPropertyType={
+                                                    ['$set', '$set_once'].some((s) => s === rootKey)
+                                                        ? false
+                                                        : useDetectedPropertyType
+                                                }
+                                            />
+                                        )
+                                    }
+
+                                    if (isComplexStructure) {
+                                        return <JSONViewer src={arrayItem} collapsed={true} />
+                                    }
+
                                     return (
-                                        <PropertiesTable
+                                        <ValueDisplay
                                             type={type}
-                                            properties={item[1]}
+                                            value={arrayItem}
                                             nestingLevel={nestingLevel + 1}
                                             useDetectedPropertyType={
                                                 ['$set', '$set_once'].some((s) => s === rootKey)
@@ -387,6 +413,11 @@ export function PropertiesTable({
                 key: 'value',
                 title: 'Value',
                 render: function Value(_, item: any): JSX.Element {
+                    const isComplexStructure = Array.isArray(item[1]) || (isObject(item[1]) && item[1] !== null)
+
+                    if (isComplexStructure && featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
+                        return <JSONViewer src={item[1]} collapsed={true} />
+                    }
                     return (
                         <PropertiesTable
                             type={type}

@@ -54,7 +54,7 @@ thread_local! {
 /// ## Returns
 /// * `f64` - A number between 0 and 1
 pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
-    let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
+    let hash_key = format!("{prefix}{hashed_identifier}{salt}");
     let hash_value = Sha1::digest(hash_key.as_bytes());
     // We use the first 8 bytes of the hash and shift right by 4 bits
     // This is equivalent to using the first 15 hex characters (7.5 bytes) of the hash
@@ -67,7 +67,13 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns void if it succeeds.
-#[instrument(skip_all, fields(team_id = %team_id, distinct_id = %distinct_id, person_query_ms, cohort_query_ms, group_query_ms, cohort_ids = ?static_cohort_ids, group_type_indexes = ?group_type_indexes, group_keys = ?group_keys))]
+#[instrument(skip_all, fields(
+    team_id = %team_id,
+    distinct_id = %distinct_id,
+    cohort_ids = ?static_cohort_ids,
+    group_type_indexes = ?group_type_indexes,
+    group_keys = ?group_keys
+))]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
@@ -88,7 +94,28 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         ),
     ];
     let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
-    let mut conn = reader.as_ref().get_connection().await?;
+    let conn_acquisition_start = Instant::now();
+    let conn_result = reader.as_ref().get_connection().await;
+    let conn_acquisition_duration = conn_acquisition_start.elapsed();
+
+    let mut conn = match conn_result {
+        Ok(conn) => {
+            info!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                "Database connection acquired"
+            );
+            conn
+        }
+        Err(e) => {
+            warn!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                error = ?e,
+                "Failed to acquire database connection"
+            );
+            conn_timer.fin();
+            return Err(FlagError::from(e));
+        }
+    };
     conn_timer.fin();
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
@@ -122,7 +149,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     person_query_timer.fin();
 
     let person_query_duration = person_query_start.elapsed();
-    tracing::Span::current().record("person_query_ms", person_query_duration.as_millis());
 
     if person_query_duration.as_millis() > 500 {
         warn!(
@@ -168,7 +194,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             cohort_timer.fin();
 
             let cohort_query_duration = cohort_query_start.elapsed();
-            tracing::Span::current().record("cohort_query_ms", cohort_query_duration.as_millis());
 
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
@@ -260,7 +285,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         group_query_timer.fin();
 
         let group_query_duration = group_query_start.elapsed();
-        tracing::Span::current().record("group_query_ms", group_query_duration.as_millis());
 
         if group_query_duration.as_millis() > 300 {
             warn!(
@@ -600,7 +624,7 @@ pub async fn should_write_hash_key_override(
             ];
             let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
             let mut conn = reader.get_connection().await.map_err(|e| {
-                FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
+                FlagError::DatabaseError(format!("Failed to acquire connection: {e}"))
             })?;
             conn_timer.fin();
 
@@ -610,7 +634,7 @@ pub async fn should_write_hash_key_override(
                 .bind(project_id)
                 .fetch_all(&mut *conn)
                 .await
-                .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {}", e)))?;
+                .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {e}")))?;
 
             Ok::<bool, FlagError>(!rows.is_empty())
         })
@@ -759,9 +783,7 @@ mod tests {
         let hash = calculate_hash("holdout-", hashed_identifier, "").unwrap();
         assert!(
             (hash - expected_hash).abs() < f64::EPSILON,
-            "Hash {} should equal expected value {} within floating point precision",
-            hash,
-            expected_hash
+            "Hash {hash} should equal expected value {expected_hash} within floating point precision"
         );
     }
 

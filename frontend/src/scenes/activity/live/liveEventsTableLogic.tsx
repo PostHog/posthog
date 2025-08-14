@@ -4,18 +4,23 @@ import api from 'lib/api'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { LiveEvent } from '~/types'
+import { Breadcrumb, LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
 export interface LiveEventsTableProps {
-    showLiveStreamErrorToast: boolean
+    showLiveStreamErrorToast?: boolean
+    tabId?: string
 }
 
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
+    tabAwareScene(),
     props({} as LiveEventsTableProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -28,7 +33,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         pauseStream: true,
         resumeStream: true,
         setCurEventProperties: (curEventProperties) => ({ curEventProperties }),
-        setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
+        setClientSideFilters: (clientSideFilters: Record<string, any>) => ({ clientSideFilters }),
         pollStats: true,
         setStats: (stats) => ({ stats }),
         addEventHost: (eventHost) => ({ eventHost }),
@@ -54,7 +59,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
         clientSideFilters: [
-            {},
+            {} as Record<string, any>,
             {
                 setClientSideFilters: (_, { clientSideFilters }) => clientSideFilters,
             },
@@ -105,13 +110,27 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         eventCount: [() => [selectors.events], (events: any) => events.length],
         filteredEvents: [
             (s) => [s.events, s.clientSideFilters],
-            (events, clientSideFilters) => {
+            (events: LiveEvent[], clientSideFilters: Record<string, any>) => {
                 return events.filter((event) => {
                     return Object.entries(clientSideFilters).every(([key, value]) => {
-                        return event[key] === value
+                        return key in event && event[key] === value
                     })
                 })
             },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'Activity',
+                    name: `Activity`,
+                    path: urls.activity(),
+                },
+                {
+                    key: Scene.LiveEvents,
+                    name: 'Live',
+                },
+            ],
         ],
     })),
     listeners(({ actions, values, cache, props }) => ({

@@ -914,6 +914,13 @@ export interface DataVisualizationNode extends Node<never> {
     tableSettings?: TableSettings
 }
 
+export type DataTableNodeViewPropsContextType = 'event_definition' | 'team_columns'
+
+export interface DataTableNodeViewPropsContext {
+    type: DataTableNodeViewPropsContextType
+    eventDefinitionId?: string
+}
+
 interface DataTableNodeViewProps {
     /** Show with most visual options enabled. Used in scenes. */ full?: boolean
     /** Include an event filter above the table (EventsNode only) */
@@ -957,10 +964,7 @@ interface DataTableNodeViewProps {
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
-    context?: {
-        type: 'event_definition' | 'team_columns'
-        eventDefinitionId?: string
-    }
+    context?: DataTableNodeViewPropsContext
 }
 
 // Saved insight node
@@ -1304,6 +1308,7 @@ export type RetentionFilter = {
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
+    showTrendLines?: boolean
 }
 
 export interface RetentionValue {
@@ -2090,8 +2095,10 @@ export interface ErrorTrackingSceneToolOutput
     filterTestAccounts?: boolean
 }
 
+export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
+
 export interface ErrorTrackingIssueAssignee {
-    type: 'user' | 'role'
+    type: ErrorTrackingIssueAssigneeType
     id: integer | string
 }
 
@@ -2776,8 +2783,16 @@ export interface DatabaseSchemaField {
     id?: string
 }
 
+export type DatabaseSchemaTableType =
+    | 'posthog'
+    | 'data_warehouse'
+    | 'view'
+    | 'batch_export'
+    | 'materialized_view'
+    | 'managed_view'
+
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view' | 'managed_view'
+    type: DatabaseSchemaTableType
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -2792,8 +2807,8 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
 export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
-    REVENUE_ANALYTICS_INVOICE_ITEM = 'revenue_analytics_invoice_item',
     REVENUE_ANALYTICS_PRODUCT = 'revenue_analytics_product',
+    REVENUE_ANALYTICS_REVENUE_ITEM = 'revenue_analytics_revenue_item',
     REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
@@ -3025,12 +3040,14 @@ export interface ActorsPropertyTaxonomyResponse {
 
 export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
     kind: NodeKind.ActorsPropertyTaxonomyQuery
-    property: string
-    group_type_index?: integer
+    properties: string[]
+    groupTypeIndex?: integer
     maxPropertyValues?: integer
 }
 
-export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
+export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<
+    ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
+>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
@@ -3107,9 +3124,11 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
+export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
+
 export interface LLMTraceEvent {
     id: string
-    event: string
+    event: AIEventType | string // Allow both specific AI events and other event types
     properties: Record<string, any>
     createdAt: string
 }
@@ -3422,6 +3441,8 @@ export interface MarketingAnalyticsTableQuery
     filterTestAccounts?: boolean
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter | null
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
@@ -3571,13 +3592,25 @@ export interface SourceFieldOauthConfig {
     kind: string
 }
 
+export type SourceFieldInputConfigType =
+    | 'text'
+    | 'email'
+    | 'search'
+    | 'url'
+    | 'password'
+    | 'time'
+    | 'number'
+    | 'textarea'
+
 export interface SourceFieldInputConfig {
-    type: 'text' | 'email' | 'search' | 'url' | 'password' | 'time' | 'number' | 'textarea'
+    type: SourceFieldInputConfigType
     name: string
     label: string
     required: boolean
     placeholder: string
 }
+
+export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
 export interface SourceFieldSelectConfig {
     type: 'select'
@@ -3586,7 +3619,7 @@ export interface SourceFieldSelectConfig {
     required: boolean
     defaultValue: string
     options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
-    converter?: 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
+    converter?: SourceFieldSelectConfigConverter
 }
 
 export interface SourceFieldSwitchGroupConfig {
