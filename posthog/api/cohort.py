@@ -242,6 +242,35 @@ class CohortSerializer(serializers.ModelSerializer):
             "experiment_set",
         ]
 
+    def validate(self, attrs):
+        """Override validate to check cohort_type requirement based on feature flag"""
+        attrs = super().validate(attrs)
+
+        # Check if the explicit-cohort-types feature flag is enabled
+        if self.context and "request" in self.context:
+            import posthoganalytics
+
+            request = self.context["request"]
+            user = request.user
+            user_distinct_id = user.distinct_id if hasattr(user, "distinct_id") else str(user.id)
+
+            # Check if feature flag is enabled for this user
+            is_enabled = posthoganalytics.feature_enabled(
+                "explicit-cohort-types",
+                user_distinct_id,
+                groups={"organization": str(user.current_organization_id)},
+            )
+
+            if is_enabled:
+                # Feature flag is enabled, make cohort_type required for new cohorts
+                if not attrs.get("cohort_type") and not self.instance:
+                    # Only require for new cohorts, not updates
+                    raise ValidationError(
+                        {"cohort_type": "This field is required when explicit cohort types are enabled."}
+                    )
+
+        return attrs
+
     def validate_cohort_type(self, value):
         """Validate that the cohort type matches the filters"""
         if not value:

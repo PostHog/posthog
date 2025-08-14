@@ -93,6 +93,7 @@ export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohor
     groupIndex?: number
     index?: number
     cohort?: CohortType
+    explicitCohortTypes?: boolean
 }
 
 export interface CohortSelectorFieldProps extends CohortFieldBaseProps {

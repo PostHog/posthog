@@ -43,6 +43,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const explicitCohortTypes = featureFlags[FEATURE_FLAGS.EXPLICIT_COHORT_TYPES]
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
 
     if (cohortMissing) {
@@ -209,29 +210,33 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 <LemonInput data-attr="cohort-name" />
                             </LemonField>
                         </div>
-                        <div className="flex-1">
-                            <LemonField name="cohort_type" label="Type">
-                                {({ value, onChange }) => (
-                                    <LemonSelect
-                                        disabledReason={
-                                            isNewCohort
-                                                ? null
-                                                : 'Create a new cohort to use a different type of cohort.'
-                                        }
-                                        options={COHORT_TYPE_OPTIONS}
-                                        value={
-                                            value ||
-                                            (cohort.is_static ? CohortTypeEnum.Static : CohortTypeEnum.PersonProperty)
-                                        }
-                                        onChange={(cohortType) => {
-                                            onChange(cohortType)
-                                        }}
-                                        fullWidth
-                                        data-attr="cohort-type"
-                                    />
-                                )}
-                            </LemonField>
-                        </div>
+                        {explicitCohortTypes && (
+                            <div className="flex-1">
+                                <LemonField name="cohort_type" label="Type">
+                                    {({ value, onChange }) => (
+                                        <LemonSelect
+                                            disabledReason={
+                                                isNewCohort
+                                                    ? null
+                                                    : 'Create a new cohort to use a different type of cohort.'
+                                            }
+                                            options={COHORT_TYPE_OPTIONS}
+                                            value={
+                                                value ||
+                                                (cohort.is_static
+                                                    ? CohortTypeEnum.Static
+                                                    : CohortTypeEnum.PersonProperty)
+                                            }
+                                            onChange={(cohortType) => {
+                                                onChange(cohortType)
+                                            }}
+                                            fullWidth
+                                            data-attr="cohort-type"
+                                        />
+                                    )}
+                                </LemonField>
+                            </div>
+                        )}
                         {!isNewCohort && !cohort?.is_static && (
                             <div className="max-w-70 w-fit">
                                 <div className="flex gap-1 flex-col">
@@ -269,7 +274,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </LemonField>
                     </div>
                 </div>
-                {cohort.cohort_type === CohortTypeEnum.Static || (!cohort.cohort_type && cohort.is_static) ? (
+                {(explicitCohortTypes && cohort.cohort_type === CohortTypeEnum.Static) ||
+                (!explicitCohortTypes && cohort.is_static) ||
+                (!cohort.cohort_type && cohort.is_static) ? (
                     <div className="mt-4 ph-ignore-input">
                         <LemonField
                             name="csv"
@@ -349,7 +356,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 suffix={['criterion', 'criteria']}
                             />
                         </div>
-                        <CohortCriteriaGroups id={logicProps.id} />
+                        <CohortCriteriaGroups id={logicProps.id} explicitCohortTypes={explicitCohortTypes} />
                     </>
                 )}
 

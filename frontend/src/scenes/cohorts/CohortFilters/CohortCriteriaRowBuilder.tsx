@@ -24,6 +24,7 @@ export interface CohortCriteriaRowBuilderProps {
     hideDeleteIcon?: boolean
     onChangeType?: (nextType: BehavioralFilterType) => void
     cohort?: CohortType
+    explicitCohortTypes?: boolean
 }
 
 export function CohortCriteriaRowBuilder({
@@ -36,6 +37,7 @@ export function CohortCriteriaRowBuilder({
     hideDeleteIcon = false,
     onChangeType,
     cohort,
+    explicitCohortTypes,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
     const rowShape = ROWS[type]
@@ -47,6 +49,7 @@ export function CohortCriteriaRowBuilder({
                     fieldKey: _field.fieldKey,
                     criteria,
                     cohort,
+                    explicitCohortTypes,
                     ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
                     ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),

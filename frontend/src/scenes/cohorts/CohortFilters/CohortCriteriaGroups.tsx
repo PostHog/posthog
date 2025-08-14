@@ -16,7 +16,7 @@ import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/co
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
-export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
+export function CohortCriteriaGroups(logicProps: CohortLogicProps & { explicitCohortTypes?: boolean }): JSX.Element {
     const logic = cohortEditLogic(logicProps)
     const { cohort } = useValues(logic)
     const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(logic)
@@ -88,6 +88,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 type={criteriaToBehavioralFilterType(criteria)}
                                                 hideDeleteIcon={group.values.length <= 1}
                                                 cohort={cohort}
+                                                explicitCohortTypes={logicProps.explicitCohortTypes}
                                             />
                                             {criteriaIndex === group.values.length - 1 && (
                                                 <div className="m-3">

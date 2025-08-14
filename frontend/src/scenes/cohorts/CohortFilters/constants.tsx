@@ -853,7 +853,10 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortSelectorField
                 {...p}
-                fieldOptionGroupTypes={getFieldOptionsForCohortType(p.cohort?.cohort_type || 'analytical')}
+                fieldOptionGroupTypes={getFieldOptionsForCohortType(
+                    p.cohort?.cohort_type || 'analytical',
+                    p.explicitCohortTypes
+                )}
             />
         )
     },
@@ -1022,7 +1025,24 @@ export const BEHAVIORAL_TYPE_TO_LABEL: Partial<Record<BehavioralFilterType, { la
     ...SCALE_FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
 }
 
-export const getFieldOptionsForCohortType = (cohortType?: string): FieldOptionsType[] => {
+export const getFieldOptionsForCohortType = (
+    cohortType?: string,
+    explicitCohortTypes?: boolean
+): FieldOptionsType[] => {
+    // If feature flag is not enabled, return all options for non-static cohorts
+    if (!explicitCohortTypes) {
+        if (!cohortType || cohortType === 'static') {
+            return []
+        }
+        return [
+            FieldOptionsType.EventBehavioral,
+            FieldOptionsType.PersonPropertyBehavioral,
+            FieldOptionsType.CohortBehavioral,
+            FieldOptionsType.LifecycleBehavioral,
+        ]
+    }
+
+    // Feature flag enabled - use cohort type to determine available options
     if (!cohortType || cohortType === 'static') {
         return []
     }
