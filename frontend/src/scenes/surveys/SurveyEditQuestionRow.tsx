@@ -177,15 +177,27 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
 
                             if (isCurrentTypeMultipleSurveyQuestion && isNewTypeMultipleSurveyQuestion) {
                                 setQuestionType(index, newType)
-                            } else {
-                                setDefaultForQuestionType(
-                                    index,
-                                    newType,
-                                    editingQuestion,
-                                    editingDescription,
-                                    editingThankYouMessage
-                                )
+                                resetBranchingForQuestion(index)
+                                return
                             }
+                            if (isCurrentTypeMultipleSurveyQuestion && !isNewTypeMultipleSurveyQuestion) {
+                                if (
+                                    !confirm(
+                                        'The choices you have configured will be removed. Would you like to proceed?'
+                                    )
+                                ) {
+                                    // Doing this because by the time we receive `onSelect`, the question type has already changed
+                                    setQuestionType(index, question.type)
+                                    return
+                                }
+                            }
+                            setDefaultForQuestionType(
+                                index,
+                                newType,
+                                editingQuestion,
+                                editingDescription,
+                                editingThankYouMessage
+                            )
                             resetBranchingForQuestion(index)
                         }}
                         options={[
