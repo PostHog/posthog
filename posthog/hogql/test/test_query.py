@@ -13,7 +13,11 @@ from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
+from posthog.hogql.test.utils import (
+    pretty_print_in_tests,
+    pretty_print_response_in_tests,
+    execute_hogql_query_with_debug,
+)
 from posthog.models import Cohort
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.cohort.util import recalculate_cohortpeople
@@ -27,7 +31,6 @@ from posthog.schema import (
     DateRange,
     QueryTiming,
     SessionPropertyFilter,
-    HogQLQueryModifiers,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -141,12 +144,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_query_timings(self):
         with freeze_time("2020-01-10"):
             random_uuid = self._create_random_events()
-            response = execute_hogql_query(
+            response = execute_hogql_query_with_debug(
                 "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
                 pretty=False,
-                modifiers=HogQLQueryModifiers(debug=True),
             )
             assert response.timings is not None
             assert isinstance(response.timings, list)
@@ -220,7 +222,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10"):
             self._create_random_events()
 
-            response = execute_hogql_query(
+            response = execute_hogql_query_with_debug(
                 "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events e LIMIT 10",
                 self.team,
                 pretty=False,
@@ -239,7 +241,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10"):
             self._create_random_events()
 
-            response = execute_hogql_query(
+            response = execute_hogql_query_with_debug(
                 "SELECT pdi.distinct_id, pdi.person.created_at FROM person_distinct_ids pdi LIMIT 10",
                 self.team,
                 pretty=False,
@@ -260,7 +262,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10"):
             self._create_random_events()
 
-            response = execute_hogql_query(
+            response = execute_hogql_query_with_debug(
                 "SELECT pdi.distinct_id, pdi.person.properties.sneaky_mail FROM person_distinct_ids pdi LIMIT 10",
                 self.team,
                 pretty=False,
@@ -1427,7 +1429,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
-        response = execute_hogql_query(
+        response = execute_hogql_query_with_debug(
             query,
             team=self.team,
             pretty=False,
@@ -1462,7 +1464,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     )
                 ]
             )
-            response = execute_hogql_query(
+            response = execute_hogql_query_with_debug(
                 query,
                 team=self.team,
                 filters=filters,
@@ -1478,7 +1480,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_union_all_limits(self):
         query = "SELECT event FROM events UNION ALL SELECT event FROM events"
-        response = execute_hogql_query(
+        response = execute_hogql_query_with_debug(
             query,
             team=self.team,
             pretty=False,
@@ -1512,7 +1514,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     SessionPropertyFilter(key="$entry_current_url", operator="exact", value="https://example.com/1")
                 ]
             )
-            response = execute_hogql_query(
+            response = execute_hogql_query_with_debug(
                 query,
                 team=self.team,
                 filters=filters,
@@ -1545,7 +1547,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             query = "SELECT session_id, $entry_current_url from sessions WHERE {filters}"
             filters = HogQLFilters(dateRange=DateRange(date_from="2024-07-04", date_to="2024-07-06"))
-            response = execute_hogql_query(
+            response = execute_hogql_query_with_debug(
                 query,
                 team=self.team,
                 filters=filters,

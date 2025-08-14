@@ -1,11 +1,12 @@
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import execute_hogql_query_with_debug
 from posthog.test.base import BaseTest
 
 
 class TestExplainCSPReport(BaseTest):
     def test_explain_csp_report(self):
-        response = execute_hogql_query(
+        response = execute_hogql_query_with_debug(
             "select explain_csp_report({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})",
             self.team,
             pretty=False,

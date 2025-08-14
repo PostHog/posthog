@@ -6,6 +6,24 @@ from typing import Any
 from pydantic import BaseModel
 
 from posthog.test.base import clean_varying_query_parts
+from posthog.hogql.query import execute_hogql_query
+from posthog.schema import HogQLQueryModifiers
+
+
+def execute_hogql_query_with_debug(*args, **kwargs):
+    """Helper function that calls execute_hogql_query with debug=True modifier.
+
+    This ensures the response includes the 'hogql' field, which is needed for tests
+    that check the generated HogQL.
+    """
+    # Get existing modifiers or create new ones
+    modifiers = kwargs.get("modifiers") or HogQLQueryModifiers()
+
+    # Ensure debug is True
+    modifiers.debug = True
+    kwargs["modifiers"] = modifiers
+
+    return execute_hogql_query(*args, **kwargs)
 
 
 def pretty_print_in_tests(query: str | None, team_id: int) -> str:
