@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
@@ -16,7 +16,6 @@ export type ErrorTrackingReleaseResponse = CountedPaginatedResponse<ErrorTrackin
 
 export const errorTrackingReleasesLogic = kea<errorTrackingReleasesLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingReleasesLogic']),
-    props({}),
 
     actions({
         loadReleases: () => ({}),
@@ -24,30 +23,29 @@ export const errorTrackingReleasesLogic = kea<errorTrackingReleasesLogicType>([
         setPage: (page: number) => ({ page }),
     }),
 
+    defaults({
+        page: 1 as number,
+        releaseResponse: null as ErrorTrackingReleaseResponse | null,
+    }),
+
     reducers({
-        page: [
-            1 as number,
-            {
-                setPage: (_, { page }) => page,
-            },
-        ],
+        page: {
+            setPage: (_, { page }) => page,
+        },
     }),
 
     loaders(({ values }) => ({
-        releaseResponse: [
-            null as ErrorTrackingReleaseResponse | null,
-            {
-                loadReleases: async (_, breakpoint) => {
-                    await breakpoint(100)
-                    const res = await api.errorTracking.releases.list({
-                        limit: RESULTS_PER_PAGE,
-                        offset: (values.page - 1) * RESULTS_PER_PAGE,
-                        orderBy: '-created_at',
-                    })
-                    return res as ErrorTrackingReleaseResponse
-                },
+        releaseResponse: {
+            loadReleases: async (_, breakpoint) => {
+                await breakpoint(100)
+                const res = await api.errorTracking.releases.list({
+                    limit: RESULTS_PER_PAGE,
+                    offset: (values.page - 1) * RESULTS_PER_PAGE,
+                    orderBy: '-created_at',
+                })
+                return res as ErrorTrackingReleaseResponse
             },
-        ],
+        },
     })),
 
     selectors(({ actions }) => ({
