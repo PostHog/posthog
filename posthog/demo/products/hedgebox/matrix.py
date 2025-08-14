@@ -261,7 +261,7 @@ class HedgeboxMatrix(Matrix):
                     display=ChartDisplayType.WORLD_MAP,
                 ),
                 breakdownFilter=BreakdownFilter(
-                    breakdown_type="event",
+                    breakdown_type=BreakdownType.EVENT,
                     breakdown="$geoip_country_code",
                 ),
                 dateRange=DateRange(
@@ -494,7 +494,7 @@ class HedgeboxMatrix(Matrix):
                     EventsNode(
                         event=EVENT_PAID_BILL,
                         name=EVENT_PAID_BILL,
-                        math=BaseMathType.SUM,
+                        math=PropertyMathType.SUM,
                         math_property="amount_usd",
                     )
                 ],
@@ -536,7 +536,7 @@ class HedgeboxMatrix(Matrix):
                     EventsNode(
                         event=EVENT_PAID_BILL,
                         name="paid_bill",
-                        math=BaseMathType.UNIQUE_GROUP,
+                        math="unique_group",
                         math_group_type_index=0,
                     )
                 ],
