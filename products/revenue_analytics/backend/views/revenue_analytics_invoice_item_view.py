@@ -266,6 +266,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         from posthog.temporal.data_imports.sources.stripe.constants import (
             INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+            CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
         )
 
         # Currently only works for stripe sources
@@ -605,7 +606,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                         ),
                         ast.CompareOperation(
                             left=ast.Field(chain=["status"]),
-                            right=ast.Constant(value=STRIPE_CHARGE_SUCCEEDED_STATUS),
+                            right=ast.Constant(value="succeeded"),
                             op=ast.CompareOperationOp.Eq,
                         ),
                     ]
