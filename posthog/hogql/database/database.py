@@ -123,6 +123,7 @@ from posthog.schema import (
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -420,9 +421,6 @@ def create_hogql_database(
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
-    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-        RevenueAnalyticsBaseView,
-    )
 
     if timings is None:
         timings = HogQLTimings()
@@ -524,7 +522,7 @@ def create_hogql_database(
     with timings.measure("revenue_analytics_views"):
         revenue_views = []
         try:
-            revenue_views = RevenueAnalyticsBaseView.for_team(team, timings)
+            revenue_views = list(build_all_revenue_analytics_views(team, timings))
         except Exception as e:
             capture_exception(e)
 
@@ -889,12 +887,8 @@ DatabaseSchemaTable: TypeAlias = (
 def serialize_database(
     context: HogQLContext,
 ) -> dict[str, DatabaseSchemaTable]:
-    from posthog.warehouse.models.datawarehouse_saved_query import (
-        DataWarehouseSavedQuery,
-    )
-    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-        RevenueAnalyticsBaseView,
-    )
+    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
     tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -1040,7 +1034,7 @@ def serialize_database(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
-                kind=view.get_database_schema_table_kind(),
+                kind=view.DATABASE_SCHEMA_TABLE_KIND,
                 source_id=view.source_id,
                 query=HogQLQuery(query=view.query),
             )
