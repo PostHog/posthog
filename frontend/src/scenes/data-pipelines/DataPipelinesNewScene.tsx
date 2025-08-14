@@ -44,12 +44,10 @@ export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<DataPipelinesNewSceneProps> = {
     component: DataPipelinesNewScene,
     logic: dataPipelinesNewSceneLogic,
-    paramsToProps: ({ params: { kind } }): (typeof dataPipelinesNewSceneLogic)['props'] => ({
-        kind,
-    }),
+    paramsToProps: ({ params: { kind } }) => ({ kind }),
 }
 
 export function DataPipelinesNewScene(): JSX.Element {
