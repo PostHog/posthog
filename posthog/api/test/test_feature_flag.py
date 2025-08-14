@@ -2584,8 +2584,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(default_response), 1)
         default_flag = default_response[0]
         self.assertEqual(default_flag["feature_flag"]["key"], "test-multivariate-flag")
-        default_value = default_flag["value"]  # Should be False since authenticated user doesn't match conditions
-        self.assertFalse(default_value)  # Verify authenticated user gets False (no match)
+        self.assertFalse(default_flag["value"])  # Verify authenticated user gets False (no match)
 
         # Test with distinct_id that should get "control" variant
         response = self.client.get(
