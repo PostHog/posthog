@@ -118,6 +118,8 @@ MODIFY_QUERY_LOG_ARCHIVE_TABLE_V2 = [
     "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__owner LowCardinality(String)",
 ]
 
+ADD_TEAM_ID_ALIAS_COLUMN = "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS team_id Int64 ALIAS lc_team_id"
+
 
 def QUERY_LOG_ARCHIVE_TABLE_SQL(on_cluster=True):
     return (

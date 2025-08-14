@@ -17,6 +17,7 @@ from posthog.clickhouse.client.limit import (
     get_api_personal_rate_limiter,
     get_app_org_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
@@ -949,6 +950,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     task_id=self.query_id,
                     team_id=self.team.id,
                     is_api=get_query_tag_value("access_method") == "personal_api_key",
+                    limit=get_org_app_concurrency_limit(self.team.organization_id),
                 ):
                     with get_app_dashboard_queries_rate_limiter().run(
                         org_id=self.team.organization_id,
