@@ -48,7 +48,7 @@ async fn main() {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);
-            panic!("Could not start log capture service: {}", e);
+            panic!("Could not start log capture service: {e}");
         }
     };
 
