@@ -41,6 +41,27 @@ class ExperimentSerializer(serializers.ModelSerializer):
     saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
+    # Team-specific metric limits mapping
+    _TEAM_METRIC_LIMITS = {
+        # Add team/project IDs and their custom limits here
+        # Example: 123: 20,  # Team 123 gets 20 metrics limit
+    }
+
+    @staticmethod
+    def get_experiment_metric_limit(team_id: int) -> int:
+        """Get the experiment metric quantity limit for a specific team.
+
+        Returns the custom limit for the team if configured,
+        otherwise returns the default limit of 10.
+        """
+        return ExperimentSerializer._TEAM_METRIC_LIMITS.get(team_id, 10)
+
+    @property
+    def _metric_limit(self) -> int:
+        """Get the metric limit for the current request's team."""
+        team_id = self.context["team_id"]
+        return self.get_experiment_metric_limit(team_id)
+
     class Meta:
         model = Experiment
         fields = [
@@ -137,15 +158,13 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_metrics(self, value):
-        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
-            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics")
+        if value and len(value) > self._metric_limit:
+            raise ValidationError(f"You can only have up to {self._metric_limit} primary metrics")
         return value
 
     def validate_metrics_secondary(self, value):
-        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
-            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics")
+        if value and len(value) > self._metric_limit:
+            raise ValidationError(f"You can only have up to {self._metric_limit} secondary metrics")
         return value
 
     def validate(self, data):
@@ -155,7 +174,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         saved_metrics_ids = data.get("saved_metrics_ids", [])
 
         if saved_metrics_ids:
-            EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
             primary_shared_count = len([m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "primary"])
             secondary_shared_count = len(
                 [m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "secondary"]
@@ -164,13 +182,13 @@ class ExperimentSerializer(serializers.ModelSerializer):
             total_primary = len(metrics) + primary_shared_count
             total_secondary = len(metrics_secondary) + secondary_shared_count
 
-            if total_primary > EXPERIMENT_METRIC_QTY_LIMIT:
+            if total_primary > self._metric_limit:
                 raise ValidationError(
-                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics (including shared metrics)"
+                    f"You can only have up to {self._metric_limit} primary metrics (including shared metrics)"
                 )
-            if total_secondary > EXPERIMENT_METRIC_QTY_LIMIT:
+            if total_secondary > self._metric_limit:
                 raise ValidationError(
-                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics (including shared metrics)"
+                    f"You can only have up to {self._metric_limit} secondary metrics (including shared metrics)"
                 )
 
         # Validate start/end dates

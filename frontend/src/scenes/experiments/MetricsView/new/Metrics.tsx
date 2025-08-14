@@ -9,6 +9,7 @@ import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
+import { useMetricLimits } from '../../hooks/useMetricLimits'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
@@ -23,6 +24,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         primaryMetricsResultsErrors,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
+    const { primary: primaryLimit, secondary: secondaryLimit } = useMetricLimits()
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
@@ -114,7 +116,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         <div className="text-sm text-center text-balance max-w-sm">
                             <p>
                                 Add up to&nbsp;
-                                {isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS}&nbsp;
+                                {isSecondary ? secondaryLimit : primaryLimit}&nbsp;
                                 <span>{isSecondary ? 'secondary' : 'primary'}</span> metrics.
                             </p>
                             <p>

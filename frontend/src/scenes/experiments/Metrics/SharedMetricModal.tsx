@@ -14,8 +14,8 @@ import { AvailableFeature, Experiment } from '~/types'
 
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import { useMetricLimits } from '../hooks/useMetricLimits'
 import { modalsLogic } from '../modalsLogic'
 
 export function SharedMetricModal({
@@ -42,6 +42,7 @@ export function SharedMetricModal({
     const mode = editingSharedMetricId ? 'edit' : 'create'
 
     const { hasAvailableFeature } = useValues(userLogic)
+    const { primary: primaryLimit, secondary: secondaryLimit } = useMetricLimits()
 
     if (!compatibleSharedMetrics) {
         return <></>
@@ -58,18 +59,12 @@ export function SharedMetricModal({
             return 'Please select at least one metric'
         }
 
-        if (
-            !isSecondary &&
-            primaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > EXPERIMENT_MAX_PRIMARY_METRICS
-        ) {
-            return `You can only add up to ${EXPERIMENT_MAX_PRIMARY_METRICS} primary metrics.`
+        if (!isSecondary && primaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > primaryLimit) {
+            return `You can only add up to ${primaryLimit} primary metrics.`
         }
 
-        if (
-            isSecondary &&
-            secondaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > EXPERIMENT_MAX_SECONDARY_METRICS
-        ) {
-            return `You can only add up to ${EXPERIMENT_MAX_SECONDARY_METRICS} secondary metrics.`
+        if (isSecondary && secondaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > secondaryLimit) {
+            return `You can only add up to ${secondaryLimit} secondary metrics.`
         }
     }
 

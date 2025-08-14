@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
+import { useMetricLimits } from 'scenes/experiments/hooks/useMetricLimits'
 
 import {
     ExperimentFunnelsQuery,
@@ -55,11 +55,11 @@ export function MetricsTable({
     const axisRange = maxAbsValue + axisMargin
 
     // Check if duplicating would exceed the metric limit
+    const { primary: primaryLimit, secondary: secondaryLimit } = useMetricLimits()
     const currentMetricCount = isSecondary
         ? secondaryMetricsLengthWithSharedMetrics
         : primaryMetricsLengthWithSharedMetrics
-    const canDuplicateMetric =
-        currentMetricCount < (isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS)
+    const canDuplicateMetric = currentMetricCount < (isSecondary ? secondaryLimit : primaryLimit)
 
     if (metrics.length === 0) {
         return (

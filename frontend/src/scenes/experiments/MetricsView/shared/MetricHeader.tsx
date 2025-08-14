@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { IconCopy, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
+import { useMetricLimits } from 'scenes/experiments/hooks/useMetricLimits'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
@@ -42,6 +42,7 @@ export const MetricHeader = ({
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
     } = useActions(modalsLogic)
+    const { primary: primaryLimit, secondary: secondaryLimit } = useMetricLimits()
 
     return (
         <div className="text-xs font-semibold">
@@ -83,9 +84,7 @@ export const MetricHeader = ({
                                     canDuplicateMetric
                                         ? undefined
                                         : `You can only have up to ${
-                                              isPrimaryMetric
-                                                  ? EXPERIMENT_MAX_PRIMARY_METRICS
-                                                  : EXPERIMENT_MAX_SECONDARY_METRICS
+                                              isPrimaryMetric ? primaryLimit : secondaryLimit
                                           } ${isPrimaryMetric ? 'primary' : 'secondary'} metrics.`
                                 }
                                 onClick={() => {

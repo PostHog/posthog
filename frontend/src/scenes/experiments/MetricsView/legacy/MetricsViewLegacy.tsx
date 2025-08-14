@@ -5,8 +5,8 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../../constants'
 import { experimentLogic } from '../../experimentLogic'
+import { useMetricLimits } from '../../hooks/useMetricLimits'
 import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { getNiceTickValues } from '../shared/utils'
@@ -21,6 +21,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
         primaryMetricsResultsErrors,
         secondaryMetricsResultsErrors,
     } = useValues(experimentLogic)
+    const { primary: primaryLimit, secondary: secondaryLimit } = useMetricLimits()
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
@@ -188,7 +189,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                         <div className="text-sm text-center text-balance max-w-sm">
                             <p>
                                 {`Add up to ${
-                                    isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS
+                                    isSecondary ? secondaryLimit : primaryLimit
                                 } ${isSecondary ? 'secondary' : 'primary'} metrics.`}
                             </p>
                             <p>
