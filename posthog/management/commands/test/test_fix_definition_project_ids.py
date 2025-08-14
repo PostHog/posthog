@@ -1,4 +1,4 @@
-from posthog.test.test_helpers import create_group_type_mapping_without_created_at
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from django.core.management import call_command
 from django.test import TestCase
 from io import StringIO

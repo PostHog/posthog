@@ -2,7 +2,7 @@
 Tests for created_at filtering of group fields based on GroupTypeMapping creation time.
 """
 
-from posthog.test.test_helpers import create_group_type_mapping_without_created_at
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from datetime import datetime, UTC
 
 from posthog.hogql.context import HogQLContext

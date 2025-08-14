@@ -1,4 +1,4 @@
-from posthog.test.test_helpers import create_group_type_mapping_without_created_at
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.project import Project

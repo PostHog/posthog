@@ -1,4 +1,4 @@
-from posthog.test.test_helpers import create_group_type_mapping_without_created_at
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from django.test import override_settings
 
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner

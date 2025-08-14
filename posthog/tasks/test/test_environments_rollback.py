@@ -1,4 +1,4 @@
-from posthog.test.test_helpers import create_group_type_mapping_without_created_at
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from unittest.mock import patch, MagicMock
 from django.test import TransactionTestCase
 
