@@ -188,7 +188,7 @@ impl EphemeralTopic {
         config.set("debug", "consumer,cgrp,topic,fetch");
         config.set("socket.timeout.ms", "30000");
         config.set("message.timeout.ms", "30000");
-        // RedPanda compatibility settings  
+        // RedPanda compatibility settings
         config.set("enable.auto.commit", "false");
         config.set("auto.offset.reset", "earliest");
         config.set("session.timeout.ms", "30000");
@@ -222,14 +222,15 @@ impl EphemeralTopic {
 
         // Wait for topic metadata to be fully available across RedPanda cluster
         let consumer: BaseConsumer = config.create().expect("failed to create consumer");
-        
+
         // Robust topic readiness check
         for attempt in 0..100 {
             match consumer.fetch_metadata(Some(&topic_name), Duration::from_secs(1)) {
                 Ok(metadata) => {
-                    let ready = metadata.topics().iter().any(|t| {
-                        t.name() == topic_name && !t.partitions().is_empty()
-                    });
+                    let ready = metadata
+                        .topics()
+                        .iter()
+                        .any(|t| t.name() == topic_name && !t.partitions().is_empty());
                     if ready {
                         break;
                     }
@@ -238,14 +239,14 @@ impl EphemeralTopic {
                     // Metadata fetch failed, continue retrying
                 }
             }
-            
+
             if attempt == 99 {
-                panic!("Topic {} not ready after 100 attempts", topic_name);
+                panic!("Topic {topic_name} not ready after 100 attempts");
             }
-            
+
             std::thread::sleep(Duration::from_millis(50));
         }
-        
+
         let mut assignment = TopicPartitionList::new();
         assignment.add_partition(&topic_name, 0);
         consumer
