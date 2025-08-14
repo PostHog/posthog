@@ -6,6 +6,8 @@ from posthog.git import get_git_commit_short
 from posthog.redis import get_client
 from posthog.settings import TEST
 
+TEST_OVERRIDE = False
+
 
 class CachedQuerySet(QuerySet):
     def get_commit_cache_key(self, team_id: int, key_prefix: Optional[str] = None) -> str:
@@ -19,7 +21,8 @@ class CachedQuerySet(QuerySet):
         return key
 
     def fetch_cached(self, team_id: int, timeout: int = 300, key_prefix: Optional[str] = None):
-        if TEST:
+        # we want the behavior for tests to be unaffected unless specifically testing this logic
+        if TEST and not TEST_OVERRIDE:
             return list(self)
 
         try:

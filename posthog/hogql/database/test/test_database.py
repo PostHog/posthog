@@ -1,6 +1,7 @@
 import json
 from typing import Any, cast
 
+from unittest import mock
 from unittest.mock import patch
 import pytest
 from django.test import override_settings
@@ -1019,3 +1020,77 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    def test_hogql_database_cache(self):
+        with patch("posthog.models.cache.TEST_OVERRIDE", True):
+            with self.assertNumQueries(7):
+                create_hogql_database(team=self.team)
+
+            with self.assertNumQueries(0):
+                create_hogql_database(team=self.team)
+
+    def test_hogql_database_redis_error(self):
+        create_hogql_database(team=self.team)
+
+        with patch("posthog.models.cache.get_client") as get_client_mock:
+            get_client_mock.side_effect = Exception("Redis error")
+            with self.assertNumQueries(5):
+                create_hogql_database(team=self.team)
+
+        with patch("posthog.models.cache.get_client") as get_client_mock:
+            get_client_mock.side_effect = Exception("Redis error")
+            with self.assertNumQueries(5):
+                create_hogql_database(team=self.team)
+
+        # no more errors
+        with patch("posthog.models.cache.TEST_OVERRIDE", True):
+            with self.assertNumQueries(5):
+                create_hogql_database(team=self.team)
+
+            with self.assertNumQueries(0):
+                create_hogql_database(team=self.team)
+
+    def test_hogql_database_cache_invalidation(self):
+        # Patch Redis client to assert cache behavior
+        with patch("posthog.models.cache.get_client") as get_client_mock:
+
+            def fake_delete(key: str):
+                return
+
+            client = mock.Mock()
+            client.delete.side_effect = fake_delete
+            get_client_mock.return_value = client
+
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
+            )
+
+            assert client.delete.call_count == 1
+
+            DataWarehouseSavedQuery.objects.create(team=self.team, name="test", query="select 1")
+
+            assert client.delete.call_count == 2
+
+            DataWarehouseTable.objects.create(
+                name="table_1",
+                format="Parquet",
+                team=self.team,
+                credential=None,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+
+            assert client.delete.call_count == 3
+
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name="test",
+                source_table_key="test",
+                joining_table_name="test",
+                joining_table_key="test",
+                field_name="test",
+            )
+
+            assert client.delete.call_count == 4
