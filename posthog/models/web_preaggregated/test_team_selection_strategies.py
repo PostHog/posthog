@@ -1,3 +1,4 @@
+import json as json_module
 import requests
 from urllib.parse import urlparse
 from unittest.mock import Mock, patch
@@ -203,8 +204,21 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
         parsed_url = urlparse(url)
         path = parsed_url.path
 
-        # Use Django test client to "redirect" the request to our internal api
-        response = self.client.post(path, json)
+        # Extract Authorization header and set it for the test client
+        auth_header = headers.get("Authorization", "") if headers else ""
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            # Use Django test client to "redirect" the request to our internal api
+            response = self.client.post(
+                path,
+                data=json_module.dumps(json) if json else None,
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        else:
+            response = self.client.post(
+                path, data=json_module.dumps(json) if json else None, content_type="application/json"
+            )
 
         # Shape the result as request expects it
         mock_response = Mock()

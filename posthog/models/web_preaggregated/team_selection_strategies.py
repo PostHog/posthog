@@ -126,6 +126,7 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
                     AND properties.$host = {environment_host}
                     AND timestamp >= {since_date}
                     AND properties.$feature_flag = {flag_key}
+                LIMIT {limit}
             """
 
             query_payload = {
@@ -136,8 +137,8 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
                         "environment_host": environment_host,
                         "since_date": self.since_date,
                         "flag_key": self.flag_key,
+                        "limit": MAX_SELECT_RETURNED_ROWS,
                     },
-                    "limit": MAX_SELECT_RETURNED_ROWS,
                 }
             }
 
