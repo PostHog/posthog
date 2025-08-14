@@ -1,8 +1,11 @@
-import os
+import base64
 
+import boto3
 import dagster
 from dagster_docker import PipesDockerClient
 from django.conf import settings
+from pydantic import Field
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from dags.common import JobOwners
 from dags.max_ai.snapshot_project_data import (
@@ -15,6 +18,11 @@ from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig, ProjectSn
 
 
 def get_object_storage_endpoint() -> str:
+    """
+    Get the object storage endpoint.
+    Debug mode uses the local object storage, so we need to set a DNS endpoint (like orb.dev).
+    Production mode uses the AWS S3.
+    """
     if settings.DEBUG:
         val = dagster.EnvVar("EVALS_DIND_OBJECT_STORAGE_ENDPOINT").get_value()
         if not val:
@@ -39,21 +47,34 @@ def export_projects(config: ExportProjectsConfig):
 
 
 class EvaluationConfig(dagster.Config):
-    image: str
-    """Name of the Docker image to run."""
-    image_tag: str
-    """Tag of the Docker image to run."""
-    experiment_name: str
-    """Name of the experiment."""
-    evaluation_module: str
-    """Python module containing the evaluation runner."""
+    image_name: str = Field(description="Name of the Docker image to run.")
+    image_tag: str = Field(description="Tag of the Docker image to run.")
+    experiment_name: str = Field(description="Name of the experiment.")
+    evaluation_module: str = Field(description="Python module containing the evaluation runner.")
+
+    @property
+    def image(self) -> str:
+        # We use the local Docker image in debug mode
+        if settings.DEBUG:
+            return f"{self.image_name}:{self.image_tag}"
+        return f"{dagster.EnvVar('AWS_EKS_REGISTRY_URL').get_value()}/{self.image_name}:{self.image_tag}"
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2))
 def get_registry_credentials():
+    # We use the local Docker image in debug mode
+    if settings.DEBUG:
+        return None
+
+    client = boto3.client("ecr")
+    # https://boto3.amazonaws.com/v1/documentation/api/1.29.2/reference/services/ecr/client/get_authorization_token.html
+    token = client.get_authorization_token()["authorizationData"][0]["authorizationToken"]
+    username, password = base64.b64decode(token).decode("utf-8").split(":")
+
     return {
         "url": dagster.EnvVar("AWS_EKS_REGISTRY_URL").get_value(),
-        "username": "AWS",
-        "password": dagster.EnvVar("AWS_EKS_REGISTRY_PASSWORD").get_value(),
+        "username": username,
+        "password": password,
     }
 
 
@@ -86,7 +107,7 @@ def spawn_evaluation_container(
 
     asset_result = docker_pipes_client.run(
         context=context,
-        image=f"{config.image}:{config.image_tag}",
+        image=config.image,
         container_kwargs={
             "privileged": True,
             "auto_remove": True,
@@ -126,7 +147,7 @@ def spawn_evaluation_container(
             "spawn_evaluation_container": EvaluationConfig(
                 evaluation_module="",
                 experiment_name="offline_evaluation",
-                image=f"{os.getenv('AWS_EKS_REGISTRY_URL')}/{os.getenv('AWS_EKS_REPOSITORY_NAME')}",
+                image_name="posthog-ai-evals",
                 image_tag="master",
             ),
         }
