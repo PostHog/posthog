@@ -71,11 +71,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
                 materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
+            else:
+                logger.exception("There was an error retrieving billing_period information")
+                return Response(
+                    status=status.HTTP_401_UNAUTHORIZED,
+                    data={"error": "An error occured retrieving billing_period information"},
+                )
         except Exception as e:
-            logger.exception("Could not retrieve billing information", exc_info=e)
+            logger.exception("There was an error retrieving billing information", exc_info=e)
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                data={"error": "An error occurred while retrieving billing information"},
+                data={"error": "An error occured retrieving billing information"},
             )
 
         return Response(
