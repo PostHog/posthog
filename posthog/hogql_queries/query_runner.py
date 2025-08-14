@@ -979,6 +979,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Don't cache debug queries with errors and export queries
             has_error: Optional[list] = fresh_response_dict.get("error", None)
             if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
+                # Write to the primary cache (determined by feature flag)
                 cache_manager.set_cache_data(
                     response=fresh_response_dict,
                     # This would be a possible place to decide to not ever keep this cache warm
@@ -986,6 +987,35 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Set target_age to None in that case
                     target_age=target_age,
                 )
+
+                # Also write to the alternate cache for dual-write migration
+                from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+                from posthog.hogql_queries.query_cache_s3 import S3QueryCacheManager
+                from posthog.hogql_queries.legacy_compatibility.feature_flag import query_cache_use_s3
+
+                use_s3 = query_cache_use_s3(self.team, user=user)
+                if use_s3:
+                    # Primary is S3, also write to Django cache
+                    alternate_cache = DjangoCacheQueryCacheManager(
+                        team_id=self.team.pk,
+                        cache_key=cache_key,
+                        insight_id=insight_id,
+                        dashboard_id=dashboard_id,
+                    )
+                else:
+                    # Primary is Django cache, also write to S3
+                    alternate_cache = S3QueryCacheManager(
+                        team_id=self.team.pk,
+                        cache_key=cache_key,
+                        insight_id=insight_id,
+                        dashboard_id=dashboard_id,
+                    )
+
+                try:
+                    alternate_cache.set_cache_data(response=fresh_response_dict, target_age=target_age)
+                except Exception:
+                    pass  # Ignore failures in alternate cache
+
                 QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
             return fresh_response
