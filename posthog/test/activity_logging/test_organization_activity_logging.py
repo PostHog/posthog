@@ -1,0 +1,148 @@
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.test.activity_log_utils import ActivityLogTestHelper
+
+
+class TestOrganizationActivityLogging(ActivityLogTestHelper):
+    def test_organization_creation_activity_logging(self):
+        organization = self.create_organization("Test Organization")
+
+        log = ActivityLog.objects.filter(
+            organization_id=organization["id"], scope="Organization", activity="created"
+        ).first()
+
+        assert log is not None
+        self.assertEqual(log.activity, "created")
+        self.assertEqual(log.item_id, str(organization["id"]))
+        self.assertEqual(log.user, self.user)
+        self.assertEqual(log.detail["name"], organization["name"])
+
+    def test_organization_update_activity_logging(self):
+        organization = self.create_organization("Original Organization")
+        self.update_organization(organization["id"], {"name": "Updated Organization"})
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+
+        assert log is not None
+        self.assertEqual(log.activity, "updated")
+        self.assertEqual(log.user, self.user)
+        self.assertEqual(log.detail["name"], "Updated Organization")
+
+        changes = log.detail.get("changes", [])
+        name_change = next((c for c in changes if c["field"] == "organization name"), None)
+        assert name_change is not None
+        self.assertEqual(name_change["before"], "Original Organization")
+        self.assertEqual(name_change["after"], "Updated Organization")
+
+    def test_organization_security_settings_activity_logging(self):
+        organization = self.create_organization("Security Test Org")
+        self.update_organization(organization["id"], {"enforce_2fa": True})
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        enforce_2fa_change = next((c for c in changes if c["field"] == "two-factor authentication requirement"), None)
+        assert enforce_2fa_change is not None
+        self.assertEqual(enforce_2fa_change["after"], True)
+
+    def test_organization_member_invite_permissions_activity_logging(self):
+        organization = self.create_organization("Permissions Test Org")
+        self.update_organization(organization["id"], {"members_can_invite": False})
+
+        log = (
+            ActivityLog.objects.filter(organization_id=organization["id"], activity="updated")
+            .order_by("-created_at")
+            .first()
+        )
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        invite_change = next((c for c in changes if c["field"] == "member invitation permissions"), None)
+        assert invite_change is not None
+        self.assertEqual(invite_change["after"], False)
+
+        self.update_organization(organization["id"], {"members_can_use_personal_api_keys": False})
+
+        log = (
+            ActivityLog.objects.filter(organization_id=organization["id"], activity="updated")
+            .order_by("-created_at")
+            .first()
+        )
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        api_keys_change = next((c for c in changes if c["field"] == "personal API key permissions"), None)
+        assert api_keys_change is not None
+        self.assertEqual(api_keys_change["after"], False)
+
+    def test_organization_sharing_settings_activity_logging(self):
+        organization = self.create_organization("Sharing Test Org")
+        self.update_organization(organization["id"], {"allow_publicly_shared_resources": False})
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        sharing_change = next((c for c in changes if c["field"] == "public sharing permissions"), None)
+        assert sharing_change is not None
+        self.assertEqual(sharing_change["after"], False)
+
+    def test_organization_multiple_changes_activity_logging(self):
+        organization = self.create_organization("Multi Change Test Org")
+        self.update_organization(
+            organization["id"],
+            {"name": "New Multi Change Org", "enforce_2fa": True, "members_can_invite": False},
+        )
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        field_changes = {c["field"]: c for c in changes}
+
+        assert "organization name" in field_changes
+        assert "two-factor authentication requirement" in field_changes
+        assert "member invitation permissions" in field_changes
+        self.assertEqual(field_changes["organization name"]["after"], "New Multi Change Org")
+        self.assertEqual(field_changes["two-factor authentication requirement"]["after"], True)
+        self.assertEqual(field_changes["member invitation permissions"]["after"], False)
+
+    def test_organization_name_change_logging(self):
+        organization = self.create_organization("Logo Test Org")
+        self.update_organization(organization["id"], {"name": "Logo Test Org Updated"})
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        name_change = next((c for c in changes if c["field"] == "organization name"), None)
+        assert name_change is not None
+        self.assertEqual(name_change["after"], "Name Test Org Updated")
+
+    def test_organization_experiment_stats_method_logging(self):
+        organization = self.create_organization("Experiments Test Org")
+        self.update_organization(organization["id"], {"default_experiment_stats_method": "frequentist"})
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        stats_change = next((c for c in changes if c["field"] == "default experiment stats method"), None)
+        assert stats_change is not None
+        self.assertEqual(stats_change["after"], "frequentist")
+
+    def test_organization_member_join_email_logging(self):
+        organization = self.create_organization("Email Preferences Test Org")
+        self.update_organization(organization["id"], {"is_member_join_email_enabled": False})
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        email_change = next((c for c in changes if c["field"] == "member join email notifications"), None)
+        assert email_change is not None
+        self.assertEqual(email_change["after"], False)
+
+    def test_organization_2fa_enforcement_logging(self):
+        organization = self.create_organization("2FA Test Org")
+        self.update_organization(organization["id"], {"enforce_2fa": True})
+
+        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        assert log is not None
+        changes = log.detail.get("changes", [])
+        twofa_change = next((c for c in changes if c["field"] == "two-factor authentication requirement"), None)
+        assert twofa_change is not None
+        self.assertEqual(twofa_change["after"], True)
