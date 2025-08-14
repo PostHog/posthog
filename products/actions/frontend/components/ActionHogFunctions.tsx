@@ -1,7 +1,7 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { actionEditLogic } from 'scenes/actions/actionEditLogic'
-import { actionLogic } from 'scenes/actions/actionLogic'
+import { actionEditLogic } from '../logics/actionEditLogic'
+import { actionLogic } from '../logics/actionLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 export function ActionHogFunctions(): JSX.Element | null {
