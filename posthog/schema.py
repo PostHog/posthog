@@ -3807,7 +3807,6 @@ class HogQLQueryModifiers(BaseModel):
     customChannelTypeRules: Optional[list[CustomChannelRule]] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
     debug: Optional[bool] = None
-    timings: Optional[bool] = None
     formatCsvAllowDoubleQuotes: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
@@ -3819,6 +3818,7 @@ class HogQLQueryModifiers(BaseModel):
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
+    timings: Optional[bool] = None
     useMaterializedViews: Optional[bool] = None
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None

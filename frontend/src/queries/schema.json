@@ -13497,6 +13497,9 @@
                     "enum": ["string", "uuid"],
                     "type": "string"
                 },
+                "timings": {
+                    "type": "boolean"
+                },
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
