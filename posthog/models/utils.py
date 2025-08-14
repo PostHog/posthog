@@ -19,6 +19,7 @@ from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
+from posthog.models.cache import CacheManager
 
 if TYPE_CHECKING:
     from random import Random
@@ -399,6 +400,10 @@ class RootTeamManager(models.Manager):
         return self.get_queryset().filter(*args, **kwargs)
 
 
+class RootTeamManagerWithCache(CacheManager):
+    pass
+
+
 class RootTeamMixin(models.Model):
     """
     This ensures that when the related team has a parent team, the model will use the parent team instead.
@@ -408,7 +413,7 @@ class RootTeamMixin(models.Model):
     # Set the default manager - any models that inherit from this mixin and set a custom
     # manager (e.g. `objects = CustomManager()`) will override this, so that custom manager
     # should inherit from RootTeamManager.
-    objects = RootTeamManager()
+    objects = RootTeamManagerWithCache()
 
     class Meta:
         abstract = True
