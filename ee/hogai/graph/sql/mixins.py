@@ -94,5 +94,3 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
                 err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
             raise PydanticOutputParserException(llm_output=query, validation_message=err_msg)
-        except Exception as e:
-            raise PydanticOutputParserException(llm_output=query, validation_message=str(e))
