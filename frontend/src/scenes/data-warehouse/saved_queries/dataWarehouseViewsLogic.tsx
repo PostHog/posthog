@@ -134,13 +134,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
         },
-        loadDataWarehouseSavedQueriesSuccess: () => {
-            clearTimeout(cache.savedQueriesRefreshTimeout)
-
-            cache.savedQueriesRefreshTimeout = setTimeout(() => {
-                actions.loadDataWarehouseSavedQueries()
-            }, REFRESH_INTERVAL)
-        },
         loadDataModelingJobsSuccess: ({ payload }) => {
             clearTimeout(cache.dataModelingJobsRefreshTimeout)
 
