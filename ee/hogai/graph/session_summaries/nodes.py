@@ -14,7 +14,6 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     update_notebook_with_summary,
 )
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
-from posthog.models.notebook.util import TipTapContent
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
@@ -201,10 +200,10 @@ class SessionSummarizationNode(AssistantNode):
                 self._stream_progress(progress_message=data, writer=writer)
             # Notebook intermediate data update messages
             elif update_type == SessionSummaryStreamUpdate.NOTEBOOK_UPDATE:
-                if not isinstance(data, TipTapContent):
+                if not isinstance(data, list):
                     raise ValueError(
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(data)} "
-                        f"(expected: TipTapContent)"
+                        f"(expected: list)"
                     )
                 # Update notebook with intermediate data
                 self._stream_notebook_content(data, state, writer)
@@ -243,7 +242,7 @@ class SessionSummarizationNode(AssistantNode):
                 conversation_id,
                 start_time,
             )
-            return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
+            return self._create_error_response(self._base_error_instructions, state)
         try:
             # Generate filters to get session ids from DB
             replay_filters = await self._generate_replay_filters(state.session_summarization_query)
@@ -253,7 +252,7 @@ class SessionSummarizationNode(AssistantNode):
                     conversation_id,
                     start_time,
                 )
-                return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
+                return self._create_error_response(self._base_error_instructions, state)
             # Query the filters to get session ids
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
             if not session_ids:
@@ -312,7 +311,7 @@ class SessionSummarizationNode(AssistantNode):
             )
         except Exception as err:
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
-            return self._create_error_response(self._base_error_instructions)
+            return self._create_error_response(self._base_error_instructions, state)
 
     def _create_error_response(self, message: str, state: AssistantState) -> PartialAssistantState:
         return PartialAssistantState(

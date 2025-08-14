@@ -29,7 +29,6 @@ from ee.hogai.session_summaries.session.summarize_session import (
 )
 from ee.hogai.session_summaries.session_group.summary_notebooks import format_single_sessions_status
 from posthog import constants
-from posthog.models.notebook.util import TipTapContent
 from posthog.models.team.team import Team
 from posthog.schema import CachedSessionBatchEventsQueryResponse
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
@@ -76,7 +75,7 @@ class SessionSummaryStreamUpdate(Enum):
 
 UPDATE_TYPE_TO_OUTPUT_MAPPING = {
     SessionSummaryStreamUpdate.UI_STATUS: str,
-    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE: TipTapContent,
+    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE: list,
     SessionSummaryStreamUpdate.FINAL_RESULT: EnrichedSessionGroupSummaryPatternsList,
 }
 
@@ -529,9 +528,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 
 async def _start_session_group_summary_workflow(
     inputs: SessionGroupSummaryInputs, workflow_id: str
-) -> AsyncGenerator[
-    tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | TipTapContent], None
-]:
+) -> AsyncGenerator[tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | list], None]:
     """Start the workflow and yield status updates until completion."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
@@ -585,12 +582,12 @@ async def _start_session_group_summary_workflow(
             # Yield intermediate data for the notebook, if it changed
             # Single sessions summarization status
             if sessions_status != previous_sessions_status:
-                if not isinstance(sessions_status, expected_sessions_status_type):
+                formatted_sessions_status = format_single_sessions_status(sessions_status)
+                if not isinstance(formatted_sessions_status, expected_sessions_status_type):
                     raise ValueError(
                         f"Unexpected sessions status type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(sessions_status)} "
                         f"(expected: {expected_sessions_status_type})"
                     )
-                formatted_sessions_status = format_single_sessions_status(sessions_status)
                 yield (SessionSummaryStreamUpdate.NOTEBOOK_UPDATE, formatted_sessions_status)
                 previous_sessions_status = sessions_status.copy()
             # Wait till the next polling
@@ -612,9 +609,7 @@ async def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-) -> AsyncGenerator[
-    tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | TipTapContent], None
-]:
+) -> AsyncGenerator[tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | list], None]:
     """
     Start the workflow and yield status updates and final summary for the group of sessions.
     """
