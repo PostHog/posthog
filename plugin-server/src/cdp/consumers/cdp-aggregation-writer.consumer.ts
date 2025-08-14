@@ -102,7 +102,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
     }
 
     // Process batch by aggregating and writing to postgres
-    private async processBatch(parsedBatch: ParsedBatch): Promise<void> {
+    private processBatch(parsedBatch: ParsedBatch): { backgroundTask: Promise<void> } {
         // Deduplicate person performed events
         const deduplicatedPersonEvents = this.deduplicatePersonPerformedEvents(parsedBatch.personPerformedEvents)
 
@@ -111,8 +111,19 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             parsedBatch.behaviouralFilterMatchedEvents
         )
 
-        // This will write both arrays in one transaction
-        await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
+        // Return the write operation as a background task so we can start processing the next batch
+        return {
+            backgroundTask: this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents).catch(
+                (error) => {
+                    logger.error('Failed to write to postgres in background', {
+                        error: error.message,
+                        personEventsCount: deduplicatedPersonEvents.length,
+                        behaviouralEventsCount: aggregatedBehaviouralEvents.length,
+                    })
+                    throw error
+                }
+            ),
+        }
     }
 
     // Helper to build person events CTE using unnest
@@ -172,12 +183,14 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
         // Group events by teamId to hit only one partition per query
         const personEventsByTeam = new Map<number, PersonEventPayload[]>()
         const behaviouralEventsByTeam = new Map<number, AggregatedBehaviouralEvent[]>()
+        const allTeamIds = new Set<number>()
 
         for (const event of personEvents) {
             if (!personEventsByTeam.has(event.teamId)) {
                 personEventsByTeam.set(event.teamId, [])
             }
             personEventsByTeam.get(event.teamId)!.push(event)
+            allTeamIds.add(event.teamId)
         }
 
         for (const event of behaviouralEvents) {
@@ -185,10 +198,8 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
                 behaviouralEventsByTeam.set(event.teamId, [])
             }
             behaviouralEventsByTeam.get(event.teamId)!.push(event)
+            allTeamIds.add(event.teamId)
         }
-
-        // Get all unique team IDs
-        const allTeamIds = new Set([...personEventsByTeam.keys(), ...behaviouralEventsByTeam.keys()])
 
         // Process each team separately to ensure we only hit one partition
         for (const teamId of allTeamIds) {
@@ -248,8 +259,10 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             return await this.runInstrumented('handleEachBatch', async () => {
                 const parsedBatch = await this._parseKafkaBatch(messages)
 
-                // Process the batch (aggregate and write to postgres)
-                await this.processBatch(parsedBatch)
+                // Process the batch (aggregate and write to postgres in background)
+                const { backgroundTask } = this.processBatch(parsedBatch)
+
+                return { backgroundTask }
             })
         })
     }

@@ -128,7 +128,8 @@ describe('CdpAggregationWriterConsumer', () => {
             expect(parsedBatch.behaviouralFilterMatchedEvents).toHaveLength(4) // Before aggregation
 
             // Process the batch (this tests deduplication, aggregation, and database writes)
-            await processor['processBatch'](parsedBatch)
+            const { backgroundTask } = processor['processBatch'](parsedBatch)
+            await backgroundTask
 
             // Verify person performed events in database (should be deduplicated)
             const personResult = await hub.postgres.query(
@@ -185,7 +186,8 @@ describe('CdpAggregationWriterConsumer', () => {
             expect(parsedBatch.behaviouralFilterMatchedEvents).toHaveLength(0)
 
             // Should not throw when processing empty batch
-            await processor['processBatch'](parsedBatch)
+            const { backgroundTask } = processor['processBatch'](parsedBatch)
+            await backgroundTask
 
             // Verify no records were written
             const personResult = await hub.postgres.query(
