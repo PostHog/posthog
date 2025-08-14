@@ -129,7 +129,7 @@ class CohortTypeValidationSerializer(serializers.Serializer):
 
     def _determine_type_from_data(self, data: dict) -> CohortType:
         """Determine cohort type from data"""
-        visited_cohorts = set()
+        visited_cohorts: set[int] = set()
         return self._determine_type_recursive(data, visited_cohorts)
 
     def _determine_type_recursive(self, data: dict, visited: set[int]) -> CohortType:
@@ -290,7 +290,7 @@ def validate_cohort_type_against_data(
         Tuple of (is_valid, error_message)
     """
     # Add the provided type to the data for validation
-    data = {**cohort_data, "cohort_type": provided_cohort_type}
+    data = {**cohort_data, "cohort_type": provided_cohort_type.value}
 
     serializer = CohortTypeValidationSerializer(data=data, team_id=team_id)
 
@@ -299,16 +299,29 @@ def validate_cohort_type_against_data(
         return True, None
     except ValidationError as e:
         # Extract error message
-        if "cohort_type" in e.detail:
-            error_msg = e.detail["cohort_type"]
-            if isinstance(error_msg, list):
-                error_msg = error_msg[0]
-            return False, str(error_msg)
-        elif "non_field_errors" in e.detail:
-            error_msg = e.detail["non_field_errors"]
-            if isinstance(error_msg, list):
-                error_msg = error_msg[0]
-            return False, str(error_msg)
+        # NB: need to handle both dict and list forms of e.detail
+        if isinstance(e.detail, dict):
+            # Handle dictionary form (field-specific errors)
+            if "cohort_type" in e.detail:
+                error_detail = e.detail["cohort_type"]
+                if isinstance(error_detail, list) and len(error_detail) > 0:
+                    error_msg = str(error_detail[0])
+                else:
+                    error_msg = str(error_detail)
+                return False, error_msg
+            elif "non_field_errors" in e.detail:
+                error_detail = e.detail["non_field_errors"]
+                if isinstance(error_detail, list) and len(error_detail) > 0:
+                    error_msg = str(error_detail[0])
+                else:
+                    error_msg = str(error_detail)
+                return False, error_msg
+        elif isinstance(e.detail, list):
+            # Handle list form (general errors)
+            if len(e.detail) > 0:
+                return False, str(e.detail[0])
+
+        # Fallback error message
         return False, "Cohort validation failed due to invalid references or circular dependencies."
 
 

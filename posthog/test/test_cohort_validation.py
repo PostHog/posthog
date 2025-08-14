@@ -232,7 +232,7 @@ class TestCohortValidation(BaseTest):
             }
         }
 
-        is_valid, error_msg = validate_cohort_type_against_data("person_property", data, self.team.id)
+        is_valid, error_msg = validate_cohort_type_against_data(CohortType.PERSON_PROPERTY, data, self.team.id)
         self.assertTrue(is_valid)
         self.assertIsNone(error_msg)
 
@@ -257,7 +257,7 @@ class TestCohortValidation(BaseTest):
         }
 
         # Test with lower complexity type
-        is_valid, error_msg = validate_cohort_type_against_data("person_property", data, self.team.id)
+        is_valid, error_msg = validate_cohort_type_against_data(CohortType.PERSON_PROPERTY, data, self.team.id)
         self.assertFalse(is_valid)
         self.assertIsNotNone(error_msg)
         assert error_msg is not None  # Type narrowing for mypy
@@ -265,7 +265,7 @@ class TestCohortValidation(BaseTest):
         self.assertIn("Expected type: 'behavioral'", error_msg)
 
         # Test with higher complexity type (also fails now)
-        is_valid, error_msg = validate_cohort_type_against_data("analytical", data, self.team.id)
+        is_valid, error_msg = validate_cohort_type_against_data(CohortType.ANALYTICAL, data, self.team.id)
         self.assertFalse(is_valid)
         self.assertIsNotNone(error_msg)
         assert error_msg is not None  # Type narrowing for mypy
@@ -276,11 +276,13 @@ class TestCohortValidation(BaseTest):
         """Should fail validation for invalid cohort type strings"""
         data = {"is_static": True}
 
-        is_valid, error_msg = validate_cohort_type_against_data("invalid_type", data, self.team.id)
+        # This test needs to be updated since we're now passing CohortType enum instead of string
+        # We can't pass an "invalid" CohortType, so let's test a valid type against static data
+        is_valid, error_msg = validate_cohort_type_against_data(CohortType.BEHAVIORAL, data, self.team.id)
         self.assertFalse(is_valid)
         self.assertIsNotNone(error_msg)
         assert error_msg is not None  # Type narrowing for mypy
-        self.assertIn('"invalid_type" is not a valid choice.', error_msg)
+        self.assertIn("does not match the filters", error_msg)
 
     def test_determine_cohort_type_from_data_nested_behavioral(self):
         """Cohorts referencing other behavioral cohorts should inherit BEHAVIORAL type"""
