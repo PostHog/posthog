@@ -41,7 +41,6 @@ import api from 'lib/api'
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
 
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
-import { parseURLFilters, SEARCH_PARAM_FILTERS_KEY, SEARCH_PARAM_VARIABLES_KEY } from 'scenes/dashboard/dashboardUtils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null

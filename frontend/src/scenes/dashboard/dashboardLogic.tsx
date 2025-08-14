@@ -18,6 +18,7 @@ import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uu
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { isDashboardFilterEmpty } from 'scenes/insights/insightSceneLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -74,7 +75,6 @@ import {
     parseURLVariables,
     runWithLimit,
 } from './dashboardUtils'
-import { isDashboardFilterEmpty } from 'scenes/insights/insightSceneLogic'
 
 export interface DashboardLogicProps {
     id: number
@@ -1239,9 +1239,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
         resetDashboardFilters: () => {
-            actions.setDates(values.filters.date_from ?? null, values.filters.date_to ?? null)
-            actions.setProperties(values.filters.properties ?? null)
-            actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
+            actions.setDates(values.dashboard?.filters.date_from ?? null, values.dashboard?.filters.date_to ?? null)
+            actions.setProperties(values.dashboard?.filters.properties ?? null)
+            actions.setBreakdownFilter(values.dashboard?.filters.breakdown_filter ?? null)
         },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,

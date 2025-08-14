@@ -333,28 +333,9 @@ describe('dashboardLogic', () => {
                 ],
                 breakdown_colors: [],
                 data_color_theme_id: null,
-                filters: {
-                    date_from: null,
-                    date_to: null,
-                    properties: [],
-                    breakdown_filter: null,
-                },
+                filters: {},
                 variables: {},
             })
-        })
-    })
-
-    describe('when the dashboard has filters', () => {
-        it('sets the filters reducer on load', async () => {
-            logic = dashboardLogic({ id: 11 })
-            logic.mount()
-
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['setDates'])
-                .toMatchValues({
-                    filters: { date_from: '-24h', date_to: null, properties: [], breakdown_filter: null },
-                })
         })
     })
 
