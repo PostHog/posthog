@@ -18,7 +18,42 @@
                 $group_0: {
                   alias: "$group_0"
                   type: {
-                    name: "$group_0"
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $group_1: {
+                  alias: "$group_1"
+                  type: {
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $group_2: {
+                  alias: "$group_2"
+                  type: {
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $group_3: {
+                  alias: "$group_3"
+                  type: {
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $group_4: {
+                  alias: "$group_4"
+                  type: {
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $session_id: {
+                  alias: "$session_id"
+                  type: {
+                    name: "$session_id"
                     table_type: {
                       table: {
                         fields: {
@@ -143,41 +178,6 @@
                         hidden: False
                       }
                     }
-                  }
-                },
-                $group_1: {
-                  alias: "$group_1"
-                  type: {
-                    name: "$group_1"
-                    table_type: <recursion ...>
-                  }
-                },
-                $group_2: {
-                  alias: "$group_2"
-                  type: {
-                    name: "$group_2"
-                    table_type: <recursion ...>
-                  }
-                },
-                $group_3: {
-                  alias: "$group_3"
-                  type: {
-                    name: "$group_3"
-                    table_type: <recursion ...>
-                  }
-                },
-                $group_4: {
-                  alias: "$group_4"
-                  type: {
-                    name: "$group_4"
-                    table_type: <recursion ...>
-                  }
-                },
-                $session_id: {
-                  alias: "$session_id"
-                  type: {
-                    name: "$session_id"
-                    table_type: <recursion ...>
                   }
                 },
                 $window_id: {
@@ -965,10 +965,8 @@
           {
             alias: "$group_0"
             expr: {
-              chain: [
-                "$group_0"
-              ]
               type: <recursion ...>
+              value: ""
             }
             hidden: True
             type: <recursion ...>
@@ -976,10 +974,8 @@
           {
             alias: "$group_1"
             expr: {
-              chain: [
-                "$group_1"
-              ]
               type: <recursion ...>
+              value: ""
             }
             hidden: True
             type: <recursion ...>
@@ -987,10 +983,8 @@
           {
             alias: "$group_2"
             expr: {
-              chain: [
-                "$group_2"
-              ]
               type: <recursion ...>
+              value: ""
             }
             hidden: True
             type: <recursion ...>
@@ -998,10 +992,8 @@
           {
             alias: "$group_3"
             expr: {
-              chain: [
-                "$group_3"
-              ]
               type: <recursion ...>
+              value: ""
             }
             hidden: True
             type: <recursion ...>
@@ -1009,10 +1001,8 @@
           {
             alias: "$group_4"
             expr: {
-              chain: [
-                "$group_4"
-              ]
               type: <recursion ...>
+              value: ""
             }
             hidden: True
             type: <recursion ...>
@@ -1803,13 +1793,11 @@
       {
         alias: "$group_0"
         expr: {
-          chain: [
-            "$group_0"
-          ]
           type: {
-            name: "$group_0"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -1820,13 +1808,11 @@
       {
         alias: "$group_1"
         expr: {
-          chain: [
-            "$group_1"
-          ]
           type: {
-            name: "$group_1"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -1837,13 +1823,11 @@
       {
         alias: "$group_2"
         expr: {
-          chain: [
-            "$group_2"
-          ]
           type: {
-            name: "$group_2"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -1854,13 +1838,11 @@
       {
         alias: "$group_3"
         expr: {
-          chain: [
-            "$group_3"
-          ]
           type: {
-            name: "$group_3"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -1871,13 +1853,11 @@
       {
         alias: "$group_4"
         expr: {
-          chain: [
-            "$group_4"
-          ]
           type: {
-            name: "$group_4"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -3150,7 +3130,42 @@
                 $group_0: {
                   alias: "$group_0"
                   type: {
-                    name: "$group_0"
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $group_1: {
+                  alias: "$group_1"
+                  type: {
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $group_2: {
+                  alias: "$group_2"
+                  type: {
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $group_3: {
+                  alias: "$group_3"
+                  type: {
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $group_4: {
+                  alias: "$group_4"
+                  type: {
+                    data_type: "str"
+                    nullable: False
+                  }
+                },
+                $session_id: {
+                  alias: "$session_id"
+                  type: {
+                    name: "$session_id"
                     table_type: {
                       table: {
                         fields: {
@@ -3275,41 +3290,6 @@
                         hidden: False
                       }
                     }
-                  }
-                },
-                $group_1: {
-                  alias: "$group_1"
-                  type: {
-                    name: "$group_1"
-                    table_type: <recursion ...>
-                  }
-                },
-                $group_2: {
-                  alias: "$group_2"
-                  type: {
-                    name: "$group_2"
-                    table_type: <recursion ...>
-                  }
-                },
-                $group_3: {
-                  alias: "$group_3"
-                  type: {
-                    name: "$group_3"
-                    table_type: <recursion ...>
-                  }
-                },
-                $group_4: {
-                  alias: "$group_4"
-                  type: {
-                    name: "$group_4"
-                    table_type: <recursion ...>
-                  }
-                },
-                $session_id: {
-                  alias: "$session_id"
-                  type: {
-                    name: "$session_id"
-                    table_type: <recursion ...>
                   }
                 },
                 $window_id: {
@@ -4098,10 +4078,8 @@
             {
               alias: "$group_0"
               expr: {
-                chain: [
-                  "$group_0"
-                ]
                 type: <recursion ...>
+                value: ""
               }
               hidden: True
               type: <recursion ...>
@@ -4109,10 +4087,8 @@
             {
               alias: "$group_1"
               expr: {
-                chain: [
-                  "$group_1"
-                ]
                 type: <recursion ...>
+                value: ""
               }
               hidden: True
               type: <recursion ...>
@@ -4120,10 +4096,8 @@
             {
               alias: "$group_2"
               expr: {
-                chain: [
-                  "$group_2"
-                ]
                 type: <recursion ...>
+                value: ""
               }
               hidden: True
               type: <recursion ...>
@@ -4131,10 +4105,8 @@
             {
               alias: "$group_3"
               expr: {
-                chain: [
-                  "$group_3"
-                ]
                 type: <recursion ...>
+                value: ""
               }
               hidden: True
               type: <recursion ...>
@@ -4142,10 +4114,8 @@
             {
               alias: "$group_4"
               expr: {
-                chain: [
-                  "$group_4"
-                ]
                 type: <recursion ...>
+                value: ""
               }
               hidden: True
               type: <recursion ...>
@@ -4896,13 +4866,11 @@
                 {
                   alias: "$group_0"
                   expr: {
-                    chain: [
-                      "$group_0"
-                    ]
                     type: {
-                      name: "$group_0"
-                      table_type: <recursion ...>
+                      data_type: "str"
+                      nullable: False
                     }
+                    value: ""
                   }
                   hidden: True
                   type: {
@@ -4913,13 +4881,11 @@
                 {
                   alias: "$group_1"
                   expr: {
-                    chain: [
-                      "$group_1"
-                    ]
                     type: {
-                      name: "$group_1"
-                      table_type: <recursion ...>
+                      data_type: "str"
+                      nullable: False
                     }
+                    value: ""
                   }
                   hidden: True
                   type: {
@@ -4930,13 +4896,11 @@
                 {
                   alias: "$group_2"
                   expr: {
-                    chain: [
-                      "$group_2"
-                    ]
                     type: {
-                      name: "$group_2"
-                      table_type: <recursion ...>
+                      data_type: "str"
+                      nullable: False
                     }
+                    value: ""
                   }
                   hidden: True
                   type: {
@@ -4947,13 +4911,11 @@
                 {
                   alias: "$group_3"
                   expr: {
-                    chain: [
-                      "$group_3"
-                    ]
                     type: {
-                      name: "$group_3"
-                      table_type: <recursion ...>
+                      data_type: "str"
+                      nullable: False
                     }
+                    value: ""
                   }
                   hidden: True
                   type: {
@@ -4964,13 +4926,11 @@
                 {
                   alias: "$group_4"
                   expr: {
-                    chain: [
-                      "$group_4"
-                    ]
                     type: {
-                      name: "$group_4"
-                      table_type: <recursion ...>
+                      data_type: "str"
+                      nullable: False
                     }
+                    value: ""
                   }
                   hidden: True
                   type: {
@@ -6084,13 +6044,11 @@
       {
         alias: "$group_0"
         expr: {
-          chain: [
-            "$group_0"
-          ]
           type: {
-            name: "$group_0"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -6101,13 +6059,11 @@
       {
         alias: "$group_1"
         expr: {
-          chain: [
-            "$group_1"
-          ]
           type: {
-            name: "$group_1"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -6118,13 +6074,11 @@
       {
         alias: "$group_2"
         expr: {
-          chain: [
-            "$group_2"
-          ]
           type: {
-            name: "$group_2"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -6135,13 +6089,11 @@
       {
         alias: "$group_3"
         expr: {
-          chain: [
-            "$group_3"
-          ]
           type: {
-            name: "$group_3"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -6152,13 +6104,11 @@
       {
         alias: "$group_4"
         expr: {
-          chain: [
-            "$group_4"
-          ]
           type: {
-            name: "$group_4"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -7016,13 +6966,11 @@
       {
         alias: "$group_0"
         expr: {
-          chain: [
-            "$group_0"
-          ]
           type: {
-            name: "$group_0"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -7033,13 +6981,11 @@
       {
         alias: "$group_1"
         expr: {
-          chain: [
-            "$group_1"
-          ]
           type: {
-            name: "$group_1"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -7050,13 +6996,11 @@
       {
         alias: "$group_2"
         expr: {
-          chain: [
-            "$group_2"
-          ]
           type: {
-            name: "$group_2"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -7067,13 +7011,11 @@
       {
         alias: "$group_3"
         expr: {
-          chain: [
-            "$group_3"
-          ]
           type: {
-            name: "$group_3"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
@@ -7084,13 +7026,11 @@
       {
         alias: "$group_4"
         expr: {
-          chain: [
-            "$group_4"
-          ]
           type: {
-            name: "$group_4"
-            table_type: <recursion ...>
+            data_type: "str"
+            nullable: False
           }
+          value: ""
         }
         hidden: True
         type: {
