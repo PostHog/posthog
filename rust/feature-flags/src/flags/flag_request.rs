@@ -91,7 +91,7 @@ impl FlagRequest {
             .replace("-Infinity", "null")
             .replace("Infinity", "null")
             .replace("NaN", "null");
-        
+
         match serde_json::from_str::<FlagRequest>(&sanitized_payload) {
             Ok(request) => Ok(request),
             Err(e) => {
@@ -235,19 +235,32 @@ mod tests {
     #[test]
     fn json_sanitization_handles_nan_infinity() {
         // Test NaN
-        let json_with_nan = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": NaN}}"#;
-        let request = FlagRequest::from_bytes(Bytes::from(json_with_nan)).expect("Should handle NaN");
-        assert_eq!(request.person_properties.as_ref().unwrap()["nan"], json!(null));
+        let json_with_nan =
+            r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": NaN}}"#;
+        let request =
+            FlagRequest::from_bytes(Bytes::from(json_with_nan)).expect("Should handle NaN");
+        assert_eq!(
+            request.person_properties.as_ref().unwrap()["nan"],
+            json!(null)
+        );
 
         // Test Infinity
         let json_with_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"infinity": Infinity}}"#;
-        let request = FlagRequest::from_bytes(Bytes::from(json_with_infinity)).expect("Should handle Infinity");
-        assert_eq!(request.person_properties.as_ref().unwrap()["infinity"], json!(null));
+        let request = FlagRequest::from_bytes(Bytes::from(json_with_infinity))
+            .expect("Should handle Infinity");
+        assert_eq!(
+            request.person_properties.as_ref().unwrap()["infinity"],
+            json!(null)
+        );
 
         // Test negative Infinity
         let json_with_neg_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"neg_infinity": -Infinity}}"#;
-        let request = FlagRequest::from_bytes(Bytes::from(json_with_neg_infinity)).expect("Should handle -Infinity");
-        assert_eq!(request.person_properties.as_ref().unwrap()["neg_infinity"], json!(null));
+        let request = FlagRequest::from_bytes(Bytes::from(json_with_neg_infinity))
+            .expect("Should handle -Infinity");
+        assert_eq!(
+            request.person_properties.as_ref().unwrap()["neg_infinity"],
+            json!(null)
+        );
     }
 
     #[test]
