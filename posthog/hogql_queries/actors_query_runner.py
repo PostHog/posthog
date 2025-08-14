@@ -108,7 +108,7 @@ class ActorsQueryRunner(QueryRunner):
         matching_events_list = itertools.chain.from_iterable(row[column_index_events] for row in self.paginator.results)
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
-    def _calculate(self) -> ActorsQueryResponse:
+    def _calculate_internal(self) -> ActorsQueryResponse:
         # Funnel queries require the experimental analyzer to run correctly
         # Can remove once clickhouse moves to version 24.3 or above
         settings = None
@@ -179,7 +179,7 @@ class ActorsQueryRunner(QueryRunner):
     def _calculate(self) -> ActorsQueryResponse:
         try:
             self.calculating = True
-            return self._calculate()
+            return self._calculate_internal()
         finally:
             self.calculating = False
 
