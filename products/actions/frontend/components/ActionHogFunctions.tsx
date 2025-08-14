@@ -18,7 +18,7 @@ export function ActionHogFunctions(): JSX.Element | null {
         <SceneSection
             className="@container"
             title="Connected destinations"
-            description="Actions can be used a filters for destinations such as Slack or Webhook delivery"
+            description="Actions can be used as filters for destinations such as Slack or Webhook delivery"
         >
             {showCohortDisablesFunctionsWarning ? (
                 <LemonBanner type="error">Adding a cohort filter will disable all connected destinations!</LemonBanner>
