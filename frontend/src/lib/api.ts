@@ -1256,6 +1256,10 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
+    }
+
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -3324,18 +3328,19 @@ const api = {
                 .withQueryString({ before, after })
                 .get()
         },
-        async dwhSceneStats(options?: ApiMethodOptions): Promise<{
+    },
+
+    dataWarehouse: {
+        async total_rows_stats(options?: ApiMethodOptions): Promise<{
             billingInterval: string
             billingPeriodEnd: string
             billingPeriodStart: string
-            dataModelingRows: number
-            externalData: {
-                billingTrackedRows: number
-                pendingBillingRows: number
-                totalRows: number
-            }
+            materializedRowsInBillingPeriod: number
+            totalRows: number
+            trackedBillingRows: number
+            pendingBillingRows: number
         }> {
-            return await new ApiRequest().externalDataSources().withAction('dwh_scene_stats').get(options)
+            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
         },
     },
 
