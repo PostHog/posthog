@@ -67,6 +67,7 @@ import {
     IS_TEST_MODE,
     MAX_TILES_FOR_AUTOPREVIEW,
     QUERY_VARIABLES_KEY,
+    combineDashboardFilters,
     encodeURLVariables,
     getInsightWithRetry,
     layoutsByTile,
@@ -276,7 +277,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                  */
                 loadDashboard: async ({ action, manualDashboardRefresh }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action, manualDashboardRefresh ?? false)
+
                     await breakpoint(200)
+                    actions.resetIntermittentFilters()
 
                     try {
                         const apiUrl = values.apiUrl('force_cache', values.temporaryFilters, values.temporaryVariables)
@@ -840,27 +843,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard],
             (dashboard) => (dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW,
         ],
-        filtersUpdated: [
-            (s) => [s.temporaryFilters, s.dashboard],
-            (temporaryFilters, dashboard) => {
-                // both aren't falsy && both aren't equal
-                const isDateFromUpdated =
-                    !(!temporaryFilters.date_from && !dashboard?.filters.date_from) &&
-                    temporaryFilters.date_from !== dashboard?.filters.date_from
-
-                const isDateToUpdated =
-                    !(!temporaryFilters.date_to && !dashboard?.filters.date_to) &&
-                    temporaryFilters.date_to !== dashboard?.filters.date_to
-
-                const isPropertiesUpdated =
-                    JSON.stringify(temporaryFilters.properties ?? []) !==
-                    JSON.stringify(dashboard?.filters.properties ?? [])
-
-                const isBreakdownUpdated =
-                    !(!temporaryFilters.breakdown_filter && !dashboard?.filters.breakdown_filter) &&
-                    temporaryFilters.breakdown_filter !== dashboard?.filters.breakdown_filter
-
-                return isDateFromUpdated || isDateToUpdated || isPropertiesUpdated || isBreakdownUpdated
+        hasIntermittentFilters: [
+            (s) => [s.intermittentFilters],
+            (intermittentFilters) =>
+                Object.keys(objectClean((intermittentFilters || {}) as Record<string, unknown>, { removeNulls: true }))
+                    .length > 0,
+        ],
+        showEditBarApplyPopover: [
+            (s) => [s.canAutoPreview, s.hasIntermittentFilters],
+            (canAutoPreview, hasIntermittentFilters) => !canAutoPreview && hasIntermittentFilters,
+        ],
+        temporaryFilters: [
+            () => [router.selectors.searchParams],
+            (searchParams) => {
+                const urlFilters = parseURLFilters(searchParams)
+                return urlFilters
+            },
+        ],
+        effectiveEditBarFilters: [
+            (s) => [s.dashboard, s.temporaryFilters, s.intermittentFilters],
+            (dashboard, temporaryFilters, intermittentFilters) => {
+                return combineDashboardFilters(dashboard?.filters || {}, temporaryFilters, intermittentFilters)
             },
         ],
         effectiveVariablesAndAssociatedInsights: [
