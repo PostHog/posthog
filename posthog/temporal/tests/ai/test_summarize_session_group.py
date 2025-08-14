@@ -13,6 +13,7 @@ from pytest_mock import MockerFixture
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
+from temporalio.exceptions import ApplicationError
 
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
@@ -293,6 +294,153 @@ async def test_assign_events_to_patterns_activity_standalone(
         mock_call_llm.assert_called()  # May be called multiple times for chunks
         # Verify Redis operations - gets session summaries, patterns, and session data
         assert spy_get.call_count >= len(session_ids) + 2  # Session summaries + patterns + session data
+
+
+@pytest.mark.asyncio
+async def test_assign_events_to_patterns_threshold_check(
+    mocker: MockerFixture,
+    mock_session_id: str,
+    mock_enriched_llm_json_response: dict[str, Any],
+    mock_single_session_summary_inputs: Callable,
+    mock_single_session_summary_llm_inputs: Callable,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+    redis_test_setup: AsyncRedisTestContext,
+):
+    """Test that assign_events_to_patterns_activity fails when too few patterns get events assigned"""
+    # Prepare input data
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    single_session_inputs = [mock_single_session_summary_inputs(session_id) for session_id in session_ids]
+    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs)
+    redis_client = get_async_client()
+    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
+
+    # Store session summaries in Redis
+    for single_session_input in single_session_inputs:
+        session_summary_key = generate_state_key(
+            key_base=single_session_input.redis_key_base,
+            label=StateActivitiesEnum.SESSION_SUMMARY,
+            state_id=single_session_input.session_id,
+        )
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=session_summary_key,
+            data=enriched_summary_str,
+            label=StateActivitiesEnum.SESSION_SUMMARY,
+        )
+        redis_test_setup.keys_to_cleanup.append(session_summary_key)
+
+    # Store single session LLM inputs in Redis
+    for session_id, single_session_input in zip(session_ids, single_session_inputs):
+        llm_input = mock_single_session_summary_llm_inputs(session_id)
+        session_db_data_key = generate_state_key(
+            key_base=single_session_input.redis_key_base,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=single_session_input.session_id,
+        )
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=session_db_data_key,
+            data=json.dumps(dataclasses.asdict(llm_input)),
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+        )
+        redis_test_setup.keys_to_cleanup.append(session_db_data_key)
+
+    # Store extracted patterns with 4 patterns
+    mock_patterns = RawSessionGroupSummaryPatternsList.model_validate_json(
+        """{
+            "patterns": [
+                {"pattern_id": 1, "pattern_name": "Pattern 1", "pattern_description": "Test pattern 1", "severity": "critical", "indicators": ["indicator 1"]},
+                {"pattern_id": 2, "pattern_name": "Pattern 2", "pattern_description": "Test pattern 2", "severity": "high", "indicators": ["indicator 2"]},
+                {"pattern_id": 3, "pattern_name": "Pattern 3", "pattern_description": "Test pattern 3", "severity": "medium", "indicators": ["indicator 3"]},
+                {"pattern_id": 4, "pattern_name": "Pattern 4", "pattern_description": "Test pattern 4", "severity": "low", "indicators": ["indicator 4"]}
+            ]
+        }"""
+    )
+    patterns_key = generate_state_key(
+        key_base=activity_input.redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id=",".join(session_ids),
+    )
+    await store_data_in_redis(
+        redis_client=redis_client,
+        redis_key=patterns_key,
+        data=mock_patterns.model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    redis_test_setup.keys_to_cleanup.append(patterns_key)
+
+    # Test 1: Should fail when only 2 out of 4 patterns get events (50% < 75% threshold)
+    with (
+        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("temporalio.activity.info") as mock_activity_info,
+    ):
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Mock LLM response that only assigns events to 2 patterns
+        patterns_assignment_fail = """patterns:
+  - pattern_id: 1
+    event_ids: ["abcd1234"]
+  - pattern_id: 2
+    event_ids: ["ghij7890"]
+"""
+        mock_llm_response = ChatCompletion(
+            id="test_id",
+            model="test_model",
+            object="chat.completion",
+            created=int(datetime.now().timestamp()),
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(
+                        content=patterns_assignment_fail,
+                        role="assistant",
+                    ),
+                )
+            ],
+        )
+        mock_call_llm.return_value = mock_llm_response
+
+        # Should raise ApplicationError due to threshold failure
+        with pytest.raises(ApplicationError, match="Too many patterns failed to assign session events"):
+            await assign_events_to_patterns_activity(activity_input)
+
+    # Test 2: Should succeed when 3 out of 4 patterns get events (75% == 75% threshold)
+    with (
+        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("temporalio.activity.info") as mock_activity_info,
+    ):
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Mock LLM response that assigns events to 3 patterns
+        patterns_assignment_success = """patterns:
+  - pattern_id: 1
+    event_ids: ["abcd1234"]
+  - pattern_id: 2
+    event_ids: ["ghij7890"]
+  - pattern_id: 3
+    event_ids: ["mnop3456"]
+"""
+        mock_llm_response = ChatCompletion(
+            id="test_id",
+            model="test_model",
+            object="chat.completion",
+            created=int(datetime.now().timestamp()),
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(
+                        content=patterns_assignment_success,
+                        role="assistant",
+                    ),
+                )
+            ],
+        )
+        mock_call_llm.return_value = mock_llm_response
+
+        # Should succeed
+        result = await assign_events_to_patterns_activity(activity_input)
+        assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
+        assert len(result.patterns) == 3  # Should have 3 patterns with events
 
 
 class TestSummarizeSessionGroupWorkflow:

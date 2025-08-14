@@ -397,7 +397,8 @@ async def assign_events_to_patterns_activity(
         patterns_with_events_context = combine_patterns_with_events_context(
             patterns=patterns_extraction,
             pattern_id_to_event_context_mapping=pattern_id_to_event_context_mapping,
-            total_sessions_count=len(session_ids),
+            session_ids=session_ids,
+            user_id=inputs.user_id,
         )
         patterns_with_events_context_str = patterns_with_events_context.model_dump_json(exclude_none=True)
         await store_data_in_redis(

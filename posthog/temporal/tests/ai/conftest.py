@@ -134,12 +134,14 @@ def mock_patterns_extraction_yaml_response() -> str:
 @pytest.fixture
 def mock_patterns_assignment_yaml_response() -> str:
     """Mock YAML response for pattern assignment"""
-    # No pattern 3 assignments and it should be ok, as not all patterns are required to have assigned events
+    # All patterns need events assigned to meet the FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO threshold
     return """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234", "defg4567"]
   - pattern_id: 2
     event_ids: ["ghij7890", "mnop3456"]
+  - pattern_id: 3
+    event_ids: ["stuv9012"]
 """
 
 
