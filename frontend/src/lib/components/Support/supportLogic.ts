@@ -55,7 +55,7 @@ function getSessionReplayLink(): string {
     return `\nSession: ${replayUrl}`
 }
 
-function getErrorTrackingLink(exceptionUuid?: string): string {
+function getErrorTrackingLink(uuid?: string): string {
     const values = [
         {
             key: '$session_id',
@@ -65,10 +65,10 @@ function getErrorTrackingLink(exceptionUuid?: string): string {
         },
     ]
 
-    if (exceptionUuid) {
+    if (uuid) {
         values.push({
             type: 'hogql',
-            key: `uuid = '${exceptionUuid}'`,
+            key: `uuid = '${uuid}'`,
             value: null,
         } as any)
     }
@@ -296,6 +296,8 @@ export type SupportTicketTargetArea =
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
+export type SupportTicketExceptionEvent = { uuid: string; event: string; properties?: Record<string, any> }
+
 export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea): null | string => {
     for (const category of TARGET_AREA_TO_NAME) {
         for (const option of category.options) {
@@ -371,7 +373,7 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
-    exception_event?: { uuid: string; event: string; properties?: any } | null
+    exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
 }
 
@@ -429,7 +431,6 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: null,
                 target_area: null,
                 message: '',
-                exception_event: null,
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -502,7 +503,7 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: area,
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
-                exception_event: exception_event ?? null,
+                exception_event,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -529,15 +530,6 @@ export const supportLogic = kea<supportLogicType>([
             message,
             exception_event,
         }: SupportFormFields) => {
-            // Parse exception event if provided
-            let parsedExceptionData = ''
-            let exceptionUuid: string | undefined
-            if (exception_event) {
-                const parsed = parseExceptionEvent(exception_event)
-                parsedExceptionData = parsed.parsedData
-                exceptionUuid = parsed.uuid
-            }
-
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -643,7 +635,7 @@ export const supportLogic = kea<supportLogicType>([
                         },
                         {
                             id: 39967113285659,
-                            value: parsedExceptionData || '',
+                            value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],
                     comment: {
@@ -654,7 +646,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
-                            getErrorTrackingLink(exceptionUuid) +
+                            getErrorTrackingLink(exception_event?.uuid) +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,

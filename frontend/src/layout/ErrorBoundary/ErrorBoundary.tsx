@@ -2,34 +2,10 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { supportLogic, SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
-import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
-
-// Constants
-const EXCEPTION_EVENT_NAME = '$exception'
-
-// Global variable to store the most recent exception event
-let globalLastExceptionEvent: { uuid: string; event: string; properties?: any } | null = null
-let globalExceptionListener: (() => void) | null = null
-
-// Set up global listener for exception events (only once)
-if (!globalExceptionListener && typeof window !== 'undefined') {
-    try {
-        if (posthog && typeof posthog.on === 'function') {
-            globalExceptionListener = posthog.on('eventCaptured', (event) => {
-                if (event.event === EXCEPTION_EVENT_NAME) {
-                    globalLastExceptionEvent = event
-                }
-            })
-        }
-    } catch (error) {
-        console.warn('Failed to set up PostHog exception listener:', error)
-    }
-}
 
 interface ErrorBoundaryProps {
     children?: React.ReactNode
@@ -58,16 +34,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
                 const { stack, name, message } = normalizedError
 
-                // Capture the exception that was current when this ErrorBoundary first triggered
-                // Use useRef to ensure we only capture it once per error boundary instance
-                const capturedExceptionRef = useRef<{ uuid: string; event: string; properties?: any } | null>(null)
-
-                // Only capture once - when this fallback first renders for this error
-                if (capturedExceptionRef.current === null) {
-                    capturedExceptionRef.current = globalLastExceptionEvent
-                }
-
-                const exceptionEvent = capturedExceptionRef.current
+                const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
 
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
@@ -92,7 +59,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                 openSupportForm({
                                     kind: 'bug',
                                     isEmailFormOpen: true,
-                                    exception_event: exceptionEvent || null,
+                                    exception_event: exceptionEvent ?? null,
                                 })
                             }}
                             targetBlank
