@@ -13,6 +13,7 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_notebook_from_summary,
     _generate_notebook_content_from_summary,
     format_single_sessions_status,
+    format_patterns_extraction_status,
 )
 
 
@@ -632,3 +633,82 @@ class TestNotebookCreation(APIBaseTest):
         text = paragraph["content"][0]
         self.assertEqual(text["type"], "text")
         self.assertEqual(text["text"], "single-session ✅")
+
+    def test_format_patterns_extraction_status_empty(self):
+        """Test formatting an empty patterns list"""
+        result = format_patterns_extraction_status([])
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + message
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["attrs"]["level"], 2)
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Extracted Patterns")
+        # Check empty message
+        self.assertEqual(result["content"][1]["type"], "paragraph")
+        self.assertIn("No patterns extracted yet", str(result["content"][1]))
+
+    def test_format_patterns_extraction_status_with_patterns(self):
+        """Test formatting patterns with full details"""
+        patterns = [
+            {
+                "pattern_id": 1,
+                "pattern_name": "Login Flow Issues",
+                "pattern_description": "Users experiencing difficulties during login",
+                "severity": "high",
+                "indicators": ["multiple login attempts", "error messages", "password reset"],
+            },
+            {
+                "pattern_id": 2,
+                "pattern_name": "Navigation Confusion",
+                "pattern_description": "Users getting lost in navigation",
+                "severity": "medium",
+                "indicators": ["back button usage", "repeated page visits"],
+            },
+        ]
+
+        result = format_patterns_extraction_status(patterns)
+        # Check structure
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Extracted Patterns")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 2)  # Two patterns
+
+        # Check first pattern
+        first_item = bullet_list["content"][0]
+        self.assertEqual(first_item["type"], "listItem")
+        self.assertEqual(len(first_item["content"]), 3)  # header, description, indicators
+
+        # Verify pattern content includes name and severity
+        first_header = first_item["content"][0]
+        self.assertEqual(first_header["type"], "paragraph")
+        header_text = first_header["content"][0]["text"]
+        self.assertIn("Login Flow Issues", header_text)
+        self.assertIn("high", header_text)
+
+    def test_format_patterns_extraction_status_without_indicators(self):
+        """Test formatting patterns without indicators"""
+        patterns = [
+            {
+                "pattern_id": 1,
+                "pattern_name": "Simple Pattern",
+                "pattern_description": "A pattern without indicators",
+                "severity": "low",
+                "indicators": [],
+            }
+        ]
+
+        result = format_patterns_extraction_status(patterns)
+        # Check structure
+        self.assertEqual(result["type"], "doc")
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+
+        # Check pattern item has only 2 paragraphs (no indicators)
+        first_item = bullet_list["content"][0]
+        self.assertEqual(first_item["type"], "listItem")
+        self.assertEqual(len(first_item["content"]), 2)  # header, description only

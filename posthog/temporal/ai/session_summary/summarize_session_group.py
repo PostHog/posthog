@@ -19,7 +19,9 @@ from ee.hogai.session_summaries.constants import (
 )
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
-from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session_group.patterns import (
+    EnrichedSessionGroupSummaryPatternsList,
+)
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
@@ -27,7 +29,10 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
-from ee.hogai.session_summaries.session_group.summary_notebooks import format_single_sessions_status
+from ee.hogai.session_summaries.session_group.summary_notebooks import (
+    format_extracted_patterns_status,
+    format_single_sessions_status,
+)
 from posthog import constants
 from posthog.models.team.team import Team
 from posthog.schema import CachedSessionBatchEventsQueryResponse
@@ -38,6 +43,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
+    get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
@@ -50,7 +56,7 @@ from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     store_data_in_redis,
 )
-from posthog.redis import get_async_client
+from posthog.redis import get_async_client, get_client
 from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
@@ -238,6 +244,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         self._processed_patterns_extraction = 0
         self._current_status = ""
         self._single_sessions_summarized: dict[str, bool] = {}
+        self._raw_patterns_extracted_keys: list[str] = []
 
     @temporalio.workflow.query
     def get_current_status(self) -> str:
@@ -248,6 +255,11 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     def get_single_sessions_status(self) -> dict[str, bool]:
         """Query handler to get the status of individual session summaries."""
         return self._single_sessions_summarized
+
+    @temporalio.workflow.query
+    def get_raw_patterns_extraction_keys(self) -> list[str]:
+        """Query handler to get keys of the current extracted patterns stored in Redis."""
+        return self._raw_patterns_extracted_keys
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SessionGroupSummaryInputs:
@@ -379,7 +391,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         Run and handle pattern extraction for a chunk of sessions to avoid one activity failing the whole group.
         """
         try:
-            await temporalio.workflow.execute_activity(
+            redis_output_key = await temporalio.workflow.execute_activity(
                 extract_session_group_patterns_activity,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=30),
@@ -387,6 +399,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             )
             self._processed_patterns_extraction += len(inputs.single_session_summaries_inputs)
             self._current_status = f"Searching for behavior patterns in sessions ({self._processed_patterns_extraction}/{self._total_sessions})"
+            # Get a key of extracted patterns stored in Redis and append to out list
+            if redis_output_key:
+                self._raw_patterns_extracted_keys.append(redis_output_key)
             return None
         except Exception as err:  # Activity retries exhausted
             # Let caller handle the error
@@ -543,19 +558,21 @@ async def _start_session_group_summary_workflow(
         retry_policy=retry_policy,
     )
 
-    # Track previous sessions status to detect changes
+    # Track previous states to detect changes
     previous_sessions_status: dict[str, bool] = {}
+    previous_pattern_keys: list[str] = []
 
     # Poll for status
     while True:
         # Check workflow status
         workflow_description = await handle.describe()
+        expected_progress_status_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.UI_STATUS]
+        expected_notebook_update_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.NOTEBOOK_UPDATE]
         # Query the current activities status
         progress_status = await handle.query("get_current_status")
-        expected_progress_status_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.UI_STATUS]
-        # Query the single sessions status
-        sessions_status = await handle.query("get_single_sessions_status")
-        expected_sessions_status_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.NOTEBOOK_UPDATE]
+        # Query the intermediate data
+        sessions_status: dict[str, bool] = await handle.query("get_single_sessions_status")
+        patterns_keys: list[str] = await handle.query("get_raw_patterns_extraction_keys")
         # Workflow completed - get and yield the final result
         if workflow_description.status == WorkflowExecutionStatus.COMPLETED:
             result_raw: dict = await handle.result()
@@ -579,17 +596,36 @@ async def _start_session_group_summary_workflow(
                     f"(expected: {expected_progress_status_type})"
                 )
             yield (SessionSummaryStreamUpdate.UI_STATUS, progress_status)
+
             # Yield intermediate data for the notebook, if it changed
             # Single sessions summarization status
             if sessions_status != previous_sessions_status:
                 formatted_sessions_status = format_single_sessions_status(sessions_status)
-                if not isinstance(formatted_sessions_status, expected_sessions_status_type):
+                if not isinstance(formatted_sessions_status, expected_notebook_update_type):
                     raise ValueError(
                         f"Unexpected sessions status type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(sessions_status)} "
-                        f"(expected: {expected_sessions_status_type})"
+                        f"(expected: {expected_notebook_update_type})"
                     )
                 yield (SessionSummaryStreamUpdate.NOTEBOOK_UPDATE, formatted_sessions_status)
                 previous_sessions_status = sessions_status.copy()
+
+            # Patterns extraction status
+            if patterns_keys != previous_pattern_keys:
+                patterns = get_patterns_from_redis_outside_workflow(
+                    redis_output_keys=patterns_keys,
+                    redis_client=get_client(),
+                )
+                if patterns is None:
+                    raise ValueError(f"Extracted patterns not found in Redis for keys {patterns_keys}")
+                formatted_patterns = format_extracted_patterns_status(patterns)
+                if not isinstance(formatted_patterns, expected_notebook_update_type):
+                    raise ValueError(
+                        f"Unexpected patterns status type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(patterns)} "
+                        f"(expected: {expected_notebook_update_type})"
+                    )
+                yield (SessionSummaryStreamUpdate.NOTEBOOK_UPDATE, formatted_patterns)
+                previous_pattern_keys = patterns_keys.copy()
+
             # Wait till the next polling
             await asyncio.sleep(int(SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS / 1000))
 

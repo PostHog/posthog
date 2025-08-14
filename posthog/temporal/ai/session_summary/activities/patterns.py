@@ -1,7 +1,7 @@
 import asyncio
 import json
 from typing import cast
-from redis import asyncio as aioredis
+from redis import Redis, asyncio as aioredis
 import structlog
 import temporalio
 from ee.hogai.session_summaries.constants import (
@@ -19,6 +19,7 @@ from ee.hogai.session_summaries.llm.consume import (
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
+    RawSessionGroupSummaryPattern,
     RawSessionGroupSummaryPatternsList,
     combine_event_ids_mappings_from_single_session_summaries,
     combine_patterns_assignments_from_single_session_summaries,
@@ -39,6 +40,7 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
 from ee.hogai.session_summaries.utils import estimate_tokens_from_strings
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
+    decompress_redis_data,
     generate_state_key,
     get_data_class_from_redis,
     get_data_str_from_redis,
@@ -101,6 +103,28 @@ async def _get_session_summaries_str_from_inputs(
         )
         for single_session_input in inputs.single_session_summaries_inputs
     ]
+
+
+def get_patterns_from_redis_outside_workflow(
+    redis_output_keys: list[str],
+    redis_client: Redis,
+) -> list[RawSessionGroupSummaryPattern] | None:
+    """Sync function to get patterns from Redis outside of the workflow."""
+    extracted_patterns = []
+    for redis_output_key in redis_output_keys:
+        # TODO: Batch get?
+        redis_data_raw = redis_client.get(redis_output_key)
+        if not redis_data_raw:
+            continue
+        try:
+            redis_data_str = decompress_redis_data(redis_data_raw)
+            redis_data = json.loads(redis_data_str)
+            extracted_patterns.extend(RawSessionGroupSummaryPatternsList(**redis_data).patterns)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when getting extracted patterns from Redis: {e}"
+            ) from e
+    return extracted_patterns
 
 
 @temporalio.activity.defn
@@ -187,7 +211,7 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
 
 
 @temporalio.activity.defn
-async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> None:
+async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> str:
     """Extract patterns for a group of sessions and store them in Redis."""
     session_ids = _get_session_ids_from_inputs(inputs)
     redis_client, _, redis_output_key = get_redis_state_client(
@@ -231,7 +255,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         data=patterns_extraction_str,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
     )
-    return None
+    return redis_output_key
 
 
 async def _generate_patterns_assignments_per_chunk(

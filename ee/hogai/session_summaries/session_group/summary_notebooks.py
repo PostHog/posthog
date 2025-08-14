@@ -17,6 +17,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
     PatternAssignedEventSegmentContext,
+    RawSessionGroupSummaryPattern,
 )
 
 
@@ -40,6 +41,49 @@ def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNod
     # Wrap content in a doc node
     json_content = {"type": "doc", "content": content}
     return json_content
+
+
+def format_extracted_patterns_status(patterns: list[RawSessionGroupSummaryPattern]) -> TipTapNode:
+    """Format extracted patterns as a TipTap document with header and details"""
+    content = []
+    # Add header
+    content.append(
+        {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Extracted Patterns"}]}
+    )
+    if not patterns:
+        # Show a message when no patterns are extracted yet
+        content.append(create_paragraph_with_text("No patterns extracted yet..."))
+    else:
+        # Create a list of patterns with their details
+        pattern_items = []
+        for pattern in patterns:
+            # Create pattern header with name and severity
+            pattern_name = pattern.pattern_name
+            severity = pattern.severity
+            pattern_header = f"**{pattern_name}** (Severity: {severity})"
+
+            # Create pattern description
+            pattern_desc = pattern.pattern_description
+
+            # Create indicators list if available
+            indicators = pattern.indicators
+            if indicators:
+                indicators_text = "Indicators: " + ", ".join(indicators)
+                pattern_content = [
+                    create_paragraph_with_text(pattern_header),
+                    create_paragraph_with_text(pattern_desc),
+                    create_paragraph_with_text(indicators_text),
+                ]
+            else:
+                pattern_content = [create_paragraph_with_text(pattern_header), create_paragraph_with_text(pattern_desc)]
+
+            # Add as a list item with nested content
+            pattern_items.append({"type": "listItem", "content": pattern_content})
+
+        # Add the bullet list
+        content.append({"type": "bulletList", "content": pattern_items})
+
+    return {"type": "doc", "content": content}
 
 
 async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
