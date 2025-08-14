@@ -272,7 +272,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
         # Validate cohort type before creating the DB entry
         if provided_cohort_type:
-            # Create a temporary cohort instance for validation before saving it to the DB
+            # Create a temporary cohort instance for validation, but don't save it to the DB
             virtualized_cohort = Cohort(team_id=self.context["team_id"], **validated_data)
             is_valid, error_msg = virtualized_cohort.validate_cohort_type(provided_cohort_type)
             if not is_valid:
