@@ -41,7 +41,6 @@ export const preloadedScenes: Record<string, SceneExport> = {
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
-    [Scene.Activity]: { projectBased: true, name: 'Activity', defaultDocsPath: '/docs/data/events' },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -118,6 +117,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/experiments',
         activityScope: ActivityScope.EXPERIMENT,
     },
+    [Scene.ExploreEvents]: { projectBased: true, name: 'Explore', defaultDocsPath: '/docs/data/events' },
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
@@ -150,6 +150,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Link]: { projectBased: true },
     [Scene.Links]: { projectBased: true, name: 'Links' },
+    [Scene.LiveEvents]: { projectBased: true, name: 'Live', defaultDocsPath: '/docs/data/events' },
     [Scene.Login2FA]: { onlyUnauthenticated: true },
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
@@ -452,7 +453,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.propertyDefinitionEdit(':id')]: [Scene.PropertyDefinitionEdit, 'propertyDefinitionEdit'],
     [urls.dataManagementHistory()]: [Scene.DataManagement, 'dataManagementHistory'],
     [urls.database()]: [Scene.DataManagement, 'database'],
-    [urls.activity(':tab')]: [Scene.Activity, 'activity'],
+    [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
+    [urls.activity(ActivityTab.LiveEvents)]: [Scene.LiveEvents, 'liveEvents'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce(
