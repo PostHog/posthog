@@ -38,7 +38,7 @@ impl S3Uploader {
 
         while let Some(current_path) = stack.pop() {
             let entries = std::fs::read_dir(&current_path)
-                .with_context(|| format!("Failed to read directory: {:?}", current_path))?;
+                .with_context(|| format!("Failed to read directory: {current_path:?}"))?;
 
             for entry in entries {
                 let entry = entry?;
@@ -49,7 +49,7 @@ impl S3Uploader {
                 } else {
                     let relative_path = path
                         .strip_prefix(base_path)
-                        .with_context(|| format!("Failed to get relative path for: {:?}", path))?;
+                        .with_context(|| format!("Failed to get relative path for: {path:?}"))?;
 
                     let s3_key = format!(
                         "{}/{}",
@@ -74,10 +74,7 @@ impl S3Uploader {
                     uploaded_keys.push(s3_key);
                 }
                 Err(e) => {
-                    error!(
-                        "Failed to upload file {:?} to {}: {}",
-                        local_path, s3_key, e
-                    );
+                    error!("Failed to upload file {local_path:?} to {s3_key}: {e}");
                     return Err(e);
                 }
             }
@@ -89,7 +86,7 @@ impl S3Uploader {
     async fn upload_file(&self, local_path: &Path, s3_key: &str) -> Result<()> {
         let body = fs::read(local_path)
             .await
-            .with_context(|| format!("Failed to read file: {:?}", local_path))?;
+            .with_context(|| format!("Failed to read file: {local_path:?}"))?;
 
         let put_object = self
             .client
@@ -101,13 +98,13 @@ impl S3Uploader {
         // Apply timeout if configured
         let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
             .await
-            .with_context(|| format!("S3 upload timeout for key: {}", s3_key))?;
+            .with_context(|| format!("S3 upload timeout for key: {s3_key}"))?;
 
-        result.with_context(|| format!("Failed to upload to S3 key: {}", s3_key))?;
+        result.with_context(|| format!("Failed to upload to S3 key: {s3_key}"))?;
 
         info!(
-            "Uploaded file {:?} to s3://{}/{}",
-            local_path, self.config.s3_bucket, s3_key
+            "Uploaded file {local_path:?} to s3://{0}/{s3_key}",
+            self.config.s3_bucket
         );
         Ok(())
     }
@@ -119,9 +116,9 @@ impl S3Uploader {
             .key(key)
             .send()
             .await
-            .with_context(|| format!("Failed to delete S3 object: {}", key))?;
+            .with_context(|| format!("Failed to delete S3 object: {key}"))?;
 
-        info!("Deleted S3 object: {}", key);
+        info!("Deleted S3 object: {key}");
         Ok(())
     }
 }
@@ -135,14 +132,13 @@ impl CheckpointUploader for S3Uploader {
     ) -> Result<Vec<String>> {
         if !local_path.exists() {
             return Err(anyhow::anyhow!(
-                "Local checkpoint path does not exist: {:?}",
-                local_path
+                "Local checkpoint path does not exist: {local_path:?}"
             ));
         }
 
         info!(
-            "Starting upload of checkpoint directory: {:?} to s3://{}/{}",
-            local_path, self.config.s3_bucket, s3_key_prefix
+            "Starting upload of checkpoint directory: {local_path:?} to s3://{}/{s3_key_prefix}",
+            self.config.s3_bucket
         );
 
         let files_to_upload = self.collect_files_to_upload(local_path, s3_key_prefix)?;
@@ -196,7 +192,7 @@ impl CheckpointUploader for S3Uploader {
 
         for key in keys_to_delete {
             if let Err(e) = self.delete_object(&key).await {
-                error!("Failed to delete S3 object {}: {}", key, e);
+                error!("Failed to delete S3 object {key}: {e}");
                 // Continue with other deletions
             }
         }

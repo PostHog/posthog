@@ -134,7 +134,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     } = useFloating<HTMLElement>({
         open: visible,
         placement,
-        strategy: 'fixed',
+        strategy: 'absolute',
         middleware: [
             ...(fallbackPlacements
                 ? [
