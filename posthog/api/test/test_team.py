@@ -125,7 +125,6 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
-                        "created_by": None,
                         "created_at": None,
                     },
                     {
@@ -135,7 +134,6 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
-                        "created_by": None,
                         "created_at": None,
                     },
                     {
@@ -145,7 +143,6 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
-                        "created_by": None,
                         "created_at": None,
                     },
                 ],

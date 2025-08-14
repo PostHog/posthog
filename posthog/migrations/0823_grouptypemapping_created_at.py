@@ -11,11 +11,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="grouptypemapping",
-            name="created_by",
-            field=models.ForeignKey(blank=True, null=True, on_delete=models.SET_NULL, to="posthog.user"),
-        ),
-        migrations.AddField(
-            model_name="grouptypemapping",
             name="created_at",
             field=models.DateTimeField(null=True, blank=True),
         ),
