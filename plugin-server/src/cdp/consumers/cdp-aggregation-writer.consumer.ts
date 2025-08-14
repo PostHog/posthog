@@ -169,38 +169,70 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             return
         }
 
-        let query = ''
-        try {
-            const ctes: string[] = []
-            const allParams: any[] = []
-            let paramOffset = 1
+        // Group events by teamId to hit only one partition per query
+        const personEventsByTeam = new Map<number, PersonEventPayload[]>()
+        const behaviouralEventsByTeam = new Map<number, AggregatedBehaviouralEvent[]>()
 
-            // Add CTEs for each event type
-            if (personEvents.length > 0) {
-                const { cte, params } = this.buildPersonEventsCTE(personEvents, paramOffset)
-                ctes.push(cte)
-                allParams.push(...params)
-                paramOffset += params.length // person events use 3 array parameters
+        for (const event of personEvents) {
+            if (!personEventsByTeam.has(event.teamId)) {
+                personEventsByTeam.set(event.teamId, [])
             }
-            if (behaviouralEvents.length > 0) {
-                const { cte, params } = this.buildBehaviouralEventsCTE(behaviouralEvents, paramOffset)
-                ctes.push(cte)
-                allParams.push(...params)
-                // No need to update paramOffset here since we're done
+            personEventsByTeam.get(event.teamId)!.push(event)
+        }
+
+        for (const event of behaviouralEvents) {
+            if (!behaviouralEventsByTeam.has(event.teamId)) {
+                behaviouralEventsByTeam.set(event.teamId, [])
+            }
+            behaviouralEventsByTeam.get(event.teamId)!.push(event)
+        }
+
+        // Get all unique team IDs
+        const allTeamIds = new Set([...personEventsByTeam.keys(), ...behaviouralEventsByTeam.keys()])
+
+        // Process each team separately to ensure we only hit one partition
+        for (const teamId of allTeamIds) {
+            const teamPersonEvents = personEventsByTeam.get(teamId) || []
+            const teamBehaviouralEvents = behaviouralEventsByTeam.get(teamId) || []
+
+            if (teamPersonEvents.length === 0 && teamBehaviouralEvents.length === 0) {
+                continue
             }
 
-            // Build and execute the single combined query with parameters
-            query = `WITH ${ctes.join(', ')} SELECT 1`
-            await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, allParams, 'counters-batch-upsert')
-        } catch (error: any) {
-            logger.error('Failed to write to COUNTERS postgres', {
-                error: error.message,
-                errorCode: error.code,
-                query: query,
-                personEventsCount: personEvents.length,
-                behaviouralEventsCount: behaviouralEvents.length,
-            })
-            throw error
+            let query = ''
+            try {
+                const ctes: string[] = []
+                const allParams: any[] = []
+                let paramOffset = 1
+
+                // Add CTEs for each event type
+                if (teamPersonEvents.length > 0) {
+                    const { cte, params } = this.buildPersonEventsCTE(teamPersonEvents, paramOffset)
+                    ctes.push(cte)
+                    allParams.push(...params)
+                    paramOffset += params.length // person events use 3 array parameters
+                }
+                if (teamBehaviouralEvents.length > 0) {
+                    const { cte, params } = this.buildBehaviouralEventsCTE(teamBehaviouralEvents, paramOffset)
+                    ctes.push(cte)
+                    allParams.push(...params)
+                    // No need to update paramOffset here since we're done
+                }
+
+                // Build and execute the single combined query with parameters
+                query = `WITH ${ctes.join(', ')} SELECT 1`
+                await this.hub.postgres.query(PostgresUse.COUNTERS_RW, query, allParams, 'counters-batch-upsert')
+            } catch (error: any) {
+                logger.error('Failed to write to COUNTERS postgres', {
+                    error: error.message,
+                    errorCode: error.code,
+                    query: query,
+                    teamId: teamId,
+                    personEventsCount: teamPersonEvents.length,
+                    behaviouralEventsCount: teamBehaviouralEvents.length,
+                })
+                throw error
+            }
         }
     }
 
