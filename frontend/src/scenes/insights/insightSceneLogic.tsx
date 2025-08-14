@@ -37,6 +37,11 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
+import api from 'lib/api'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
+
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { SEARCH_PARAM_FILTERS_KEY, SEARCH_PARAM_VARIABLES_KEY } from 'scenes/dashboard/dashboardUtils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -44,10 +49,10 @@ export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
     return (
         !filter ||
-        (filter.date_from === null &&
-            filter.date_to === null &&
-            (filter.properties === null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
-            filter.breakdown_filter === null)
+        (filter.date_from == null &&
+            filter.date_to == null &&
+            (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
+            filter.breakdown_filter == null)
     )
 }
 
@@ -360,8 +365,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
-            const filtersOverride = dashboardLogic.findMounted({ id: dashboard })?.values.temporaryFilters
-            const variablesOverride = searchParams['variables_override']
+            const filtersOverride = searchParams[SEARCH_PARAM_FILTERS_KEY]
+            const variablesOverride = searchParams[SEARCH_PARAM_VARIABLES_KEY]
 
             if (
                 insightId !== values.insightId ||
