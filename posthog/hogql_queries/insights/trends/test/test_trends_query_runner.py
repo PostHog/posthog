@@ -555,6 +555,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.default_date_to,
             IntervalType.DAY,
             [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            hogql_modifiers=HogQLQueryModifiers(debug=True),
         )
 
         self.assertEqual(2, len(response.results))

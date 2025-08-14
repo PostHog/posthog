@@ -5096,7 +5096,9 @@ class TestFunnelStepCountsWithoutAggregationQuery(BaseTest):
             funnel_class = Funnel(context=FunnelQueryContext(query=query, team=self.team))
 
         query_ast = funnel_class.get_step_counts_without_aggregation_query()
-        response = execute_hogql_query(query_type="FunnelsQuery", query=query_ast, team=self.team)
+        response = execute_hogql_query(
+            query_type="FunnelsQuery", query=query_ast, team=self.team, modifiers=HogQLQueryModifiers(debug=True)
+        )
 
         self.assertEqual(
             response.hogql,
@@ -5144,7 +5146,9 @@ class TestFunnelStepCountsQuery(BaseTest):
             funnel_class = Funnel(context=FunnelQueryContext(query=query, team=self.team))
 
         query_ast = funnel_class.get_step_counts_query()
-        response = execute_hogql_query(query_type="FunnelsQuery", query=query_ast, team=self.team)
+        response = execute_hogql_query(
+            query_type="FunnelsQuery", query=query_ast, team=self.team, modifiers=HogQLQueryModifiers(debug=True)
+        )
 
         self.assertEqual(
             response.hogql,
@@ -5209,7 +5213,9 @@ class TestFunnelQuery(BaseTest):
             funnel_class = Funnel(context=FunnelQueryContext(query=query, team=self.team))
 
         query_ast = funnel_class.get_query()
-        response = execute_hogql_query(query_type="FunnelsQuery", query=query_ast, team=self.team)
+        response = execute_hogql_query(
+            query_type="FunnelsQuery", query=query_ast, team=self.team, modifiers=HogQLQueryModifiers(debug=True)
+        )
 
         self.assertEqual(
             response.hogql,

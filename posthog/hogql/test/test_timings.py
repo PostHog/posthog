@@ -1,4 +1,4 @@
-from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.timings import HogQLTimingsImpl
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -17,7 +17,7 @@ class TestHogQLTimings(BaseTest):
 
     def test_basic_timing(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
-            timings = HogQLTimings()
+            timings = HogQLTimingsImpl()
 
             with timings.measure("test"):
                 pass
@@ -28,14 +28,14 @@ class TestHogQLTimings(BaseTest):
 
     def test_no_timing(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
-            timings = HogQLTimings()
+            timings = HogQLTimingsImpl()
 
             results = timings.to_dict()
             self.assertEqual(results, {".": 0.05})
 
     def test_nested_timing(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
-            timings = HogQLTimings()
+            timings = HogQLTimingsImpl()
 
             with timings.measure("outer"):
                 with timings.measure("inner"):
@@ -48,7 +48,7 @@ class TestHogQLTimings(BaseTest):
 
     def test_multiple_top_level_timings(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
-            timings = HogQLTimings()
+            timings = HogQLTimingsImpl()
 
             with timings.measure("first"):
                 pass
@@ -62,7 +62,7 @@ class TestHogQLTimings(BaseTest):
 
     def test_deeply_nested_timing(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
-            timings = HogQLTimings()
+            timings = HogQLTimingsImpl()
 
             with timings.measure("a"):
                 with timings.measure("b"):
@@ -77,7 +77,7 @@ class TestHogQLTimings(BaseTest):
 
     def test_overlapping_keys(self):
         with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
-            timings = HogQLTimings()
+            timings = HogQLTimingsImpl()
 
             with timings.measure("a"):
                 pass

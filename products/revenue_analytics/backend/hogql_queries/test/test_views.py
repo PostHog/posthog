@@ -14,14 +14,14 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
-from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.timings import HogQLTimingsImpl
 
 
 class TestRevenueAnalyticsViews(BaseTest):
     def setUp(self):
         super().setUp()
 
-        self.timings = HogQLTimings()
+        self.timings = HogQLTimingsImpl()
 
         self.source = ExternalDataSource.objects.create(
             team=self.team,
