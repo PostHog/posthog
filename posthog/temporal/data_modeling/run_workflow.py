@@ -718,7 +718,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         stack=[],
     )
 
-    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedWithNamesAndTypes"
+    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     unsupported_arrow_types = ["FIXED_SIZE_BINARY", "JSON", "UUID", "ENUM"]
 
     # Query for types first, check for any types ArrowStream doesn't support

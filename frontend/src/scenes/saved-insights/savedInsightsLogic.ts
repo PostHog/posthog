@@ -67,7 +67,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -128,7 +128,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 // scroll to top if the page changed, except if changed via back/forward
                 if (
-                    sceneLogic.findMounted()?.values.activeScene === Scene.SavedInsights &&
+                    sceneLogic.findMounted()?.values.activeSceneId === Scene.SavedInsights &&
                     router.values.lastMethod !== 'POP' &&
                     values.insights.filters?.page !== filters.page
                 ) {
@@ -344,7 +344,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
               ]
             | void => {
             const currentScene = sceneLogic.findMounted()?.values
-            if (currentScene?.activeScene === Scene.SavedInsights) {
+            if (currentScene?.activeSceneId === Scene.SavedInsights) {
                 const nextValues = cleanFilters(values.filters)
                 const urlValues = cleanFilters(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {

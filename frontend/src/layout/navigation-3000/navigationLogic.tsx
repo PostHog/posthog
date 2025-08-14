@@ -162,7 +162,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
-                setScene: (state, { scene }) => scene || state,
+                setScene: (state, { sceneId }) => sceneId || state,
             },
         ],
         isSearchShown: [

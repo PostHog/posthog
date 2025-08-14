@@ -6,6 +6,7 @@ from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_
 from posthog.schema import RevenueAnalyticsRevenueQuery, IntervalType
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 # This is required because we can't instantiate the base class directly
@@ -43,7 +44,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -67,7 +68,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -103,7 +104,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -138,7 +139,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -184,7 +185,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.POSTGRES,  # Not Stripe
+            source_type=ExternalDataSourceType.POSTGRES,  # Not Stripe
             revenue_analytics_enabled=True,
         )
 
@@ -210,7 +211,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=False,  # Disabled
         )
 
@@ -236,7 +237,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -262,7 +263,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
@@ -298,7 +299,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
             revenue_analytics_enabled=True,
         )
 
