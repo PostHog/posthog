@@ -258,38 +258,34 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                                     return (
                                         <div key={variant.key}>
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <LemonButton
-                                                        icon={
-                                                            variantExpandedStates?.[variant.key] ? (
-                                                                <IconChevronDown />
-                                                            ) : (
-                                                                <IconChevronRight />
-                                                            )
-                                                        }
-                                                        size="small"
-                                                        onClick={() => toggleVariantExpanded(variant.key)}
-                                                    />
-                                                    <h4 className="mb-0 font-bold">{variant.displayName}</h4>
+                                            <div className="grid grid-cols-[24px_1fr_100px_100px] gap-2 items-center">
+                                                <LemonButton
+                                                    icon={
+                                                        variantExpandedStates?.[variant.key] ? (
+                                                            <IconChevronDown />
+                                                        ) : (
+                                                            <IconChevronRight />
+                                                        )
+                                                    }
+                                                    size="small"
+                                                    onClick={() => toggleVariantExpanded(variant.key)}
+                                                />
+                                                <h4 className="mb-0 font-bold">{variant.displayName}</h4>
+                                                <div className="flex flex-col items-end">
+                                                    <span className="font-bold text-lg leading-5">
+                                                        {humanFriendlyCurrency(
+                                                            parseFloat(currentAmount) * discountMultiplier
+                                                        )}
+                                                    </span>
+                                                    <span className="text-xs text-secondary">Month-to-date</span>
                                                 </div>
-                                                <div className="flex gap-8 items-end">
-                                                    <div className="flex flex-col items-end">
-                                                        <span className="font-bold text-lg">
-                                                            {humanFriendlyCurrency(
-                                                                parseFloat(currentAmount) * discountMultiplier
-                                                            )}
-                                                        </span>
-                                                        <span className="text-xs text-secondary">Month-to-date</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-end">
-                                                        <span className="text-secondary">
-                                                            {humanFriendlyCurrency(
-                                                                parseFloat(projectedAmount) * discountMultiplier
-                                                            )}
-                                                        </span>
-                                                        <span className="text-xs text-secondary">Projected</span>
-                                                    </div>
+                                                <div className="flex flex-col items-end">
+                                                    <span className="text-secondary text-lg leading-5">
+                                                        {humanFriendlyCurrency(
+                                                            parseFloat(projectedAmount) * discountMultiplier
+                                                        )}
+                                                    </span>
+                                                    <span className="text-xs text-secondary">Projected</span>
                                                 </div>
                                             </div>
                                             {variantExpandedStates?.[variant.key] && (
