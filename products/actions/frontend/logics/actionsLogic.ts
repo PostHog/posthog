@@ -1,16 +1,15 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-
+import { subscriptions } from 'kea-subscriptions'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, Breadcrumb } from '~/types'
-
+import { Scene } from 'scenes/sceneTypes'
 import type { actionsLogicType } from './actionsLogicType'
+import { urls } from 'scenes/urls'
+
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 
 export type ActionsFilterType = 'all' | 'me'
 
@@ -22,7 +21,7 @@ export const actionsFuse = new Fuse<ActionType>([], {
 })
 
 export const actionsLogic = kea<actionsLogicType>([
-    path(['scenes', 'actions', 'actionsLogic']),
+    path(['products', 'actions', 'actionsLogic']),
     connect(() => ({
         values: [
             actionsModel({ params: 'include_count=1' }),
@@ -66,25 +65,27 @@ export const actionsLogic = kea<actionsLogicType>([
                 return data
             },
         ],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.DataManagement,
-                    name: `Data management`,
-                    path: urls.eventDefinitions(),
-                },
-                {
-                    key: DataManagementTab.Actions,
-                    name: 'Actions',
-                    path: urls.actions(),
-                },
-            ],
-        ],
         shouldShowEmptyState: [
             (s) => [s.actionsFiltered, s.actionsLoading, s.searchTerm],
-            (actionsFiltered, actionsLoading, searchTerm): boolean => {
+            (actionsFiltered: ActionType[], actionsLoading: boolean, searchTerm: string): boolean => {
                 return actionsFiltered.length == 0 && !actionsLoading && !searchTerm.length
+            },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.DataManagement,
+                        name: `Data management`,
+                        path: urls.eventDefinitions(),
+                    },
+                    {
+                        key: DataManagementTab.Actions,
+                        name: 'Actions',
+                        path: urls.actions(),
+                    },
+                ]
             },
         ],
     }),

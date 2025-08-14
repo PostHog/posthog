@@ -8,13 +8,13 @@ import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+import { URL_MATCHING_HINTS } from '../utils/hints'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 
 import { ActionStepStringMatching, ActionStepType } from '~/types'
 
-import { LemonEventName } from './EventName'
+import { EventName } from './EventName'
 import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
@@ -64,7 +64,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                 {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
                     <div className="deprecated-space-y-1">
                         <LemonLabel>Event name</LemonLabel>
-                        <LemonEventName
+                        <EventName
                             value={step.event}
                             onChange={(value) =>
                                 sendStep({
@@ -338,7 +338,7 @@ function StringMatchingSelection({
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
 }): JSX.Element {
-    const key = `${field}_matching`
+    const key = `${field}_matching` as keyof ActionStepType
     const handleURLMatchChange = (value: string): void => {
         sendStep({ ...step, [key]: value })
     }
@@ -348,7 +348,7 @@ function StringMatchingSelection({
         <div className="flex flex-1 justify-end">
             <LemonSegmentedButton
                 onChange={handleURLMatchChange}
-                value={step[key] || defaultValue}
+                value={(step[key] as ActionStepStringMatching) || defaultValue}
                 options={[
                     {
                         value: 'exact',
