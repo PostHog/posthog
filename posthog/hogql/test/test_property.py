@@ -884,10 +884,6 @@ class TestProperty(BaseTest):
             {"type": "person", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
         ) == self._parse_expr("person.$virt_revenue = 100")
 
-        assert self._property_to_expr(
-            {"type": "person", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
-        ) == self._parse_expr("person.$virt_revenue = 100")
-
     def test_map_virtual_properties(self):
         assert map_virtual_properties(
             ast.Field(chain=["person", "properties", "$virt_initial_channel_type"])
