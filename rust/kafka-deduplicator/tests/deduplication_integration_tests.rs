@@ -239,10 +239,10 @@ async fn test_end_to_end_deduplication_with_uuids() -> Result<()> {
     let uuid2 = Uuid::new_v4();
     println!("Test expecting UUIDs - uuid1: {uuid1}, uuid2: {uuid2}");
     let events = vec![
-        create_test_raw_event(Some(uuid1), "page_view", "user1", "token1", None, None),
-        create_test_raw_event(Some(uuid1), "page_view", "user1", "token1", None, None), // duplicate UUID
-        create_test_raw_event(Some(uuid2), "click", "user2", "token1", None, None),
-        create_test_raw_event(Some(uuid2), "click", "user2", "token1", None, None), // duplicate UUID
+        create_test_raw_event(Some(uuid1), "page_view", "user1", "token1", Some(1640995200), None),
+        create_test_raw_event(Some(uuid1), "page_view", "user1", "token1", Some(1640995200), None), // duplicate UUID
+        create_test_raw_event(Some(uuid2), "click", "user2", "token1", Some(1640995201), None),
+        create_test_raw_event(Some(uuid2), "click", "user2", "token1", Some(1640995201), None), // duplicate UUID
     ];
 
     // Serialize events and send to input topic
