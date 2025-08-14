@@ -7,7 +7,7 @@ from posthog.models.cohort.cohort import CohortType
 
 logger = structlog.get_logger(__name__)
 
-# Analytical behavioral property types
+# Analytical behavioral property types that make a cohort analytical
 ANALYTICAL_BEHAVIORAL_TYPES = {
     "performed_event_first_time",
     "performed_event_regularly",
@@ -16,7 +16,7 @@ ANALYTICAL_BEHAVIORAL_TYPES = {
     "restarted_performing_event",
 }
 
-# Type hierarchy for determining precedence
+# Type hierarchy for determining precedence (higher number = higher complexity)
 TYPE_PRIORITY = {
     CohortType.STATIC: 0,
     CohortType.PERSON_PROPERTY: 1,
@@ -25,78 +25,14 @@ TYPE_PRIORITY = {
 }
 
 
-class PropertySerializer(serializers.Serializer):
-    """Serializer for individual property filters"""
-
-    type = serializers.ChoiceField(choices=["person", "behavioral", "cohort"])
-    key = serializers.CharField()
-    value = serializers.JSONField(required=False, allow_null=True)
-    operator = serializers.CharField(required=False, allow_null=True)
-    negation = serializers.BooleanField(required=False, default=False)
-
-    # Behavioral-specific fields
-    event_type = serializers.CharField(required=False)
-    time_value = serializers.IntegerField(required=False, allow_null=True)
-    time_interval = serializers.CharField(required=False, allow_null=True)
-    operator_value = serializers.IntegerField(required=False, allow_null=True)
-    seq_time_interval = serializers.CharField(required=False, allow_null=True)
-    seq_time_value = serializers.IntegerField(required=False, allow_null=True)
-    seq_event = serializers.CharField(required=False, allow_null=True)
-    seq_event_type = serializers.CharField(required=False, allow_null=True)
-    total_periods = serializers.IntegerField(required=False, allow_null=True)
-    min_periods = serializers.IntegerField(required=False, allow_null=True)
-    explicit_datetime = serializers.CharField(required=False, allow_null=True)
-
-
-class PropertyGroupSerializer(serializers.Serializer):
-    """Serializer for property groups (AND/OR logic)"""
-
-    type = serializers.ChoiceField(choices=["AND", "OR"])
-    values = serializers.ListField()
-
-    def to_internal_value(self, data):
-        """Parse into nested structure with validation"""
-        if not isinstance(data, dict):
-            raise ValidationError("Property group must be a dictionary")
-
-        if "type" not in data or "values" not in data:
-            raise ValidationError("Property group must have 'type' and 'values' fields")
-
-        validated = super().to_internal_value(data)
-        validated["values"] = self._parse_values(data["values"])
-        return validated
-
-    def _parse_values(self, values_list):
-        """Recursively parse property group values"""
-        if not values_list:
-            return []
-
-        parsed_values = []
-        for value in values_list:
-            if isinstance(value, dict):
-                if "type" in value and "values" in value:
-                    # Nested property group
-                    group_serializer = PropertyGroupSerializer()
-                    parsed_values.append(group_serializer.to_internal_value(value))
-                elif "key" in value:
-                    # Individual property
-                    prop_serializer = PropertySerializer()
-                    parsed_values.append(prop_serializer.to_internal_value(value))
-
-        return parsed_values
-
-
-class CohortFiltersSerializer(serializers.Serializer):
-    """Serializer for cohort filters"""
-
-    properties = PropertyGroupSerializer(required=False)
-
-
 class CohortTypeValidationSerializer(serializers.Serializer):
-    """Main serializer for cohort type validation"""
+    """
+    Internal serializer that validates cohort type matches the filters.
+    Uses DRF's validation framework for clean, idiomatic Django validation.
+    """
 
     cohort_type = serializers.ChoiceField(choices=[t.value for t in CohortType], required=False, allow_null=True)
-    filters = CohortFiltersSerializer(required=False, allow_null=True)
+    filters = serializers.DictField(required=False, allow_null=True)
     query = serializers.JSONField(required=False, allow_null=True)
     is_static = serializers.BooleanField(required=False, default=False)
 
@@ -108,22 +44,22 @@ class CohortTypeValidationSerializer(serializers.Serializer):
         """Validate that cohort type matches the filters"""
         provided_type = attrs.get("cohort_type")
 
-        if not provided_type:
-            # If no type provided, determine it from filters
-            determined_type = self._determine_type_from_data(attrs)
-            attrs["cohort_type"] = determined_type.value
-            return attrs
+        # Always validate the data structure for consistency, even without cohort_type
+        try:
+            required_type = self._determine_type_from_data(attrs)
+        except ValidationError:
+            # Re-raise validation errors (missing cohorts, circular refs, etc.)
+            raise
 
-        # Validate provided type matches data
-        required_type = self._determine_type_from_data(attrs)
-
-        if provided_type != required_type.value:
-            raise ValidationError(
-                {
-                    "cohort_type": f"Cohort type '{provided_type}' does not match the filters. "
-                    f"Expected type: '{required_type.value}'"
-                }
-            )
+        if provided_type:
+            # If type is provided, validate it matches
+            if provided_type != required_type.value:
+                raise ValidationError(
+                    {
+                        "cohort_type": f"Cohort type '{provided_type}' does not match the filters. "
+                        f"Expected type: '{required_type.value}'"
+                    }
+                )
 
         return attrs
 
@@ -273,74 +209,3 @@ class CohortTypeValidationSerializer(serializers.Serializer):
         if new is None:
             return current
         return current if TYPE_PRIORITY[current] > TYPE_PRIORITY[new] else new
-
-
-def validate_cohort_type_against_data(
-    provided_cohort_type: CohortType, cohort_data: dict, team_id: int
-) -> tuple[bool, Optional[str]]:
-    """
-    Validate cohort type against raw cohort data using DRF serializers.
-
-    Args:
-        provided_cohort_type: The cohort type string to validate
-        cohort_data: Raw cohort data dict (filters, is_static, query, etc.)
-        team_id: Team ID for cohort reference validation
-
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
-    # Add the provided type to the data for validation
-    data = {**cohort_data, "cohort_type": provided_cohort_type.value}
-
-    serializer = CohortTypeValidationSerializer(data=data, team_id=team_id)
-
-    try:
-        serializer.is_valid(raise_exception=True)
-        return True, None
-    except ValidationError as e:
-        # Extract error message
-        # NB: need to handle both dict and list forms of e.detail
-        if isinstance(e.detail, dict):
-            # Handle dictionary form (field-specific errors)
-            if "cohort_type" in e.detail:
-                error_detail = e.detail["cohort_type"]
-                if isinstance(error_detail, list) and len(error_detail) > 0:
-                    error_msg = str(error_detail[0])
-                else:
-                    error_msg = str(error_detail)
-                return False, error_msg
-            elif "non_field_errors" in e.detail:
-                error_detail = e.detail["non_field_errors"]
-                if isinstance(error_detail, list) and len(error_detail) > 0:
-                    error_msg = str(error_detail[0])
-                else:
-                    error_msg = str(error_detail)
-                return False, error_msg
-        elif isinstance(e.detail, list):
-            # Handle list form (general errors)
-            if len(e.detail) > 0:
-                return False, str(e.detail[0])
-
-        # Fallback error message
-        return False, "Cohort validation failed due to invalid references or circular dependencies."
-
-
-def determine_cohort_type_from_data(data: dict, team_id: int) -> CohortType:
-    """
-    Determine cohort type from raw data using DRF serializers.
-
-    Args:
-        data: Raw cohort data dict
-        team_id: Team ID for cohort reference validation
-
-    Returns:
-        The determined CohortType
-    """
-    serializer = CohortTypeValidationSerializer(data=data, team_id=team_id)
-
-    try:
-        serializer.is_valid(raise_exception=True)
-        return serializer._determine_type_from_data(serializer.validated_data)
-    except ValidationError as e:
-        logger.warning("Cohort type determination failed", error=str(e))
-        raise ValueError(f"Cannot determine cohort type: {str(e)}")

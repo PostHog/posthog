@@ -56,7 +56,7 @@ from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.validation import validate_cohort_type_against_data
+from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
@@ -258,9 +258,12 @@ class CohortSerializer(serializers.ModelSerializer):
             ),
         }
 
-        is_valid, error_msg = validate_cohort_type_against_data(value, cohort_data, team_id=self.context["team_id"])
-        if not is_valid:
-            raise ValidationError(error_msg)
+        type_serializer = CohortTypeValidationSerializer(data=cohort_data, team_id=self.context["team_id"])
+        if not type_serializer.is_valid():
+            # NB: Get the first error message, since it's the only one we're interested in
+            if "cohort_type" in type_serializer.errors:
+                raise ValidationError(type_serializer.errors["cohort_type"][0])
+            raise ValidationError("Invalid cohort type for the given filters")
 
         return value
 
