@@ -258,10 +258,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                                     return (
                                         <div key={variant.key}>
-                                            <div
-                                                className="flex items-center justify-between cursor-pointer"
-                                                onClick={() => toggleVariantExpanded(variant.key)}
-                                            >
+                                            <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
                                                     <LemonButton
                                                         icon={
@@ -272,6 +269,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             )
                                                         }
                                                         size="small"
+                                                        onClick={() => toggleVariantExpanded(variant.key)}
                                                     />
                                                     <h4 className="mb-0 font-bold">{variant.displayName}</h4>
                                                 </div>
