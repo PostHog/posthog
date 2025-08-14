@@ -42,6 +42,7 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     BigQueryBatchExportWorkflow,
     BigQueryInsertInputs,
     insert_into_bigquery_activity,
+    insert_into_bigquery_activity_from_stage,
 )
 from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
@@ -156,6 +157,7 @@ async def test_bigquery_export_workflow(
                 activities=[
                     start_batch_export_run,
                     insert_into_bigquery_activity,
+                    insert_into_bigquery_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -252,6 +254,7 @@ async def test_bigquery_export_workflow_without_events(
                 activities=[
                     start_batch_export_run,
                     insert_into_bigquery_activity,
+                    insert_into_bigquery_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -335,6 +338,7 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
                 activities=[
                     start_batch_export_run,
                     insert_into_bigquery_activity,
+                    insert_into_bigquery_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -400,6 +404,7 @@ async def test_bigquery_export_workflow_handles_unexpected_insert_activity_error
                 activities=[
                     mocked_start_batch_export_run,
                     insert_into_bigquery_activity,
+                    insert_into_bigquery_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -461,6 +466,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
                 activities=[
                     mocked_start_batch_export_run,
                     insert_into_bigquery_activity,
+                    insert_into_bigquery_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
