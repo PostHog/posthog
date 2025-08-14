@@ -2,7 +2,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { VizSpecificOptions } from '~/queries/schema/schema-general'
+import { InsightVizNode, VizSpecificOptions } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightType, RetentionDashboardDisplayType } from '~/types'
 
@@ -18,7 +18,7 @@ export function RetentionContainer({
 }: {
     inCardView?: boolean
     inSharedMode?: boolean
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     vizSpecificOptions?: VizSpecificOptions[InsightType.RETENTION]
 }): JSX.Element {
     const { insightProps } = useValues(insightLogic)

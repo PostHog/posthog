@@ -29,7 +29,7 @@ from unittest.mock import patch
 PATH = "ee.clickhouse.views.groups"
 
 
-class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
+class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     @freeze_time("2021-05-02")
@@ -217,6 +217,14 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
+
+        # Test default notebook content structure
+        notebook = relationships.first().notebook
+        self.assertIsNotNone(notebook.content)
+        self.assertEqual(notebook.content[0]["type"], "heading")
+        self.assertEqual(notebook.content[0]["attrs"]["level"], 1)
+        self.assertEqual(notebook.content[0]["content"][0]["text"], "Mr. Krabs Notes")
+        self.assertEqual(notebook.content[1]["type"], "text")
 
     @freeze_time("2021-05-02")
     def test_retrieve_group_with_notebook(self):

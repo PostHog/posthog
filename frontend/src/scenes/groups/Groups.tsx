@@ -122,6 +122,11 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                             placeholder="Enter view name"
                             value={groupViewName}
                             onChange={setGroupViewName}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && groupViewName.trim()) {
+                                    saveGroupView(window.location.href, groupTypeIndex)
+                                }
+                            }}
                             autoFocus
                         />
                     </div>

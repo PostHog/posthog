@@ -1,5 +1,6 @@
 from posthog.schema import CurrencyCode
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, DataWarehouseTable, DataWarehouseCredential
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.test.base import BaseTest
 
 from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
@@ -7,8 +8,8 @@ from products.revenue_analytics.backend.views.currency_helpers import ZERO_DECIM
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,
-    RevenueAnalyticsInvoiceItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
 from posthog.hogql.timings import HogQLTimings
@@ -29,7 +30,7 @@ class TestRevenueAnalyticsViews(BaseTest):
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
         self.credentials = DataWarehouseCredential.objects.create(
             access_key="blah", access_secret="blah", team=self.team
@@ -63,11 +64,11 @@ class TestRevenueAnalyticsViews(BaseTest):
     def test_schema_source_views(self):
         views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.invoice_item_revenue_view")
+        self.assertEqual(views[0].name, "stripe.revenue_item_revenue_view")
 
-        invoice_item_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source)
-        self.assertEqual(len(invoice_item_views), 1)
-        self.assertEqual(invoice_item_views[0].name, "stripe.invoice_item_revenue_view")
+        revenue_item_views = RevenueAnalyticsRevenueItemView.for_schema_source(self.source)
+        self.assertEqual(len(revenue_item_views), 1)
+        self.assertEqual(revenue_item_views[0].name, "stripe.revenue_item_revenue_view")
 
         customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source)
         self.assertEqual(len(customer_views), 0)
@@ -97,7 +98,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.prefix.invoice_item_revenue_view")
+        self.assertEqual(views[0].name, "stripe.prefix.revenue_item_revenue_view")
 
     def test_revenue_view_no_prefix(self):
         """Test that RevenueAnalyticsBaseView handles no prefix correctly"""
@@ -106,7 +107,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.invoice_item_revenue_view")
+        self.assertEqual(views[0].name, "stripe.revenue_item_revenue_view")
 
     def test_revenue_view_prefix_with_underscores(self):
         """Test that RevenueAnalyticsBaseView handles prefix with underscores correctly"""
@@ -115,7 +116,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.prefix_with_underscores.invoice_item_revenue_view")
+        self.assertEqual(views[0].name, "stripe.prefix_with_underscores.revenue_item_revenue_view")
 
     def test_revenue_view_prefix_with_empty_string(self):
         """Test that RevenueAnalyticsBaseView handles empty prefix"""
@@ -124,7 +125,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 1)
-        self.assertEqual(views[0].name, "stripe.invoice_item_revenue_view")
+        self.assertEqual(views[0].name, "stripe.revenue_item_revenue_view")
 
     def test_revenue_all_views(self):
         """Test that RevenueAnalyticsBaseView creates both charge and customer views"""
@@ -216,7 +217,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertIn("stripe.charge_revenue_view", names)
         self.assertIn("stripe.customer_revenue_view", names)
         self.assertIn("stripe.product_revenue_view", names)
-        self.assertIn("stripe.invoice_item_revenue_view", names)  # Already exists from the setup
+        self.assertIn("stripe.revenue_item_revenue_view", names)  # Already exists from the setup
         self.assertIn("stripe.subscription_revenue_view", names)
 
         # Test individual views
@@ -232,9 +233,9 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(product_views), 1)
         self.assertEqual(product_views[0].name, "stripe.product_revenue_view")
 
-        invoice_item_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source)
-        self.assertEqual(len(invoice_item_views), 1)
-        self.assertEqual(invoice_item_views[0].name, "stripe.invoice_item_revenue_view")
+        revenue_item_views = RevenueAnalyticsRevenueItemView.for_schema_source(self.source)
+        self.assertEqual(len(revenue_item_views), 1)
+        self.assertEqual(revenue_item_views[0].name, "stripe.revenue_item_revenue_view")
 
         subscription_views = RevenueAnalyticsSubscriptionView.for_schema_source(self.source)
         self.assertEqual(len(subscription_views), 1)

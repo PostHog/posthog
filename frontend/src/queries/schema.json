@@ -1,6 +1,10 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AIEventType": {
+            "enum": ["$ai_generation", "$ai_embedding", "$ai_span", "$ai_trace", "$ai_metric", "$ai_feedback"],
+            "type": "string"
+        },
         "AccessControlLevel": {
             "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
             "type": "string"
@@ -81,7 +85,7 @@
         "ActorsPropertyTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
-                "group_type_index": {
+                "groupTypeIndex": {
                     "$ref": "#/definitions/integer"
                 },
                 "kind": {
@@ -95,8 +99,11 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
-                "property": {
-                    "type": "string"
+                "properties": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
@@ -109,12 +116,11 @@
                     "type": "number"
                 }
             },
-            "required": ["kind", "property"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "ActorsPropertyTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -137,7 +143,17 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -353,6 +369,42 @@
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
+        },
+        "AnalyticsQueryResponseBase": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "AnyDataNode": {
             "anyOf": [
@@ -918,7 +970,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation"],
+            "enum": ["status", "message", "conversation", "notebook"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1590,7 +1642,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure"],
+            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/notebook"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -2537,7 +2589,17 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timezone": {
                     "type": "string"
@@ -7299,19 +7361,8 @@
                     "type": "array"
                 },
                 "context": {
-                    "additionalProperties": false,
-                    "description": "Context for the table, used by components like ColumnConfigurator",
-                    "properties": {
-                        "eventDefinitionId": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "enum": ["event_definition", "team_columns"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type"],
-                    "type": "object"
+                    "$ref": "#/definitions/DataTableNodeViewPropsContext",
+                    "description": "Context for the table, used by components like ColumnConfigurator"
                 },
                 "embedded": {
                     "description": "Uses the embedded version of LemonTable",
@@ -8773,6 +8824,23 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "DataTableNodeViewPropsContext": {
+            "additionalProperties": false,
+            "properties": {
+                "eventDefinitionId": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/DataTableNodeViewPropsContextType"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "DataTableNodeViewPropsContextType": {
+            "enum": ["event_definition", "team_columns"],
+            "type": "string"
+        },
         "DataVisualizationNode": {
             "additionalProperties": false,
             "properties": {
@@ -9143,8 +9211,8 @@
             "enum": [
                 "revenue_analytics_charge",
                 "revenue_analytics_customer",
-                "revenue_analytics_invoice_item",
                 "revenue_analytics_product",
+                "revenue_analytics_revenue_item",
                 "revenue_analytics_subscription"
             ],
             "type": "string"
@@ -9342,12 +9410,15 @@
                     "type": "number"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
-                    "type": "string"
+                    "$ref": "#/definitions/DatabaseSchemaTableType"
                 }
             },
             "required": ["type", "id", "name", "fields"],
             "type": "object"
+        },
+        "DatabaseSchemaTableType": {
+            "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
+            "type": "string"
         },
         "DatabaseSchemaViewTable": {
             "additionalProperties": false,
@@ -9823,12 +9894,15 @@
                     ]
                 },
                 "type": {
-                    "enum": ["user", "role"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingIssueAssigneeType"
                 }
             },
             "required": ["type", "id"],
             "type": "object"
+        },
+        "ErrorTrackingIssueAssigneeType": {
+            "enum": ["user", "role"],
+            "type": "string"
         },
         "ErrorTrackingIssueCorrelationQuery": {
             "additionalProperties": false,
@@ -10303,7 +10377,6 @@
         },
         "EventTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -13424,6 +13497,9 @@
                     "enum": ["string", "uuid"],
                     "type": "string"
                 },
+                "timings": {
+                    "type": "boolean"
+                },
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
@@ -14501,7 +14577,14 @@
                     "type": "string"
                 },
                 "event": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AIEventType"
+                        },
+                        {
+                            "type": "string"
+                        }
+                    ]
                 },
                 "id": {
                     "type": "string"
@@ -15934,6 +16017,32 @@
             ],
             "type": "string"
         },
+        "NotebookUpdateMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/ProsemirrorJSONContent"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "notebook_id": {
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantToolCall"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "ai/notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "notebook_id", "content"],
+            "type": "object"
+        },
         "PageURL": {
             "additionalProperties": false,
             "properties": {
@@ -16497,6 +16606,41 @@
                 "flag_evaluates_to"
             ],
             "type": "string"
+        },
+        "ProsemirrorJSONContent": {
+            "properties": {
+                "attrs": {
+                    "type": "object"
+                },
+                "content": {
+                    "items": {
+                        "$ref": "#/definitions/ProsemirrorJSONContent"
+                    },
+                    "type": "array"
+                },
+                "marks": {
+                    "items": {
+                        "properties": {
+                            "attrs": {
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "QueryIndexUsage": {
             "enum": ["undecisive", "no", "partial", "yes"],
@@ -19951,7 +20095,17 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
-                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                                },
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            ]
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -21821,6 +21975,9 @@
                     "$ref": "#/definitions/FailureMessage"
                 },
                 {
+                    "$ref": "#/definitions/NotebookUpdateMessage"
+                },
+                {
                     "additionalProperties": false,
                     "properties": {
                         "content": {
@@ -21870,19 +22027,8 @@
                     "type": "boolean"
                 },
                 "context": {
-                    "additionalProperties": false,
-                    "description": "Context for the table, used by components like ColumnConfigurator",
-                    "properties": {
-                        "eventDefinitionId": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "enum": ["event_definition", "team_columns"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type"],
-                    "type": "object"
+                    "$ref": "#/definitions/DataTableNodeViewPropsContext",
+                    "description": "Context for the table, used by components like ColumnConfigurator"
                 },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
@@ -22693,12 +22839,15 @@
                     "type": "boolean"
                 },
                 "type": {
-                    "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldInputConfigType"
                 }
             },
             "required": ["type", "name", "label", "required", "placeholder"],
             "type": "object"
+        },
+        "SourceFieldInputConfigType": {
+            "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
+            "type": "string"
         },
         "SourceFieldOauthConfig": {
             "additionalProperties": false,
@@ -22744,8 +22893,7 @@
             "additionalProperties": false,
             "properties": {
                 "converter": {
-                    "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldSelectConfigConverter"
                 },
                 "defaultValue": {
                     "type": "string"
@@ -22788,6 +22936,10 @@
             },
             "required": ["type", "name", "label", "required", "defaultValue", "options"],
             "type": "object"
+        },
+        "SourceFieldSelectConfigConverter": {
+            "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
+            "type": "string"
         },
         "SourceFieldSwitchGroupConfig": {
             "additionalProperties": false,
@@ -23348,6 +23500,10 @@
             ],
             "type": "string"
         },
+        "SurveyQuestionBranchingType": {
+            "enum": ["next_question", "end", "response_based", "specific_question"],
+            "type": "string"
+        },
         "SurveyQuestionDescriptionContentType": {
             "enum": ["html", "text"],
             "type": "string"
@@ -23368,8 +23524,7 @@
                             "type": "object"
                         },
                         "type": {
-                            "enum": ["next_question", "end", "response_based", "specific_question"],
-                            "type": "string"
+                            "$ref": "#/definitions/SurveyQuestionBranchingType"
                         }
                     },
                     "required": ["type"],
@@ -23537,7 +23692,6 @@
         },
         "TeamTaxonomyQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -24265,7 +24419,6 @@
         },
         "VectorSearchQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -25373,7 +25526,6 @@
         },
         "WebVitalsPathBreakdownQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -25533,7 +25685,6 @@
         },
         "WebVitalsQueryResponse": {
             "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",

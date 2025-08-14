@@ -290,7 +290,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         throw new Error('filtersToQueryNode expects "insight"')
     }
 
-    const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
+    const query: InsightsQueryBase<AnalyticsQueryResponseBase> = {
         kind: insightTypeToNodeKind[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
