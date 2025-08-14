@@ -12,7 +12,11 @@ def get_tagged_item_related_object_info(tagged_item) -> tuple[Optional[str], Opt
         related_obj = getattr(tagged_item, field_name, None)
         if related_obj:
             related_object_type = field_name
-            related_object_id = str(related_obj.id)
+
+            if field_name == "insight" and hasattr(related_obj, "short_id"):
+                related_object_id = str(related_obj.short_id)
+            else:
+                related_object_id = str(related_obj.id)
 
             if hasattr(related_obj, "name"):
                 related_object_name = related_obj.name
