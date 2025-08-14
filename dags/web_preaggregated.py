@@ -7,6 +7,7 @@ from dagster import DailyPartitionsDefinition, BackfillPolicy
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     CLICKHOUSE_SETTINGS,
+    DAGSTER_DAILY_JOB_TIMEOUT,
     HISTORICAL_DAILY_CRON_SCHEDULE,
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
     drop_partitions_for_date_range,
@@ -135,14 +136,16 @@ def web_pre_aggregated_stats(
 web_pre_aggregate_job = dagster.define_asset_job(
     name="web_pre_aggregate_job",
     selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
+    },
     config={
         "execution": {
             "config": {
                 "multiprocess": {
                     "max_concurrent": 1,
-                    # Set Dagster timeout for historical processing
-                    "op_execution_timeout": 2000,
+                    "op_execution_timeout": DAGSTER_DAILY_JOB_TIMEOUT,
                 }
             }
         }
@@ -158,7 +161,7 @@ web_pre_aggregate_job = dagster.define_asset_job(
 )
 def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationContext):
     # Check for existing runs of the same job to prevent concurrent execution
-    skip_reason = check_for_concurrent_runs(context, "web_pre_aggregate_job")
+    skip_reason = check_for_concurrent_runs(context)
     if skip_reason:
         return skip_reason
 
@@ -177,7 +180,7 @@ def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationCon
 )
 def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationContext):
     # Check for existing runs of the same job to prevent concurrent execution
-    skip_reason = check_for_concurrent_runs(context, "web_pre_aggregate_job")
+    skip_reason = check_for_concurrent_runs(context)
     if skip_reason:
         return skip_reason
 

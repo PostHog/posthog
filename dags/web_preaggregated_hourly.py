@@ -5,6 +5,7 @@ import dagster
 from dagster import Field
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
+    DAGSTER_HOURLY_JOB_TIMEOUT,
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
     CLICKHOUSE_SETTINGS_HOURLY,
     merge_clickhouse_settings,
@@ -139,15 +140,17 @@ web_pre_aggregate_current_day_hourly_job = dagster.define_asset_job(
         "web_analytics_bounces_hourly",
         "web_analytics_stats_table_hourly",
     ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_HOURLY_JOB_TIMEOUT),
+    },
     # Limit concurrency and add timeout for hourly jobs
     config={
         "execution": {
             "config": {
                 "multiprocess": {
                     "max_concurrent": 1,
-                    # Set Dagster timeout higher than ClickHouse timeout (900s) for cleanup
-                    "op_execution_timeout": 1200,
+                    "op_execution_timeout": DAGSTER_HOURLY_JOB_TIMEOUT,
                 }
             }
         }
@@ -167,7 +170,7 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
     """
 
     # Check for existing runs of the same job to prevent concurrent execution
-    skip_reason = check_for_concurrent_runs(context, "web_pre_aggregate_current_day_hourly_job")
+    skip_reason = check_for_concurrent_runs(context)
     if skip_reason:
         return skip_reason
 

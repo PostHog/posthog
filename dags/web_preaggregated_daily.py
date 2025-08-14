@@ -7,6 +7,7 @@ from dagster import DailyPartitionsDefinition, BackfillPolicy
 import structlog
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
+    DAGSTER_DAILY_JOB_TIMEOUT,
     HISTORICAL_DAILY_CRON_SCHEDULE,
     CLICKHOUSE_SETTINGS,
     merge_clickhouse_settings,
@@ -287,8 +288,7 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
     selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        # The instance level config limits the job concurrency on the run queue
-        # https://github.com/PostHog/charts/blob/chore/dagster-config/config/dagster/prod-us.yaml#L179-L181
+        "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
     },
     # This limit the concurrency of the assets inside the job, so they run sequentially
     config={
@@ -296,8 +296,7 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
             "config": {
                 "multiprocess": {
                     "max_concurrent": 1,
-                    # Set Dagster timeout higher than ClickHouse timeout (1600s) for cleanup
-                    "op_execution_timeout": 2000,
+                    "op_execution_timeout": DAGSTER_DAILY_JOB_TIMEOUT,
                 }
             }
         }
@@ -318,7 +317,7 @@ def web_pre_aggregate_daily_schedule(context: dagster.ScheduleEvaluationContext)
     """
 
     # Check for existing runs of the same job to prevent concurrent execution
-    skip_reason = check_for_concurrent_runs(context, "web_analytics_daily_job")
+    skip_reason = check_for_concurrent_runs(context)
     if skip_reason:
         return skip_reason
 

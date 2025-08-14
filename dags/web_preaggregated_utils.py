@@ -15,6 +15,11 @@ HISTORICAL_DAILY_CRON_SCHEDULE = os.getenv("WEB_PREAGGREGATED_HISTORICAL_DAILY_C
 DAILY_MAX_EXECUTION_TIME = os.getenv("WEB_PREAGGREGATED_DAILY_MAX_EXECUTION_TIME", "1600")
 INTRA_DAY_HOURLY_MAX_EXECUTION_TIME = os.getenv("WEB_PREAGGREGATED_INTRA_DAY_HOURLY_MAX_EXECUTION_TIME", "900")
 
+# Dagster execution timeout constants (should be higher than ClickHouse timeouts)
+DAGSTER_DAILY_JOB_TIMEOUT = int(os.getenv("WEB_PREAGGREGATED_DAGSTER_DAILY_TIMEOUT", "2000"))
+DAGSTER_HOURLY_JOB_TIMEOUT = int(os.getenv("WEB_PREAGGREGATED_DAGSTER_HOURLY_TIMEOUT", "1200"))
+
+
 web_analytics_retry_policy_def = RetryPolicy(
     max_retries=3,
     delay=60,
@@ -117,7 +122,14 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
 }
 
 
-def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext, job_name: str) -> Optional[SkipReason]:
+def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> Optional[SkipReason]:
+    # Get the schedule name from the context
+    schedule_name = context._schedule_name
+
+    # Get the schedule definition from the repository to find the associated job
+    schedule_def = context.repository_def.get_schedule_def(schedule_name)
+    job_name = schedule_def.job_name
+
     run_records = context.instance.get_run_records(
         RunsFilter(
             job_name=job_name,
@@ -131,6 +143,7 @@ def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext, job_na
     )
 
     if len(run_records) > 0:
+        context.log.info(f"Skipping {job_name} due to {len(run_records)} active run(s)")
         return SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
 
     return None
