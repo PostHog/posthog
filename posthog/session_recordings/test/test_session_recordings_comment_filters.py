@@ -130,7 +130,7 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
         ]
     )
     def test_comment_text_filtering(
-        self, _name: str, search_text: str, operator: str | list[str], expected_session_ids: list[str]
+        self, _name: str, search_text: str | list[str], operator: str, expected_session_ids: list[str]
     ) -> None:
         response_data = self._list_recordings_by_comment(search_text, operator)
 
