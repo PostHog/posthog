@@ -260,17 +260,16 @@ mod tests {
         );
 
         // Test NaN as quoted string (should be preserved)
-        let json_with_nan_string =
-            r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": "NaN", "infinity": 'Infinity'}}"#;
-        let request =
-            FlagRequest::from_bytes(Bytes::from(json_with_nan_string)).expect("Should handle quoted NaN");
+        let json_with_nan_string = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": "NaN", "infinity": 'Infinity'}}"#;
+        let request = FlagRequest::from_bytes(Bytes::from(json_with_nan_string))
+            .expect("Should handle quoted NaN");
         assert_eq!(
             request.person_properties.as_ref().unwrap()["nan"],
-            json!("NaN")  // Quoted strings are preserved
+            json!("NaN") // Quoted strings are preserved
         );
         assert_eq!(
             request.person_properties.as_ref().unwrap()["infinity"],
-            json!("Infinity")  // Quoted strings are preserved
+            json!("Infinity") // Quoted strings are preserved
         );
 
         // Test Infinity (gets replaced with null)
