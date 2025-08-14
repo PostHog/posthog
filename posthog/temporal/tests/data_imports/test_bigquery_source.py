@@ -359,9 +359,9 @@ def test_bigquery_source_full_refresh_table(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -424,9 +424,9 @@ def test_bigquery_source_full_refresh_view(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -492,9 +492,9 @@ def test_bigquery_source_incremental_integer(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -539,9 +539,9 @@ def test_bigquery_source_incremental_integer(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(Int64)"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -610,9 +610,9 @@ def test_bigquery_source_incremental_timestamp(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -658,9 +658,9 @@ def test_bigquery_source_incremental_timestamp(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -733,9 +733,9 @@ def test_bigquery_source_incremental_custom_primary_key(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
@@ -781,9 +781,9 @@ def test_bigquery_source_incremental_custom_primary_key(
     assert "incremental" in columns
     assert "value" in columns
 
-    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"  # type: ignore
-    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
-    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+    assert columns[bigquery_table_primary_key]["clickhouse"] == "Nullable(String)"
+    assert columns["incremental"]["clickhouse"] == "Nullable(DateTime64(6))"
+    assert columns["value"]["clickhouse"] == "Nullable(String)"
 
     function_call, context = table.get_function_call()
     query = f"SELECT * FROM {function_call}"
