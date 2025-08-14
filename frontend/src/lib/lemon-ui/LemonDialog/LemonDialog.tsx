@@ -66,7 +66,7 @@ export const LemonDialog = forwardRef<LemonDialogRef, LemonDialogProps>(function
                 setIsOpen(false)
             },
         }),
-        [setIsOpen]
+        []
     )
 
     primaryButton =
