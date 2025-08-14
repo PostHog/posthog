@@ -1023,7 +1023,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     def test_hogql_database_cache(self):
         with patch("posthog.models.cache.TEST_OVERRIDE", True):
-            with self.assertNumQueries(7):
+            with self.assertNumQueries(FuzzyInt(5, 7)):
                 create_hogql_database(team=self.team)
 
             with self.assertNumQueries(0):

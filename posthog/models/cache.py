@@ -55,26 +55,23 @@ class CachedQuerySet(QuerySet):
 
     def fetch_cached(self, team_id: int, timeout: int = 600, key_prefix: Optional[str] = None):
         # we want the behavior for tests to be unaffected unless specifically testing this logic
-        if TEST and not TEST_OVERRIDE:
-            return list(self)
+        testing = TEST and not TEST_OVERRIDE
 
-        if not is_cache_enabled(team_id):
-            return list(self)
+        if is_cache_enabled(team_id) and not testing:
+            try:
+                redis_client = get_client()
+                key = self.get_commit_cache_key(team_id=team_id, key_prefix=key_prefix)
 
-        try:
-            redis_client = get_client()
-            key = self.get_commit_cache_key(team_id=team_id, key_prefix=key_prefix)
+                data = redis_client.get(key)
+                if data is not None:
+                    return [deserialized.object for deserialized in serializers.deserialize("json", data)]
 
-            data = redis_client.get(key)
-            if data is not None:
-                return [deserialized.object for deserialized in serializers.deserialize("json", data)]
+                data = serializers.serialize("json", self)
 
-            data = serializers.serialize("json", self)
+                redis_client.set(key, data, ex=timeout)
 
-            redis_client.set(key, data, ex=timeout)
-
-        except Exception as e:
-            capture_exception(e)
+            except Exception as e:
+                capture_exception(e)
 
         return list(self)
 
