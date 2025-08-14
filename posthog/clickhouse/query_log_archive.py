@@ -107,7 +107,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     -- dagster workflows
     lc_dagster__job_name String,  -- comment JSONExtractString(log_comment, 'dagster', 'job_name')
     lc_dagster__run_id String,  -- comment JSONExtractString(log_comment, 'dagster', 'run_id')
-    lc_dagster__owner String  -- comment JSONExtractString(log_comment, 'dagster', 'tags', 'owner')
+    lc_dagster__owner String,  -- comment JSONExtractString(log_comment, 'dagster', 'tags', 'owner')
+
+    team_id Int64 ALIAS lc_team_id -- alias so that hogql generator can filter by team_id
 ) ENGINE = {engine}
 """
 

@@ -11,7 +11,6 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
     Table,
-    ExpressionField,
 )
 
 QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
@@ -100,25 +99,17 @@ class QueryLogArchiveTable(LazyTable):
         return ast.SelectQuery(
             select=fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-            where=ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=context.team_id),
-                        right=ast.Field(chain=[table_name, "lc_team_id"]),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value="HogQLQuery"),
-                        right=ast.Field(chain=[table_name, "lc_query__kind"]),
-                    ),
-                ]
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Constant(value="HogQLQuery"),
+                right=ast.Field(chain=[table_name, "lc_query__kind"]),
             ),
         )
 
 
 class RawQueryLogArchive(Table):
     fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "query_id": StringDatabaseField(name="query_id", nullable=False),
         "lc_id": StringDatabaseField(name="lc_id", nullable=False),
         "lc_query__query": StringDatabaseField(name="lc_query__query", nullable=False),
@@ -133,7 +124,6 @@ class RawQueryLogArchive(Table):
         "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
         "type": StringDatabaseField(name="type", nullable=False),
         "lc_access_method": StringDatabaseField(name="lc_access_method", nullable=False),
-        "lc_team_id": IntegerDatabaseField(name="lc_team_id", nullable=False),
         "lc_query__kind": StringDatabaseField(name="lc_query__kind", nullable=False),
         "ProfileEvents_OSCPUVirtualTimeMicroseconds": IntegerDatabaseField(
             name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False
@@ -149,10 +139,6 @@ class RawQueryLogArchive(Table):
         "ProfileEvents_S3GetObject": IntegerDatabaseField(name="ProfileEvents_S3GetObject", nullable=False),
         "ProfileEvents_ReadBufferFromS3Bytes": IntegerDatabaseField(
             name="ProfileEvents_ReadBufferFromS3Bytes", nullable=False
-        ),
-        # Add team_id as an ExpressionField that references lc_team_id
-        "team_id": ExpressionField(
-            name="team_id", expr=ast.Field(chain=["lc_team_id"]), nullable=False, isolate_scope=True
         ),
     }
 
