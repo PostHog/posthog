@@ -23,6 +23,7 @@ import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 import type { DragEvent } from 'react'
 import { getSmartStepPath } from './steps/SmartEdge'
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
@@ -33,10 +34,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign', 'edgesByActionId']],
+        values: [
+            campaignLogic(props),
+            ['campaign', 'edgesByActionId'],
+            optOutCategoriesLogic(),
+            ['categories', 'categoriesLoading'],
+        ],
         actions: [
             campaignLogic(props),
             ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            optOutCategoriesLogic(),
+            ['loadCategories'],
         ],
     })),
     actions({
