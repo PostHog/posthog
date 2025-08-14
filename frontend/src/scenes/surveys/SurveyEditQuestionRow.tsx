@@ -128,7 +128,7 @@ function canQuestionSkipSubmitButton(
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setQuestionType } =
+    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
         useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
@@ -176,7 +176,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 newType === SurveyQuestionType.SingleChoice
 
                             if (isCurrentTypeMultipleSurveyQuestion && isNewTypeMultipleSurveyQuestion) {
-                                setQuestionType(index, newType)
+                                setMultipleSurveyQuestion(index, question, newType)
                                 resetBranchingForQuestion(index)
                                 return
                             }
@@ -187,7 +187,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                     )
                                 ) {
                                     // Doing this because by the time we receive `onSelect`, the question type has already changed
-                                    setQuestionType(index, question.type)
+                                    setMultipleSurveyQuestion(index, question, question.type)
                                     return
                                 }
                             }
