@@ -57,7 +57,7 @@ pub fn query_command(host: Option<String>, query: &QueryCommand) -> Result<(), E
             let handle = capture_command_invoked("query_editor", Some(creds.env_id.clone()));
             let res = start_query_editor(&host, creds.clone(), *debug)?;
             if !no_print {
-                println!("Final query: {}", res);
+                println!("Final query: {res}");
             }
             if *execute {
                 let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
@@ -157,7 +157,7 @@ fn pretty_print_check_response(query: &str, res: MetadataResponse) -> Result<(),
     }
     .into();
 
-    println!("{:?}", diagnostic);
+    println!("{diagnostic:?}");
 
     Ok(())
 }

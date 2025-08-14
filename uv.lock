@@ -1289,6 +1289,18 @@ wheels = [
 ]
 
 [[package]]
+name = "django-admin-inline-paginator"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7e/ea/f599112f5a40d5876155aa0df8ec5013e7a1864a061323b9b7d2d675d988/django-admin-inline-paginator-0.4.0.tar.gz", hash = "sha256:e1558b468d347e965c4d25be7f546da6682ea03d95098ae37b90c926edd491b1", size = 7076, upload-time = "2023-04-26T18:11:09.556Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/1c/a32ec8947e0704624fe54e8dbb4efc8dc1f7afd9439fec79ac8bcb82da32/django_admin_inline_paginator-0.4.0-py3-none-any.whl", hash = "sha256:63b2e13dca6b0933f4b7a4d3262c7cb31db8cda19ad005bcbc1c29bba0e95a1a", size = 7398, upload-time = "2023-04-26T18:11:07.647Z" },
+]
+
+[[package]]
 name = "django-axes"
 version = "5.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3894,6 +3906,7 @@ dependencies = [
     { name = "deltalake" },
     { name = "dj-database-url" },
     { name = "django" },
+    { name = "django-admin-inline-paginator" },
     { name = "django-axes" },
     { name = "django-cors-headers" },
     { name = "django-deprecate-fields" },
@@ -4113,6 +4126,7 @@ requires-dist = [
     { name = "deltalake", specifier = "==0.25.2" },
     { name = "dj-database-url", specifier = "==0.5.0" },
     { name = "django", specifier = "~=4.2.17" },
+    { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", specifier = "==5.9.0" },
     { name = "django-cors-headers", specifier = "==3.5.0" },
     { name = "django-deprecate-fields", specifier = "==0.1.1" },
