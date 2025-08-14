@@ -118,7 +118,7 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
                         const emailTemplateErrors: Partial<EmailTemplate> = {
                             html: !value.html ? 'HTML is required' : getTemplatingError(value.html),
                             subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
-                            from: !value.from ? 'From is required' : getTemplatingError(value.from),
+                            from: !value.from.email ? 'From is required' : getTemplatingError(value.from),
                             to: !value.to.email ? 'To is required' : getTemplatingError(value.to),
                         }
 
