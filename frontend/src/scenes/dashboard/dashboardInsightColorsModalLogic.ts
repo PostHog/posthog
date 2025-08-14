@@ -113,7 +113,7 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
         ],
         breakdownValues: [
             (s) => [s.insightTiles, s.allCohorts],
-            (insightTiles, cohorts) => extractBreakdownValues(insightTiles, cohorts?.results),
+            (insightTiles, allCohorts) => extractBreakdownValues(insightTiles, allCohorts?.results),
         ],
     }),
 ])
