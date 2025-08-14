@@ -1,7 +1,6 @@
 from unittest.mock import patch, MagicMock
 
 import pytest
-from django.test import override_settings
 
 from posthog.api.test.test_team import create_team
 from posthog.models.integration import Integration
@@ -325,8 +324,35 @@ class TestEmailIntegration:
             "aws_ses_verified": False,
         }
 
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_email_verify_updates_all_other_integrations_with_same_domain(self):
+    @patch("posthog.models.integration.MailjetProvider")
+    def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_mailjet_provider_class, settings):
+        settings.MAILJET_PUBLIC_KEY = "test_api_key"
+        settings.MAILJET_SECRET_KEY = "test_secret_key"
+
+        mock_client = MagicMock()
+        mock_mailjet_provider_class.return_value = mock_client
+        # Mock the verify_email_domain method to return a test result
+        expected_result = {
+            "status": "success",
+            "dnsRecords": [
+                {
+                    "type": "dkim",
+                    "recordType": "TXT",
+                    "recordHostname": "mailjet._domainkey.example.com",
+                    "recordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
+                    "status": "success",
+                },
+                {
+                    "type": "spf",
+                    "recordType": "TXT",
+                    "recordHostname": "@",
+                    "recordValue": "v=spf1 include:spf.mailjet.com ~all",
+                    "status": "success",
+                },
+            ],
+        }
+        mock_client.verify_email_domain.return_value = expected_result
+
         integration1 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         integration2 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
         integrationOtherDomain = EmailIntegration.create_native_integration(
