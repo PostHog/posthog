@@ -47,7 +47,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
         id: id,
         action: loadedAction,
     }
-    const { isComplete } = useValues(actionLogic)
+    const { isComplete } = useValues(actionLogic({ id }))
     const logic = actionEditLogic(logicProps)
     const { action, actionChanged } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
@@ -401,9 +401,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     )}
                 </SceneSection>
             </Form>
-
-            <SceneDivider />
-
+            {newSceneLayout ? <SceneDivider /> : <div className="h-4" />}
+            xxx
             {id && (
                 <>
                     <SceneSection
