@@ -16,7 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
     pretty_print_in_tests,
     pretty_print_response_in_tests,
-    execute_hogql_query_with_debug,
+    execute_hogql_query_with_timings,
 )
 from posthog.models import Cohort
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
@@ -138,7 +138,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_query_timings(self):
         with freeze_time("2020-01-10"):
             random_uuid = self._create_random_events()
-            response = execute_hogql_query_with_debug(
+            response = execute_hogql_query_with_timings(
                 "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,

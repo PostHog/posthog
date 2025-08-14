@@ -10,18 +10,10 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.test.base import clean_varying_query_parts
 
 
-def execute_hogql_query_with_debug(*args, **kwargs):
-    """Helper function that calls execute_hogql_query with debug=True modifier.
-    This ensures the response includes the 'hogql' field, which is needed for tests
-    that check the generated HogQL.
-    """
-    # Get existing modifiers or create new ones
+def execute_hogql_query_with_timings(*args, **kwargs):
     modifiers = kwargs.get("modifiers") or HogQLQueryModifiers()
-
-    # Ensure debug is True
     modifiers.timings = True
     kwargs["modifiers"] = modifiers
-
     return execute_hogql_query(*args, **kwargs)
 
 
