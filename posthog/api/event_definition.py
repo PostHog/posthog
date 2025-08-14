@@ -297,7 +297,7 @@ def fetch_30day_event_queries(
         AND app_source = %(app_source)s
         AND timestamp >= toDateTime64(%(after)s, 6)
         AND instance_id = %(instance_id)s
-        AND metric_name IN %(metric_name)s
+        AND metric_name = %(metric_name)s
     """
 
     results = sync_execute(clickhouse_query, clickhouse_kwargs)
