@@ -70,8 +70,8 @@ export const BillingProductPricingTable = ({
                       addon.tiers &&
                       addon.tiers?.length > 0 &&
                       (addon.subscribed || addon.inclusion_only) &&
-                      // Exclude mobile replay when showing as variants
-                      !(isProductWithVariants && addon.type === 'mobile_replay')
+                      // Exclude add-ons that are product variants since those are shown separately with their own table
+                      !isProductWithVariants
               )
             : []
 

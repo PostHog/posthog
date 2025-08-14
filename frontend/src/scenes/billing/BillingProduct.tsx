@@ -236,7 +236,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
 
-                    {/* Product variants display (session replay + mobile replay) */}
+                    {/* Product variants display */}
                     {productVariants && product.subscribed && !isUnlicensedDebug ? (
                         <div className="space-y-4 mt-4">
                             {productVariants.map(
@@ -505,7 +505,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {/* Table with tiers */}
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
 
-                    {/* Add-ons (hide for session replay variants) */}
+                    {/* Add-ons (hide for product variants) */}
                     {product.addons?.length > 0 && !isProductWithVariants && (
                         <div className="pb-8">
                             {/* Legacy teams addon */}

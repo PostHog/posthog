@@ -389,7 +389,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return product.projected_amount_usd || '0'
                 }
 
-                // Type guard: only main products have addons
                 const mainProduct = product as BillingProductV2Type
                 const totalProjected = parseFloat(mainProduct.projected_amount_usd || '0')
 
