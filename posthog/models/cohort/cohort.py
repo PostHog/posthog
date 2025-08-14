@@ -163,6 +163,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     last_error_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
+    bytecode = models.JSONField(null=True, blank=True)
+    bytecode_error = models.TextField(blank=True, null=True)
 
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
@@ -171,6 +173,27 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def __str__(self):
         return self.name or "Untitled cohort"
+
+    def save(self, *args, **kwargs):
+        self.refresh_bytecode()
+        super().save(*args, **kwargs)
+
+    def refresh_bytecode(self):
+        from posthog.hogql.compiler.bytecode import create_bytecode
+        from posthog.hogql.property import cohort_to_expr
+        from posthog.hogql.errors import BaseHogQLError
+
+        try:
+            new_bytecode = create_bytecode(cohort_to_expr(self)).bytecode
+            if new_bytecode != self.bytecode or self.bytecode_error is not None:
+                self.bytecode = new_bytecode
+                self.bytecode_error = None
+        except BaseHogQLError as e:
+            # There are several known cases when bytecode generation can fail. Instead of spamming
+            # with errors, ignore those cases for now.
+            if self.bytecode is not None or self.bytecode_error != str(e):
+                self.bytecode = None
+                self.bytecode_error = str(e)
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:

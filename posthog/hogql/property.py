@@ -895,3 +895,32 @@ def get_property_value(property):
 
 def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
+
+
+def cohort_to_expr(cohort: "Cohort") -> ast.Expr:
+    """Convert cohort filters to HogQL expression for bytecode generation."""
+
+    # Static cohorts don't have filters that can be converted to bytecode
+    if cohort.is_static:
+        return ast.Constant(value=True)
+
+    if cohort.filters:
+        # Use existing property_to_expr to handle the filter structure
+        filter_data = cohort.filters.get("properties", {})
+        if filter_data:
+            return property_to_expr(filter_data, cohort.team)
+
+    # Handle legacy groups format
+    if cohort.groups:
+        try:
+            from posthog.models.filters.filter import Filter
+
+            # Convert legacy groups to PropertyGroup format
+            filter_obj = Filter(data={"properties": cohort.properties.to_dict()})
+            return property_to_expr(filter_obj.property_groups, cohort.team)
+        except ImportError:
+            # Skip if circular import, return True to be safe
+            return ast.Constant(value=True)
+
+    # No filters means everyone matches
+    return ast.Constant(value=True)

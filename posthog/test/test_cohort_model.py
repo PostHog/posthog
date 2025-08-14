@@ -370,3 +370,45 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    def test_cohort_bytecode_generation(self):
+        """Test that cohorts generate bytecode when they have filters."""
+        # Test with person property filter
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test cohort with filters",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}],
+                }
+            },
+        )
+
+        # The save method should have triggered bytecode generation
+        self.assertIsNotNone(cohort.bytecode)
+        self.assertIsNone(cohort.bytecode_error)
+
+        # Bytecode should be a list with some operations
+        self.assertIsInstance(cohort.bytecode, list)
+        self.assertGreater(len(cohort.bytecode), 0)
+
+    def test_cohort_bytecode_generation_static_cohort(self):
+        """Test that static cohorts don't generate complex bytecode."""
+        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
+
+        # Static cohorts should get simple bytecode (just returns true)
+        self.assertIsNotNone(cohort.bytecode)
+        self.assertIsNone(cohort.bytecode_error)
+
+    def test_cohort_bytecode_generation_legacy_groups(self):
+        """Test that cohorts with legacy groups format also generate bytecode."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="legacy cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+
+        # Should generate bytecode from legacy groups
+        self.assertIsNotNone(cohort.bytecode)
+        self.assertIsNone(cohort.bytecode_error)
