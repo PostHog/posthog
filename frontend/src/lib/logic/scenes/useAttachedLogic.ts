@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { beforeUnmount, BuiltLogic, Logic, LogicWrapper, useMountedLogic } from 'kea'
 
 /**
@@ -7,9 +7,14 @@ import { beforeUnmount, BuiltLogic, Logic, LogicWrapper, useMountedLogic } from 
  * the "logic" will be unmounted as well.
  * */
 export function useAttachedLogic(logic: BuiltLogic<Logic>, attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>): void {
-    if (!attachTo) {
-        // We're breaking the rules of hooks here...
-        // You should not change the attachTo prop from undefined to defined
+    const [hasAttachTo] = useState(() => !!attachTo)
+    if (hasAttachTo && !attachTo) {
+        throw new Error("Can't reset the 'attachTo' prop after it was set during initialization.")
+    } else if (!hasAttachTo && attachTo) {
+        throw new Error("Can't redefine the 'attachTo' prop when it was initialized as undefined.")
+    } else if (!attachTo) {
+        // No attachTo prop, ignore all logic that follows.
+        // We are breaking the rules of react here, but it's fine due to the extra checks above.
         return
     }
     const builtAttachTo = useMountedLogic(attachTo) // eslint-disable-line react-hooks/rules-of-hooks
