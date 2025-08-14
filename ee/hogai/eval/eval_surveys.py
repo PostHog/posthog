@@ -611,8 +611,8 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             SurveyCreationBasicsScorer(),
             SurveyRelevanceScorer(),
             SurveyQuestionQualityScorer(),
-            # SurveyFeatureFlagIntegrationScorer(),
-            # SurveyFeatureFlagUnderstandingScorer(),
+            SurveyFeatureFlagIntegrationScorer(),
+            SurveyFeatureFlagUnderstandingScorer(),
         ],
         data=[
             # Test case 1: NPS survey should have rating question first
