@@ -179,8 +179,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
                     const url = URL.createObjectURL(blob)
 
-                    // Swap to new frame, and revoke all previously tracked urls for this id.
-                    revokeAllForIdExcept(data.id) // nothing kept, we’re replacing the frame
                     trackUrl(data.id, url)
 
                     const done: () => void = () => {
@@ -190,6 +188,9 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     img.onerror = done
 
                     img.src = url
+
+                    // Now that the new src is applied, revoke everything else
+                    revokeAllForIdExcept(data.id, url)
                 },
                 'image/webp',
                 0.4
