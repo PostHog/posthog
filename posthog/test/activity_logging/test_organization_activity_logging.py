@@ -104,8 +104,8 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         self.assertEqual(field_changes["member invitation permissions"]["after"], False)
 
     def test_organization_name_change_logging(self):
-        organization = self.create_organization("Logo Test Org")
-        self.update_organization(organization["id"], {"name": "Logo Test Org Updated"})
+        organization = self.create_organization("Name Test Org")
+        self.update_organization(organization["id"], {"name": "Name Test Org Updated"})
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
         assert log is not None
