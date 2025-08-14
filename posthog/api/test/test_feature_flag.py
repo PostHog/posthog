@@ -2577,7 +2577,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-        # Test with default behavior (no distinct_id) - uses authenticated user's distinct_id
+        # Test with default behavior (no distinct_id) - uses authenticated user's randomly generated distinct_id
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         default_response = response.json()
@@ -2585,6 +2585,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         default_flag = default_response[0]
         self.assertEqual(default_flag["feature_flag"]["key"], "test-multivariate-flag")
         default_value = default_flag["value"]  # Should be False since authenticated user doesn't match conditions
+        self.assertFalse(default_value)  # Verify authenticated user gets False (no match)
 
         # Test with distinct_id that should get "control" variant
         response = self.client.get(
@@ -2607,11 +2608,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         test_flag = test_response[0]
         self.assertEqual(test_flag["feature_flag"]["key"], "test-multivariate-flag")
         self.assertEqual(test_flag["value"], "test")
-
-        # Verify that different distinct_ids produce different results
-        self.assertNotEqual(default_value, "control")  # Default user shouldn't get control
-        self.assertNotEqual(default_value, "test")  # Default user shouldn't get test
-        self.assertNotEqual(control_flag["value"], test_flag["value"])  # Different users get different variants
 
         # Test with random distinct_id that doesn't match any conditions
         response = self.client.get(
