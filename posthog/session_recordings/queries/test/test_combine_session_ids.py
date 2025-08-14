@@ -7,19 +7,16 @@ class TestCombineSessionIds:
     @parameterized.expand(
         [
             ("Both None - no filtering", None, None, None),
-            ("Only comment_session_ids provided", None, ["a", "b", "c"], ["a", "b", "c"]),
-            ("comment session ids deduplication", None, ["a", "a", "b"], ["a", "b"]),
-            ("left empty list means match 0 sessions", [], None, []),
+            ("both empty", [], [], []),
             ("right empty list means match 0 session", None, [], []),
-            ("Only existing_ids provided ", ["x", "y", "z"], None, ["x", "y", "z"]),
-            ("existing id deduplication", ["x", "x", "y"], None, ["x", "y"]),
-            ("Both provided - intersection", ["a", "b", "c"], ["b", "c", "d"], ["b", "c"]),
+            ("left empty list means match 0 sessions", [], None, []),
+            ("Only comment_session_ids provided", None, ["a", "a", "b", "c"], ["a", "b", "c"]),
+            ("Only existing_ids provided ", ["x", "x", "y", "z"], None, ["x", "y", "z"]),
+            ("Both provided - intersection", ["a", "b", "b", "c"], ["b", "c", "c", "d"], ["b", "c"]),
             ("no overlap", ["a", "b"], ["c", "d"], []),
             ("complete overlap", ["a", "b", "c"], ["a", "b", "c"], ["a", "b", "c"]),
             ("empty comment_session_ids", [], ["a", "b"], []),
             ("empty existing_ids", ["a", "b"], [], []),
-            ("both empty", [], [], []),
-            ("Duplicates in intersection", ["a", "a", "b", "b"], ["b", "b", "c"], ["b"]),
         ],
     )
     def test_combine_session_id_filters(
