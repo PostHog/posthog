@@ -259,12 +259,16 @@ class TestCohortValidation(BaseTest):
         # Test with lower complexity type
         is_valid, error_msg = validate_cohort_type_against_data("person_property", data, self.team.id)
         self.assertFalse(is_valid)
+        self.assertIsNotNone(error_msg)
+        assert error_msg is not None  # Type narrowing for mypy
         self.assertIn("does not match the filters", error_msg)
         self.assertIn("Expected type: 'behavioral'", error_msg)
 
         # Test with higher complexity type (also fails now)
         is_valid, error_msg = validate_cohort_type_against_data("analytical", data, self.team.id)
         self.assertFalse(is_valid)
+        self.assertIsNotNone(error_msg)
+        assert error_msg is not None  # Type narrowing for mypy
         self.assertIn("does not match the filters", error_msg)
         self.assertIn("Expected type: 'behavioral'", error_msg)
 
@@ -274,6 +278,8 @@ class TestCohortValidation(BaseTest):
 
         is_valid, error_msg = validate_cohort_type_against_data("invalid_type", data, self.team.id)
         self.assertFalse(is_valid)
+        self.assertIsNotNone(error_msg)
+        assert error_msg is not None  # Type narrowing for mypy
         self.assertIn("Invalid cohort type: invalid_type", error_msg)
 
     def test_determine_cohort_type_from_data_nested_behavioral(self):
