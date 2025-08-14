@@ -79,7 +79,7 @@ async def assert_clickhouse_records_in_bigquery(
     """Assert ClickHouse records are written to a given BigQuery table.
 
     Arguments:
-        bigquery_connection: A BigQuery connection used to read inserted records.
+        bigquery_client: A BigQuery client used to read inserted records.
         clickhouse_client: A ClickHouseClient used to read records that are expected to be exported.
         team_id: The ID of the team that we are testing for.
         table_id: BigQuery table id where records are exported to.
