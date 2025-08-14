@@ -490,9 +490,15 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                with unittest.mock.patch(
-                    "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.Producer.start",
-                    side_effect=RefreshError("A useful error message"),
+                with (
+                    unittest.mock.patch(
+                        "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.Producer.start",
+                        side_effect=RefreshError("A useful error message"),
+                    ),
+                    unittest.mock.patch(
+                        "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.ProducerFromInternalStage.start",
+                        side_effect=RefreshError("A useful error message"),
+                    ),
                 ):
                     await activity_environment.client.execute_workflow(
                         BigQueryBatchExportWorkflow.run,
@@ -545,6 +551,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
                 activities=[
                     mocked_start_batch_export_run,
                     never_finish_activity,
+                    insert_into_internal_stage_activity,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
