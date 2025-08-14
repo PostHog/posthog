@@ -88,7 +88,7 @@ async def assert_clickhouse_records_in_bigquery(
         min_ingested_timestamp: A datetime used to assert a minimum bound for 'bq_ingested_timestamp'.
         exclude_events: Event names to be excluded from the export.
         include_events: Event names to be included in the export.
-        batch_export_schema: Custom schema used in the batch export.
+        batch_export_model: Model used in the batch export.
         use_json_type: Whether to use JSON type for known fields.
         expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
         expected_fields: The expected fields to be exported.
