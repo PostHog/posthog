@@ -19,16 +19,16 @@ from dags.max_ai.utils import (
     dump_model,
 )
 from ee.hogai.eval.schema import (
-    ActorsPropertyTaxonomySchema,
+    ActorsPropertyTaxonomySnapshot,
     BaseSnapshot,
     ClickhouseProjectDataSnapshot,
     DataWarehouseTableSnapshot,
     GroupTypeMappingSnapshot,
     PostgresProjectDataSnapshot,
     PropertyDefinitionSnapshot,
-    PropertyTaxonomySchema,
+    PropertyTaxonomySnapshot,
     TeamSnapshot,
-    TeamTaxonomyItemSchema,
+    TeamTaxonomyItemSnapshot,
 )
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import (
@@ -118,7 +118,7 @@ def call_query_runner(callable: Callable[[], C]) -> C:
 def snapshot_properties_taxonomy(
     context: dagster.OpExecutionContext, s3: S3Resource, file_key: str, team: Team, events: list[TeamTaxonomyItem]
 ):
-    results: list[PropertyTaxonomySchema] = []
+    results: list[PropertyTaxonomySnapshot] = []
 
     def snapshot_event(item: TeamTaxonomyItem):
         return call_query_runner(
@@ -130,10 +130,10 @@ def snapshot_properties_taxonomy(
 
     for item in events:
         context.log.info(f"Snapshotting properties taxonomy for event {item.event} of {team.id}")
-        results.append(PropertyTaxonomySchema(event=item.event, results=snapshot_event(item).results))
+        results.append(PropertyTaxonomySnapshot(event=item.event, results=snapshot_event(item).results))
 
     context.log.info(f"Dumping properties taxonomy to {file_key}")
-    with dump_model(s3=s3, schema=PropertyTaxonomySchema, file_key=file_key) as dump:
+    with dump_model(s3=s3, schema=PropertyTaxonomySnapshot, file_key=file_key) as dump:
         dump(results)
 
 
@@ -157,8 +157,8 @@ def snapshot_events_taxonomy(
     snapshot_properties_taxonomy(context, s3, properties_file_key, team, res.results)
 
     # Dump later to ensure caching
-    with dump_model(s3=s3, schema=TeamTaxonomyItemSchema, file_key=events_file_key) as dump:
-        dumped_items = TeamTaxonomyItemSchema(results=res.results)
+    with dump_model(s3=s3, schema=TeamTaxonomyItemSnapshot, file_key=events_file_key) as dump:
+        dumped_items = TeamTaxonomyItemSnapshot(results=res.results)
         dump([dumped_items])
 
     return events_file_key, properties_file_key
@@ -185,7 +185,7 @@ def snapshot_actors_property_taxonomy(
         return file_key
 
     # Snapshot all group type mappings and person
-    results: list[ActorsPropertyTaxonomySchema] = []
+    results: list[ActorsPropertyTaxonomySnapshot] = []
     group_type_mappings: list[int | None] = [
         None,
         *(g.group_type_index for g in GroupTypeMapping.objects.filter(team=team)),
@@ -228,11 +228,11 @@ def snapshot_actors_property_taxonomy(
             # Snapshot queries in the same way as the toolkit expects
             for prop, prop_results in zip(batch, res.results):
                 results.append(
-                    ActorsPropertyTaxonomySchema(property=prop, group_type_index=index, results=prop_results)
+                    ActorsPropertyTaxonomySnapshot(property=prop, group_type_index=index, results=prop_results)
                 )
 
     context.log.info(f"Dumping actors property taxonomy to {file_key}")
-    with dump_model(s3=s3, schema=ActorsPropertyTaxonomySchema, file_key=file_key) as dump:
+    with dump_model(s3=s3, schema=ActorsPropertyTaxonomySnapshot, file_key=file_key) as dump:
         dump(results)
     return file_key
 
@@ -260,8 +260,8 @@ def snapshot_clickhouse_project_data(
 
     context.log_event(
         dagster.AssetMaterialization(
-            asset_key="project_clickhouse_snapshots",
-            description="Avro snapshots of project ClickHouse data",
+            asset_key="project_clickhouse_snapshot",
+            description="Avro snapshots of project's ClickHouse queries",
             metadata={
                 "project_id": project_id,
                 **materialized_result.model_dump(),

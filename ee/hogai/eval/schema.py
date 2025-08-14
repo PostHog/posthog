@@ -149,18 +149,18 @@ class PostgresProjectDataSnapshot(BaseModel):
 
 
 # posthog/hogql_queries/ai/team_taxonomy_query_runner.py
-class TeamTaxonomyItemSchema(AvroBase):
+class TeamTaxonomyItemSnapshot(AvroBase):
     results: list[TeamTaxonomyItem]
 
 
 # posthog/hogql_queries/ai/event_taxonomy_query_runner.py
-class PropertyTaxonomySchema(AvroBase):
+class PropertyTaxonomySnapshot(AvroBase):
     event: str
     results: list[EventTaxonomyItem]
 
 
 # posthog/hogql_queries/ai/actors_property_taxonomy_query_runner.py
-class ActorsPropertyTaxonomySchema(AvroBase):
+class ActorsPropertyTaxonomySnapshot(AvroBase):
     group_type_index: int | None
     results: ActorsPropertyTaxonomyResponse
 

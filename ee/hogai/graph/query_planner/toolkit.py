@@ -6,10 +6,23 @@ from typing import Literal, Optional, Union, cast
 
 from pydantic import BaseModel, field_validator
 
+from ee.hogai.graph.taxonomy.tools import (
+    ask_user_for_help,
+    retrieve_action_properties,
+    retrieve_action_property_values,
+    retrieve_entity_properties,
+    retrieve_entity_property_values,
+    retrieve_event_properties,
+    retrieve_event_property_values,
+)
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
-from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import (
+    ActorsPropertyTaxonomyQueryRunner,
+)
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import (
+    EventTaxonomyQueryRunner,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action, Team
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -21,15 +34,6 @@ from posthog.schema import (
     EventTaxonomyQuery,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from ee.hogai.graph.taxonomy.tools import (
-    retrieve_action_properties,
-    retrieve_action_property_values,
-    retrieve_entity_properties,
-    retrieve_entity_property_values,
-    retrieve_event_properties,
-    retrieve_event_property_values,
-    ask_user_for_help,
-)
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
@@ -323,9 +327,9 @@ class TaxonomyAgentToolkit:
             )
 
         try:
-            if query.group_type_index is not None:
+            if query.groupTypeIndex is not None:
                 prop_type = PropertyDefinition.Type.GROUP
-                group_type_index = query.group_type_index
+                group_type_index = query.groupTypeIndex
             elif entity == "event":
                 prop_type = PropertyDefinition.Type.EVENT
                 group_type_index = None
@@ -352,6 +356,7 @@ class TaxonomyAgentToolkit:
         if not response.results:
             return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}."
 
+        # TRICKY. Remove when the toolkit supports multiple results.
         if isinstance(response.results, list):
             unpacked_results = response.results[0]
         else:

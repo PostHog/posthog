@@ -13,6 +13,15 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
+class AIEventType(StrEnum):
+    FIELD_AI_GENERATION = "$ai_generation"
+    FIELD_AI_EMBEDDING = "$ai_embedding"
+    FIELD_AI_SPAN = "$ai_span"
+    FIELD_AI_TRACE = "$ai_trace"
+    FIELD_AI_METRIC = "$ai_metric"
+    FIELD_AI_FEEDBACK = "$ai_feedback"
+
+
 class AccessControlLevel(StrEnum):
     NONE = "none"
     MEMBER = "member"
@@ -1622,7 +1631,7 @@ class LLMTraceEvent(BaseModel):
         extra="forbid",
     )
     createdAt: str
-    event: str
+    event: Union[AIEventType, str]
     id: str
     properties: dict[str, Any]
 
