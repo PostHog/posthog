@@ -339,7 +339,7 @@ class SurveyFirstQuestionTypeScorer(Scorer):
                 name=self._name(),
                 score=0,
                 metadata={
-                    "reason": f"First question type mismatch",
+                    "reason": "First question type mismatch",
                     "expected_type": expected_type,
                     "actual_type": actual_type,
                     "survey_name": survey_output.name,
@@ -470,13 +470,13 @@ class SurveyFeatureFlagIntegrationScorer(Scorer):
         # Check 3: Variant should be set if expected
         if should_have_variant:
             checks.append("has_variant")
-            conditions = getattr(survey_output, "conditions", {}) or {}
-            if conditions.get("linkedFlagVariant"):
+            conditions = survey_output.conditions
+            if conditions and conditions.linkedFlagVariant:
                 successes.append("has_variant")
                 # Check 4: Variant should match if specified
                 if expected_variant:
                     checks.append("correct_variant")
-                    if conditions.get("linkedFlagVariant") == expected_variant:
+                    if conditions.linkedFlagVariant == expected_variant:
                         successes.append("correct_variant")
 
         # If no checks were added, it means no feature flag criteria were specified
@@ -500,7 +500,7 @@ class SurveyFeatureFlagIntegrationScorer(Scorer):
                 "failed_checks": failed_checks,
                 "survey_name": survey_output.name,
                 "linked_flag_id": getattr(survey_output, "linked_flag_id", None),
-                "variant_condition": (getattr(survey_output, "conditions", {}) or {}).get("linkedFlagVariant"),
+                "variant_condition": survey_output.conditions.linkedFlagVariant if survey_output.conditions else None,
                 "expected_flag_id": expected_flag_id,
                 "expected_variant": expected_variant,
             },
