@@ -26,7 +26,6 @@ import {
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { cn } from 'lib/utils/css-classes'
 import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -161,9 +160,7 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
     // By default icons will not be colorful, to add color, wrap the icon with the class: "group/colorful-product-icons colorful-product-icons-true"
     return (
         <span
-            className={cn(
-                `flex items-center group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]`
-            )}
+            className="flex items-center group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]"
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 (colorOverride

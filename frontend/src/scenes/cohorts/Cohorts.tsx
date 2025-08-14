@@ -188,7 +188,7 @@ export function Cohorts(): JSX.Element {
                 productName="Cohorts"
                 productKey={ProductKey.COHORTS}
                 thingName="cohort"
-                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
+                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn't convert."
                 isEmpty={cohorts.count == 0 && !cohortsLoading && !searchTerm}
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}

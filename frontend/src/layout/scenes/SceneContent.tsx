@@ -185,7 +185,7 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
             className={textClasses}
             menuItem
             variant="panel"
-            tooltip={isEditing ? 'Save' : 'Edit name'}
+            tooltip={isEditing ? null : 'Edit name'}
         >
             {name || <span className="text-tertiary">Unnamed</span>}
         </ButtonPrimitive>
@@ -260,7 +260,7 @@ export function SceneDescription({
             autoHeight
             menuItem
             variant="panel"
-            tooltip={isEditing ? 'Save' : 'Edit description'}
+            tooltip={isEditing ? null : 'Edit description'}
         >
             {markdown && description ? (
                 <LemonMarkdown lowKeyHeadings className="[&_p]:my-0 [&_p]:leading-[20px]">
@@ -331,13 +331,13 @@ export function SceneDescription({
     )
 }
 
-export function SceneDivider(): JSX.Element {
+export function SceneDivider(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     // If not in new scene layout, we don't want to show anything new
     if (!newSceneLayout) {
-        return <></>
+        return null
     }
 
     return <LemonDivider className="-mx-4 w-[calc(100%+var(--spacing)*8)]" />

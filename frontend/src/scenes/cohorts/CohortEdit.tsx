@@ -247,7 +247,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 </div>
                             )}
                             <div className={cn('flex-1', newSceneLayout && 'flex flex-col gap-y-4')}>
-                                <LemonField name="is_static" label={newSceneLayout ? <></> : 'Type'}>
+                                <LemonField name="is_static" label={newSceneLayout ? null : 'Type'}>
                                     {({ value, onChange }) => (
                                         <LemonSelect
                                             disabledReason={

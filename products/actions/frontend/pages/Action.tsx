@@ -11,8 +11,7 @@ export const scene: SceneExport = {
 }
 
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
-    const logic = actionLogic({ id })
-    const { action, actionLoading } = useValues(logic)
+    const { action, actionLoading } = useValues(actionLogic({ id }))
 
     return <ActionEdit id={id} action={action} actionLoading={actionLoading} />
 }
