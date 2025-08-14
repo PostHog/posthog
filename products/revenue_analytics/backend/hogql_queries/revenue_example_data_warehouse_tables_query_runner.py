@@ -66,7 +66,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
 
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
-    def calculate(self):
+    def _calculate(self):
         response = self.paginator.execute_hogql_query(
             query_type="revenue_example_external_tables_query",
             query=self.to_query(),

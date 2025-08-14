@@ -190,7 +190,7 @@ WHERE {periods_expression}
 
         return outer_select
 
-    def calculate(self):
+    def _calculate(self):
         try:
             query = self.to_query()
         except NoActionsError:

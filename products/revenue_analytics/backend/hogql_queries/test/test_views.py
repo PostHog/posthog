@@ -1,5 +1,6 @@
 from posthog.schema import CurrencyCode
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, DataWarehouseTable, DataWarehouseCredential
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.test.base import BaseTest
 
 from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
@@ -28,7 +29,7 @@ class TestRevenueAnalyticsViews(BaseTest):
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
         self.credentials = DataWarehouseCredential.objects.create(
             access_key="blah", access_secret="blah", team=self.team

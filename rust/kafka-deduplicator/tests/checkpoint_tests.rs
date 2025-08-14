@@ -334,8 +334,8 @@ async fn test_checkpoint_skips_when_in_progress() {
     let first_completed = result1.unwrap();
     let second_completed = result2.unwrap();
 
-    println!("First checkpoint completed: {}", first_completed);
-    println!("Second checkpoint completed: {}", second_completed);
+    println!("First checkpoint completed: {first_completed}");
+    println!("Second checkpoint completed: {second_completed}");
 
     // Exactly one should have completed the checkpoint, one should have been skipped
     assert!(
@@ -366,8 +366,7 @@ async fn test_checkpoint_skips_when_in_progress() {
     assert_eq!(
         checkpoint_dirs.len(),
         1,
-        "All files should belong to exactly one checkpoint directory, found: {:?}",
-        checkpoint_dirs
+        "All files should belong to exactly one checkpoint directory, found: {checkpoint_dirs:?}"
     );
 }
 
@@ -452,8 +451,7 @@ async fn test_incremental_vs_full_upload() {
         let has_incremental_uploads = stored_files.keys().any(|k| k.contains("/incremental/"));
 
         println!(
-            "Checkpoint {}: should_be_full={}, has_full={}, has_incremental={}",
-            i, should_be_full, has_full_uploads, has_incremental_uploads
+            "Checkpoint {i}: should_be_full={should_be_full}, has_full={has_full_uploads}, has_incremental={has_incremental_uploads}"
         );
         println!("Keys: {:?}", stored_files.keys().collect::<Vec<_>>());
 
@@ -463,14 +461,12 @@ async fn test_incremental_vs_full_upload() {
         if should_be_full {
             assert!(
                 has_full_uploads,
-                "Checkpoint {} should create full uploads",
-                i
+                "Checkpoint {i} should create full uploads"
             );
         } else {
             assert!(
                 has_incremental_uploads,
-                "Checkpoint {} should create incremental uploads",
-                i
+                "Checkpoint {i} should create incremental uploads"
             );
         }
     }
