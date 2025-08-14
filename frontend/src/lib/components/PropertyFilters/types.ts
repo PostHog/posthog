@@ -8,6 +8,7 @@ import {
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
+import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 
 export interface PropertyFilterBaseProps {
     pageKey: string
@@ -42,6 +43,7 @@ export interface PropertyFilterInternalProps {
     filters: AnyPropertyFilter[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
     editable?: boolean
+    operatorAllowList?: OperatorValueSelectProps['operatorAllowlist']
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
     eventNames?: string[]

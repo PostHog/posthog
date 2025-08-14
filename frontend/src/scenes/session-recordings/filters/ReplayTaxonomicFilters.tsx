@@ -11,12 +11,14 @@ import { getFilterLabel } from '~/taxonomy/helpers'
 import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export interface ReplayTaxonomicFiltersProps {
     onChange: (value: TaxonomicFilterValue, item?: any) => void
 }
 
 export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {
+    const showCommentText = useFeatureFlag('COMMENT_TEXT_FILTERING')
     const {
         filterGroup: { values: filters },
     } = useValues(universalFiltersLogic)
@@ -47,6 +49,13 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
             taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
         },
     ]
+    if (showCommentText) {
+        properties.push({
+            key: 'comment_text',
+            propertyFilterType: PropertyFilterType.Recording,
+            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+        })
+    }
 
     return (
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
