@@ -187,6 +187,11 @@ impl EphemeralTopic {
         );
         config.set("debug", "all");
         config.set("socket.timeout.ms", "5000");
+        // RedPanda compatibility settings
+        config.set("enable.auto.commit", "false");
+        config.set("auto.offset.reset", "earliest");
+        config.set("session.timeout.ms", "10000");
+        config.set("heartbeat.interval.ms", "3000");
 
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
