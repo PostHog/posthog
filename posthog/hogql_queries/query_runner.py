@@ -1145,18 +1145,9 @@ AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
 class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
     """
     QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
-
-    This ensures that all responses from analytics query runners have the standard fields:
-    - error: Optional[str] - Query error information
-    - hogql: Optional[str] - Generated HogQL query
-    - modifiers: Optional[HogQLQueryModifiers] - Query modifiers used
-    - query_status: Optional[QueryStatus] - Query execution status
-    - resolved_date_range: Optional[ResolvedDateRangeResponse] - Date range used
-    - results: Any - Query results data
-    - timings: Optional[list[QueryTiming]] - Performance timing information
     """
 
-    def calculate(self) -> R:
+    def calculate(self) -> AR:
         response = self._calculate()
         if not self.modifiers.timings:
             response.timings = None
