@@ -1,4 +1,5 @@
 import {
+    IconCheck,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -40,6 +41,7 @@ import {
     AssistantToolCallMessage,
     FailureMessage,
     VisualizationMessage,
+    NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
@@ -58,9 +60,12 @@ import {
     isHumanMessage,
     isReasoningMessage,
     isVisualizationMessage,
+    isNotebookUpdateMessage,
 } from './utils'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
+import { openNotebook } from '~/models/notebooksModel'
+import { NotebookTarget } from 'scenes/notebooks/types'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -251,6 +256,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 ))}
                             </MessageTemplate>
                         )
+                    } else if (isNotebookUpdateMessage(message)) {
+                        return <NotebookUpdateAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })}
@@ -394,6 +401,30 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
                 </LemonButton>
             ))}
         </div>
+    )
+}
+
+interface NotebookUpdateAnswerProps {
+    message: NotebookUpdateMessage
+}
+
+function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Element {
+    const handleOpenNotebook = (): void => {
+        openNotebook(message.notebook_id, NotebookTarget.Scene)
+    }
+
+    return (
+        <MessageTemplate type="ai">
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                    <IconCheck className="text-success size-4" />
+                    <span>A notebook has been updated</span>
+                </div>
+                <LemonButton onClick={handleOpenNotebook} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                    Open notebook
+                </LemonButton>
+            </div>
+        </MessageTemplate>
     )
 }
 

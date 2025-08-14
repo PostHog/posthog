@@ -25,6 +25,10 @@ from posthog.temporal.data_imports.sources.generated_configs import BigQuerySour
 from posthog.warehouse.models import ExternalDataSource
 
 
+def build_destination_table_prefix(schema_id: str | None) -> str:
+    return f"__posthog_import_{schema_id if schema_id else ''}"
+
+
 @SourceRegistry.register
 class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     @property
@@ -52,6 +56,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                 ],
             )
             for table_name, columns in filtered_results
+            if not table_name.startswith(build_destination_table_prefix(None))
         ]
 
     def validate_credentials(self, config: BigQuerySourceConfig, team_id: int) -> tuple[bool, str | None]:
@@ -93,7 +98,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
         # relaxed with using a relatively long UUID as part of the prefix.
         # Some special characters do need to be replaced, so we use the hex
         # representation of the UUID.
-        destination_table_prefix = f"__posthog_import_{inputs.schema_id}"
+        destination_table_prefix = build_destination_table_prefix(inputs.schema_id)
 
         destination_table_dataset_id = dataset_project_id if using_temporary_dataset else config.dataset_id
         destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.job_id}_{str(datetime.now().timestamp()).replace('.', '')}"
