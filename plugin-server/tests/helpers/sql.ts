@@ -518,6 +518,39 @@ export const createAction = async (
     return id
 }
 
+export const createCohort = async (
+    pg: PostgresRouter,
+    teamId: number,
+    name: string,
+    bytecode: any[] | null = null,
+    cohortSettings?: Record<string, any>
+): Promise<number> => {
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(pg, 'posthog_cohort', {
+        id,
+        name,
+        description: `Test cohort: ${name}`,
+        team_id: teamId,
+        deleted: false,
+        bytecode: bytecode ? JSON.stringify(bytecode) : null,
+        bytecode_error: null,
+        groups: JSON.stringify([]),
+        filters: JSON.stringify({}),
+        is_static: false,
+        version: 1,
+        pending_version: null,
+        is_calculating: false,
+        created_at: new Date().toISOString(),
+        created_by_id: null,
+        last_calculation: null,
+        errors_calculating: 0,
+        count: null,
+        ...cohortSettings,
+    })
+    return id
+}
+
 export const createUser = async (pg: PostgresRouter, distinctId: string) => {
     const uuid = new UUIDT().toString()
     const user = await insertRow(pg, 'posthog_user', {
