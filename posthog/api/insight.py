@@ -1218,12 +1218,26 @@ When set, the specified dashboard's filters and date range override will be appl
     # ******************************************
     @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.models.event.event_usage import log_event_usage
+
+        insight = self.get_object()
         InsightViewed.objects.update_or_create(
             team=self.team,
             user=request.user,
-            insight=self.get_object(),
+            insight=insight,
             defaults={"last_viewed_at": now()},
         )
+
+        if insight.query_metadata and insight.query_metadata.get("events", []):
+            for event_name in insight.query_metadata["events"]:
+                if not event_name:
+                    continue
+                log_event_usage(
+                    event_name=event_name,
+                    team_id=self.team_id,
+                    user_id=self.request.user.pk,
+                )
+
         return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
