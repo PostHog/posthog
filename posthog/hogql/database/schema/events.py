@@ -18,7 +18,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
 from posthog.hogql.database.schema.revenue_analytics import (
     RawPersonsRevenueAnalyticsTable,
-    build_join_with_persons_revenue_analytics_table,
+    join_with_persons_revenue_analytics_table,
 )
 
 
@@ -30,7 +30,7 @@ class EventsPersonSubTable(VirtualTable):
         "revenue_analytics": LazyJoin(
             from_field=["person_id"],
             join_table=RawPersonsRevenueAnalyticsTable(),
-            join_function=build_join_with_persons_revenue_analytics_table(is_poe=True),
+            join_function=join_with_persons_revenue_analytics_table,
         ),
     }
 

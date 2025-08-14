@@ -13,30 +13,27 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ResolutionError
 
 
-def build_join_with_persons_revenue_analytics_table(is_poe: bool = False):
-    def join_with_persons_revenue_analytics_table(
-        join_to_add: LazyJoinToAdd,
-        context: HogQLContext,
-        node: ast.SelectQuery,
-    ):
-        if not join_to_add.fields_accessed:
-            raise ResolutionError("No fields requested from revenue_analytics")
+def join_with_persons_revenue_analytics_table(
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    node: ast.SelectQuery,
+):
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from revenue_analytics")
 
-        return ast.JoinExpr(
-            alias=join_to_add.to_table,
-            table=select_from_persons_revenue_analytics_table(context, is_poe),
-            join_type="LEFT JOIN",
-            constraint=ast.JoinConstraint(
-                expr=ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
-                    right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
-                ),
-                constraint_type="ON",
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=select_from_persons_revenue_analytics_table(context),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
+                right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
             ),
-        )
-
-    return join_with_persons_revenue_analytics_table
+            constraint_type="ON",
+        ),
+    )
 
 
 def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -157,8 +154,6 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
 
 
 class RawPersonsRevenueAnalyticsTable(LazyTable):
-    is_poe: bool = False
-
     fields: dict[str, FieldOrTable] = {
         "person_id": StringDatabaseField(name="person_id"),
         "revenue": DecimalDatabaseField(name="revenue", nullable=False),
@@ -171,7 +166,7 @@ class RawPersonsRevenueAnalyticsTable(LazyTable):
         context: HogQLContext,
         node: ast.SelectQuery,
     ):
-        return select_from_persons_revenue_analytics_table(context, self.is_poe)
+        return select_from_persons_revenue_analytics_table(context)
 
     def to_printed_clickhouse(self, context):
         return "raw_persons_revenue_analytics"
