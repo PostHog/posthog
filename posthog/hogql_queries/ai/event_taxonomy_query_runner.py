@@ -26,7 +26,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     response: EventTaxonomyQueryResponse
     cached_response: CachedEventTaxonomyQueryResponse
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

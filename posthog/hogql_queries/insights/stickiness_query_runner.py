@@ -253,7 +253,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
-    def calculate(self):
+    def _calculate(self):
         queries = self.to_queries()
 
         res = []

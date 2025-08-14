@@ -143,7 +143,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         return main_query
 
-    def calculate(self) -> MarketingAnalyticsTableQueryResponse:
+    def _calculate(self) -> MarketingAnalyticsTableQueryResponse:
         """Execute the query and return results with pagination support"""
         from posthog.hogql.query import execute_hogql_query
 

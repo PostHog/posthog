@@ -166,7 +166,7 @@ class CalendarHeatmapQueryRunner(QueryRunner):
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         response = execute_hogql_query(
             query_type="calendar_heatmap_query",

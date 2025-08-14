@@ -84,7 +84,7 @@ class LogsQueryRunner(QueryRunner):
                     ),
                 )
 
-    def calculate(self) -> LogsQueryResponse:
+    def _calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = self.paginator.execute_hogql_query(

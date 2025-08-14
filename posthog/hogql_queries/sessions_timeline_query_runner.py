@@ -128,7 +128,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             """SELECT DISTINCT person_id FROM {events_subquery}""", {"events_subquery": self._get_events_subquery()}
         )
 
-    def calculate(self) -> SessionsTimelineQueryResponse:
+    def _calculate(self) -> SessionsTimelineQueryResponse:
         query_result = execute_hogql_query(
             query=self.to_query(),
             team=self.team,

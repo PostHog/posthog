@@ -62,7 +62,7 @@ class TracesQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100

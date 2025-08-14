@@ -142,7 +142,7 @@ class LifecycleQueryRunner(QueryRunner):
             ],
         )
 
-    def calculate(self) -> LifecycleQueryResponse:
+    def _calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

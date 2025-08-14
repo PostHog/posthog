@@ -761,8 +761,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return LimitContext.QUERY
         return self.limit_context
 
-    @abstractmethod
     def calculate(self) -> R:
+        return self._calculate()
+
+    @abstractmethod
+    def _calculate(self) -> R:
         raise NotImplementedError()
 
     def enqueue_async_calculation(

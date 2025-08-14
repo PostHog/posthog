@@ -176,7 +176,7 @@ class ActorsQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
-    def calculate(self) -> ActorsQueryResponse:
+    def _calculate(self) -> ActorsQueryResponse:
         try:
             self.calculating = True
             return self._calculate()

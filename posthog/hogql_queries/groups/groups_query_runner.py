@@ -89,7 +89,7 @@ class GroupsQueryRunner(QueryRunner):
             order_by=order_by,
         )
 
-    def calculate(self) -> GroupsQueryResponse:
+    def _calculate(self) -> GroupsQueryResponse:
         response = self.paginator.execute_hogql_query(
             query_type="GroupsQuery",
             query=self.to_query(),

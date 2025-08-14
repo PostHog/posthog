@@ -145,7 +145,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
 
-    def calculate(self) -> FunnelCorrelationResponse:
+    def _calculate(self) -> FunnelCorrelationResponse:
         """
         Funnel Correlation queries take as input the same as the funnel query,
         and returns the correlation of person events with a person successfully

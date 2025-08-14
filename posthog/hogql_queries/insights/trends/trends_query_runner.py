@@ -339,7 +339,7 @@ class TrendsQueryRunner(QueryRunner):
             compare=res_compare,
         )
 
-    def calculate(self):
+    def _calculate(self):
         queries = self.to_queries()
 
         if len(queries) == 0:

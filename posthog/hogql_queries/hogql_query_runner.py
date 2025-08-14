@@ -72,7 +72,7 @@ class HogQLQueryRunner(QueryRunner):
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
-    def calculate(self) -> HogQLQueryResponse:
+    def _calculate(self) -> HogQLQueryResponse:
         query = self.to_query()
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:

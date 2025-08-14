@@ -135,7 +135,7 @@ ORDER BY "context.columns.count" DESC
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def calculate(self):
+    def _calculate(self):
         response = self.paginator.execute_hogql_query(
             query_type="session_attribution_query",
             query=self.to_query(),

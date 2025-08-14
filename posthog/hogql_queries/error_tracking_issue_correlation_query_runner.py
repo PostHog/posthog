@@ -43,7 +43,7 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
             offset=0,
         )
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),

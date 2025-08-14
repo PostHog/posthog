@@ -841,7 +841,7 @@ class PathsQueryRunner(QueryRunner):
 
         return validated_results
 
-    def calculate(self) -> PathsQueryResponse:
+    def _calculate(self) -> PathsQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

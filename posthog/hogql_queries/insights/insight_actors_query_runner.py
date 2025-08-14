@@ -161,7 +161,7 @@ class InsightActorsQueryRunner(QueryRunner):
 
         return None
 
-    def calculate(self) -> HogQLQueryResponse:
+    def _calculate(self) -> HogQLQueryResponse:
         settings = None
 
         # Funnel queries require the experimental analyzer to run correctly

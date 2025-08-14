@@ -276,7 +276,7 @@ class EventsQueryRunner(QueryRunner):
 
                 return stmt
 
-    def calculate(self) -> EventsQueryResponse:
+    def _calculate(self) -> EventsQueryResponse:
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,

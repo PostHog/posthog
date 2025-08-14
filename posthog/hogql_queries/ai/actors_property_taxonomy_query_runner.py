@@ -19,7 +19,7 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     response: ActorsPropertyTaxonomyQueryResponse
     cached_response: CachedActorsPropertyTaxonomyQueryResponse
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
