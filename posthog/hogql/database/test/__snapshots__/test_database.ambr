@@ -1205,6 +1205,224 @@
           "name": "sessions",
           "row_count": null,
           "type": "posthog"
+      },
+      "query_log": {
+          "fields": {
+              "query_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_id",
+                  "id": null,
+                  "name": "query_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "endpoint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint",
+                  "id": null,
+                  "name": "endpoint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_start_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_start_time",
+                  "id": null,
+                  "name": "query_start_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "query_duration_ms": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_duration_ms",
+                  "id": null,
+                  "name": "query_duration_ms",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by",
+                  "id": null,
+                  "name": "created_by",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "read_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_rows",
+                  "id": null,
+                  "name": "read_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "read_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_bytes",
+                  "id": null,
+                  "name": "read_bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "result_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "result_rows",
+                  "id": null,
+                  "name": "result_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "result_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "result_bytes",
+                  "id": null,
+                  "name": "result_bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "memory_usage": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "memory_usage",
+                  "id": null,
+                  "name": "memory_usage",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_personal_api_key_request": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_personal_api_key_request",
+                  "id": null,
+                  "name": "is_personal_api_key_request",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "cpu_microseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cpu_microseconds",
+                  "id": null,
+                  "name": "cpu_microseconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "RealTimeMicroseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "RealTimeMicroseconds",
+                  "id": null,
+                  "name": "RealTimeMicroseconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3ListObjects": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3ListObjects",
+                  "id": null,
+                  "name": "S3ListObjects",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3HeadObject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3HeadObject",
+                  "id": null,
+                  "name": "S3HeadObject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3GetObjectAttributes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3GetObjectAttributes",
+                  "id": null,
+                  "name": "S3GetObjectAttributes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3GetObject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3GetObject",
+                  "id": null,
+                  "name": "S3GetObject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "ReadBufferFromS3Bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ReadBufferFromS3Bytes",
+                  "id": null,
+                  "name": "ReadBufferFromS3Bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "query_log",
+          "name": "query_log",
+          "row_count": null,
+          "type": "posthog"
       }
   }
   '''
@@ -2348,6 +2566,224 @@
           },
           "id": "sessions",
           "name": "sessions",
+          "row_count": null,
+          "type": "posthog"
+      },
+      "query_log": {
+          "fields": {
+              "query_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_id",
+                  "id": null,
+                  "name": "query_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "endpoint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint",
+                  "id": null,
+                  "name": "endpoint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query_start_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_start_time",
+                  "id": null,
+                  "name": "query_start_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "query_duration_ms": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query_duration_ms",
+                  "id": null,
+                  "name": "query_duration_ms",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by",
+                  "id": null,
+                  "name": "created_by",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "read_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_rows",
+                  "id": null,
+                  "name": "read_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "read_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_bytes",
+                  "id": null,
+                  "name": "read_bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "result_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "result_rows",
+                  "id": null,
+                  "name": "result_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "result_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "result_bytes",
+                  "id": null,
+                  "name": "result_bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "memory_usage": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "memory_usage",
+                  "id": null,
+                  "name": "memory_usage",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_personal_api_key_request": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_personal_api_key_request",
+                  "id": null,
+                  "name": "is_personal_api_key_request",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "cpu_microseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cpu_microseconds",
+                  "id": null,
+                  "name": "cpu_microseconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "RealTimeMicroseconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "RealTimeMicroseconds",
+                  "id": null,
+                  "name": "RealTimeMicroseconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3ListObjects": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3ListObjects",
+                  "id": null,
+                  "name": "S3ListObjects",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3HeadObject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3HeadObject",
+                  "id": null,
+                  "name": "S3HeadObject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3GetObjectAttributes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3GetObjectAttributes",
+                  "id": null,
+                  "name": "S3GetObjectAttributes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "S3GetObject": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "S3GetObject",
+                  "id": null,
+                  "name": "S3GetObject",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "ReadBufferFromS3Bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ReadBufferFromS3Bytes",
+                  "id": null,
+                  "name": "ReadBufferFromS3Bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "query_log",
+          "name": "query_log",
           "row_count": null,
           "type": "posthog"
       }

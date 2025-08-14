@@ -15,9 +15,13 @@ pub struct Token {
 
 impl Token {
     pub fn get_host(&self, host: Option<&str>) -> String {
-        self.host
-            .clone()
-            .unwrap_or_else(|| host.unwrap_or("https://us.posthog.com").to_string())
+        host.map(str::to_string)
+            .unwrap_or_else(|| {
+                self.host
+                    .clone()
+                    .unwrap_or("https://us.posthog.com".to_string())
+            })
+            .to_string()
     }
 }
 
@@ -34,8 +38,7 @@ impl CredentialProvider for HomeDirProvider {
         let home = posthog_home_dir();
         let file = home.join("credentials.json");
         let token = std::fs::read_to_string(file.clone()).context(format!(
-            "While trying to read credentials from file {:?}",
-            file
+            "While trying to read credentials from file {file:?}"
         ))?;
         let token = serde_json::from_str(&token).context("While trying to parse token")?;
         Ok(token)
@@ -47,8 +50,7 @@ impl CredentialProvider for HomeDirProvider {
         let file = home.join("credentials.json");
         let token = serde_json::to_string(&token).context("While trying to serialize token")?;
         std::fs::write(file.clone(), token).context(format!(
-            "While trying to write credentials to file {:?}",
-            file
+            "While trying to write credentials to file {file:?}",
         ))?;
         Ok(())
     }

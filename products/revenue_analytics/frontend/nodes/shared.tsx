@@ -19,7 +19,7 @@ export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
 ]
 
 // Simple interface for the tile props, letting us create tiles with a consistent interface
-export interface TileProps<ResponseType extends AnalyticsQueryResponseBase<unknown>> {
+export interface TileProps<ResponseType extends AnalyticsQueryResponseBase> {
     response: ResponseType
     responseLoading: boolean
     queryId: string

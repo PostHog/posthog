@@ -2,14 +2,14 @@ from typing import cast
 from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
-    Type4,
+    SourceFieldInputConfigType,
     Option,
-    Converter,
+    SourceFieldSelectConfigConverter,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -22,48 +22,71 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     filter_mysql_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-from posthog.warehouse.models import ExternalDataSource
-from posthog.warehouse.types import IncrementalField
+from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
 
 
 @SourceRegistry.register
 class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.MYSQL
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.MYSQL
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.MY_SQL,
+            name=SchemaExternalDataSourceType.MY_SQL,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="host", label="Host", type=Type4.TEXT, required=True, placeholder="localhost"
+                        name="host",
+                        label="Host",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="localhost",
                     ),
                     SourceFieldInputConfig(
-                        name="port", label="Port", type=Type4.NUMBER, required=True, placeholder="3306"
+                        name="port",
+                        label="Port",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=True,
+                        placeholder="3306",
                     ),
                     SourceFieldInputConfig(
-                        name="database", label="Database", type=Type4.TEXT, required=True, placeholder="mysql"
+                        name="database",
+                        label="Database",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="mysql",
                     ),
                     SourceFieldInputConfig(
-                        name="user", label="User", type=Type4.TEXT, required=True, placeholder="mysql"
+                        name="user",
+                        label="User",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="mysql",
                     ),
                     SourceFieldInputConfig(
-                        name="password", label="Password", type=Type4.PASSWORD, required=True, placeholder=""
+                        name="password",
+                        label="Password",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldInputConfig(
-                        name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="public"
+                        name="schema",
+                        label="Schema",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="public",
                     ),
                     SourceFieldSelectConfig(
                         name="using_ssl",
                         label="Use SSL?",
                         required=True,
                         defaultValue="true",
-                        converter=Converter.STR_TO_BOOL,
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
                         options=[Option(label="Yes", value="true"), Option(label="No", value="false")],
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),

@@ -455,7 +455,7 @@ export function InsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeScene } = useValues(
+    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeSceneId } = useValues(
         insightDataLogic(insightProps)
     )
     const { currentTeam } = useValues(teamLogic)
@@ -470,7 +470,7 @@ export function InsightLoadingState({
             pollResponse={insightPollResponse}
             delayLoadingAnimation={
                 featureFlags[FEATURE_FLAGS.DELAYED_LOADING_ANIMATION] === 'test' &&
-                activeScene == Scene.Insight &&
+                activeSceneId == Scene.Insight &&
                 queryChanged
             }
             loadingTimeSeconds={insightLoadingTimeSeconds}

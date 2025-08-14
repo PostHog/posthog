@@ -60,7 +60,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             insightSceneLogic,
             ['filtersOverride', 'variablesOverride'],
             sceneLogic,
-            ['activeScene', 'activeSceneLogic', 'activeLoadedScene'],
+            ['activeSceneId', 'activeSceneLogic', 'activeLoadedScene'],
         ],
         actions: [router, ['locationChanged']],
     })),

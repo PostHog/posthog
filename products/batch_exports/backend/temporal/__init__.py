@@ -12,6 +12,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     insert_into_bigquery_activity,
+    insert_into_bigquery_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.destinations.http_batch_export import (
     HttpBatchExportWorkflow,
@@ -66,6 +67,7 @@ ACTIVITIES = [
     finish_batch_export_run,
     get_schedule_frequency,
     insert_into_bigquery_activity,
+    insert_into_bigquery_activity_from_stage,
     insert_into_http_activity,
     insert_into_postgres_activity,
     insert_into_redshift_activity,
