@@ -378,6 +378,7 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
     for group_index in range(5):
         field_name = f"$group_{group_index}"
 
+        # If no mapping exists, leave the original field unchanged
         if group_index in group_mappings:
             group_mapping = group_mappings[group_index]
 
@@ -409,12 +410,6 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
                     ),
                     isolate_scope=True,
                 )
-        else:
-            # If no mapping exists, always return empty string
-            database.events.fields[field_name] = ExpressionField(
-                name=field_name,
-                expr=ast.Constant(value=""),
-            )
 
 
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
