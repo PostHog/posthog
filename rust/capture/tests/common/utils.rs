@@ -185,13 +185,20 @@ impl EphemeralTopic {
             "bootstrap.servers",
             DEFAULT_CONFIG.kafka.kafka_hosts.clone(),
         );
-        config.set("debug", "all");
-        config.set("socket.timeout.ms", "5000");
-        // RedPanda compatibility settings
+        config.set("debug", "consumer,cgrp,topic,fetch");
+        config.set("socket.timeout.ms", "30000");
+        config.set("message.timeout.ms", "30000");
+        // RedPanda compatibility settings  
         config.set("enable.auto.commit", "false");
         config.set("auto.offset.reset", "earliest");
-        config.set("session.timeout.ms", "10000");
-        config.set("heartbeat.interval.ms", "3000");
+        config.set("session.timeout.ms", "30000");
+        config.set("heartbeat.interval.ms", "10000");
+        config.set("max.poll.interval.ms", "300000");
+        config.set("connections.max.idle.ms", "540000");
+        config.set("request.timeout.ms", "30000");
+        config.set("metadata.request.timeout.ms", "30000");
+        config.set("fetch.wait.max.ms", "500");
+        config.set("fetch.error.backoff.ms", "500");
 
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
@@ -213,7 +220,32 @@ impl EphemeralTopic {
             result.expect("failed to create topic");
         }
 
+        // Wait for topic metadata to be fully available across RedPanda cluster
         let consumer: BaseConsumer = config.create().expect("failed to create consumer");
+        
+        // Robust topic readiness check
+        for attempt in 0..100 {
+            match consumer.fetch_metadata(Some(&topic_name), Duration::from_secs(1)) {
+                Ok(metadata) => {
+                    let ready = metadata.topics().iter().any(|t| {
+                        t.name() == topic_name && !t.partitions().is_empty()
+                    });
+                    if ready {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    // Metadata fetch failed, continue retrying
+                }
+            }
+            
+            if attempt == 99 {
+                panic!("Topic {} not ready after 100 attempts", topic_name);
+            }
+            
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        
         let mut assignment = TopicPartitionList::new();
         assignment.add_partition(&topic_name, 0);
         consumer
@@ -222,7 +254,7 @@ impl EphemeralTopic {
 
         Self {
             consumer,
-            read_timeout: Timeout::After(Duration::from_secs(5)),
+            read_timeout: Timeout::After(Duration::from_secs(30)),
             topic_name,
         }
     }
