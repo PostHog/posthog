@@ -105,8 +105,10 @@ impl FlagRequest {
     /// Sanitizes JSON by replacing unquoted NaN/Infinity with null, preserving quoted strings
     /// This matches Python decide endpoint behavior: parse_constant=lambda x: None
     fn sanitize_unquoted_non_finite_values(json_str: &str) -> String {
-        static NEG_INF_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)-infinity(\s*[,}\]])").unwrap());
-        static INF_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\binfinity(\s*[,}\]])").unwrap());
+        static NEG_INF_RE: Lazy<Regex> =
+            Lazy::new(|| Regex::new(r"(?i)-infinity(\s*[,}\]])").unwrap());
+        static INF_RE: Lazy<Regex> =
+            Lazy::new(|| Regex::new(r"(?i)\binfinity(\s*[,}\]])").unwrap());
         static NAN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\bnan(\s*[,}\]])").unwrap());
 
         let result = NEG_INF_RE.replace_all(json_str, "null$1");
