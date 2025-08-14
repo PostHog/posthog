@@ -201,7 +201,6 @@ impl EphemeralTopic {
         config.set("fetch.error.backoff.ms", "500");
         config.set("partition.assignment.strategy", "cooperative-sticky");
 
-
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
         let admin = AdminClient::from_config(&config).expect("failed to create admin client");
@@ -266,7 +265,7 @@ impl EphemeralTopic {
         // Retry on transient Kafka errors like NotCoordinator
         let mut retries = 0;
         const MAX_RETRIES: u32 = 10;
-        
+
         loop {
             match self.consumer.poll(self.read_timeout) {
                 Some(Ok(message)) => {
@@ -277,8 +276,9 @@ impl EphemeralTopic {
                 Some(Err(err)) => {
                     // Check if it's a transient error that should be retried
                     let err_str = err.to_string();
-                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition")) 
-                        && retries < MAX_RETRIES {
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
                         retries += 1;
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
@@ -293,7 +293,7 @@ impl EphemeralTopic {
         // Retry on transient Kafka errors like NotCoordinator
         let mut retries = 0;
         const MAX_RETRIES: u32 = 10;
-        
+
         loop {
             match self.consumer.poll(self.read_timeout) {
                 Some(Ok(message)) => {
@@ -311,8 +311,9 @@ impl EphemeralTopic {
                 Some(Err(err)) => {
                     // Check if it's a transient error that should be retried
                     let err_str = err.to_string();
-                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition")) 
-                        && retries < MAX_RETRIES {
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
                         retries += 1;
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
