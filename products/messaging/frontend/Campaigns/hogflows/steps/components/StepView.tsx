@@ -15,7 +15,7 @@ export function StepView({ action, children }: { action: HogFlowAction; children
 
     // Validate the action against the Zod schema
     const validationResult = HogFlowActionSchema.safeParse(action)
-    const hasValidationError = !validationResult.success
+    const hasValidationError = !['trigger', 'exit'].includes(action.type) && !validationResult.success
 
     return (
         <div
@@ -45,15 +45,7 @@ export function StepView({ action, children }: { action: HogFlowAction; children
                 </div>
             </div>
             {children}
-            {hasValidationError && (
-                <LemonBadge
-                    status="warning"
-                    size="small"
-                    content="!"
-                    title="This action has validation errors"
-                    position="top-right"
-                />
-            )}
+            {hasValidationError && <LemonBadge status="warning" size="small" content="!" position="top-right" />}
         </div>
     )
 }

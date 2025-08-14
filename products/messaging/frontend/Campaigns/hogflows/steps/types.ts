@@ -127,7 +127,20 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category: z.string().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.object({
+                email: z.object({
+                    value: z.object({
+                        to: z.object({
+                            email: z.string().email(),
+                        }),
+                        from: z.string().email(),
+                        preheader: z.string().optional(),
+                        subject: z.string().min(1),
+                        text: z.string().min(1),
+                        html: z.string().min(1),
+                    }),
+                }),
+            }),
         }),
     }),
 
@@ -147,7 +160,23 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.object({
+                twilio_account: z.object({}),
+                from_number: z.object({
+                    // Min 5 because of 5-digit shortcodes
+                    value: z.string().min(5),
+                }),
+                to_number: z.object({
+                    // Min 5 because of 5-digit shortcodes
+                    value: z.string().min(5),
+                }),
+                message: z.object({
+                    value: z.string().min(1).max(1600),
+                }),
+                debug: z.object({
+                    value: z.boolean(),
+                }),
+            }),
         }),
     }),
     z.object({
