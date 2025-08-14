@@ -24,6 +24,7 @@ import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, crushDraftQueryForURL, isQueryTooLarge } from './utils'
 import { compareQuery } from './utils/queryUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
@@ -220,7 +221,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return
             }
             // only run on insight scene
-            if (insightSceneLogic.values.activeSceneId !== Scene.Insight) {
+            if (sceneLogic.values.activeSceneId !== Scene.Insight) {
                 return
             }
             // don't save for saved insights
@@ -247,7 +248,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuery: ({ query }) => {
             if (
                 values.queryChanged &&
-                insightSceneLogic.values.activeSceneId === Scene.Insight &&
+                sceneLogic.values.activeSceneId === Scene.Insight &&
                 insightSceneLogic.values.insightId === 'new'
             ) {
                 // query is changed and we are in edit mode
