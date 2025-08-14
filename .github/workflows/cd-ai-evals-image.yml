@@ -3,7 +3,7 @@
 #
 # - posthog_ai_evals_build: build and push the PostHog container image to AWS ECR
 #
-name: Container Images CD
+name: AI Evals Container Images CD
 
 on:
     push:
