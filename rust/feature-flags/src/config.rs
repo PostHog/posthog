@@ -216,8 +216,6 @@ impl Config {
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
-            cookieless_redis_host: "localhost".to_string(),
-            cookieless_redis_port: 6379,
             new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
             new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
