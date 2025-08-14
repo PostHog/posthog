@@ -28,9 +28,9 @@ class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):
     query_log.query_start_time AS query_start_time
 FROM
     (SELECT
-        toTimeZone(raw_query_log.query_start_time, %(hogql_val_0)s) AS query_start_time
+        toTimeZone(query_log_archive.query_start_time, %(hogql_val_0)s) AS query_start_time
     FROM
-        query_log_archive AS raw_query_log
+        query_log_archive
     WHERE
         and(equals(query_log_archive.team_id, {self.team.pk}), equals(%(hogql_val_1)s, query_log_archive.lc_query__kind))) AS query_log
 LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"""
