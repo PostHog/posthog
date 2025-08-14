@@ -30,6 +30,8 @@ export interface SurveyCreationSchema {
     enable_partial_responses?: boolean
 }
 
+export type SurveyQuestionBranchingType = 'next_question' | 'end' | 'response_based' | 'specific_question'
+
 // Question schema matching PostHog Survey model format
 export interface SurveyQuestionSchema {
     type: SurveyQuestionType
@@ -55,7 +57,7 @@ export interface SurveyQuestionSchema {
 
     // Branching logic
     branching?: {
-        type: 'next_question' | 'end' | 'response_based' | 'specific_question'
+        type: SurveyQuestionBranchingType
         responseValues?: Record<string, string | number>
         index?: number
     }

@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from posthog.warehouse.types import ExternalDataSourceType
 
 from posthog.temporal.data_imports.sources import SourceRegistry
 
@@ -70,7 +71,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         logger.debug("Running *SYNC* import_data")
 
-        source_type = ExternalDataSource.Type(model.pipeline.source_type)
+        source_type = ExternalDataSourceType(model.pipeline.source_type)
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
