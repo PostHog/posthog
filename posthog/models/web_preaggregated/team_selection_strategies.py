@@ -6,6 +6,7 @@ import dagster
 from django.conf import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT,
     get_top_teams_by_median_pageviews_sql,
@@ -131,6 +132,7 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
                 "query": {
                     "kind": "HogQLQuery",
                     "query": base_query,
+                    "limit": MAX_SELECT_RETURNED_ROWS,
                 }
             }
 
