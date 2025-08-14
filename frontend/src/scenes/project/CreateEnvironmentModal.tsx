@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { organizationLogic } from '../organizationLogic'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 
 export function CreateEnvironmentModal({
     isVisible,
@@ -20,9 +20,9 @@ export function CreateEnvironmentModal({
     const { currentProject } = useValues(projectLogic)
     const { currentTeamLoading } = useValues(teamLogic)
     const { createTeam } = useActions(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
+    const { teams } = useValues(organizationTeamsLogic)
 
     const closeModal: () => void = () => {
         if (onClose) {
@@ -34,7 +34,7 @@ export function CreateEnvironmentModal({
     }
     const handleSubmit = (): void => {
         createTeam({ name, is_demo: false })
-        reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
+        reportProjectCreationSubmitted(teams ? teams.length : 0, name.length)
     }
 
     // Anytime the team changes close the modal as it indicates we have created a new team

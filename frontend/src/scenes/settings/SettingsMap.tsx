@@ -11,7 +11,7 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { organizationLogic } from 'scenes/organizationLogic'
+
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -89,9 +89,10 @@ import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
+import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
-import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -543,8 +544,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Move project',
                 flag: '!ENVIRONMENTS',
                 component: <ProjectMove />, // There isn't EnvironmentMove yet
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+                allowForTeam: () => (organizationTeamsLogic.findMounted()?.values.teams?.length ?? 0) > 1,
             },
             {
                 id: 'environment-delete',
@@ -576,8 +576,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'project-move',
                 title: 'Move project',
                 component: <ProjectMove />,
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+                allowForTeam: () => (organizationTeamsLogic.findMounted()?.values.teams?.length ?? 0) > 1,
             },
             {
                 id: 'project-delete',

@@ -3,16 +3,15 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { organizationLogic } from 'scenes/organizationLogic'
-
 import { exportsUnsubscribeTableLogic } from './exportsUnsubscribeTableLogic'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 
 export function ExportsUnsubscribeTable(): JSX.Element {
     const { loading, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
     const { disablePlugin, pauseBatchExport, disableHogFunction } = useActions(exportsUnsubscribeTableLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { teams } = useValues(organizationTeamsLogic)
 
-    if (!currentOrganization) {
+    if (!teams) {
         return <></>
     }
 
@@ -41,7 +40,7 @@ export function ExportsUnsubscribeTable(): JSX.Element {
                 {
                     title: 'Project',
                     render: function RenderTeam(_, item) {
-                        return currentOrganization.teams.find((team) => team.id === item.team_id)?.name
+                        return teams.find((team) => team.id === item.team_id)?.name
                     },
                 },
                 {

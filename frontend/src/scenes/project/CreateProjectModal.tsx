@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { organizationLogic } from '../organizationLogic'
+import { organizationProjectsLogic } from '../organizationProjectsLogic'
 
 const MOCK_PRODUCT_NAMES = [
     'Lemonify',
@@ -30,6 +31,7 @@ export function CreateProjectModal({
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { createProject } = useActions(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { projects } = useValues(organizationProjectsLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
 
@@ -43,10 +45,7 @@ export function CreateProjectModal({
     }
     const handleSubmit = (): void => {
         createProject({ name })
-        reportProjectCreationSubmitted(
-            currentOrganization?.projects ? currentOrganization.projects.length : 0,
-            name.length
-        )
+        reportProjectCreationSubmitted(projects ? projects.length : 0, name.length)
     }
 
     // Anytime the project changes close the modal as it indicates we have created a new project
@@ -71,9 +70,7 @@ export function CreateProjectModal({
                             Learn more in PostHog docs.
                         </Link>
                     </p>
-                    {currentOrganization?.projects?.some(
-                        (project) => project.name.toLowerCase() === 'default project'
-                    ) && (
+                    {projects?.some((project) => project.name.toLowerCase() === 'default project') && (
                         <p>
                             <strong>Bonus tip:</strong> You can always rename your "Default project".
                         </p>

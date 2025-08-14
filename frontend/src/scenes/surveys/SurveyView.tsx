@@ -37,7 +37,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import {
@@ -63,9 +63,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         setIsDuplicateToProjectModalOpen,
     } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { teams } = useValues(organizationTeamsLogic)
 
-    const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
+    const hasMultipleProjects = teams && teams.length > 1
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')

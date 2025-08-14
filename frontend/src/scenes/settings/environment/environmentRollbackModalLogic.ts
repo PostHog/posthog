@@ -7,9 +7,11 @@ import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { OrganizationType } from '~/types'
+import { TeamBasicType } from '~/types'
 
 import type { environmentRollbackModalLogicType } from './environmentRollbackModalLogicType'
+import { organizationProjectsLogic } from 'scenes/organizationProjectsLogic'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 
 export interface Team {
     id: number
@@ -32,6 +34,10 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
             ['currentOrganization', 'currentOrganizationLoading', 'isAdminOrOwner'],
             featureFlagLogic,
             ['featureFlags'],
+            organizationProjectsLogic,
+            ['projects'],
+            organizationTeamsLogic,
+            ['teams'],
         ],
     })),
     actions({
@@ -76,19 +82,20 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
         ],
         // Get all projects with their environments
         projectsWithEnvironments: [
-            (s) => [s.currentOrganization, s.currentOrganizationLoading],
+            (s) => [(s as any).projects, (s as any).teams, s.currentOrganizationLoading],
             (
-                currentOrganization: OrganizationType | null,
+                projects: { id: number; name: string }[],
+                teams: TeamBasicType[],
                 currentOrganizationLoading: boolean
             ): ProjectWithEnvironments[] => {
-                if (currentOrganizationLoading || !currentOrganization) {
+                if (currentOrganizationLoading) {
                     return []
                 }
 
                 const projectsMap = new Map<number, ProjectWithEnvironments>()
 
                 // Initialize projects
-                for (const project of currentOrganization.projects) {
+                for (const project of projects) {
                     projectsMap.set(project.id, {
                         id: project.id,
                         name: project.name,
@@ -97,7 +104,7 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
                 }
 
                 // Add environments to their projects
-                for (const team of currentOrganization.teams) {
+                for (const team of teams) {
                     const project = projectsMap.get(team.project_id)
                     if (project) {
                         project.environments.push({
@@ -115,16 +122,16 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
         ],
         // Count projects that have exactly one environment
         hiddenProjectsCount: [
-            (s) => [s.currentOrganization, s.currentOrganizationLoading],
-            (currentOrganization: OrganizationType | null, currentOrganizationLoading: boolean): number => {
-                if (currentOrganizationLoading || !currentOrganization) {
+            (s) => [(s as any).teams, s.currentOrganizationLoading],
+            (teams: TeamBasicType[], currentOrganizationLoading: boolean): number => {
+                if (currentOrganizationLoading) {
                     return 0
                 }
 
                 const projectsMap = new Map<number, number>() // project_id -> environment count
 
                 // Count environments per project
-                for (const team of currentOrganization.teams) {
+                for (const team of teams) {
                     const count = projectsMap.get(team.project_id) || 0
                     projectsMap.set(team.project_id, count + 1)
                 }

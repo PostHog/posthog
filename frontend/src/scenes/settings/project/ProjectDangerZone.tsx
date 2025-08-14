@@ -4,8 +4,9 @@ import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Dispatch, SetStateAction, useState } from 'react'
-import { organizationLogic } from 'scenes/organizationLogic'
+
 import { projectLogic } from 'scenes/projectLogic'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 
 export function DeleteProjectModal({
     isOpen,
@@ -15,16 +16,14 @@ export function DeleteProjectModal({
     setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { currentProject, projectBeingDeleted } = useValues(projectLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { deleteProject } = useActions(projectLogic)
+    const { teams } = useValues(organizationTeamsLogic)
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentProject && projectBeingDeleted?.id === currentProject.id
 
     const allTeamsOfProject =
-        currentProject && currentOrganization
-            ? currentOrganization.teams.filter((team) => team.project_id === currentProject.id)
-            : []
+        currentProject && teams ? teams.filter((team) => team.project_id === currentProject.id) : []
 
     return (
         <LemonModal

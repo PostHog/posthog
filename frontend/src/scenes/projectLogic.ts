@@ -12,6 +12,7 @@ import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
 import { urls } from './urls'
 import { userLogic } from './userLogic'
+import { organizationTeamsLogic } from './organizationTeamsLogic'
 
 export const projectLogic = kea<projectLogicType>([
     path(['scenes', 'projectLogic']),
@@ -27,6 +28,8 @@ export const projectLogic = kea<projectLogicType>([
             ['loadUser', 'switchTeam', 'updateCurrentOrganization'],
             organizationLogic,
             ['loadCurrentOrganization'],
+            organizationTeamsLogic,
+            ['refresh'],
         ],
     })),
     reducers({
@@ -67,6 +70,7 @@ export const projectLogic = kea<projectLogicType>([
 
                     // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic
                     actions.loadCurrentOrganization()
+                    actions.refresh()
                     actions.loadUser()
 
                     Object.keys(payload).map((property) => {

@@ -24,6 +24,7 @@ import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'
 import type { teamLogicType } from './teamLogicType'
 import { userLogic } from './userLogic'
+import { organizationTeamsLogic } from './organizationTeamsLogic'
 
 const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -55,7 +56,14 @@ export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
         actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
-        values: [projectLogic, ['currentProject'], featureFlagLogic, ['featureFlags']],
+        values: [
+            projectLogic,
+            ['currentProject'],
+            featureFlagLogic,
+            ['featureFlags'],
+            organizationTeamsLogic,
+            ['teams'],
+        ],
     })),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -219,9 +227,8 @@ export const teamLogic = kea<teamLogicType>([
                 !currentTeamLoading,
         ],
         demoOnlyProject: [
-            (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
-            (currentTeam, currentOrganization): boolean =>
-                (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
+            (selectors) => [selectors.currentTeam, organizationTeamsLogic.selectors.teams],
+            (currentTeam, teams): boolean => (currentTeam?.is_demo && teams && teams.length === 1) || false,
         ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],

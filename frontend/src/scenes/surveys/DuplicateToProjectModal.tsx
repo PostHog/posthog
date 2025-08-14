@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { TeamBasicType } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 
 export function DuplicateToProjectTrigger(): JSX.Element {
     const { setIsDuplicateToProjectModalOpen } = useActions(surveyLogic)
@@ -25,7 +26,7 @@ export function DuplicateToProjectModal(): JSX.Element {
     const { duplicateToProject, setIsDuplicateToProjectModalOpen } = useActions(surveyLogic)
     const { isDuplicateToProjectModalOpen, survey } = useValues(surveyLogic)
     const [selectedProject, setSelectedProject] = useState<TeamBasicType | null>(null)
-
+    const { teams } = useValues(organizationTeamsLogic)
     const handleCloseModal = (): void => {
         setIsDuplicateToProjectModalOpen(false)
         setSelectedProject(null)
@@ -90,7 +91,7 @@ export function DuplicateToProjectModal(): JSX.Element {
                                     </div>
                                 </LemonButton>
                             ))}
-                        {(!currentOrganization?.teams || currentOrganization.teams.length <= 1) && (
+                        {(!teams || teams.length <= 1) && (
                             <div className="text-center p-2 text-muted">No other projects available</div>
                         )}
                     </div>
