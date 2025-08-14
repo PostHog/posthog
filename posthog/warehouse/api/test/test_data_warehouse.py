@@ -56,4 +56,4 @@ class TestDataWarehouseAPI(APIBaseTest):
         data = response.json()
 
         self.assertEqual(response.status_code, 500)
-        self.assertEqual(data["error"], "An error occured retrieving billing information")
+        self.assertEqual(data["error"], "An error occurred retrieving billing information")

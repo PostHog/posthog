@@ -37,6 +37,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         materialized_rows = 0
         pending_billing_rows = 0
         rows_synced = 0
+        billing_available = False
 
         try:
             billing_manager = BillingManager(get_cached_instance_license())
@@ -50,6 +51,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
                 usage_summary = org_billing.get("usage_summary", {})
                 billing_tracked_rows = usage_summary.get("rows_synced", {}).get("usage", 0)
+                billing_available = True
 
                 all_external_jobs = ExternalDataJob.objects.filter(
                     team_id=self.team_id,
@@ -77,12 +79,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             logger.exception("There was an error retrieving billing information", exc_info=e)
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                data={"error": "An error occured retrieving billing information"},
+                data={"error": "An error occurred retrieving billing information"},
             )
 
         return Response(
             status=status.HTTP_200_OK,
             data={
+                "billingAvailable": billing_available,
                 "billingInterval": billing_interval,
                 "billingPeriodEnd": billing_period_end,
                 "billingPeriodStart": billing_period_start,

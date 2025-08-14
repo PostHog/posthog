@@ -3332,6 +3332,7 @@ const api = {
 
     dataWarehouse: {
         async total_rows_stats(options?: ApiMethodOptions): Promise<{
+            billingAvailable: boolean
             billingInterval: string
             billingPeriodEnd: string
             billingPeriodStart: string
