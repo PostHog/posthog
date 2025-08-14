@@ -55,9 +55,9 @@ def is_cache_enabled(team: "Team") -> bool:
 
 
 class CachedQuerySet(QuerySet):
-    def get_commit_cache_key(self, team_id: int, key_prefix: Optional[str] = None) -> str:
+    def get_commit_cache_hash_key(self, team_id: int, key_prefix: Optional[str] = None) -> str:
         current_sha = get_git_commit_short()
-        key = f"{team_id}:{current_sha}:{self.model.__name__}"
+        key = f"{team_id}:{current_sha}"
 
         if key_prefix:
             key = f"{key_prefix}:{key}"
@@ -65,23 +65,24 @@ class CachedQuerySet(QuerySet):
         # cache key based on sha to invalidate cache on deploys in case of migrations
         return key
 
-    def fetch_cached(self, team_id: int, timeout: int = 600, key_prefix: Optional[str] = None):
+    def fetch_cached(self, team_id: int, timeout: int = 3600, key_prefix: Optional[str] = None):
         # we want the behavior for tests to be unaffected unless specifically testing this logic
         testing = TEST and not TEST_OVERRIDE
 
         if not testing:
             try:
                 redis_client = get_client()
-                key = self.get_commit_cache_key(team_id=team_id, key_prefix=key_prefix)
+                key = self.get_commit_cache_hash_key(team_id=team_id, key_prefix=key_prefix)
 
-                data = redis_client.get(key)
+                data = redis_client.hget(key, self.model.__name__)
                 if data is not None:
                     DATABASE_CACHE_COUNTER.labels(result="hit_redis", model=self.model.__name__).inc()
                     return [deserialized.object for deserialized in serializers.deserialize("json", data)]
 
                 data = serializers.serialize("json", self)
 
-                redis_client.set(key, data, ex=timeout)
+                redis_client.hset(key, self.model.__name__, data)
+                redis_client.expire(key, timeout)
                 DATABASE_CACHE_COUNTER.labels(result="hit_db", model=self.model.__name__).inc()
             except Exception as e:
                 capture_exception(e)
@@ -92,8 +93,8 @@ class CachedQuerySet(QuerySet):
     def invalidate_cache(self, team_id: int, key_prefix: Optional[str] = None):
         try:
             redis_client = get_client()
-            key = self.get_commit_cache_key(team_id=team_id, key_prefix=key_prefix)
-            deleted_count = redis_client.delete(key)
+            key = self.get_commit_cache_hash_key(team_id=team_id, key_prefix=key_prefix)
+            deleted_count = redis_client.hdel(key, self.model.__name__)
             if deleted_count > 0:
                 DATABASE_INVALIDATION_COUNTER.labels(model=self.model.__name__).inc()
         except Exception as e:
