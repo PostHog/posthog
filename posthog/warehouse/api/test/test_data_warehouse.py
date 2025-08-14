@@ -1,5 +1,5 @@
 from unittest.mock import patch
-from django.utils import timezone
+from datetime import datetime, UTC
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
@@ -8,7 +8,7 @@ class TestDataWarehouseAPI(APIBaseTest):
     @patch("posthog.warehouse.api.data_warehouse.BillingManager")
     @patch("posthog.warehouse.api.data_warehouse.get_cached_instance_license")
     def test_basic_calculation_with_billing_data(self, mock_license, mock_billing_manager):
-        """Test core calculation: trackedBillingRows from billing, pendingBillingRows = db_total - billing_total"""
+        """trackedBillingRows from billing; pending = db_total - tracked; totalRows = tracked + pending"""
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/total_rows_stats"
 
         mock_billing_manager.return_value.get_billing.return_value = {
@@ -28,6 +28,7 @@ class TestDataWarehouseAPI(APIBaseTest):
             source_type="Stripe",
         )
         schema = ExternalDataSchema.objects.create(name="test", team=self.team, source=source)
+
         job = ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
@@ -35,7 +36,7 @@ class TestDataWarehouseAPI(APIBaseTest):
             rows_synced=150,
             billable=True,
         )
-        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=timezone.datetime(2023, 8, 15, tzinfo=timezone.utc))
+        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=datetime(2023, 8, 15, tzinfo=UTC))
 
         response = self.client.get(endpoint)
         data = response.json()
