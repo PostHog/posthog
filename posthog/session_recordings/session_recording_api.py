@@ -75,6 +75,7 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from ..models.product_intent.product_intent import ProductIntent
 from posthog.models.activity_logging.activity_log import log_activity, Detail
@@ -595,13 +596,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
                         comment_session_ids = _get_session_ids_from_comment_search(self.team, query.comment_text)
-                        existing_ids = set(query.session_ids or [])
-                        comment_ids = set(comment_session_ids or [])
-                        query.session_ids = (
-                            list(existing_ids.union(comment_ids))
-                            if query.session_ids or comment_session_ids is not None
-                            else None
-                        )
+                        query.session_ids = combine_session_id_filters(comment_session_ids, query.session_ids)
 
                 self._maybe_report_recording_list_filters_changed(request, team=self.team)
                 with tracer.start_as_current_span("query_for_recordings"):
