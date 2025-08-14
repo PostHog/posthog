@@ -17,7 +17,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
-import { HogQLVariable } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
     DashboardBasicType,
     DashboardPlacement,
@@ -77,6 +77,8 @@ export interface InsightCardProps extends Resizeable {
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
+    /** Dashboard filters to override the ones in the insight */
+    filtersOverride?: DashboardFilter
     /** Dashboard variables to override the ones in the insight */
     variablesOverride?: Record<string, HogQLVariable>
     /** Dashboard breakdown colors to override the ones in the insight */
@@ -116,6 +118,7 @@ function InsightCardInternal(
         placement,
         loadPriority,
         doNotLoad,
+        filtersOverride,
         variablesOverride,
         children,
         breakdownColorOverride: _breakdownColorOverride,
@@ -209,6 +212,7 @@ function InsightCardInternal(
                             showEditingControls={showEditingControls}
                             showDetailsControls={showDetailsControls}
                             moreButtons={moreButtons}
+                            filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
                         />
                         <div className="InsightCard__viz">

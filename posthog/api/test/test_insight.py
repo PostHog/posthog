@@ -383,7 +383,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
-                filters_override=None,
+                filters_override={},
                 variables_override={},
             )
 
@@ -397,7 +397,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
-                filters_override=None,
+                filters_override={},
                 variables_override={},
             )
 
