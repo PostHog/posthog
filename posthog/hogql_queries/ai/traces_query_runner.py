@@ -157,18 +157,7 @@ class TracesQueryRunner(QueryRunner):
                         arraySort(x -> x.3,
                             groupArrayIf(
                                 tuple(uuid, event, timestamp, properties),
-                                event IN ('$ai_metric', '$ai_feedback') OR (
-                                    event = '$ai_generation' AND properties.$ai_parent_id = properties.$ai_trace_id
-                                )
-                            ),
-                            arrayFilter(
-                                x -> x.2 IN ('$ai_metric','$ai_feedback'),
-                                arraySort(x -> x.3,
-                                    groupArrayIf(
-                                        tuple(uuid, event, timestamp, properties),
-                                        event != '$ai_trace'
-                                    )
-                                )
+                                event IN ('$ai_metric', '$ai_feedback') OR properties.$ai_parent_id = properties.$ai_trace_id
                             )
                         )
                     )
