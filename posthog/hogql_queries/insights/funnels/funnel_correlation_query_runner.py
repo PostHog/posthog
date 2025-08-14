@@ -214,7 +214,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
             )
 
-        events, skewed_totals, hogql, response = self._calculate()
+        events, skewed_totals, hogql, response = self._calculate_internal()
 
         return FunnelCorrelationResponse(
             results=FunnelCorrelationResult(
@@ -231,7 +231,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-    def _calculate(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
+    def _calculate_internal(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
         query = self.to_query()
 
         hogql = to_printed_hogql(query, self.team)
