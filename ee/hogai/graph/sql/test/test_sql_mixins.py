@@ -30,9 +30,9 @@ class TestSQLMixins(NonAtomicBaseTest):
         self.assertIn("Table", prompt)
         self.assertIn("<core_memory>", prompt)
 
-    async def test_assert_database_is_cached(self):
+    def test_assert_database_is_cached(self):
         mixin = self._node
-        database = await mixin._get_database()
+        database = mixin._get_database()
         self.assertEqual(mixin._database_instance, database)
 
     def test_parse_output_success_path(self):

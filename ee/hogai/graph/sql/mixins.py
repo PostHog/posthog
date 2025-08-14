@@ -30,10 +30,10 @@ SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 class HogQLGeneratorMixin(AssistantContextMixin):
     _database_instance: Database | None = None
 
-    async def _get_database(self):
+    def _get_database(self):
         if self._database_instance:
             return self._database_instance
-        self._database_instance = await database_sync_to_async(create_hogql_database)(team=self._team)
+        self._database_instance = create_hogql_database(team=self._team)
         return self._database_instance
 
     def _get_default_hogql_context(self, database: Database):
@@ -41,7 +41,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         return hogql_context
 
     async def _construct_system_prompt(self) -> ChatPromptTemplate:
-        database = await self._get_database()
+        database = await database_sync_to_async(self._get_database)()
         hogql_context = self._get_default_hogql_context(database)
 
         schema_description, core_memory = await asyncio.gather(
@@ -68,8 +68,9 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
         return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
 
-    async def _quality_check_output(self, output: SQLSchemaGeneratorOutput):
-        database = await self._get_database()
+    @database_sync_to_async(thread_sensitive=False)
+    def _quality_check_output(self, output: SQLSchemaGeneratorOutput):
+        database = self._get_database()
         hogql_context = self._get_default_hogql_context(database)
         query = output.query.query if output.query else None
         if not query:
