@@ -435,7 +435,7 @@ fn test_decode_form_data_kludges() {
         let result = decoding::decode_form_data(body, None);
 
         if should_succeed {
-            assert!(result.is_ok(), "Failed to decode: {}", input);
+            assert!(result.is_ok(), "Failed to decode: {input}");
             let request = result.unwrap();
             if input.contains("bio") {
                 // Verify we can handle newlines in the decoded JSON
@@ -448,7 +448,7 @@ fn test_decode_form_data_kludges() {
                 assert_eq!(request.token, Some("test".to_string()));
             }
         } else {
-            assert!(result.is_err(), "Expected error for input: {}", input);
+            assert!(result.is_err(), "Expected error for input: {input}");
         }
     }
 }
@@ -464,7 +464,7 @@ fn test_handle_unencoded_form_data_with_emojis() {
     });
 
     let base64 = general_purpose::STANDARD.encode(json.to_string());
-    let body = Bytes::from(format!("data={}", base64));
+    let body = Bytes::from(format!("data={base64}"));
 
     let result = decoding::decode_form_data(body, None);
     assert!(result.is_ok(), "Failed to decode emoji content");
@@ -491,7 +491,7 @@ fn test_decode_base64_encoded_form_data_with_emojis() {
     });
 
     let base64 = general_purpose::STANDARD.encode(json.to_string());
-    let body = Bytes::from(format!("data={}", base64));
+    let body = Bytes::from(format!("data={base64}"));
 
     let result = decoding::decode_form_data(body, Some(Compression::Base64));
     assert!(result.is_ok(), "Failed to decode emoji content");
@@ -551,8 +551,7 @@ fn test_decode_form_data_malformed_input() {
         let result = decoding::decode_form_data(body, None);
         assert!(
             result.is_err(),
-            "Expected error for malformed input: {}",
-            input
+            "Expected error for malformed input: {input}",
         );
     }
 }

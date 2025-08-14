@@ -914,6 +914,13 @@ export interface DataVisualizationNode extends Node<never> {
     tableSettings?: TableSettings
 }
 
+export type DataTableNodeViewPropsContextType = 'event_definition' | 'team_columns'
+
+export interface DataTableNodeViewPropsContext {
+    type: DataTableNodeViewPropsContextType
+    eventDefinitionId?: string
+}
+
 interface DataTableNodeViewProps {
     /** Show with most visual options enabled. Used in scenes. */ full?: boolean
     /** Include an event filter above the table (EventsNode only) */
@@ -957,10 +964,7 @@ interface DataTableNodeViewProps {
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
-    context?: {
-        type: 'event_definition' | 'team_columns'
-        eventDefinitionId?: string
-    }
+    context?: DataTableNodeViewPropsContext
 }
 
 // Saved insight node
@@ -2091,8 +2095,10 @@ export interface ErrorTrackingSceneToolOutput
     filterTestAccounts?: boolean
 }
 
+export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
+
 export interface ErrorTrackingIssueAssignee {
-    type: 'user' | 'role'
+    type: ErrorTrackingIssueAssigneeType
     id: integer | string
 }
 
@@ -2777,8 +2783,16 @@ export interface DatabaseSchemaField {
     id?: string
 }
 
+export type DatabaseSchemaTableType =
+    | 'posthog'
+    | 'data_warehouse'
+    | 'view'
+    | 'batch_export'
+    | 'materialized_view'
+    | 'managed_view'
+
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view' | 'managed_view'
+    type: DatabaseSchemaTableType
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -3578,13 +3592,25 @@ export interface SourceFieldOauthConfig {
     kind: string
 }
 
+export type SourceFieldInputConfigType =
+    | 'text'
+    | 'email'
+    | 'search'
+    | 'url'
+    | 'password'
+    | 'time'
+    | 'number'
+    | 'textarea'
+
 export interface SourceFieldInputConfig {
-    type: 'text' | 'email' | 'search' | 'url' | 'password' | 'time' | 'number' | 'textarea'
+    type: SourceFieldInputConfigType
     name: string
     label: string
     required: boolean
     placeholder: string
 }
+
+export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
 export interface SourceFieldSelectConfig {
     type: 'select'
@@ -3593,7 +3619,7 @@ export interface SourceFieldSelectConfig {
     required: boolean
     defaultValue: string
     options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
-    converter?: 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
+    converter?: SourceFieldSelectConfigConverter
 }
 
 export interface SourceFieldSwitchGroupConfig {

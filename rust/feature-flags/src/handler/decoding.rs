@@ -88,7 +88,7 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed).map_err(|e| {
         tracing::debug!("gzip decompression failed: {}", e);
-        FlagError::RequestDecodingError(format!("gzip decompression failed: {}", e))
+        FlagError::RequestDecodingError(format!("gzip decompression failed: {e}"))
     })?;
     Ok(Bytes::from(decompressed))
 }
@@ -96,7 +96,7 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
 fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
     let decoded = general_purpose::STANDARD
         .decode(body)
-        .map_err(|e| FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e)))?;
+        .map_err(|e| FlagError::RequestDecodingError(format!("Base64 decoding error: {e}")))?;
     Ok(Bytes::from(decoded))
 }
 
