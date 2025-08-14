@@ -722,6 +722,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_groups_per_day(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
         self._create_event_count_per_actor_events()
         with freeze_time("2020-01-06T13:00:01Z"):
             response = self._run(
@@ -748,6 +754,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_groups_per_day_cumulative(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
         self._create_event_count_per_actor_events()
         with freeze_time("2020-01-06T13:00:01Z"):
             response = self._run(
@@ -6909,6 +6921,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_groups_daily(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
         self._create_event_count_per_actor_events()
         with freeze_time("2020-01-19"):
             self._create_event(
