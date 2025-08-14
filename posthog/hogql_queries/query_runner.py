@@ -1156,7 +1156,11 @@ class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
     - timings: Optional[list[QueryTiming]] - Performance timing information
     """
 
-    pass
+    def calculate(self) -> R:
+        response = self._calculate()
+        if not self.modifiers.timings:
+            del response["timings"]
+        return response
 
 
 class QueryRunnerWithHogQLContext(AnalyticsQueryRunner):
