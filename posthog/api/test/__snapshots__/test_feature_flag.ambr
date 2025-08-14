@@ -382,6 +382,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.12
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -453,6 +455,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.15
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -749,6 +753,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.25
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -820,6 +826,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.28
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -1454,6 +1462,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.18
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -1552,6 +1562,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.21
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -1901,6 +1913,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.13
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -1972,6 +1986,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.16
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -2436,6 +2452,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.30
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -2507,6 +2525,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.33
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -3005,6 +3025,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.16
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -3076,6 +3098,8 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.19
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
