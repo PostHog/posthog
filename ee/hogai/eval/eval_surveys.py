@@ -11,81 +11,81 @@ from .conftest import MaxEval
 
 
 @pytest.fixture
-def call_surveys_max_tool(demo_org_team_user):
+def call_surveys_max_tool(demo_org_team_user, django_db_blocker):
     """
     This fixture creates a properly configured SurveyCreatorTool for evaluation.
     """
     # Extract team and user from the demo fixture
     _, team, user = demo_org_team_user
 
-    # Create test feature flags for evaluation
-    from posthog.models import FeatureFlag
-
-    # Create feature flags that might be referenced in test cases
-    test_flags = [
-        {
-            "key": "new-checkout-flow",
-            "name": "New Checkout Flow",
-            "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
-        },
-        {
-            "key": "ab-test-experiment",
-            "name": "A/B Test Experiment",
-            "filters": {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "treatment", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        },
-        {
-            "key": "homepage-redesign",
-            "name": "Homepage Redesign",
-            "filters": {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "variant-a", "rollout_percentage": 33},
-                        {"key": "variant-b", "rollout_percentage": 33},
-                        {"key": "variant-c", "rollout_percentage": 34},
-                    ]
-                },
-            },
-        },
-        {
-            "key": "pricing-page-test",
-            "name": "Pricing Page Test",
-            "filters": {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "treatment", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        },
-    ]
-
-    # Create the test feature flags if they don't exist
-    for flag_data in test_flags:
-        FeatureFlag.objects.get_or_create(
-            team=team,
-            key=flag_data["key"],
-            defaults={
-                "name": flag_data["name"],
-                "filters": flag_data["filters"],
-                "created_by": user,
-            },
-        )
-
     async def call_max_tool(instructions: str) -> dict:
         """
         Call the survey creation tool and return structured output.
         """
+        # Create test feature flags for evaluation
+        from posthog.models import FeatureFlag
+
+        # Create feature flags that might be referenced in test cases
+        test_flags = [
+            {
+                "key": "new-checkout-flow",
+                "name": "New Checkout Flow",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+            },
+            {
+                "key": "ab-test-experiment",
+                "name": "A/B Test Experiment",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "treatment", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+            {
+                "key": "homepage-redesign",
+                "name": "Homepage Redesign",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "variant-a", "rollout_percentage": 33},
+                            {"key": "variant-b", "rollout_percentage": 33},
+                            {"key": "variant-c", "rollout_percentage": 34},
+                        ]
+                    },
+                },
+            },
+            {
+                "key": "pricing-page-test",
+                "name": "Pricing Page Test",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "treatment", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+        ]
+
+        # Create the test feature flags if they don't exist
+        for flag_data in test_flags:
+            await FeatureFlag.objects.aget_or_create(
+                team=team,
+                key=flag_data["key"],
+                defaults={
+                    "name": flag_data["name"],
+                    "filters": flag_data["filters"],
+                    "created_by": user,
+                },
+            )
+
         try:
             max_tool = CreateSurveyTool(team=team, user=user)
             max_tool._context = {"user_id": str(user.uuid)}  # Additional context
