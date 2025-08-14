@@ -19,4 +19,5 @@ def combine_session_id_filters(
     if existing_ids is None and comment_session_ids is not None:
         return list(set(comment_session_ids))
 
+    assert comment_session_ids is not None and existing_ids is not None  # Type narrowing for mypy
     return list(set(comment_session_ids).intersection(set(existing_ids)))
