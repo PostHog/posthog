@@ -28,7 +28,9 @@ from posthog.models.exported_asset import (
     save_content,
 )
 from posthog.tasks.exporter import (
+    EXPORT_SUCCEEDED_COUNTER,
     EXPORT_FAILED_COUNTER,
+    EXPORT_TIMER,
 )
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
@@ -65,36 +67,17 @@ def get_driver() -> webdriver.Chrome:
     temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
     options.add_argument(f"--user-data-dir={temp_dir.name}")
 
-    # Store original HOME to restore later
-    original_home = os.environ.get("HOME")
-
     # Necessary to let the nobody user run chromium
     os.environ["HOME"] = temp_dir.name
 
-    try:
-        if os.environ.get("CHROMEDRIVER_BIN"):
-            service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
-            driver = webdriver.Chrome(service=service, options=options)
-        else:
-            driver = webdriver.Chrome(
-                service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
-                options=options,
-            )
+    if os.environ.get("CHROMEDRIVER_BIN"):
+        service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
+        return webdriver.Chrome(service=service, options=options)
 
-        # Restore original HOME after Chrome is created
-        if original_home:
-            os.environ["HOME"] = original_home
-        else:
-            os.environ.pop("HOME", None)
-
-        return driver
-    except Exception:
-        # Restore HOME on failure too
-        if original_home:
-            os.environ["HOME"] = original_home
-        else:
-            os.environ.pop("HOME", None)
-        raise
+    return webdriver.Chrome(
+        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
+        options=options,
+    )
 
 
 def _export_to_png(exported_asset: ExportedAsset) -> None:
@@ -115,16 +98,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             )
 
         image_id = str(uuid.uuid4())
-        ext = (
-            "mp4"
-            if exported_asset.export_format == "video/mp4"
-            else "webm"
-            if exported_asset.export_format == "video/webm"
-            else "gif"
-            if exported_asset.export_format == "image/gif"
-            else "png"
-        )
-        image_path = os.path.join(TMP_DIR, f"{image_id}.{ext}")
+        image_path = os.path.join(TMP_DIR, f"{image_id}.png")
 
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
@@ -160,16 +134,13 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
                 token_preview=access_token[:10],
             )
         else:
-            raise Exception(f"Export is missing required dashboard, insight ID, or replay_id in export_context")
+            raise Exception(
+                f"Export is missing required dashboard, insight ID, or session_recording_id in export_context"
+            )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
-        if exported_asset.export_format == "image/png":
-            _screenshot_asset(image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height)
-        elif exported_asset.export_format in ("video/webm", "video/mp4", "image/gif"):
-            _record_asset(image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height)
-        else:
-            raise Exception(f"Export to format {exported_asset.export_format} is not supported for insights")
+        _screenshot_asset(image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height)
 
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
@@ -313,260 +284,6 @@ def _screenshot_asset(
             driver.quit()
 
 
-def _record_asset(
-    image_path: str,  # for video too; pass a .webm path
-    url_to_render: str,
-    screenshot_width: ScreenWidth,
-    wait_for_css_selector: CSSSelector,
-    screenshot_height: int = 600,
-) -> None:
-    """
-    Record a 5-second WebM video of the exported asset using Playwright (Chromium).
-    - Opens a headless browser
-    - Loads the replay URL
-    - Waits for content and spinner to settle
-    - Records 5 seconds
-    - Saves the video to `image_path` (.webm)
-    """
-    # Lazy import so normal image exports don't require playwright
-    try:
-        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-    except Exception as import_err:
-        # Give a clear actionable message
-        raise RuntimeError(
-            "Playwright is required for video export. Install it and Chromium, e.g.: "
-            "`uv add playwright && python -m playwright install chromium`"
-        ) from import_err
-
-    temp_dir_ctx: Optional[tempfile.TemporaryDirectory] = None
-    try:
-        temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-")
-        record_dir = temp_dir_ctx.name
-
-        # Clear Chrome temp HOME that might be deleted
-        original_home = os.environ.get("HOME")
-        if original_home and "chrome-profile" in original_home:
-            # Reset to user's actual home or remove entirely
-            os.environ["HOME"] = os.path.expanduser("~")
-
-        with sync_playwright() as p:
-            headless = os.getenv("EXPORTER_HEADLESS", "1") != "0"
-            browser = p.chromium.launch(
-                headless=headless,
-                devtools=not headless,
-                args=[
-                    "--no-sandbox",
-                    # "--disable-gpu",#TMP
-                    "--disable-dev-shm-usage",
-                    "--use-gl=swiftshader",
-                    "--disable-software-rasterizer",
-                    "--force-device-scale-factor=2",
-                ],
-            )
-
-            # Start with a reasonable viewport; Playwright video size must be fixed at context creation.
-            width = int(screenshot_width)
-            height = int(screenshot_height)
-
-            context = browser.new_context(
-                viewport={"width": width, "height": height},
-                record_video_dir=record_dir,
-                record_video_size={"width": width, "height": height},
-            )
-
-            page = context.new_page()
-            record_started = time.monotonic()
-
-            try:
-                page.goto(url_to_render, wait_until="load", timeout=30000)
-            except PlaywrightTimeoutError:
-                # Still try to proceed, mirroring Selenium's tolerant behavior
-                logger.exception("video_exporter.goto_timeout", url_to_render=url_to_render)
-
-            # Wait for the main element to exist
-            try:
-                page.wait_for_selector(wait_for_css_selector, state="visible", timeout=20000)
-            except PlaywrightTimeoutError:
-                logger.exception(
-                    "video_exporter.wait_for_selector_timeout",
-                    url_to_render=url_to_render,
-                    wait_for_css_selector=wait_for_css_selector,
-                )
-
-            # Try to wait for spinner to be gone
-            try:
-                page.wait_for_selector(".Spinner", state="detached", timeout=20000)
-            except PlaywrightTimeoutError:
-                logger.info("video_exporter.spinner_still_visible", url_to_render=url_to_render)
-
-            # Best-effort: compute a larger content size to avoid cropping, but video size is fixed for the session.
-            try:
-                # Height detection similar to Selenium path
-                final_height = page.evaluate(
-                    """
-                    () => {
-                        const el = document.querySelector('.replayer-wrapper');
-                        if (el) {
-                            const rect = el.getBoundingClientRect();
-                            return Math.max(rect.height, document.body.scrollHeight);
-                        }
-                        return document.body.scrollHeight;
-                    }
-                    """
-                )
-                # Width detection for tables / replay player
-                final_width = (
-                    page.evaluate(
-                        """
-                    () => {
-                        const replay = document.querySelector('.replayer-wrapper');
-                        if (replay) { return replay.offsetWidth || 0; }
-                        const table = document.querySelector('table');
-                        if (table) { return Math.floor((table.offsetWidth || 0) * 1.5); }
-                        return 0;
-                    }
-                    """
-                    )
-                    or width
-                )
-
-                # Clamp width to something reasonable
-                final_width = max(width, min(1800, int(final_width)))
-
-                # We cannot change record_video_size after the context is created, but we can adjust viewport to avoid letterboxing/cropping.
-                page.set_viewport_size({"width": final_width, "height": int(final_height) + HEIGHT_OFFSET})
-            except Exception:
-                # Non-fatal
-                logger.info("video_exporter.size_calc_failed", url_to_render=url_to_render)
-
-            ready_at = time.monotonic()
-
-            # Small delay so layout stabilizes
-            page.wait_for_timeout(500)
-
-            # Record 5 seconds
-            page.wait_for_timeout(5000)
-
-            # Finalize and save BEFORE closing context/browser
-            video = page.video
-            page.close()
-
-            pre_roll = max(0.0, ready_at - record_started)
-
-            import shutil
-            import subprocess
-
-            if not shutil.which("ffmpeg"):
-                raise RuntimeError("ffmpeg is required for video/mp4 export. Install with `brew install ffmpeg`.")
-
-            tmp_webm = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.webm")
-
-            # persist to tmp webm
-            if hasattr(video, "save_as"):
-                video.save_as(tmp_webm)
-            else:
-                src = video.path()
-                if not src:
-                    raise RuntimeError("Playwright did not provide a video path.")
-                shutil.move(src, tmp_webm)
-
-            def to_mp4(src, dst, start=0.0, duration=5.0):
-                subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-hide_banner",
-                        "-loglevel",
-                        "error",
-                        "-y",
-                        "-ss",
-                        f"{start:.2f}",
-                        "-i",
-                        src,
-                        "-t",
-                        f"{duration:.2f}",
-                        "-c:v",
-                        "libx264",
-                        "-preset",
-                        "veryfast",
-                        "-crf",
-                        "23",
-                        "-pix_fmt",
-                        "yuv420p",
-                        "-movflags",
-                        "+faststart",
-                        "-f",
-                        "mp4",  # add this
-                        dst,
-                    ],
-                    check=True,
-                )
-
-            def to_gif(src, dst, start=0.0, duration=5.0, fps=12, scale_width=None):
-                vf_parts = [f"fps={fps}"]
-                if scale_width:
-                    vf_parts.append(f"scale={scale_width}:-2:flags=lanczos")
-                vf = ",".join(vf_parts)
-                subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-hide_banner",
-                        "-loglevel",
-                        "error",
-                        "-y",
-                        "-ss",
-                        f"{start:.2f}",
-                        "-t",
-                        f"{duration:.2f}",
-                        "-i",
-                        src,
-                        "-vf",
-                        f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
-                        "-loop",
-                        "0",
-                        "-f",
-                        "gif",
-                        dst,
-                    ],
-                    check=True,
-                )
-
-            try:
-                ext = os.path.splitext(image_path)[1].lower()
-                if ext == ".mp4":
-                    to_mp4(tmp_webm, image_path, start=pre_roll, duration=5.0)
-                elif ext == ".gif":
-                    to_gif(
-                        tmp_webm, image_path, start=pre_roll, duration=5.0, fps=12, scale_width=int(screenshot_width)
-                    )
-                else:
-                    shutil.move(tmp_webm, image_path)
-            finally:
-                try:
-                    # os.remove(tmp_webm)
-                    context.close()
-                    browser.close()
-                except Exception as save_err:
-                    with posthoganalytics.new_context():
-                        posthoganalytics.tag("url_to_render", url_to_render)
-                        posthoganalytics.tag("video_target_path", image_path)
-                        capture_exception(save_err)
-                    raise
-
-    except Exception as e:
-        with posthoganalytics.new_context():
-            posthoganalytics.tag("url_to_render", url_to_render)
-            posthoganalytics.tag("video_target_path", image_path)
-            capture_exception(e)
-        logger.error("video_exporter.failed", exception=e, exc_info=True)
-        raise
-    finally:
-        if temp_dir_ctx:
-            try:
-                temp_dir_ctx.cleanup()
-            except Exception:
-                pass
-
-
 def export_image(exported_asset: ExportedAsset) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
@@ -586,7 +303,15 @@ def export_image(exported_asset: ExportedAsset) -> None:
                         insight_id=exported_asset.insight.id,
                         dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                     )
-            _export_to_png(exported_asset)
+
+            if exported_asset.export_format == "image/png":
+                with EXPORT_TIMER.labels(type="image").time():
+                    _export_to_png(exported_asset)
+                EXPORT_SUCCEEDED_COUNTER.labels(type="image").inc()
+            else:
+                raise NotImplementedError(
+                    f"Export to format {exported_asset.export_format} is not supported for insights"
+                )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
             capture_exception(e, additional_properties={"celery_task": "image_export", "team_id": team_id})

@@ -18,6 +18,16 @@ from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.tasks import exporter
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from loginas.utils import is_impersonated_session
+from posthog.settings.temporal import (
+    TEMPORAL_TASK_QUEUE,
+    TEMPORAL_HOST,
+    TEMPORAL_PORT,
+    TEMPORAL_NAMESPACE,
+    TEMPORAL_WORKFLOW_MAX_ATTEMPTS,
+)
+from posthog.temporal.common.client import connect as temporal_connect
+from posthog.temporal.exports_video.workflow import VideoExportWorkflow, VideoExportInputs
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 logger = structlog.get_logger(__name__)
 
@@ -125,7 +135,24 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             send_feature_flag_events=False,
         )
         if blocking_exports and not force_async:
-            exporter.export_asset(instance.id)
+            if instance.export_format in ("video/mp4", "video/webm", "image/gif"):
+                # async enqueue via Temporal instead of Celery
+                async def _start():
+                    client = await temporal_connect(TEMPORAL_HOST, TEMPORAL_PORT, TEMPORAL_NAMESPACE)
+                    await client.execute_workflow(
+                        VideoExportWorkflow.run,
+                        VideoExportInputs(exported_asset_id=instance.id),
+                        id=f"export-video-{instance.id}",
+                        task_queue=TEMPORAL_TASK_QUEUE,  # or a dedicated queue
+                        retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    )
+
+                import asyncio
+
+                asyncio.run(_start())
+            else:
+                exporter.export_asset(instance.id)
         else:
             exporter.export_asset.delay(instance.id)
 
