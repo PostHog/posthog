@@ -71,7 +71,7 @@ class CachedQuerySet(QuerySet):
         # we want the behavior for tests to be unaffected unless specifically testing this logic
         testing = TEST and not TEST_OVERRIDE
 
-        if is_cache_enabled(team_id) and not testing:
+        if not testing and is_cache_enabled(team_id):
             try:
                 redis_client = get_client()
                 key = self.get_commit_cache_key(team_id=team_id, key_prefix=key_prefix)
