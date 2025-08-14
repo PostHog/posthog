@@ -72,19 +72,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             else:
                 logger.info("No billing period information available, using defaults")
-                return Response(
-                    status=status.HTTP_200_OK,
-                    data={
-                        "billingInterval": billing_interval,
-                        "billingPeriodEnd": billing_period_end,
-                        "billingPeriodStart": billing_period_start,
-                        "materializedRowsInBillingPeriod": materialized_rows,
-                        "totalRows": rows_synced,
-                        "trackedBillingRows": billing_tracked_rows,
-                        "pendingBillingRows": pending_billing_rows,
-                        "warning": "Billing period information unavailable",
-                    },
-                )
+
         except Exception as e:
             logger.exception("There was an error retrieving billing information", exc_info=e)
             return Response(
