@@ -31,7 +31,7 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const Step = getHogFlowStep(action.type)
 
     return (
-        <div className="flex flex-col flex-1 max-h-full w-140 overflow-y-scroll">
+        <div className="flex flex-col h-full w-140 overflow-hidden">
             <div className="flex justify-between items-center px-2 my-2">
                 <h3 className="flex gap-1 items-center mb-0 font-semibold">
                     <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
@@ -59,7 +59,12 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
             </div>
             <LemonDivider className="my-0" />
 
-            <ScrollableShadows direction="vertical" innerClassName="flex flex-col gap-2 p-3" styledScrollbars>
+            <ScrollableShadows
+                direction="vertical"
+                className="flex-1 min-h-0"
+                innerClassName="flex flex-col gap-2 p-3"
+                styledScrollbars
+            >
                 {Step?.renderConfiguration(selectedNode)}
             </ScrollableShadows>
 

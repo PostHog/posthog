@@ -17,7 +17,7 @@ export function HogFlowEditorRightPanel(): JSX.Element | null {
     ]
 
     return (
-        <HogFlowEditorPanel position="right-top" className="flex overflow-hidden">
+        <HogFlowEditorPanel position="right-top">
             {!selectedNode ? (
                 <>
                     <LemonTabs activeKey={mode} onChange={(key) => setMode(key)} tabs={tabs} barClassName="mb-0 pl-3" />

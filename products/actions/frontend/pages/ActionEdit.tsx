@@ -13,9 +13,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
+import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -26,8 +27,8 @@ import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
-import { ActionStep } from './ActionStep'
+import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from '../logics/actionEditLogic'
+import { ActionStep } from '../components/ActionStep'
 
 const RESOURCE_TYPE = 'action'
 
