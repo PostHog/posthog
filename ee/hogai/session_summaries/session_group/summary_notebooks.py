@@ -2,8 +2,8 @@ from datetime import datetime
 
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.notebook.util import (
-    TipTapNode,
     TipTapContent,
+    TipTapNode,
     create_heading_with_text,
     create_text_content,
     create_bullet_list,
@@ -18,6 +18,28 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
     PatternAssignedEventSegmentContext,
 )
+
+
+def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapContent:
+    """Format sessions status dictionary as a TipTap bullet list with a header"""
+    if not sessions_status:
+        return create_bullet_list([])
+
+    items = []
+    for session_id, is_completed in sessions_status.items():
+        emoji = "✅" if is_completed else "❌"
+        items.append(f"{session_id} {emoji}")
+    bullet_list = create_bullet_list(items)
+    # Add a proper header
+    content = [
+        {
+            "type": "heading",
+            "attrs": {"level": 2},
+            "content": [{"type": "text", "text": "Session Processing Status"}],
+        },
+        bullet_list,
+    ]
+    return content
 
 
 async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:

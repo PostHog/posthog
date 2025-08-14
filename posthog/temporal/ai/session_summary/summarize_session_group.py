@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 from datetime import datetime, timedelta
+from enum import Enum
 import hashlib
 import json
 import uuid
@@ -26,7 +27,9 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
+from ee.hogai.session_summaries.session_group.summary_notebooks import format_single_sessions_status
 from posthog import constants
+from posthog.models.notebook.util import TipTapContent
 from posthog.models.team.team import Team
 from posthog.schema import CachedSessionBatchEventsQueryResponse
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
@@ -61,6 +64,21 @@ from posthog.temporal.common.client import async_connect
 from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
+
+
+class SessionSummaryStreamUpdate(Enum):
+    """Types of updates that can be streamed during session group summarization."""
+
+    UI_STATUS = "ui_status"  # Status messages for UI progress display
+    NOTEBOOK_UPDATE = "notebook_update"  # Intermediate state for notebook display
+    FINAL_RESULT = "final_result"  # Final summarization result
+
+
+UPDATE_TYPE_TO_OUTPUT_MAPPING = {
+    SessionSummaryStreamUpdate.UI_STATUS: str,
+    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE: TipTapContent,
+    SessionSummaryStreamUpdate.FINAL_RESULT: EnrichedSessionGroupSummaryPatternsList,
+}
 
 
 def _get_db_events_per_page(
@@ -220,11 +238,17 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         self._processed_single_summaries = 0
         self._processed_patterns_extraction = 0
         self._current_status = ""
+        self._single_sessions_summarized: dict[str, bool] = {}
 
     @temporalio.workflow.query
     def get_current_status(self) -> str:
         """Query handler to get the current progress of summary processing."""
         return self._current_status
+
+    @temporalio.workflow.query
+    def get_single_sessions_status(self) -> dict[str, bool]:
+        """Query handler to get the status of individual session summaries."""
+        return self._single_sessions_summarized
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SessionGroupSummaryInputs:
@@ -304,6 +328,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             # Keep track of processed summaries
             self._processed_single_summaries += 1
             self._current_status = f"Watching sessions ({self._processed_single_summaries}/{self._total_sessions})"
+            # Mark this session as successfully summarized
+            self._single_sessions_summarized[inputs.session_id] = True
             return None
         except Exception as err:  # Activity retries exhausted
             # Let caller handle the error
@@ -454,6 +480,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: SessionGroupSummaryInputs) -> EnrichedSessionGroupSummaryPatternsList:
         self._total_sessions = len(inputs.session_ids)
+        # Initialize session tracking with all sessions as not yet summarized
+        self._single_sessions_summarized = {session_id: False for session_id in inputs.session_ids}
         # Get events data from the DB (or cache)
         self._current_status = "Fetching session data from the database"
         db_session_inputs = await self._fetch_session_group_data(inputs)
@@ -501,7 +529,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 
 async def _start_session_group_summary_workflow(
     inputs: SessionGroupSummaryInputs, workflow_id: str
-) -> AsyncGenerator[EnrichedSessionGroupSummaryPatternsList | str, None]:
+) -> AsyncGenerator[
+    tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | TipTapContent], None
+]:
     """Start the workflow and yield status updates until completion."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
@@ -516,30 +546,54 @@ async def _start_session_group_summary_workflow(
         retry_policy=retry_policy,
     )
 
+    # Track previous sessions status to detect changes
+    previous_sessions_status: dict[str, bool] = {}
+
     # Poll for status
     while True:
         # Check workflow status
         workflow_description = await handle.describe()
         # Query the current activities status
         progress_status = await handle.query("get_current_status")
-
+        expected_progress_status_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.UI_STATUS]
+        # Query the single sessions status
+        sessions_status = await handle.query("get_single_sessions_status")
+        expected_sessions_status_type = UPDATE_TYPE_TO_OUTPUT_MAPPING[SessionSummaryStreamUpdate.NOTEBOOK_UPDATE]
+        # Workflow completed - get and yield the final result
         if workflow_description.status == WorkflowExecutionStatus.COMPLETED:
-            # Workflow completed - get and yield the final result
             result_raw: dict = await handle.result()
             result = EnrichedSessionGroupSummaryPatternsList(**result_raw)
-            yield result
+            yield (SessionSummaryStreamUpdate.FINAL_RESULT, result)
             break
+        # Workflow failed - raise an exception
         elif workflow_description.status in (
             WorkflowExecutionStatus.FAILED,
             WorkflowExecutionStatus.CANCELED,
             WorkflowExecutionStatus.TERMINATED,
             WorkflowExecutionStatus.TIMED_OUT,
         ):
-            # Workflow failed - raise an exception
             raise ApplicationError(f"Workflow {workflow_id} failed with status: {workflow_description.status}")
+        # Workflow still running
         else:
-            # Workflow still running - yield the current status
-            yield progress_status
+            # Yield the current status for UI
+            if not isinstance(progress_status, expected_progress_status_type):
+                raise ValueError(
+                    f"Unexpected progress status type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(progress_status)} "
+                    f"(expected: {expected_progress_status_type})"
+                )
+            yield (SessionSummaryStreamUpdate.UI_STATUS, progress_status)
+            # Yield intermediate data for the notebook, if it changed
+            # Single sessions summarization status
+            if sessions_status != previous_sessions_status:
+                if not isinstance(sessions_status, expected_sessions_status_type):
+                    raise ValueError(
+                        f"Unexpected sessions status type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(sessions_status)} "
+                        f"(expected: {expected_sessions_status_type})"
+                    )
+                formatted_sessions_status = format_single_sessions_status(sessions_status)
+                yield (SessionSummaryStreamUpdate.NOTEBOOK_UPDATE, formatted_sessions_status)
+                previous_sessions_status = sessions_status.copy()
+            # Wait till the next polling
             await asyncio.sleep(int(SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS / 1000))
 
 
@@ -558,7 +612,9 @@ async def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-) -> AsyncGenerator[EnrichedSessionGroupSummaryPatternsList | str, None]:
+) -> AsyncGenerator[
+    tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | TipTapContent], None
+]:
     """
     Start the workflow and yield status updates and final summary for the group of sessions.
     """

@@ -12,6 +12,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_notebook_from_summary,
     _generate_notebook_content_from_summary,
+    format_single_sessions_status,
 )
 
 
@@ -509,3 +510,89 @@ class TestNotebookCreation(APIBaseTest):
                 content_text,
                 f"Failed for {millis}ms -> t={expected_timestamp}",
             )
+
+    def test_format_single_sessions_status_empty(self):
+        """Test formatting an empty sessions status dictionary"""
+        result = format_single_sessions_status({})
+        self.assertEqual(result, {"type": "bulletList", "content": []})
+
+    def test_format_single_sessions_status_all_pending(self):
+        """Test formatting when all sessions are pending"""
+        sessions_status = {
+            "session-1": False,
+            "session-2": False,
+            "session-3": False,
+        }
+        result = format_single_sessions_status(sessions_status)
+        # Check structure
+        self.assertEqual(result["type"], "bulletList")
+        self.assertEqual(len(result["content"]), 3)
+        # Check each item
+        for i, (session_id, _) in enumerate(sessions_status.items()):
+            list_item = result["content"][i]
+            self.assertEqual(list_item["type"], "listItem")
+            paragraph = list_item["content"][0]
+            self.assertEqual(paragraph["type"], "paragraph")
+            text = paragraph["content"][0]
+            self.assertEqual(text["type"], "text")
+            self.assertEqual(text["text"], f"{session_id} ❌")
+
+    def test_format_single_sessions_status_mixed(self):
+        """Test formatting with mixed session statuses"""
+        sessions_status = {
+            "session-1": True,
+            "session-2": False,
+            "session-3": True,
+            "session-4": False,
+        }
+        result = format_single_sessions_status(sessions_status)
+        # Check structure
+        self.assertEqual(result["type"], "bulletList")
+        self.assertEqual(len(result["content"]), 4)
+        # Check each item
+        for i, (session_id, is_completed) in enumerate(sessions_status.items()):
+            list_item = result["content"][i]
+            self.assertEqual(list_item["type"], "listItem")
+            paragraph = list_item["content"][0]
+            self.assertEqual(paragraph["type"], "paragraph")
+            text = paragraph["content"][0]
+            self.assertEqual(text["type"], "text")
+            emoji = "✅" if is_completed else "❌"
+            self.assertEqual(text["text"], f"{session_id} {emoji}")
+
+    def test_format_single_sessions_status_all_completed(self):
+        """Test formatting when all sessions are completed"""
+        sessions_status = {
+            "session-1": True,
+            "session-2": True,
+            "session-3": True,
+        }
+        result = format_single_sessions_status(sessions_status)
+        # Check structure
+        self.assertEqual(result["type"], "bulletList")
+        self.assertEqual(len(result["content"]), 3)
+        # Check each item
+        for i, (session_id, _) in enumerate(sessions_status.items()):
+            list_item = result["content"][i]
+            self.assertEqual(list_item["type"], "listItem")
+            paragraph = list_item["content"][0]
+            self.assertEqual(paragraph["type"], "paragraph")
+            text = paragraph["content"][0]
+            self.assertEqual(text["type"], "text")
+            self.assertEqual(text["text"], f"{session_id} ✅")
+
+    def test_format_single_sessions_status_single_session(self):
+        """Test formatting with a single session"""
+        sessions_status = {"single-session": True}
+        result = format_single_sessions_status(sessions_status)
+        # Check structure
+        self.assertEqual(result["type"], "bulletList")
+        self.assertEqual(len(result["content"]), 1)
+        # Check the single item
+        list_item = result["content"][0]
+        self.assertEqual(list_item["type"], "listItem")
+        paragraph = list_item["content"][0]
+        self.assertEqual(paragraph["type"], "paragraph")
+        text = paragraph["content"][0]
+        self.assertEqual(text["type"], "text")
+        self.assertEqual(text["text"], "single-session ✅")
