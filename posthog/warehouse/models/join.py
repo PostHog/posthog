@@ -245,9 +245,13 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
 @receiver(post_save, sender=DataWarehouseJoin)
 def invalidate_hogql_database_cache(sender, instance, **kwargs):
-    DataWarehouseJoin.objects.invalidate_cache(instance.team_id)
+    from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
+    DataWarehouseJoin.objects.invalidate_cache(instance.team_id, key_prefix=CACHE_KEY_PREFIX)
 
 
 @receiver(post_delete, sender=DataWarehouseJoin)
 def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
-    DataWarehouseJoin.objects.invalidate_cache(instance.team_id)
+    from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
+    DataWarehouseJoin.objects.invalidate_cache(instance.team_id, key_prefix=CACHE_KEY_PREFIX)

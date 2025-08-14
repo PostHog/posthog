@@ -420,9 +420,13 @@ def asave_datawarehousetable(table: DataWarehouseTable) -> None:
 
 @receiver(post_save, sender=DataWarehouseTable)
 def invalidate_hogql_database_cache(sender, instance, **kwargs):
-    DataWarehouseTable.objects.invalidate_cache(instance.team_id)
+    from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
+    DataWarehouseTable.objects.invalidate_cache(instance.team_id, key_prefix=CACHE_KEY_PREFIX)
 
 
 @receiver(post_delete, sender=DataWarehouseTable)
 def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
-    DataWarehouseTable.objects.invalidate_cache(instance.team_id)
+    from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
+    DataWarehouseTable.objects.invalidate_cache(instance.team_id, key_prefix=CACHE_KEY_PREFIX)

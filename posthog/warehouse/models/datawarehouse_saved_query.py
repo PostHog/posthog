@@ -247,9 +247,13 @@ def aget_table_by_saved_query_id(saved_query_id: str, team_id: int):
 
 @receiver(post_save, sender=DataWarehouseSavedQuery)
 def invalidate_hogql_database_cache(sender, instance, **kwargs):
-    DataWarehouseSavedQuery.objects.invalidate_cache(instance.team_id)
+    from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
+    DataWarehouseSavedQuery.objects.invalidate_cache(instance.team_id, key_prefix=CACHE_KEY_PREFIX)
 
 
 @receiver(post_delete, sender=DataWarehouseSavedQuery)
 def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
-    DataWarehouseSavedQuery.objects.invalidate_cache(instance.team_id)
+    from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
+    DataWarehouseSavedQuery.objects.invalidate_cache(instance.team_id, key_prefix=CACHE_KEY_PREFIX)

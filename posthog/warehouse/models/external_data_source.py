@@ -4,6 +4,8 @@ from uuid import UUID
 import structlog
 import temporalio
 from django.db import models
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.cache import CacheManager
@@ -111,3 +113,17 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 @database_sync_to_async
 def get_external_data_source(source_id: UUID) -> ExternalDataSource:
     return ExternalDataSource.objects.get(pk=source_id)
+
+
+@receiver(post_save, sender=ExternalDataSource)
+def invalidate_hogql_database_cache(sender, instance, **kwargs):
+    from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
+    ExternalDataSource.objects.invalidate_cache(instance.team_id, key_prefix=CACHE_KEY_PREFIX)
+
+
+@receiver(post_delete, sender=ExternalDataSource)
+def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
+    from posthog.hogql.database.database import CACHE_KEY_PREFIX
+
+    ExternalDataSource.objects.invalidate_cache(instance.team_id, key_prefix=CACHE_KEY_PREFIX)

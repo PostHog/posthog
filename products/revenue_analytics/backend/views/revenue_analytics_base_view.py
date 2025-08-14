@@ -1,7 +1,5 @@
 from typing import Optional
 from django.db.models import Prefetch
-from django.db.models.signals import post_delete, post_save
-from django.dispatch import receiver
 from posthog.models.team.team import Team
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -122,13 +120,3 @@ def events_expr_for_team(team: Team) -> ast.Expr:
         return exprs[0]
     else:
         return ast.And(exprs=exprs)
-
-
-@receiver(post_save, sender=ExternalDataSource)
-def invalidate_hogql_database_cache(sender, instance, **kwargs):
-    ExternalDataSource.objects.invalidate_cache(instance.team_id)
-
-
-@receiver(post_delete, sender=ExternalDataSource)
-def invalidate_hogql_database_cache_on_delete(sender, instance, **kwargs):
-    ExternalDataSource.objects.invalidate_cache(instance.team_id)
