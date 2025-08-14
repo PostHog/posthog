@@ -1,18 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
+import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 
 import { ProductKey, OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
+import { InvitesTable } from 'scenes/settings/organization/Invites'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
     const { preflight } = useValues(preflightLogic)
     const { productKey } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
     const { invitesToSend, canSubmit: canSubmitInvites } = useValues(inviteLogic)
+    const { invites } = useValues(inviteLogic)
 
     const titlePrefix = (): string => {
         switch (productKey) {
@@ -46,6 +49,8 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
         }
     }
 
+    const showInviteLinks = !preflight?.email_service_available && invites.length > 0
+
     return (
         <OnboardingStep
             title="Invite teammates"
@@ -68,16 +73,18 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
                         </span>
                     )}
                 </p>
-                {!preflight?.email_service_available && (
-                    <p>
-                        This PostHog instance isn't configured to send emails. In the meantime, enter your teammates'
-                        emails below to generate their custom invite links.{' '}
-                        <strong>You'll need to share the links with your project members manually</strong>. You can
-                        invite more people later.
-                    </p>
-                )}
             </div>
             <InviteTeamMatesComponent />
+            {showInviteLinks && (
+                <>
+                    <LemonDivider className="my-4" />
+                    <EmailUnavailableForInvitesBanner />
+                    <div className="mt-4">
+                        <h3>Invite Links</h3>
+                        <InvitesTable />
+                    </div>
+                </>
+            )}
         </OnboardingStep>
     )
 }

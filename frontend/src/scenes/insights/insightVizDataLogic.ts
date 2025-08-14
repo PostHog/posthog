@@ -571,7 +571,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             actions.updateInsightFilter({ hiddenLegendIndexes })
         },
 
-        // data loading side effects i.e. diplaying loading screens for queries with longer duration
+        // data loading side effects i.e. displaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
@@ -581,7 +581,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 actions.setTimedOutQueryId(queryId)
                 const tags = {
                     kind: values.querySource?.kind,
-                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                    scene: sceneLogic.isMounted() ? sceneLogic.values.activeSceneId : null,
                 }
                 posthog.capture('insight timeout message shown', tags)
             }

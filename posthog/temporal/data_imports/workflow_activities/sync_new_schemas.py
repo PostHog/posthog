@@ -9,6 +9,7 @@ from posthog.warehouse.models import (
     ExternalDataSource,
     sync_old_schemas_with_new_schemas,
 )
+from posthog.warehouse.types import ExternalDataSourceType
 
 from posthog.temporal.data_imports.sources import SourceRegistry
 
@@ -35,7 +36,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     source = ExternalDataSource.objects.get(team_id=inputs.team_id, id=inputs.source_id)
 
-    source_type_enum = ExternalDataSource.Type(source.source_type)
+    source_type_enum = ExternalDataSourceType(source.source_type)
     if SourceRegistry.is_registered(source_type_enum):
         if not source.job_inputs:
             return

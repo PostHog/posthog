@@ -9,6 +9,7 @@ import { SettingSectionId } from './settings/types'
 
 export enum Scene {
     Action = 'Action',
+    Actions = 'Actions',
     Activity = 'Activity',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
@@ -135,7 +136,22 @@ export interface SceneExport {
 
 export interface LoadedScene extends SceneExport {
     id: string
+    tabId?: string
     sceneParams: SceneParams
+}
+
+export interface SceneTab {
+    id: string
+    pathname: string
+    search: string
+    hash: string
+    title: string
+    active: boolean
+    customTitle?: string
+
+    sceneId?: string
+    sceneKey?: string
+    sceneParams?: SceneParams
 }
 
 export interface SceneParams {

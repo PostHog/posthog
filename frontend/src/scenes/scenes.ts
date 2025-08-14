@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
-import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Error404 as Error404Component } from '~/layout/Error404'
@@ -25,31 +25,22 @@ import { BillingSectionId } from './billing/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
-export const preloadedScenes: Record<string, LoadedScene> = {
+export const preloadedScenes: Record<string, SceneExport> = {
     [Scene.Error404]: {
-        id: Scene.Error404,
         component: Error404Component,
-        sceneParams: emptySceneParams,
     },
     [Scene.ErrorAccessDenied]: {
-        id: Scene.ErrorAccessDenied,
         component: ErrorAccessDeniedComponent,
-        sceneParams: emptySceneParams,
     },
     [Scene.ErrorNetwork]: {
-        id: Scene.ErrorNetwork,
         component: ErrorNetworkComponent,
-        sceneParams: emptySceneParams,
     },
     [Scene.ErrorProjectUnavailable]: {
-        id: Scene.ErrorProjectUnavailable,
         component: ErrorProjectUnavailableComponent,
-        sceneParams: emptySceneParams,
     },
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
-    [Scene.Action]: { projectBased: true, name: 'Action', defaultDocsPath: '/docs/data/actions' },
     [Scene.Activity]: { projectBased: true, name: 'Activity', defaultDocsPath: '/docs/data/events' },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
@@ -435,9 +426,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSharing(':id')]: [Scene.Dashboard, 'dashboardSharing'],
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
-    [urls.createAction()]: [Scene.Action, 'createAction'],
-    [urls.duplicateAction(null)]: [Scene.Action, 'duplicateAction'],
-    [urls.action(':id')]: [Scene.Action, 'action'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
@@ -456,7 +444,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
-    [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
     [urls.eventDefinitionEdit(':id')]: [Scene.EventDefinitionEdit, 'eventDefinitionEdit'],
