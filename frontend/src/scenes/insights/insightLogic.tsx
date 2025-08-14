@@ -128,6 +128,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         onReapplySuggestedInsight: true,
         setPreviousQuery: (previousQuery: Node | null) => ({ previousQuery }),
         setSuggestedQuery: (suggestedQuery: Node | null) => ({ suggestedQuery }),
+        reloadSavedInsights: true,
+        duplicateInsight: (insight: QueryBasedInsightModel, redirectToInsight = false) => ({
+            insight,
+            redirectToInsight,
+        }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -189,7 +194,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
                     await breakpoint(300)
 
-                    savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    actions.reloadSavedInsights()
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
@@ -200,7 +205,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
                                 const response = await insightsApi.update(values.insight.id as number, beforeUpdates)
-                                savedInsightsLogic.findMounted()?.actions.loadInsights()
+                                actions.reloadSavedInsights()
                                 dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                                 actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
                                 lemonToast.success('Insight change reverted')
@@ -420,7 +425,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           ...insightRequest,
                           _create_in_folder: folder ?? getLastNewFolder(),
                       })
-                savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
+                actions.reloadSavedInsights() // Load insights afresh
                 // remove draft query from local storage
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 actions.saveInsightSuccess()
@@ -509,7 +514,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
-            savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
+            actions.reloadSavedInsights() // Load insights afresh
 
             if (redirectToViewMode) {
                 router.actions.push(urls.insightView(insight.short_id))
@@ -548,6 +553,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 }
             } else {
             }
+        },
+        reloadSavedInsights: () => {
+            for (const logic of savedInsightsLogic.findAllMounted()) {
+                logic.actions.loadInsights()
+            }
+        },
+        duplicateInsight: async ({ insight, redirectToInsight }) => {
+            const newInsight = await insightsApi.duplicate(insight)
+            for (const logic of savedInsightsLogic.findAllMounted()) {
+                logic.actions.addInsight(newInsight)
+            }
+            redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
     })),
     events(({ props, actions }) => ({
