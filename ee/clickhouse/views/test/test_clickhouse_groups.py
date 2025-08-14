@@ -1159,6 +1159,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
                 {
                     "group_type_index": 1,
@@ -1167,6 +1169,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": "playlists",
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
                 {
                     "group_type_index": 2,
@@ -1175,6 +1179,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
             ],
         )
@@ -1202,6 +1208,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
                 {
                     "group_type_index": 1,
@@ -1210,6 +1218,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
                 {
                     "group_type_index": 2,
@@ -1218,6 +1228,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
             ],
         )
@@ -1299,6 +1311,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
                 {
                     "group_type_index": 1,
@@ -1307,6 +1321,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
                 {
                     "group_type_index": 2,
@@ -1315,6 +1331,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
+                    "created_by": None,
                 },
             ],
         )
