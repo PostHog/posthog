@@ -4,7 +4,6 @@ from posthog.warehouse.types import ExternalDataSourceType
 from posthog.test.base import BaseTest
 
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
-from posthog.temporal.data_imports.sources.stripe.constants import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
 from products.revenue_analytics.backend.views.sources.helpers import ZERO_DECIMAL_CURRENCIES_IN_STRIPE
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsChargeView,

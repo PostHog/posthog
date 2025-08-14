@@ -445,7 +445,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
         query for query in [invoice_item_query, no_invoice_charges_query] if query is not None
     ]
     if len(queries) == 0:
-        return []
+        return
 
     query: ast.SelectQuery | ast.SelectSetQuery
     if len(queries) == 1:
