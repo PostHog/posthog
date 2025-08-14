@@ -23,6 +23,7 @@ import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ActionManagerCDP } from './utils/action-manager-cdp'
+import { CohortManagerCDP } from './utils/cohort-manager-cdp'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
@@ -401,6 +402,7 @@ export interface Hub extends PluginsServerConfig {
     rootAccessManager: RootAccessManager
     actionManager: ActionManager
     actionManagerCDP: ActionManagerCDP
+    cohortManagerCDP: CohortManagerCDP
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
@@ -994,6 +996,8 @@ export interface Cohort {
     is_static: boolean
     version: number | null
     pending_version: number
+    bytecode: any[] | null
+    bytecode_error: string | null
 }
 
 /** Usable CohortPeople model. */

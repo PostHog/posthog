@@ -226,6 +226,8 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "bytecode",
+            "bytecode_error",
             "experiment_set",
             "_create_in_folder",
         ]
@@ -237,6 +239,8 @@ class CohortSerializer(serializers.ModelSerializer):
             "last_calculation",
             "errors_calculating",
             "count",
+            "bytecode",
+            "bytecode_error",
             "experiment_set",
         ]
 
