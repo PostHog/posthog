@@ -1,5 +1,5 @@
-import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
-import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { BindLogic, BuiltLogic, useMountedLogic, useValues } from 'kea'
+import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -8,9 +8,7 @@ import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrict
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Slide, ToastContainer } from 'react-toastify'
 import { appScenes } from 'scenes/appScenes'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { LoadedScene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -19,76 +17,27 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import type { appLogicType } from './AppType'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { teamLogic } from './teamLogic'
 import { KeaDevtools } from 'lib/KeaDevTools'
-import { urlToAction } from 'kea-router'
+import { appLogic } from 'scenes/appLogic'
 
 window.process = MOCK_NODE_PROCESS
-
-export const appLogic = kea<appLogicType>([
-    path(['scenes', 'App']),
-    connect([teamLogic, organizationLogic]),
-    actions({
-        enableDelayedSpinner: true,
-        ignoreFeatureFlags: true,
-        showDevTools: true,
-    }),
-    reducers({
-        showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
-        featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
-        showingDevTools: [false, { showDevTools: () => true }],
-    }),
-    selectors({
-        showApp: [
-            (s) => [
-                userLogic.selectors.userLoading,
-                userLogic.selectors.user,
-                featureFlagLogic.selectors.receivedFeatureFlags,
-                s.featureFlagsTimedOut,
-                preflightLogic.selectors.preflightLoading,
-                preflightLogic.selectors.preflight,
-            ],
-            (userLoading, user, receivedFeatureFlags, featureFlagsTimedOut, preflightLoading, preflight) => {
-                return (
-                    (!userLoading || user) &&
-                    (receivedFeatureFlags || featureFlagsTimedOut) &&
-                    (!preflightLoading || preflight)
-                )
-            },
-        ],
-    }),
-    events(({ actions, cache }) => ({
-        afterMount: () => {
-            cache.spinnerTimeout = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
-            cache.featureFlagTimeout = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
-        },
-        beforeUnmount: () => {
-            window.clearTimeout(cache.spinnerTimeout)
-            window.clearTimeout(cache.featureFlagTimeout)
-        },
-    })),
-    urlToAction(({ actions }) => ({
-        '*': (_, __, hash) => {
-            if ('kea' in hash) {
-                actions.showDevTools()
-            }
-        },
-    })),
-])
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     useThemedHtml()
+
+    // Old style persistence - no tabs, keep all loaded logics around forever ("turbo mode")
+    // New style persistence - keep all open tabs around, discard logics when a tab is closed
+    const useTurboModePersistence = !featureFlags[FEATURE_FLAGS.SCENE_TABS]
 
     if (showApp) {
         return (
             <>
-                <LoadedSceneLogics />
+                {useTurboModePersistence ? <LoadedSceneLogics /> : null}
                 <AppScene />
                 {showingDevTools ? <KeaDevtools /> : null}
             </>
@@ -98,22 +47,22 @@ export function App(): JSX.Element | null {
     return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
 }
 
-function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
-    if (!scene.logic) {
+function LoadedSceneLogic({ logic }: { logic: BuiltLogic }): null {
+    if (!logic) {
         throw new Error('Loading scene without a logic')
     }
-    useMountedLogic(scene.logic(scene.paramsToProps?.(scene.sceneParams)))
+    useMountedLogic(logic)
     return null
 }
 
 function LoadedSceneLogics(): JSX.Element {
-    const { loadedScenes } = useValues(sceneLogic)
+    const { loadedSceneLogics } = useValues(sceneLogic)
     return (
         <>
-            {Object.entries(loadedScenes)
-                .filter(([, { logic }]) => !!logic)
-                .map(([key, loadedScene]) => (
-                    <LoadedSceneLogic key={key} scene={loadedScene} />
+            {Object.entries(loadedSceneLogics)
+                .filter(([_, logic]) => !!logic)
+                .map(([key, logic]) => (
+                    <LoadedSceneLogic key={key} logic={logic} />
                 ))}
         </>
     )
@@ -122,7 +71,13 @@ function LoadedSceneLogics(): JSX.Element {
 function AppScene(): JSX.Element | null {
     useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
-    const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const {
+        activeSceneId,
+        activeLoadedScene,
+        activeSceneComponentParamsWithTabId,
+        activeSceneLogicPropsWithTabId,
+        sceneConfig,
+    } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -139,17 +94,30 @@ function AppScene(): JSX.Element | null {
     )
 
     let sceneElement: JSX.Element
-    if (activeScene && activeScene in loadedScenes) {
-        const { component: SceneComponent } = loadedScenes[activeScene]
-        sceneElement = <SceneComponent user={user} {...params} />
+    if (activeLoadedScene?.component) {
+        const { component: SceneComponent } = activeLoadedScene
+        sceneElement = (
+            <SceneComponent
+                key={`tab-${activeSceneLogicPropsWithTabId.tabId}`}
+                user={user}
+                {...activeSceneComponentParamsWithTabId}
+            />
+        )
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }
 
     const wrappedSceneElement = (
-        <ErrorBoundary key={activeScene} exceptionProps={{ feature: activeScene }}>
+        <ErrorBoundary
+            key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
+            exceptionProps={{ feature: activeSceneId }}
+        >
             {activeLoadedScene?.logic ? (
-                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
+                <BindLogic
+                    key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
+                    logic={activeLoadedScene.logic}
+                    props={activeSceneLogicPropsWithTabId}
+                >
                     {sceneElement}
                 </BindLogic>
             ) : (

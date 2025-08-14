@@ -37,17 +37,16 @@ impl LogsService for Service {
         let team_id = match authenticate_request(&request, &self.config.jwt_secret) {
             Ok(team_id) => team_id,
             Err(status) => {
-                return Err(status);
+                return Err(*status);
             }
         };
 
         let team_id = match team_id.parse::<i32>() {
             Ok(id) => id,
             Err(e) => {
-                error!("Failed to parse team_id '{}' as i32: {}", team_id, e);
+                error!("Failed to parse team_id '{team_id}' as i32: {e}");
                 return Err(Status::invalid_argument(format!(
-                    "Invalid team_id format: {}",
-                    team_id
+                    "Invalid team_id format: {team_id}"
                 )));
             }
         };
@@ -61,10 +60,9 @@ impl LogsService for Service {
         {
             Ok(insert) => insert,
             Err(e) => {
-                error!("Failed to create ClickHouse insert: {}", e);
+                error!("Failed to create ClickHouse insert: {e}");
                 return Err(Status::internal(format!(
-                    "Failed to create ClickHouse insert: {}",
-                    e
+                    "Failed to create ClickHouse insert: {e}"
                 )));
             }
         };
@@ -80,20 +78,20 @@ impl LogsService for Service {
                     ) {
                         Ok(row) => row,
                         Err(e) => {
-                            error!("Failed to create LogRow: {}", e);
+                            error!("Failed to create LogRow: {e}");
                             continue;
                         }
                     };
 
                     if let Err(e) = insert.write(&row).await {
-                        error!("Failed to insert log into ClickHouse: {}", e);
+                        error!("Failed to insert log into ClickHouse: {e}");
                         // Continue processing other logs even if one fails
                     }
                 }
             }
         }
         if let Err(e) = insert.end().await {
-            error!("Failed to end ClickHouse insert: {}", e);
+            error!("Failed to end ClickHouse insert: {e}");
         }
 
         // A successful OTLP export expects an ExportLogsServiceResponse.

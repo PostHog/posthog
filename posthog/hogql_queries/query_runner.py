@@ -37,6 +37,7 @@ from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    AnalyticsQueryResponseBase,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
@@ -761,8 +762,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return LimitContext.QUERY
         return self.limit_context
 
-    @abstractmethod
     def calculate(self) -> R:
+        return self._calculate()
+
+    @abstractmethod
+    def _calculate(self) -> R:
         raise NotImplementedError()
 
     def enqueue_async_calculation(
@@ -1134,7 +1138,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.__post_init__()
 
 
-class QueryRunnerWithHogQLContext(QueryRunner):
+# Type constraint for analytics query responses
+AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
+
+
+class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
+    """
+    QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
+    """
+
+    def calculate(self) -> AR:
+        response = self._calculate()
+        if not self.modifiers.timings:
+            response.timings = None
+        return response
+
+
+class QueryRunnerWithHogQLContext(AnalyticsQueryRunner):
     database: Database
     hogql_context: HogQLContext
 

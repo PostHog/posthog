@@ -332,6 +332,7 @@ export interface HogQLQueryModifiers {
     optimizeJoinedFilters?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
+    timings?: boolean
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
@@ -354,7 +355,8 @@ export interface DataWarehouseEventsModifier {
     id_field: string
 }
 
-export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {
+export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
+    results: T
     /** Input query string */
     query?: string
     /** Executed ClickHouse query */
@@ -678,7 +680,8 @@ export interface QueryTiming {
     /** Time in seconds. Shortened to 't' to save on data. */
     t: number
 }
-export interface EventsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+export interface EventsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
     columns: any[]
     types: string[]
     hogql: string
@@ -1016,7 +1019,7 @@ interface InsightVizNodeViewProps {
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
-export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
+export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase> extends Node<R> {
     /** Date range for the query */
     dateRange?: DateRange
     /**
@@ -1130,7 +1133,8 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
 }
@@ -1171,7 +1175,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     conversionGoal?: WebAnalyticsConversionGoal | null
 }
 
-export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
+export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase {
+    results: EventsHeatMapStructuredResult
     /** Wether more breakdown values are available. */
     hasMore?: boolean
 }
@@ -1279,10 +1284,8 @@ export type FunnelTimeToConvertResults = {
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
-export interface FunnelsQueryResponse
-    extends AnalyticsQueryResponseBase<
-        FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
-    > {
+export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
+    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     isUdf?: boolean
 }
 
@@ -1325,7 +1328,9 @@ export interface RetentionResult {
     breakdown_value?: string | number | null
 }
 
-export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
+export interface RetentionQueryResponse extends AnalyticsQueryResponseBase {
+    results: RetentionResult[]
+}
 
 export type CachedRetentionQueryResponse = CachedQueryResponse<RetentionQueryResponse>
 
@@ -1344,7 +1349,9 @@ export type PathsLink = {
     average_conversion_time: number
 }
 
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase {
+    results: PathsLink[]
+}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
@@ -1427,7 +1434,9 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
+}
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
 
@@ -1521,10 +1530,9 @@ export interface QueryUpgradeResponse {
 
 /**
  * All analytics query responses must inherit from this.
- * @internal - no need to emit to schema.json.
  */
-export interface AnalyticsQueryResponseBase<T> {
-    results: T
+export interface AnalyticsQueryResponseBase {
+    results: any
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
     /** Generated HogQL query. */
@@ -1564,7 +1572,9 @@ export interface QueryStatusResponse {
 }
 
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
-export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> {}
+export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[]
+}
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
 export type TestCachedBasicQueryResponse = CachedQueryResponse<TestBasicQueryResponse>
 
@@ -1628,7 +1638,9 @@ export type QueryStatus = {
     labels?: string[]
 }
 
-export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
+}
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
 
@@ -1645,7 +1657,8 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
     lifecycleFilter?: LifecycleFilter
 }
 
-export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+export interface ActorsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
     columns: any[]
     types?: string[]
     hogql: string
@@ -1673,7 +1686,8 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
 
 export type CachedGroupsQueryResponse = CachedQueryResponse<GroupsQueryResponse>
 
-export interface GroupsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+export interface GroupsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
     kind: NodeKind.GroupsQuery
     columns: any[]
     types: string[]
@@ -1702,7 +1716,8 @@ export interface TimelineEntry {
     recording_duration_s?: number
 }
 
-export interface SessionsTimelineQueryResponse extends AnalyticsQueryResponseBase<TimelineEntry[]> {
+export interface SessionsTimelineQueryResponse extends AnalyticsQueryResponseBase {
+    results: TimelineEntry[]
     hasMore?: boolean
 }
 
@@ -1780,7 +1795,8 @@ export interface SamplingRate {
     denominator?: number
 }
 
-export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<WebOverviewItem[]> {
+export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebOverviewItem[]
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
@@ -1822,7 +1838,8 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     limit?: integer
     offset?: integer
 }
-export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -1839,7 +1856,8 @@ export interface WebExternalClicksTableQuery extends WebAnalyticsQueryBase<WebEx
     limit?: integer
     stripQueryParams?: boolean
 }
-export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -1855,7 +1873,8 @@ export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryRespon
     limit?: integer
 }
 
-export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -1885,7 +1904,9 @@ export interface WebVitalsItem {
     action: WebVitalsItemAction
 }
 
-export type WebVitalsQueryResponse = AnalyticsQueryResponseBase<WebVitalsItem[]>
+export interface WebVitalsQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebVitalsItem[]
+}
 export type CachedWebVitalsQueryResponse = CachedQueryResponse<WebVitalsQueryResponse>
 
 export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVitalsPathBreakdownQueryResponse> {
@@ -1905,7 +1926,9 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 
 // NOTE: The response is an array of results because pydantic requires it, but this will always have a single entry
 // hence the tuple type rather than a single object.
-export type WebVitalsPathBreakdownQueryResponse = AnalyticsQueryResponseBase<[WebVitalsPathBreakdownResult]>
+export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: [WebVitalsPathBreakdownResult]
+}
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
 export enum SessionAttributionGroupBy {
@@ -1928,7 +1951,8 @@ export interface SessionAttributionExplorerQuery extends DataNode<SessionAttribu
     offset?: integer
 }
 
-export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1943,7 +1967,8 @@ export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEvents
     offset?: integer
 }
 
-export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1959,7 +1984,8 @@ export interface RevenueExampleDataWarehouseTablesQuery
     offset?: integer
 }
 
-export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1998,8 +2024,8 @@ export interface RevenueAnalyticsRevenueQueryResult {
     gross: unknown[]
     mrr: unknown[]
 }
-export interface RevenueAnalyticsRevenueQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsRevenueQueryResult> {
+export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
+    results: RevenueAnalyticsRevenueQueryResult
     columns?: string[]
 }
 export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
@@ -2015,8 +2041,9 @@ export interface RevenueAnalyticsOverviewItem {
     value: number
 }
 
-export interface RevenueAnalyticsOverviewQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
+export interface RevenueAnalyticsOverviewQueryResponse extends AnalyticsQueryResponseBase {
+    results: RevenueAnalyticsOverviewItem[]
+}
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
 
 export interface RevenueAnalyticsMetricsQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMetricsQueryResponse> {
@@ -2025,7 +2052,8 @@ export interface RevenueAnalyticsMetricsQuery extends RevenueAnalyticsBaseQuery<
     interval: IntervalType
 }
 
-export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     columns?: string[]
 }
 export type CachedRevenueAnalyticsMetricsQueryResponse = CachedQueryResponse<RevenueAnalyticsMetricsQueryResponse>
@@ -2035,7 +2063,8 @@ export interface RevenueAnalyticsGrowthRateQuery
     kind: NodeKind.RevenueAnalyticsGrowthRateQuery
 }
 
-export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     columns?: string[]
 }
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
@@ -2047,7 +2076,8 @@ export interface RevenueAnalyticsTopCustomersQuery
     groupBy: RevenueAnalyticsTopCustomersGroupBy
 }
 
-export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     columns?: string[]
 }
 export type CachedRevenueAnalyticsTopCustomersQueryResponse =
@@ -2077,8 +2107,8 @@ export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTracki
     events: string[]
 }
 
-export interface ErrorTrackingIssueCorrelationQueryResponse
-    extends AnalyticsQueryResponseBase<ErrorTrackingCorrelatedIssue[]> {
+export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQueryResponseBase {
+    results: ErrorTrackingCorrelatedIssue[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2157,7 +2187,8 @@ export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
     }
 }
 
-export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
+    results: ErrorTrackingIssue[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2179,7 +2210,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     serviceNames: string[]
 }
 
-export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2607,7 +2639,7 @@ export interface InsightActorsQueryBase extends DataNode<ActorsQueryResponse> {
     modifiers?: HogQLQueryModifiers
 }
 
-export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryResponseBase<any>> = InsightQuerySource>
+export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryResponseBase> = InsightQuerySource>
     extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
     source: S
@@ -2672,7 +2704,8 @@ export interface FunnelCorrelationResult {
     skewed: boolean
 }
 
-export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase<FunnelCorrelationResult> {
+export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase {
+    results: FunnelCorrelationResult
     columns?: any[]
     types?: any[]
     hasMore?: boolean
@@ -3008,7 +3041,9 @@ export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
 }
 
-export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse>
+export interface TeamTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
+    results: TeamTaxonomyResponse
+}
 
 export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
 
@@ -3028,7 +3063,9 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
     maxPropertyValues?: integer
 }
 
-export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
+export interface EventTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
+    results: EventTaxonomyResponse
+}
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
@@ -3045,9 +3082,9 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
     maxPropertyValues?: integer
 }
 
-export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<
-    ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
->
+export interface ActorsPropertyTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
+    results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
+}
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
@@ -3064,7 +3101,9 @@ export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
     embeddingVersion?: number
 }
 
-export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>
+export interface VectorSearchQueryResponse extends AnalyticsQueryResponseBase {
+    results: VectorSearchResponse
+}
 
 export type CachedVectorSearchQueryResponse = CachedQueryResponse<VectorSearchQueryResponse>
 
@@ -3157,7 +3196,8 @@ export interface LLMTrace {
     events: LLMTraceEvent[]
 }
 
-export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {
+export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -3417,7 +3457,8 @@ export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLS
     limit?: integer
 }
 
-export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase<PageURL[]> {
+export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase {
+    results: PageURL[]
     hasMore?: boolean
     limit?: integer
 }
@@ -3445,7 +3486,8 @@ export interface MarketingAnalyticsTableQuery
     compareFilter?: CompareFilter
 }
 
-export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
