@@ -341,9 +341,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                         raise ValueError(
                             f"Cohort filter in cohort {self.id} must reference exactly one cohort, got {len(prop.value)}"
                         )
-                    cohort_value = prop.value[0]
+                    cohort_value = str(prop.value[0])
                 else:
-                    cohort_value = prop.value
+                    cohort_value = str(prop.value)
 
                 try:
                     referenced_cohort_id = int(cohort_value)
