@@ -2,7 +2,7 @@ use anyhow::Result;
 use rdkafka::message::OwnedMessage;
 use tracing::{debug, warn};
 
-use crate::kafka::tracker::MessageHandle;
+use crate::kafka::tracker::{MessageCompletion, MessageHandle};
 
 /// Result of message processing - simple success/failure
 #[derive(Debug, Clone)]
@@ -88,19 +88,18 @@ impl Drop for AckableMessage {
             );
 
             // Auto-nack on drop to prevent hanging
-            let handle_clone = MessageHandle::new(
-                self.handle.message_id,
-                self.handle.offset,
-                self.handle.memory_size,
-                self.handle.completion_tx.clone(),
-            );
-            tokio::spawn(async move {
-                handle_clone
-                    .complete(MessageResult::Failed(
-                        "Message dropped without ack".to_string(),
-                    ))
-                    .await;
-            });
+            let completion = MessageCompletion {
+                offset: self.handle.offset,
+                result: MessageResult::Failed("Message dropped without acking".to_string()),
+                memory_size: self.handle.memory_size,
+            };
+
+            if self.handle.completion_tx.send(completion).is_err() {
+                warn!(
+                    "Failed to send auto-nack for dropped message: id={}",
+                    self.handle.message_id
+                );
+            }
         }
     }
 }

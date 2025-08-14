@@ -110,7 +110,10 @@ fn create_stateful_kafka_consumer(
     group_id: &str,
     processor: TestProcessor,
     rebalance_handler: Arc<dyn RebalanceHandler>,
-) -> Result<StatefulKafkaConsumer<TestProcessor>> {
+) -> Result<(
+    StatefulKafkaConsumer<TestProcessor>,
+    tokio::sync::oneshot::Sender<()>,
+)> {
     // Use the new from_config method which includes tracker support
     let mut config = ClientConfig::new();
     config
@@ -121,17 +124,21 @@ fn create_stateful_kafka_consumer(
         .set("session.timeout.ms", "6000")
         .set("heartbeat.interval.ms", "2000");
 
-    let kafka_consumer = StatefulKafkaConsumer::from_config_with_commit_interval(
+    // Create shutdown channel - return sender so test can control shutdown
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
+    let kafka_consumer = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler,
         processor,
         10,
         Duration::from_secs(1),
+        shutdown_rx,
     )?;
 
     kafka_consumer.inner_consumer().subscribe(&[topic])?;
 
-    Ok(kafka_consumer)
+    Ok((kafka_consumer, shutdown_tx))
 }
 
 /// Helper to send test messages
@@ -178,7 +185,7 @@ async fn test_generic_kafka_consumer_message_processing() -> Result<()> {
     let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
-    let kafka_consumer = create_stateful_kafka_consumer(
+    let (kafka_consumer, shutdown_tx) = create_stateful_kafka_consumer(
         &test_topic,
         &group_id,
         processor.clone(),
@@ -195,8 +202,11 @@ async fn test_generic_kafka_consumer_message_processing() -> Result<()> {
         attempts += 1;
     }
 
-    // Stop the consumer
-    consumer_handle.abort();
+    // Send graceful shutdown signal
+    let _ = shutdown_tx.send(());
+
+    // Wait for graceful shutdown
+    let _ = consumer_handle.await;
 
     // Verify results
     assert_eq!(
@@ -237,7 +247,7 @@ async fn test_generic_kafka_consumer_error_handling() -> Result<()> {
 
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
-    let kafka_consumer = create_stateful_kafka_consumer(
+    let (kafka_consumer, shutdown_tx) = create_stateful_kafka_consumer(
         &test_topic,
         &group_id,
         processor.clone(),
@@ -256,8 +266,11 @@ async fn test_generic_kafka_consumer_error_handling() -> Result<()> {
         attempts += 1;
     }
 
-    // Stop the consumer
-    consumer_handle.abort();
+    // Send graceful shutdown signal
+    let _ = shutdown_tx.send(());
+
+    // Wait for graceful shutdown
+    let _ = consumer_handle.await;
 
     // Verify results
     assert_eq!(
@@ -283,7 +296,7 @@ async fn test_generic_kafka_consumer_tracker_stats() -> Result<()> {
     let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
-    let kafka_consumer =
+    let (kafka_consumer, _shutdown_tx) =
         create_stateful_kafka_consumer(&test_topic, &group_id, processor, rebalance_handler)?;
 
     // Check initial stats
@@ -325,11 +338,16 @@ async fn test_partition_aware_message_filtering() -> Result<()> {
         .set("heartbeat.interval.ms", "2000")
         .clone();
 
+    // Create shutdown channel
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
     let kafka_consumer = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
         processor.clone(),
         10,
+        Duration::from_secs(5),
+        shutdown_rx,
     )?;
 
     // Subscribe to the topic
@@ -358,8 +376,11 @@ async fn test_partition_aware_message_filtering() -> Result<()> {
         "Should have processed some messages"
     );
 
-    // Stop the consumer
-    consumer_handle.abort();
+    // Send graceful shutdown signal
+    let _ = shutdown_tx.send(());
+
+    // Wait for graceful shutdown
+    let _ = consumer_handle.await;
 
     Ok(())
 }
@@ -410,29 +431,56 @@ async fn test_graceful_shutdown_with_in_flight_messages() -> Result<()> {
         .set("heartbeat.interval.ms", "2000")
         .clone();
 
+    // Create shutdown channel for graceful shutdown
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
     let kafka_consumer = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
         processor.clone(),
         10,
+        Duration::from_secs(1),
+        shutdown_rx,
     )?;
 
     kafka_consumer.inner_consumer().subscribe(&[&test_topic])?;
 
-    // Start consumption
+    // Start consumption with graceful shutdown support
     let consumer_handle = tokio::spawn(async move { kafka_consumer.start_consumption().await });
 
-    // Let it run briefly to start processing
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Let it run briefly to start processing some messages
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
-    // Simulate abrupt shutdown
-    consumer_handle.abort();
-
-    // Verify that the infrastructure is in place for graceful handling
-    let assigned_partitions = rebalance_handler.get_assigned_partitions();
+    // Get initial stats to verify messages are being processed
+    let initial_stats = rebalance_handler.get_assigned_partitions();
     assert!(
-        !assigned_partitions.is_empty(),
-        "Should have assigned partitions"
+        !initial_stats.is_empty(),
+        "Should have assigned partitions after startup"
+    );
+
+    // Send graceful shutdown signal
+    let _ = shutdown_tx.send(());
+
+    // Wait for graceful shutdown to complete
+    match consumer_handle.await {
+        Ok(Ok(())) => {
+            println!("Consumer shut down gracefully");
+        }
+        Ok(Err(e)) => {
+            panic!("Consumer returned error during shutdown: {e}");
+        }
+        Err(e) => {
+            panic!("Consumer task failed: {e}");
+        }
+    }
+
+    // Verify that some messages were processed during the test
+    let processed_count = processor
+        .processed_count
+        .load(std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        processed_count > 0,
+        "Should have processed at least some messages during graceful shutdown test, got: {processed_count}"
     );
 
     Ok(())
@@ -455,19 +503,24 @@ async fn test_factory_method_integration() -> Result<()> {
         .clone();
 
     // Test both factory methods
+    let (_, shutdown_rx1) = tokio::sync::oneshot::channel();
     let consumer1 = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
         processor.clone(),
         5,
+        Duration::from_secs(5),
+        shutdown_rx1,
     )?;
 
-    let consumer2 = StatefulKafkaConsumer::from_config_with_commit_interval(
+    let (_, shutdown_rx2) = tokio::sync::oneshot::channel();
+    let consumer2 = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
         processor.clone(),
         10,
         Duration::from_secs(2),
+        shutdown_rx2,
     )?;
 
     // Verify consumers were created successfully
@@ -566,11 +619,16 @@ async fn test_rebalance_barrier_with_fencing() -> Result<()> {
         .set("heartbeat.interval.ms", "2000")
         .clone();
 
+    // Create shutdown channel
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
     let kafka_consumer = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
         processor.clone(),
         5, // limit in-flight messages
+        Duration::from_secs(5),
+        shutdown_rx,
     )?;
 
     kafka_consumer.inner_consumer().subscribe(&[&test_topic])?;
@@ -594,8 +652,11 @@ async fn test_rebalance_barrier_with_fencing() -> Result<()> {
     // Let some messages start processing
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Stop the consumer (will trigger rebalance)
-    consumer_handle.abort();
+    // Send graceful shutdown signal (will trigger rebalance)
+    let _ = shutdown_tx.send(());
+
+    // Wait for graceful shutdown
+    let _ = consumer_handle.await;
 
     // Give time for handlers to be called
     tokio::time::sleep(Duration::from_millis(500)).await;

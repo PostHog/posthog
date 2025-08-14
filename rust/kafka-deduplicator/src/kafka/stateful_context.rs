@@ -21,25 +21,16 @@ enum RebalanceEvent {
 /// This handles rebalance events and message tracking for sequential offset commits
 pub struct StatefulConsumerContext {
     rebalance_handler: Arc<dyn RebalanceHandler>,
-    /// Optional tracker for coordinating partition revocation with in-flight messages
-    tracker: Option<Arc<InFlightTracker>>,
+    /// Tracker for coordinating partition revocation with in-flight messages
+    tracker: Arc<InFlightTracker>,
     /// Handle to the async runtime for executing async callbacks from sync context
     rt_handle: Handle,
     /// Channel to send rebalance events to async worker
-    rebalance_tx: Option<mpsc::UnboundedSender<RebalanceEvent>>,
+    rebalance_tx: mpsc::UnboundedSender<RebalanceEvent>,
 }
 
 impl StatefulConsumerContext {
-    pub fn new(rebalance_handler: Arc<dyn RebalanceHandler>) -> Self {
-        Self {
-            rebalance_handler,
-            tracker: None,
-            rt_handle: Handle::current(),
-            rebalance_tx: None,
-        }
-    }
-
-    pub fn with_tracker(
+    pub fn new(
         rebalance_handler: Arc<dyn RebalanceHandler>,
         tracker: Arc<InFlightTracker>,
     ) -> Self {
@@ -55,9 +46,9 @@ impl StatefulConsumerContext {
 
         Self {
             rebalance_handler,
-            tracker: Some(tracker),
+            tracker,
             rt_handle: Handle::current(),
-            rebalance_tx: Some(tx),
+            rebalance_tx: tx,
         }
     }
 
@@ -155,35 +146,19 @@ impl ConsumerContext for StatefulConsumerContext {
                     .map(|elem| (elem.topic().to_string(), elem.partition()))
                     .collect();
 
-                if let Some(tracker) = &self.tracker {
-                    // Fast, non-blocking fence operation
-                    let tracker_clone = tracker.clone();
-                    let partition_infos_clone = partition_infos.clone();
-                    self.rt_handle.spawn(async move {
-                        tracker_clone.fence_partitions(&partition_infos_clone).await;
-                    });
+                // Fast, non-blocking fence operation
+                let tracker_clone = self.tracker.clone();
+                let partition_infos_clone = partition_infos.clone();
+                self.rt_handle.spawn(async move {
+                    tracker_clone.fence_partitions(&partition_infos_clone).await;
+                });
 
-                    // Send revocation event to async worker if available
-                    if let Some(tx) = &self.rebalance_tx {
-                        if let Err(e) = tx.send(RebalanceEvent::Revoke(partition_infos)) {
-                            error!("Failed to send revoke event to rebalance worker: {}", e);
-                        }
-                    }
-                } else {
-                    // No tracker - call handler asynchronously
-                    let handler = self.rebalance_handler.clone();
-
-                    // Create a new TopicPartitionList to pass to handler
-                    let mut tpl = TopicPartitionList::new();
-                    for elem in partitions.elements() {
-                        tpl.add_partition(elem.topic(), elem.partition());
-                    }
-
-                    self.rt_handle.spawn(async move {
-                        if let Err(e) = handler.on_partitions_revoked(&tpl).await {
-                            error!("Partition revocation handler failed: {}", e);
-                        }
-                    });
+                // Send revocation event to async worker
+                if let Err(e) = self
+                    .rebalance_tx
+                    .send(RebalanceEvent::Revoke(partition_infos))
+                {
+                    error!("Failed to send revoke event to rebalance worker: {}", e);
                 }
             }
             Rebalance::Assign(partitions) => {
@@ -213,27 +188,12 @@ impl ConsumerContext for StatefulConsumerContext {
                     .map(|elem| (elem.topic().to_string(), elem.partition()))
                     .collect();
 
-                // Send assignment event to async worker if available
-                if let Some(tx) = &self.rebalance_tx {
-                    if let Err(e) = tx.send(RebalanceEvent::Assign(partition_infos)) {
-                        error!("Failed to send assign event to rebalance worker: {}", e);
-                    }
-                } else {
-                    // No tracker/worker - handle directly
-                    let handler = self.rebalance_handler.clone();
-
-                    // Create a new TopicPartitionList to pass to handler
-                    let mut tpl = TopicPartitionList::new();
-                    for elem in partitions.elements() {
-                        tpl.add_partition_offset(elem.topic(), elem.partition(), elem.offset())
-                            .unwrap();
-                    }
-
-                    self.rt_handle.spawn(async move {
-                        if let Err(e) = handler.on_partitions_assigned(&tpl).await {
-                            error!("Partition assignment handler failed: {}", e);
-                        }
-                    });
+                // Send assignment event to async worker
+                if let Err(e) = self
+                    .rebalance_tx
+                    .send(RebalanceEvent::Assign(partition_infos))
+                {
+                    error!("Failed to send assign event to rebalance worker: {}", e);
                 }
             }
             Rebalance::Revoke(_) => {
@@ -342,7 +302,8 @@ mod tests {
     #[tokio::test]
     async fn test_partition_assignment_callback() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = StatefulConsumerContext::new(handler.clone());
+        let tracker = Arc::new(crate::kafka::InFlightTracker::new());
+        let context = StatefulConsumerContext::new(handler.clone(), tracker);
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
         let partitions = create_test_partition_list();
 
@@ -366,7 +327,8 @@ mod tests {
     #[tokio::test]
     async fn test_partition_revocation_callback() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = StatefulConsumerContext::new(handler.clone());
+        let tracker = Arc::new(crate::kafka::InFlightTracker::new());
+        let context = StatefulConsumerContext::new(handler.clone(), tracker);
         let partitions = create_test_partition_list();
 
         // Simulate pre_rebalance with revocation
@@ -390,7 +352,8 @@ mod tests {
     #[tokio::test]
     async fn test_rebalance_error_handling() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = StatefulConsumerContext::new(handler.clone());
+        let tracker = Arc::new(crate::kafka::InFlightTracker::new());
+        let context = StatefulConsumerContext::new(handler.clone(), tracker);
 
         // Simulate rebalance error
         let error = rdkafka::error::KafkaError::ConsumerCommit(
@@ -414,7 +377,8 @@ mod tests {
     #[tokio::test]
     async fn test_commit_callback_success() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = StatefulConsumerContext::new(handler);
+        let tracker = Arc::new(crate::kafka::InFlightTracker::new());
+        let context = StatefulConsumerContext::new(handler, tracker);
         let partitions = create_test_partition_list();
 
         // Test successful commit - should not panic
@@ -424,7 +388,8 @@ mod tests {
     #[tokio::test]
     async fn test_commit_callback_failure() {
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = StatefulConsumerContext::new(handler);
+        let tracker = Arc::new(crate::kafka::InFlightTracker::new());
+        let context = StatefulConsumerContext::new(handler, tracker);
         let partitions = create_test_partition_list();
 
         // Test failed commit - should not panic
@@ -438,7 +403,7 @@ mod tests {
     async fn test_context_with_tracker_partition_revocation() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::with_tracker(handler.clone(), tracker.clone());
+        let context = StatefulConsumerContext::new(handler.clone(), tracker.clone());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         // Track some messages in different partitions
@@ -518,7 +483,7 @@ mod tests {
     async fn test_context_with_tracker_partition_assignment() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::with_tracker(handler.clone(), tracker.clone());
+        let context = StatefulConsumerContext::new(handler.clone(), tracker.clone());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         // Initially fence some partitions
@@ -562,10 +527,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_context_without_tracker_compatibility() {
-        // Test that context without tracker still works (backward compatibility)
+    async fn test_context_with_simplified_constructor() {
+        // Test that the simplified constructor works correctly
         let handler = Arc::new(TestRebalanceHandler::default());
-        let context = StatefulConsumerContext::new(handler.clone());
+        let tracker = Arc::new(crate::kafka::InFlightTracker::new());
+        let context = StatefulConsumerContext::new(handler.clone(), tracker);
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         let partitions = create_test_partition_list();

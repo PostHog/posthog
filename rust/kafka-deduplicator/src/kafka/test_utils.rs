@@ -4,12 +4,14 @@ use std::sync::Arc;
 
 use super::rebalance_handler::RebalanceHandler;
 use super::stateful_context::StatefulConsumerContext;
+use super::tracker::InFlightTracker;
 
 /// Test utilities for kafka module tests
 pub fn create_test_consumer<H: RebalanceHandler + 'static>(
     handler: Arc<H>,
 ) -> BaseConsumer<StatefulConsumerContext> {
-    let context = StatefulConsumerContext::new(handler);
+    let tracker = Arc::new(InFlightTracker::new());
+    let context = StatefulConsumerContext::new(handler, tracker);
 
     let consumer: BaseConsumer<StatefulConsumerContext> = ClientConfig::new()
         .set("bootstrap.servers", "localhost:9092")

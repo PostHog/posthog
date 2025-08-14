@@ -3,7 +3,7 @@ use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::Message;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
+use tokio::sync::{oneshot, Semaphore};
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
@@ -29,23 +29,12 @@ pub struct StatefulKafkaConsumer<P: MessageProcessor> {
 
     /// How often to commit offsets
     commit_interval: Duration,
+
+    /// Shutdown signal for graceful shutdown
+    shutdown_rx: oneshot::Receiver<()>,
 }
 
 impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
-    /// Create a new stateful Kafka consumer
-    pub fn new(
-        consumer: StreamConsumer<StatefulConsumerContext>,
-        message_processor: P,
-        max_in_flight_messages: usize,
-    ) -> Self {
-        Self::with_commit_interval(
-            consumer,
-            message_processor,
-            max_in_flight_messages,
-            Duration::from_secs(5), // Default 5 second commit interval
-        )
-    }
-
     /// Create a new stateful Kafka consumer with integrated tracker and context
     /// This is the recommended way to create consumers for production use
     pub fn from_config(
@@ -53,26 +42,11 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         rebalance_handler: Arc<dyn RebalanceHandler>,
         message_processor: P,
         max_in_flight_messages: usize,
-    ) -> Result<Self> {
-        Self::from_config_with_commit_interval(
-            config,
-            rebalance_handler,
-            message_processor,
-            max_in_flight_messages,
-            Duration::from_secs(5),
-        )
-    }
-
-    /// Create a new stateful Kafka consumer with integrated tracker, context, and custom commit interval
-    pub fn from_config_with_commit_interval(
-        config: &rdkafka::ClientConfig,
-        rebalance_handler: Arc<dyn RebalanceHandler>,
-        message_processor: P,
-        max_in_flight_messages: usize,
         commit_interval: Duration,
+        shutdown_rx: oneshot::Receiver<()>,
     ) -> Result<Self> {
         let tracker = Arc::new(InFlightTracker::new());
-        let context = StatefulConsumerContext::with_tracker(rebalance_handler, tracker.clone());
+        let context = StatefulConsumerContext::new(rebalance_handler, tracker.clone());
 
         let consumer: StreamConsumer<StatefulConsumerContext> =
             config.create_with_context(context)?;
@@ -85,36 +59,24 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             tracker,
             global_semaphore,
             commit_interval,
+            shutdown_rx,
         })
     }
 
-    /// Create a new stateful Kafka consumer with custom commit interval
-    pub fn with_commit_interval(
-        consumer: StreamConsumer<StatefulConsumerContext>,
-        message_processor: P,
-        max_in_flight_messages: usize,
-        commit_interval: Duration,
-    ) -> Self {
-        let tracker = Arc::new(InFlightTracker::new());
-        let global_semaphore = Arc::new(Semaphore::new(max_in_flight_messages));
-
-        Self {
-            consumer,
-            message_processor: Arc::new(message_processor),
-            tracker,
-            global_semaphore,
-            commit_interval,
-        }
-    }
-
-    /// Start consuming messages in a loop
-    pub async fn start_consumption(self) -> Result<()> {
+    /// Start consuming messages in a loop with graceful shutdown support
+    pub async fn start_consumption(mut self) -> Result<()> {
         info!("Starting stateful Kafka message consumption");
 
         let mut commit_interval = tokio::time::interval(self.commit_interval);
 
         loop {
             tokio::select! {
+                // Check for shutdown signal
+                _ = &mut self.shutdown_rx => {
+                    info!("Shutdown signal received, starting graceful shutdown");
+                    break;
+                }
+
                 // Poll for messages
                 msg_result = timeout(Duration::from_secs(1), self.consumer.recv()) => {
                     match msg_result {
@@ -140,6 +102,24 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                 }
             }
         }
+
+        // Graceful shutdown: wait for in-flight messages to complete
+        info!("Waiting for in-flight messages to complete");
+        let final_offsets = self.tracker.wait_for_completion().await;
+        info!(
+            "All in-flight messages completed. Final offsets: {:?}",
+            final_offsets
+        );
+
+        // Final commit
+        if let Err(e) = self.commit_offsets().await {
+            error!("Failed to commit final offsets: {}", e);
+        } else {
+            info!("Final offsets committed successfully");
+        }
+
+        info!("Graceful shutdown completed");
+        Ok(())
     }
 
     async fn handle_message<'a>(&self, msg: rdkafka::message::BorrowedMessage<'a>) -> Result<()> {
@@ -156,8 +136,12 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             return Ok(());
         }
 
-        // Acquire permit to control backpressure
-        let _permit = self.global_semaphore.acquire().await?;
+        // Acquire permit to control backpressure with timeout to prevent deadlocks
+        let _permit = timeout(Duration::from_secs(30), self.global_semaphore.acquire())
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("Timeout acquiring semaphore permit after 30s - possible deadlock")
+            })??;
 
         debug!(
             "Processing message from topic {} partition {} offset {}",
@@ -203,14 +187,41 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         let stats = self.tracker.get_stats().await;
         debug!("Tracker stats before commit: in_flight={}", stats.in_flight);
 
-        // Commit current offsets
-        match self.consumer.commit_consumer_state(CommitMode::Async) {
+        // Get safe commit offsets from tracker (only commits completed messages)
+        let safe_offsets = self.tracker.get_safe_commit_offsets().await;
+
+        if safe_offsets.is_empty() {
+            debug!("No safe offsets to commit");
+            return Ok(());
+        }
+
+        // Build TopicPartitionList with safe offsets
+        let mut topic_partition_list = rdkafka::TopicPartitionList::new();
+        for ((topic, partition), offset) in safe_offsets {
+            debug!(
+                "Adding safe commit offset: {}:{} -> {}",
+                topic,
+                partition,
+                offset + 1
+            );
+            topic_partition_list.add_partition_offset(
+                &topic,
+                partition,
+                rdkafka::Offset::Offset(offset + 1),
+            )?;
+        }
+
+        // Commit only the safe offsets
+        match self
+            .consumer
+            .commit(&topic_partition_list, CommitMode::Async)
+        {
             Ok(_) => {
-                debug!("Successfully committed offsets");
+                debug!("Successfully committed safe offsets");
                 Ok(())
             }
             Err(e) => {
-                error!("Failed to commit offsets: {}", e);
+                error!("Failed to commit safe offsets: {}", e);
                 Err(e.into())
             }
         }

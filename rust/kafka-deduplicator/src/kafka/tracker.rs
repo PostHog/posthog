@@ -162,7 +162,6 @@ impl InFlightTracker {
         (message_id, handle)
     }
 
-
     /// Process completion signals for all partitions
     pub async fn process_completions(&self) {
         let mut partitions = self.partitions.write().await;
