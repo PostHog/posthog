@@ -495,6 +495,39 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 ].filter(Boolean) as BillingGaugeItemType[]
             },
         ],
+        currentAmountTotalActual: [
+            (s, p) => [s.isProductWithVariants, p.product, s.visibleAddons],
+            (isProductWithVariants, product, visibleAddons): string => {
+                if (!product.tiers) {
+                    return '0.00'
+                }
+
+                // Calculate base product total from tiers
+                const productTotal = product.tiers.reduce(
+                    (sum, tier) => sum + parseFloat(tier.current_amount_usd || '0'),
+                    0
+                )
+
+                // For variants, return just the product total (addons shown separately)
+                if (isProductWithVariants) {
+                    return productTotal.toFixed(2)
+                }
+
+                // For non-variants, include addon totals
+                const addonTotal =
+                    visibleAddons?.reduce(
+                        (addonSum, addon) =>
+                            addonSum +
+                            (addon.tiers?.reduce(
+                                (tierSum, tier) => tierSum + parseFloat(tier.current_amount_usd || '0'),
+                                0
+                            ) || 0),
+                        0
+                    ) || 0
+
+                return (productTotal + addonTotal).toFixed(2)
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         updateBillingLimitsSuccess: () => {

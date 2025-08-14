@@ -29,7 +29,9 @@ export const BillingProductPricingTable = ({
     usageKey?: string
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
-    const { isProductWithVariants, projectedAmountExcludingAddons } = useValues(billingProductLogic({ product }))
+    const { isProductWithVariants, projectedAmountExcludingAddons, currentAmountTotalActual } = useValues(
+        billingProductLogic({ product })
+    )
 
     const showProjectedTotalWithLimitTooltip =
         'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
@@ -179,30 +181,7 @@ export const BillingProductPricingTable = ({
                           volume: 'Total',
                           basePrice: '',
                           usage: '',
-                          total: `$${
-                              isProductWithVariants
-                                  ? product.tiers
-                                        ?.reduce((sum, tier) => sum + parseFloat(tier.current_amount_usd || '0'), 0)
-                                        .toFixed(2) || '0.00'
-                                  : (
-                                        (product.tiers?.reduce(
-                                            (sum, tier) => sum + parseFloat(tier.current_amount_usd || '0'),
-                                            0
-                                        ) || 0) +
-                                        ('addons' in product
-                                            ? subscribedAddons?.reduce(
-                                                  (addonSum, addon) =>
-                                                      addonSum +
-                                                      (addon.tiers?.reduce(
-                                                          (tierSum, tier) =>
-                                                              tierSum + parseFloat(tier.current_amount_usd || '0'),
-                                                          0
-                                                      ) || 0),
-                                                  0
-                                              ) || 0
-                                            : 0)
-                                    ).toFixed(2)
-                          }`,
+                          total: `$${currentAmountTotalActual}`,
                           projectedTotal: isProductWithVariants
                               ? `$${projectedAmountExcludingAddons || '0.00'}`
                               : `$${product.projected_amount_usd || '0.00'}`,
