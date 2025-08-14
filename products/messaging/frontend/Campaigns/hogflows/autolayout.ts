@@ -45,12 +45,14 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         layoutOptions: elkOptions,
         children: nodes.map((node) => {
             const handles =
-                node.handles?.map((h) => ({
-                    id: h.id || `${node.id}_${h.type}`,
-                    properties: {
-                        side: getElkPortSide(h.position),
-                    },
-                })) || []
+                node.handles
+                    ?.sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+                    .map((h) => ({
+                        id: h.id || `${node.id}_${h.type}`,
+                        properties: {
+                            side: getElkPortSide(h.position),
+                        },
+                    })) || []
 
             return {
                 ...node,

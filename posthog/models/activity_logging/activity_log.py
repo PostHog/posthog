@@ -63,17 +63,19 @@ ActivityScope = Literal[
     "Tag",
     "TaggedItem",
     "Subscription",
-    "AlertConfiguration",
     "PersonalAPIKey",
     "User",
     "Action",
+    "AlertConfiguration",
+    "Threshold",
+    "AlertSubscription",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: ActivityScope
+    type: ActivityScope | str
     action: ChangeAction
     field: Optional[str] = None
     before: Optional[Any] = None
@@ -116,6 +118,8 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
             return str(obj)
+        if isinstance(obj, UUID):
+            return str(obj)
         if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
             return {"first_name": obj.first_name, "email": obj.email}
         if isinstance(obj, float):
@@ -133,6 +137,13 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "team_id": obj.team_id,
                 "deleted": obj.deleted,
                 "active": obj.active,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
+            return {
+                "id": obj.id,
+                "short_id": obj.short_id,
+                "name": obj.name,
+                "team_id": obj.team_id,
             }
 
         return json.JSONEncoder.default(self, obj)
@@ -210,6 +221,13 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "PersonalAPIKey": [
         "last_used_at",
+    ],
+    "AlertConfiguration": [
+        "last_checked_at",
+        "next_check_at",
+        "is_calculating",
+        "last_notified_at",
+        "last_error_at",
     ],
 }
 
@@ -362,7 +380,11 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "strapi_id",
     ],
     "AlertConfiguration": [
-        "state",
+        "last_checked_at",
+        "next_check_at",
+        "is_calculating",
+        "last_notified_at",
+        "last_error_at",
     ],
     "Action": [
         "bytecode",

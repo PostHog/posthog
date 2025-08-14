@@ -38,27 +38,25 @@ function compactJSON(x: unknown) {
 /* ---------- naming ---------- */
 
 function displayName(logic: BuiltLogic): string {
-    const parts = logic.pathString.split('.')
+    if (!logic || !logic.path || !logic.path.length) {
+        return 'Unknown logic'
+    }
+    const parts = logic.path
     const hasKey = typeof logic.key !== 'undefined'
 
     if (hasKey && parts.length >= 2) {
-        const keyStr = String((logic as any).key)
-        const keyIndex = parts.lastIndexOf(keyStr)
-        if (keyIndex > 0) {
-            const name = parts[keyIndex - 1]
-            return `${name}.${keyStr}`
-        }
+        return parts.slice(-2).map(String).join('.')
     }
 
-    return parts[parts.length - 1]
+    return String(parts[parts.length - 1] || 'Unknown logic')
 }
 
 /** size metric → used for a subtle tint & node size */
 function logicSize(logic: BuiltLogic): number {
-    const c = Math.max(0, Object.keys((logic as any).connections || {}).length - 1)
-    const a = Object.keys((logic as any).actions || {}).length
-    const s = Object.keys((logic as any).selectors || {}).length
-    const v = Object.keys((logic as any).values || {}).length
+    const c = Math.max(0, Object.keys((logic as any)?.connections || {}).length - 1)
+    const a = Object.keys((logic as any)?.actions || {}).length
+    const s = Object.keys((logic as any)?.selectors || {}).length
+    const v = Object.keys((logic as any)?.values || {}).length
     return c + a + s + v
 }
 
@@ -432,7 +430,6 @@ function GraphTab({
                         b.vy -= ry
                     }
 
-                    // hard non-overlap
                     const minD = a.size + b.size + COLLISION_PAD
                     if (dist < minD) {
                         const overlap = minD - dist
