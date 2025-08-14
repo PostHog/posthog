@@ -162,20 +162,6 @@ impl InFlightTracker {
         (message_id, handle)
     }
 
-    /// Mark a message as completed (called by the message wrapper)
-    pub async fn complete_message(&self, message_id: u64, result: MessageResult) {
-        // Update global counters
-        match result {
-            MessageResult::Success => {
-                self.completed_count.fetch_add(1, Ordering::SeqCst);
-                debug!("Completed message: id={}", message_id);
-            }
-            MessageResult::Failed(ref error) => {
-                self.failed_count.fetch_add(1, Ordering::SeqCst);
-                warn!("Failed message: id={}, error={}", message_id, error);
-            }
-        }
-    }
 
     /// Process completion signals for all partitions
     pub async fn process_completions(&self) {
