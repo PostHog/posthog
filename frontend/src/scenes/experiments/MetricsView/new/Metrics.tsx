@@ -8,8 +8,8 @@ import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { experimentLogic } from '../../experimentLogic'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
-import { ResultDetails } from './ResultDetails'
 import { MetricsTable } from './MetricsTable'
+import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
@@ -45,6 +45,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     if (sharedMetrics) {
         metrics = [...metrics, ...sharedMetrics]
     }
+
+    const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
 
     return (
         <div className="mb-4 -mt-2">
@@ -86,8 +88,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         errors={errors}
                         isSecondary={!!isSecondary}
                         getInsightType={getInsightType}
+                        showDetailsModal={!showResultDetails}
                     />
-                    {metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary && (
+                    {showResultDetails && (
                         <div className="mt-4">
                             <ResultDetails
                                 metric={metrics[0] as ExperimentMetric}
