@@ -1,5 +1,8 @@
 # posthog-cli
 
+## 0.4.2
+- fix url encoded sourcemaps
+
 ## 0.4.1
 - add remote url to release metadata
 
