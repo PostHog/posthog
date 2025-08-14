@@ -87,8 +87,6 @@ impl FlagRequest {
             }
         };
 
-        // Smart replacement that only affects unquoted values (preserves quoted strings)
-        // This matches Python decide endpoint behavior: parse_constant=lambda x: None
         let sanitized_payload = Self::sanitize_unquoted_non_finite_values(&payload);
 
         match serde_json::from_str::<FlagRequest>(&sanitized_payload) {
