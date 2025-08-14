@@ -11,6 +11,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from ee.billing.billing_manager import BillingManager
+from posthog.cloud_utils import get_cached_instance_license
 
 logger = structlog.get_logger(__name__)
 
@@ -37,9 +39,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         rows_synced = 0
 
         try:
-            from ee.billing.billing_manager import BillingManager
-            from posthog.cloud_utils import get_cached_instance_license
-
             billing_manager = BillingManager(get_cached_instance_license())
             org_billing = billing_manager.get_billing(organization=self.team.organization)
 
