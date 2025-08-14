@@ -5,8 +5,12 @@ import React from 'react'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
-import { ConversationDetail, ConversationStatus } from '~/types'
 import { initKeaTests } from '~/test/init'
+import { ConversationDetail, ConversationStatus } from '~/types'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
+import { router } from 'kea-router'
+import * as notebooksModel from '~/models/notebooksModel'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -19,6 +23,7 @@ import {
     MOCK_TEMP_CONVERSATION_ID,
     mockStream,
 } from './testUtils'
+import { urls } from 'scenes/urls'
 
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
@@ -53,12 +58,6 @@ describe('maxThreadLogic', () => {
         // Stop any active streaming in the thread logic
         if (logic.cache?.generationController) {
             logic.cache.generationController.abort()
-        }
-
-        // Unmount the maxGlobalLogic
-        const maxGlobalLogicInstance = maxGlobalLogic.findMounted()
-        if (maxGlobalLogicInstance) {
-            maxGlobalLogicInstance.unmount()
         }
 
         sidePanelStateLogic.unmount()
@@ -646,6 +645,74 @@ describe('maxThreadLogic', () => {
                     },
                 ],
             })
+        })
+    })
+
+    describe('processNotebookUpdate', () => {
+        it('navigates to notebook when not already on notebook page', async () => {
+            router.actions.push(urls.max())
+
+            // Mock openNotebook to track its calls
+            const openNotebookSpy = jest.spyOn(notebooksModel, 'openNotebook')
+            openNotebookSpy.mockImplementation(async (notebookId, _target, _, callback) => {
+                const logic = notebookLogic({ shortId: notebookId })
+                logic.mount()
+                if (callback) {
+                    callback(logic)
+                }
+                router.actions.push(urls.notebook(notebookId))
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate('test-notebook-id', { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(openNotebookSpy).toHaveBeenCalledWith(
+                'test-notebook-id',
+                NotebookTarget.Scene,
+                undefined,
+                expect.any(Function)
+            )
+            expect(router.values.location.pathname).toContain(urls.notebook('test-notebook-id'))
+        })
+
+        it('updates existing notebook when already on notebook page', async () => {
+            const notebookId = 'test-notebook-id'
+            router.actions.push(urls.notebook(notebookId))
+
+            const notebookLogicInstance = notebookLogic({ shortId: notebookId })
+            notebookLogicInstance.mount()
+
+            // Create spies BEFORE calling the action
+            const setLocalContentSpy = jest.spyOn(notebookLogicInstance.actions, 'setLocalContent')
+            const findMountedSpy = jest.spyOn(notebookLogic, 'findMounted')
+            findMountedSpy.mockReturnValue(notebookLogicInstance)
+            const routerActionsSpy = jest.spyOn(router.actions, 'push')
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(findMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
+            expect(routerActionsSpy).not.toHaveBeenCalled()
+            expect(setLocalContentSpy).toHaveBeenCalledWith({ type: 'doc', content: [] }, true, true)
+        })
+
+        it('handles gracefully when notebook logic is not mounted on notebook page', async () => {
+            const notebookId = 'test-notebook-id'
+            router.actions.push(urls.notebook(notebookId))
+
+            // Create spies BEFORE calling the action
+            const routerActionsSpy = jest.spyOn(router.actions, 'push')
+            const notebookLogicFindMountedSpy = jest.spyOn(notebookLogic, 'findMounted')
+            notebookLogicFindMountedSpy.mockReturnValue(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(notebookLogicFindMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
+            expect(routerActionsSpy).not.toHaveBeenCalled()
         })
     })
 
