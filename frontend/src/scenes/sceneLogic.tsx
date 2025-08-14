@@ -403,12 +403,10 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeExportedScene, s.sceneParams, s.activeTabId],
             (activeExportedScene, sceneParams, activeTabId): BuiltLogic | null => {
                 if (activeExportedScene?.logic) {
-                    // if (!logicTabId || logicTabId === activeTabId) {
                     return activeExportedScene.logic.build({
                         ...activeExportedScene.paramsToProps?.(sceneParams),
                         tabId: activeTabId,
                     })
-                    // }
                 }
 
                 return null
