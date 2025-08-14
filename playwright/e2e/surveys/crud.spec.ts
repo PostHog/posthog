@@ -135,7 +135,9 @@ test.describe('CRUD Survey', () => {
 
         await page.locator('.LemonTabs').getByText('Overview').click()
         await expect(page.getByText('Display conditions summary')).toBeVisible()
-        await expect(page.getByText('Surveys will be displayed to everyone')).toBeVisible()
+        await expect(
+            page.getByText('Surveys will be displayed to users that match the following conditions')
+        ).toBeVisible()
 
         await deleteSurvey(page, name)
     })
