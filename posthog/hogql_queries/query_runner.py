@@ -37,6 +37,7 @@ from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    AnalyticsQueryResponseBase,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
@@ -1149,6 +1150,27 @@ class QueryRunnerWithHogQLContext(QueryRunner):
         # so we'll reuse this database for the query once it eventually runs
         self.database = create_hogql_database(team=self.team)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
+
+
+# Type constraint for analytics query responses
+AR = TypeVar("AR", bound=AnalyticsQueryResponseBase)
+
+
+class AnalyticsQueryRunner(QueryRunner[Q, AR, CR], Generic[Q, AR, CR]):
+    """
+    QueryRunner subclass that constrains the response type to AnalyticsQueryResponseBase.
+
+    This ensures that all responses from analytics query runners have the standard fields:
+    - error: Optional[str] - Query error information
+    - hogql: Optional[str] - Generated HogQL query
+    - modifiers: Optional[HogQLQueryModifiers] - Query modifiers used
+    - query_status: Optional[QueryStatus] - Query execution status
+    - resolved_date_range: Optional[ResolvedDateRangeResponse] - Date range used
+    - results: Any - Query results data
+    - timings: Optional[list[QueryTiming]] - Performance timing information
+    """
+
+    pass
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE
