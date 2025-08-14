@@ -6,14 +6,23 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import api from 'lib/api'
 
-import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, ProductKey, SidePanelTab } from '~/types'
+import {
+    AvailableFeature,
+    BillingFeatureType,
+    BillingPlan,
+    BillingType,
+    ProductKey,
+    SidePanelTab,
+    ConversationDetail,
+} from '~/types'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
@@ -208,6 +217,9 @@ export function SidePanelSupport(): JSX.Element {
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
 
+    const [maxConversation, setMaxConversation] = useState<ConversationDetail | null>(null)
+    const [conversationLoading, setConversationLoading] = useState(false)
+
     const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
     const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
@@ -223,17 +235,122 @@ export function SidePanelSupport(): JSX.Element {
     const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
     const isBillingLoaded = !billingLoading && billing !== undefined
 
+    // Fetch the most recent Max AI conversation
+    useEffect(() => {
+        const fetchMaxConversation = async (): Promise<void> => {
+            if (showMaxAI && !maxConversation && !conversationLoading) {
+                setConversationLoading(true)
+                try {
+                    const response = await api.conversations.list()
+                    if (response.results && response.results.length > 0) {
+                        // Get the most recent conversation
+                        const mostRecent = response.results[0]
+                        if (mostRecent.messages && mostRecent.messages.length > 0) {
+                            setMaxConversation(mostRecent)
+                        }
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch Max AI conversation:', error)
+                } finally {
+                    setConversationLoading(false)
+                }
+            }
+        }
+
+        fetchMaxConversation()
+    }, [showMaxAI, maxConversation, conversationLoading])
+
+    const formatMaxConversation = (): string => {
+        if (!maxConversation || !maxConversation.messages || maxConversation.messages.length === 0) {
+            return ''
+        }
+
+        const conversationText = maxConversation.messages
+            .map((message) => {
+                let content = ''
+                let role = ''
+
+                switch (message.type) {
+                    case 'human':
+                        role = 'User'
+                        content =
+                            typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+                        break
+                    case 'ai':
+                        role = 'Max AI'
+                        content =
+                            typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+                        break
+                    case 'ai/reasoning':
+                        role = 'Max AI (Reasoning)'
+                        content =
+                            typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+                        break
+                    case 'ai/viz':
+                        role = 'Max AI (Visualization)'
+                        content = `Visualization: ${(message as any).query || ''}`
+                        break
+                    case 'ai/failure':
+                        role = 'Max AI (Error)'
+                        content = typeof message.content === 'string' ? message.content : 'Error occurred'
+                        break
+                    case 'tool':
+                        role = 'Max AI (Tool)'
+                        content = `Tool call: ${typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}`
+                        break
+                    case 'ai/notebook':
+                        role = 'Max AI (Notebook)'
+                        content = 'Notebook update'
+                        break
+                    default:
+                        role = message.type
+                        content = JSON.stringify(message)
+                }
+
+                return `**${role}:** ${content}`
+            })
+            .join('\n\n')
+
+        return `\n\n----- Max AI Conversation -----\n${conversationText}\n----- End Max AI Conversation -----`
+    }
+
     const handleOpenEmailForm = (): void => {
         if (showEmailSupport && isBillingLoaded) {
+            // Include Max AI conversation in the support ticket if available
+            const conversationText = formatMaxConversation()
+            if (conversationText) {
+                // Get current message and append the conversation
+                const currentMessage = supportLogic.values.sendSupportRequest.message
+                const newMessage = currentMessage + conversationText
+                supportLogic.actions.setSendSupportRequestValue('message', newMessage)
+            }
             openEmailForm()
         }
     }
 
     const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
         const { featureFlags } = useValues(featureFlagLogic)
+        const conversationText = formatMaxConversation()
 
         return (
             <Section title="Email an engineer">
+                {conversationText && (
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                        <strong>📝 Max AI Conversation Included</strong>
+                        <p className="mt-1 mb-0 text-muted">
+                            Your most recent Max AI conversation will be automatically included in this support ticket
+                            to provide context.
+                        </p>
+                    </div>
+                )}
+                {conversationLoading && (
+                    <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded text-sm">
+                        <strong>⏳ Loading Max AI Conversation...</strong>
+                        <p className="mt-1 mb-0 text-muted">
+                            Fetching your recent Max AI conversation to include in the support ticket.
+                        </p>
+                    </div>
+                )}
                 <SupportForm />
                 <LemonButton
                     form="support-modal-form"
@@ -321,6 +438,10 @@ export function SidePanelSupport(): JSX.Element {
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
                                     <p>Can't find what you need and Max unable to help?</p>
+                                    <p className="text-sm text-muted mb-2">
+                                        💡 <strong>Pro tip:</strong> Your most recent Max AI conversation will be
+                                        automatically included in support tickets for better context.
+                                    </p>
                                     <LemonButton
                                         type="secondary"
                                         fullWidth
