@@ -47,7 +47,7 @@ fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 fn get_remote_url(git_dir: &Path) -> Option<String> {
-    // Try grab it from the configured remote, otherwise just use the directory name
+    // Try grab it from the git config
     let config_path = git_dir.join("config");
     if config_path.exists() {
         let config_content = match fs::read_to_string(&config_path) {
