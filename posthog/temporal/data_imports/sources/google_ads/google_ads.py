@@ -14,7 +14,7 @@ from google.ads.googleads.v19.services import types as ga_services
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
-from posthog.models import Integration
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
