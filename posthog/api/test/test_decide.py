@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import base64
 import json
 import random
@@ -2401,7 +2402,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert self.team is not None
         self.team.save()
         self.client.logout()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         Person.objects.create(
@@ -4924,10 +4925,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
 
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from datetime import datetime
 from typing import cast
@@ -169,10 +170,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Create test groups with enough variance for Bayesian testing
         from posthog.models.group.util import create_group
-        from posthog.models.group_type_mapping import GroupTypeMapping
 
         group_type_index: GroupTypeIndex = 0
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=group_type_index,

@@ -1,3 +1,4 @@
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import itertools
 import re
 import zoneinfo
@@ -25,7 +26,6 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import (
     BREAKDOWN_OTHER_DISPLAY,
     TrendsQueryRunner,
 )
-from posthog.models import GroupTypeMapping
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
@@ -232,10 +232,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 
