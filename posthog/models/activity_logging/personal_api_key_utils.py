@@ -172,8 +172,10 @@ def log_personal_api_key_scope_change(
                 user_id=after_api_key.user_id,
                 user_email=after_api_key.user.email,
                 user_name=after_api_key.user.get_full_name(),
-                organization_name=get_organization_name(log_entry["organization_id"]) if team_id is None else None,
-                team_name=get_team_name(team_id) if team_id is not None else None,
+                organization_name=get_organization_name(log_entry["organization_id"])
+                if log_entry["organization_id"]
+                else None,
+                team_name=get_team_name(team_id) if team_id else None,
             ),
         )
 
@@ -224,29 +226,24 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
         team_id = None
         if api_key.user.current_team and str(api_key.user.current_team.organization_id) == org_id:
             team_id = api_key.user.current_team.id
-        else:
-            team = Team.objects.filter(organization_id=org_id).first()
-            if team:
-                team_id = team.id
 
-        if team_id is not None:
-            log_activity(
-                organization_id=uuid.UUID(org_id),
-                team_id=team_id,
-                user=user,
-                was_impersonated=was_impersonated,
-                item_id=api_key.id,
-                scope="PersonalAPIKey",
-                activity=activity,
-                detail=Detail(
-                    changes=changes,
-                    name=api_key.label,
-                    context=PersonalAPIKeyContext(
-                        user_id=api_key.user_id,
-                        user_email=api_key.user.email,
-                        user_name=api_key.user.get_full_name(),
-                        organization_name=None,  # Regular activity logs are always team-level
-                        team_name=get_team_name(team_id),
-                    ),
+        log_activity(
+            organization_id=uuid.UUID(org_id),
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=api_key.id,
+            scope="PersonalAPIKey",
+            activity=activity,
+            detail=Detail(
+                changes=changes,
+                name=api_key.label,
+                context=PersonalAPIKeyContext(
+                    user_id=api_key.user_id,
+                    user_email=api_key.user.email,
+                    user_name=api_key.user.get_full_name(),
+                    organization_name=get_organization_name(org_id),
+                    team_name=get_team_name(team_id),
                 ),
-            )
+            ),
+        )
