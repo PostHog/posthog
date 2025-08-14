@@ -32,12 +32,12 @@ export function App(): JSX.Element | null {
 
     // Old style persistence - no tabs, keep all loaded logics around forever ("turbo mode")
     // New style persistence - keep all open tabs around, discard logics when a tab is closed
-    const useLogicTurboModePersistence = !featureFlags[FEATURE_FLAGS.SCENE_TABS]
+    const useTurboModePersistence = !featureFlags[FEATURE_FLAGS.SCENE_TABS]
 
     if (showApp) {
         return (
             <>
-                {useLogicTurboModePersistence ? null : <LoadedSceneLogics />}
+                {useTurboModePersistence ? <LoadedSceneLogics /> : null}
                 <AppScene />
                 {showingDevTools ? <KeaDevtools /> : null}
             </>
