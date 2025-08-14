@@ -179,6 +179,16 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
                     const url = URL.createObjectURL(blob)
 
+                    /**
+                     * Tracks all active ObjectURLs per rrweb node id (canvas/image container).
+                     * Rationale:
+                     * - URL.createObjectURL allocates; relying only on img.onload to revoke leaks if src is replaced before load fires.
+                     * Strategy:
+                     * - When generating a new frame, track its URL, set img.src to it, then revoke all other URLs for that id.
+                     * - On load/error of the current frame, revoke that URL and remove it from the set.
+                     * - When a set becomes empty, remove the id entry.
+                     * Effect: prevents ObjectURL leaks and keeps memory bounded during fast updates/skip-inactivity bursts.
+                     */
                     trackUrl(data.id, url)
 
                     const done: () => void = () => {
@@ -192,6 +202,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     // Now that the new src is applied, revoke everything else
                     revokeAllForIdExcept(data.id, url)
                 },
+                // ensures transparency is possible
                 'image/webp',
                 0.4
             )
@@ -263,7 +274,6 @@ const handleMutationError = (error: unknown): void => {
     posthog.captureException(error)
 }
 
-// helpers near the top of CanvasReplayerPlugin
 const objectUrlsById = new Map<number, Set<string>>()
 
 const trackUrl = (id: number, url: string): void => {
