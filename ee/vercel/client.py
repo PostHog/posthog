@@ -30,28 +30,21 @@ class VercelAPIClient:
 
         try:
             response = self.session.post(url, json={"items": items})
-            if response.status_code == 204:
-                logger.info(
-                    "Successfully created Vercel experimentation items",
-                    integration_config_id=integration_config_id,
-                    resource_id=resource_id,
-                    item_count=len(items),
-                )
-                return True
-            else:
-                logger.error(
-                    "Failed to create Vercel experimentation items",
-                    integration_config_id=integration_config_id,
-                    resource_id=resource_id,
-                    status_code=response.status_code,
-                    response_text=response.text,
-                )
-                return False
+            response.raise_for_status()
+            logger.info(
+                "Successfully created Vercel experimentation items",
+                integration_config_id=integration_config_id,
+                resource_id=resource_id,
+                item_count=len(items),
+            )
+            return True
         except Exception:
             logger.exception(
                 "Error occurred while creating Vercel experimentation items",
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
+                status_code=getattr(response, "status_code", None),
+                response_text=getattr(response, "text", None),
             )
             return False
 
@@ -62,30 +55,22 @@ class VercelAPIClient:
 
         try:
             response = self.session.patch(url, json=data)
-            if response.status_code == 204:
-                logger.info(
-                    "Successfully updated Vercel experimentation item",
-                    integration_config_id=integration_config_id,
-                    resource_id=resource_id,
-                    item_id=item_id,
-                )
-                return True
-            else:
-                logger.error(
-                    "Failed to update Vercel experimentation item",
-                    integration_config_id=integration_config_id,
-                    resource_id=resource_id,
-                    item_id=item_id,
-                    status_code=response.status_code,
-                    response_text=response.text,
-                )
-                return False
+            response.raise_for_status()
+            logger.info(
+                "Successfully updated Vercel experimentation item",
+                integration_config_id=integration_config_id,
+                resource_id=resource_id,
+                item_id=item_id,
+            )
+            return True
         except Exception:
             logger.exception(
                 "Error occurred while updating Vercel experimentation item",
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
                 item_id=item_id,
+                status_code=getattr(response, "status_code", None),
+                response_text=getattr(response, "text", None),
             )
             return False
 
@@ -94,30 +79,22 @@ class VercelAPIClient:
 
         try:
             response = self.session.delete(url)
-            if response.status_code == 204:
-                logger.info(
-                    "Successfully deleted Vercel experimentation item",
-                    integration_config_id=integration_config_id,
-                    resource_id=resource_id,
-                    item_id=item_id,
-                )
-                return True
-            else:
-                logger.error(
-                    "Failed to delete Vercel experimentation item",
-                    integration_config_id=integration_config_id,
-                    resource_id=resource_id,
-                    item_id=item_id,
-                    status_code=response.status_code,
-                    response_text=response.text,
-                )
-                return False
+            response.raise_for_status()
+            logger.info(
+                "Successfully deleted Vercel experimentation item",
+                integration_config_id=integration_config_id,
+                resource_id=resource_id,
+                item_id=item_id,
+            )
+            return True
         except Exception:
             logger.exception(
                 "Error occurred while deleting Vercel experimentation item",
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
                 item_id=item_id,
+                status_code=getattr(response, "status_code", None),
+                response_text=getattr(response, "text", None),
             )
             return False
 
@@ -147,25 +124,18 @@ class VercelAPIClient:
         try:
             headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
             response = self.session.post(url, data=data, headers=headers)
-
-            if response.status_code == 200:
-                logger.info(
-                    "Successfully exchanged Vercel SSO token",
-                    client_id=client_id,
-                    has_state=state is not None,
-                )
-                return response.json()
-            else:
-                logger.error(
-                    "Failed to exchange Vercel SSO token",
-                    client_id=client_id,
-                    status_code=response.status_code,
-                    response_text=response.text,
-                )
-                return None
+            response.raise_for_status()
+            logger.info(
+                "Successfully exchanged Vercel SSO token",
+                client_id=client_id,
+                has_state=state is not None,
+            )
+            return response.json()
         except Exception:
             logger.exception(
                 "Error occurred while exchanging Vercel SSO token",
                 client_id=client_id,
+                status_code=getattr(response, "status_code", None),
+                response_text=getattr(response, "text", None),
             )
             return None
