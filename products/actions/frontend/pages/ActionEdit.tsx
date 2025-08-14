@@ -349,6 +349,17 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                         </>
                     }
                 >
+                    {!newSceneLayout && (
+                        <>
+                            <h2 className="subtitle">Match groups</h2>
+                            <p>
+                                Your action will be triggered whenever <b>any of your match groups</b> are received.
+                                <Link to="https://posthog.com/docs/data/actions" target="_blank">
+                                    <IconInfo className="ml-1 text-secondary text-xl" />
+                                </Link>
+                            </p>
+                        </>
+                    )}
                     {actionLoading ? (
                         <div className="flex gap-2">
                             <LemonSkeleton className="w-1/2 h-[261px]" />
@@ -402,7 +413,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 </SceneSection>
             </Form>
             {newSceneLayout ? <SceneDivider /> : <div className="h-4" />}
-            xxx
             {id && (
                 <>
                     <SceneSection
@@ -414,6 +424,14 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                             </>
                         }
                     >
+                        {!newSceneLayout && (
+                            <div className="mt-8">
+                                <h2 className="subtitle">Matching events</h2>
+                                <p>
+                                    This is the list of <strong>recent</strong> events that match this action.
+                                </p>
+                            </div>
+                        )}
                         {isComplete ? (
                             <Query
                                 query={{
