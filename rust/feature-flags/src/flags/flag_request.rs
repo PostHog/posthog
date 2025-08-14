@@ -85,7 +85,14 @@ impl FlagRequest {
             }
         };
 
-        match serde_json::from_str::<FlagRequest>(&payload) {
+        // Simple string replacement to handle JavaScript's non-standard JSON values
+        // This matches Python decide endpoint behavior: parse_constant=lambda x: None
+        let sanitized_payload = payload
+            .replace("-Infinity", "null")
+            .replace("Infinity", "null")
+            .replace("NaN", "null");
+        
+        match serde_json::from_str::<FlagRequest>(&sanitized_payload) {
             Ok(request) => Ok(request),
             Err(e) => {
                 tracing::debug!("failed to parse JSON: {}", e);
@@ -223,6 +230,24 @@ mod tests {
 
         // First verify the field is None
         assert_eq!(flag_payload.distinct_id, Option::<String>::None);
+    }
+
+    #[test]
+    fn json_sanitization_handles_nan_infinity() {
+        // Test NaN variations - these should parse successfully with NaN converted to null
+        let json_with_nan = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": NaN}}"#;
+        let request = FlagRequest::from_bytes(Bytes::from(json_with_nan)).expect("Should handle NaN");
+        assert_eq!(request.person_properties.as_ref().unwrap()["nan"], json!(null));
+
+        // Test Infinity variations
+        let json_with_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"infinity": Infinity}}"#;
+        let request = FlagRequest::from_bytes(Bytes::from(json_with_infinity)).expect("Should handle Infinity");
+        assert_eq!(request.person_properties.as_ref().unwrap()["infinity"], json!(null));
+
+        // Test negative Infinity
+        let json_with_neg_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"neg_infinity": -Infinity}}"#;
+        let request = FlagRequest::from_bytes(Bytes::from(json_with_neg_infinity)).expect("Should handle -Infinity");
+        assert_eq!(request.person_properties.as_ref().unwrap()["neg_infinity"], json!(null));
     }
 
     #[test]
