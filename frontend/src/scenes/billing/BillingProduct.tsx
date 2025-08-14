@@ -54,11 +54,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         currentAndUpgradePlans,
         surveyID,
         billingProductLoading,
-        isSessionReplayWithAddons,
+        isProductWithVariants,
         visibleAddons,
         variantExpandedStates,
         projectedAmountExcludingAddons,
-        sessionReplayVariants,
+        productVariants,
         combinedMonetaryData,
         combinedGaugeItems,
     } = useValues(billingProductLogic({ product }))
@@ -190,8 +190,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </LemonBanner>
                     )}
 
-                    {/* Combined monetary gauge for variants */}
-                    {isSessionReplayWithAddons && (
+                    {/* Combined monetary gauge for product variants */}
+                    {isProductWithVariants && (
                         <div className="mt-6 mb-4 ml-2">
                             <div className="grid grid-cols-[1fr_130px_100px] gap-4 items-center">
                                 <div>
@@ -237,9 +237,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
 
                     {/* Product variants display (session replay + mobile replay) */}
-                    {sessionReplayVariants && product.subscribed && !isUnlicensedDebug ? (
+                    {productVariants && product.subscribed && !isUnlicensedDebug ? (
                         <div className="space-y-4 mt-4">
-                            {sessionReplayVariants.map(
+                            {productVariants.map(
                                 (variant: {
                                     key: string
                                     product: BillingProductV2Type | BillingProductV2AddonType
@@ -415,7 +415,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 <div className="font-bold text-3xl leading-7">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
-                                                                            isSessionReplayWithAddons
+                                                                            isProductWithVariants
                                                                                 ? product.current_amount_usd_before_addons ||
                                                                                       '0'
                                                                                 : product.current_amount_usd || '0'
@@ -506,7 +506,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
 
                     {/* Add-ons (hide for session replay variants) */}
-                    {product.addons?.length > 0 && !isSessionReplayWithAddons && (
+                    {product.addons?.length > 0 && !isProductWithVariants && (
                         <div className="pb-8">
                             {/* Legacy teams addon */}
                             {product.type === 'platform_and_support' &&
@@ -556,7 +556,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                 {/* Billing limit */}
                 {!isTemporaryFreeProduct && (
-                    <div className={isSessionReplayWithAddons ? 'mt-8' : ''}>
+                    <div className={isProductWithVariants ? 'mt-8' : ''}>
                         <BillingLimit product={product} />
                     </div>
                 )}

@@ -377,15 +377,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     .join('\n')
             },
         ],
-        isSessionReplayWithAddons: [
+        isProductWithVariants: [
             (_s, p) => [p.product],
             (product): boolean =>
                 product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0,
         ],
         projectedAmountExcludingAddons: [
-            (s, p) => [s.isSessionReplayWithAddons, p.product],
-            (isVariantMode, product): string => {
-                if (!isVariantMode) {
+            (s, p) => [s.isProductWithVariants, p.product],
+            (isProductWithVariants, product): string => {
+                if (!isProductWithVariants) {
                     return product.projected_amount_usd || '0'
                 }
 
@@ -406,44 +406,44 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return Math.max(0, totalProjected - addonProjected).toFixed(2)
             },
         ],
-        sessionReplayVariants: [
-            (s, p) => [s.isSessionReplayWithAddons, p.product],
+        productVariants: [
+            (s, p) => [s.isProductWithVariants, p.product],
             (
-                hasVariants: boolean,
+                isProductWithVariants: boolean,
                 product: BillingProductV2Type
             ): Array<{
                 key: string
                 product: BillingProductV2Type | BillingProductV2AddonType
                 displayName: string
             }> | null => {
-                if (!hasVariants) {
+                if (!isProductWithVariants) {
                     return null
                 }
 
-                const mainProduct = product as BillingProductV2Type
-                const mobileReplay = mainProduct.addons?.find(
-                    (a: BillingProductV2AddonType) => a.type === 'mobile_replay'
-                )
+                const displayNameOverrides: Record<string, string> = {
+                    session_replay: 'Web session replay',
+                }
 
+                const mainProduct = product as BillingProductV2Type
                 const variants: Array<{
                     key: string
                     product: BillingProductV2Type | BillingProductV2AddonType
                     displayName: string
                 }> = [
                     {
-                        key: 'session_replay',
+                        key: mainProduct.type,
                         product: mainProduct as BillingProductV2Type | BillingProductV2AddonType,
-                        displayName: 'Session Replay (Web)',
+                        displayName: displayNameOverrides[mainProduct.type] || mainProduct.name,
                     },
                 ]
 
-                if (mobileReplay) {
+                mainProduct.addons?.forEach((addon) => {
                     variants.push({
-                        key: 'mobile_replay',
-                        product: mobileReplay as BillingProductV2Type | BillingProductV2AddonType,
-                        displayName: 'Mobile Replay',
+                        key: addon.type,
+                        product: addon as BillingProductV2Type | BillingProductV2AddonType,
+                        displayName: displayNameOverrides[addon.type] || addon.name,
                     })
-                }
+                })
 
                 return variants
             },

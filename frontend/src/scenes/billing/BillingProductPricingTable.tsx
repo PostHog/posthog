@@ -29,7 +29,7 @@ export const BillingProductPricingTable = ({
     usageKey?: string
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
-    const { isSessionReplayWithAddons, projectedAmountExcludingAddons } = useValues(billingProductLogic({ product }))
+    const { isProductWithVariants, projectedAmountExcludingAddons } = useValues(billingProductLogic({ product }))
 
     const showProjectedTotalWithLimitTooltip =
         'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
@@ -71,7 +71,7 @@ export const BillingProductPricingTable = ({
                       addon.tiers?.length > 0 &&
                       (addon.subscribed || addon.inclusion_only) &&
                       // Exclude mobile replay when showing as variants
-                      !(isSessionReplayWithAddons && addon.type === 'mobile_replay')
+                      !(isProductWithVariants && addon.type === 'mobile_replay')
               )
             : []
 
@@ -180,7 +180,7 @@ export const BillingProductPricingTable = ({
                           basePrice: '',
                           usage: '',
                           total: `$${
-                              isSessionReplayWithAddons
+                              isProductWithVariants
                                   ? product.tiers
                                         ?.reduce((sum, tier) => sum + parseFloat(tier.current_amount_usd || '0'), 0)
                                         .toFixed(2) || '0.00'
@@ -203,7 +203,7 @@ export const BillingProductPricingTable = ({
                                             : 0)
                                     ).toFixed(2)
                           }`,
-                          projectedTotal: isSessionReplayWithAddons
+                          projectedTotal: isProductWithVariants
                               ? `$${projectedAmountExcludingAddons || '0.00'}`
                               : `$${product.projected_amount_usd || '0.00'}`,
                           subrows: { rows: [], columns: [] },
