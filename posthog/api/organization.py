@@ -43,7 +43,7 @@ from posthog.exceptions_capture import capture_exception
 from drf_spectacular.utils import extend_schema
 from posthog.event_usage import report_organization_action
 
-# We have a few organizations that cannot load due to having too many projects.
+# We have a few organizations that cannot load due the app to having too many projects.
 # We're working on a longer term solution but this will allow them to load the dashboard for now.
 LIMIT_ORGANIZATION_PROJECTS_LOADED = [
     "018e17ae-3c3f-0000-ab62-bf615527ca2b",
