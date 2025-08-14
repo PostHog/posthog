@@ -195,42 +195,43 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=",".join(session_ids),
     )
-    try:
-        # Check if patterns extracted are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
-        await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-            target_class=RawSessionGroupSummaryPatternsList,
-        )
-    except ValueError:
-        # Get session summaries from Redis
-        session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
-        # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
-        intermediate_session_summaries_str = [
-            json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
-            for session_summary_str in session_summaries_str
-        ]
-        patterns_extraction_prompt = generate_session_group_patterns_extraction_prompt(
-            session_summaries_str=intermediate_session_summaries_str, extra_summary_context=inputs.extra_summary_context
-        )
-        # Extract patterns from session summaries through LLM
-        patterns_extraction = await get_llm_session_group_patterns_extraction(
-            prompt=patterns_extraction_prompt,
-            user_id=inputs.user_id,
-            session_ids=session_ids,
-            model_to_use=inputs.model_to_use,
-            trace_id=temporalio.activity.info().workflow_id,
-        )
-        patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
-        # Store the extracted patterns in Redis
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            data=patterns_extraction_str,
-            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-        )
+    # Check if patterns extracted are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
+    success = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_output_key,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        target_class=RawSessionGroupSummaryPatternsList,
+    )
+    if success:
+        # Cached successfully
         return None
+    # Get session summaries from Redis
+    session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
+    intermediate_session_summaries_str = [
+        json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
+        for session_summary_str in session_summaries_str
+    ]
+    patterns_extraction_prompt = generate_session_group_patterns_extraction_prompt(
+        session_summaries_str=intermediate_session_summaries_str, extra_summary_context=inputs.extra_summary_context
+    )
+    # Extract patterns from session summaries through LLM
+    patterns_extraction = await get_llm_session_group_patterns_extraction(
+        prompt=patterns_extraction_prompt,
+        user_id=inputs.user_id,
+        session_ids=session_ids,
+        model_to_use=inputs.model_to_use,
+        trace_id=temporalio.activity.info().workflow_id,
+    )
+    patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
+    # Store the extracted patterns in Redis
+    await store_data_in_redis(
+        redis_client=redis_client,
+        redis_key=redis_output_key,
+        data=patterns_extraction_str,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    return None
 
 
 async def _generate_patterns_assignments_per_chunk(
@@ -320,93 +321,94 @@ async def assign_events_to_patterns_activity(
         output_label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
         state_id=",".join(session_ids),
     )
-    try:
-        # Check if patterns assignments are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
-        patterns_with_events_context = await get_data_class_from_redis(
+    # Check if patterns assignments are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
+    patterns_with_events_context = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_output_key,
+        label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
+        target_class=EnrichedSessionGroupSummaryPatternsList,
+    )
+    # Return if it's processed already
+    if patterns_with_events_context:
+        return patterns_with_events_context
+    # Get session summaries from Redis
+    session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
+    intermediate_session_summaries_str = [
+        json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
+        for session_summary_str in session_summaries_str
+    ]
+    # Split sessions summaries into chunks to keep context small-enough for LLM for proper assignment
+    # TODO: Run activity for each chunk instead to avoid retrying the whole activity if one chunk fails
+    # TODO: Split not by number of sessions, but by tokens, as with patterns extraction
+    session_summaries_chunks_str = [
+        intermediate_session_summaries_str[i : i + PATTERNS_ASSIGNMENT_CHUNK_SIZE]
+        for i in range(0, len(intermediate_session_summaries_str), PATTERNS_ASSIGNMENT_CHUNK_SIZE)
+    ]
+    # Get extracted patterns from Redis to be able to assign events to them
+    patterns_extraction = cast(
+        RawSessionGroupSummaryPatternsList,
+        await get_data_class_from_redis(
             redis_client=redis_client,
-            redis_key=redis_output_key,
-            label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
-            target_class=EnrichedSessionGroupSummaryPatternsList,
-        )
-    except ValueError:
-        # Get session summaries from Redis
-        session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
-        # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
-        intermediate_session_summaries_str = [
-            json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
-            for session_summary_str in session_summaries_str
-        ]
-        # Split sessions summaries into chunks to keep context small-enough for LLM for proper assignment
-        # TODO: Run activity for each chunk instead to avoid retrying the whole activity if one chunk fails
-        # TODO: Split not by number of sessions, but by tokens, as with patterns extraction
-        session_summaries_chunks_str = [
-            intermediate_session_summaries_str[i : i + PATTERNS_ASSIGNMENT_CHUNK_SIZE]
-            for i in range(0, len(intermediate_session_summaries_str), PATTERNS_ASSIGNMENT_CHUNK_SIZE)
-        ]
-        # Get extracted patterns from Redis to be able to assign events to them
-        patterns_extraction = cast(
-            RawSessionGroupSummaryPatternsList,
-            await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=redis_input_key,
-                label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-                target_class=RawSessionGroupSummaryPatternsList,
-            ),
-        )
-        # Assign events <> patterns through LLM calls in chunks to keep the content meaningful
-        patterns_assignments_list_of_lists = await _generate_patterns_assignments(
-            patterns=patterns_extraction,
-            session_summaries_chunks_str=session_summaries_chunks_str,
-            user_id=inputs.user_id,
-            session_ids=session_ids,
-            model_to_use=inputs.model_to_use,
-            extra_summary_context=inputs.extra_summary_context,
-            trace_id=temporalio.activity.info().workflow_id,
-        )
-        # Get single session summaries LLM inputs from Redis to be able to enrich the patterns collected
-        single_session_summaries_llm_inputs = await _get_session_group_single_session_summaries_inputs_from_redis(
-            redis_client=redis_client,
-            redis_input_keys=[
-                generate_state_key(
-                    key_base=single_session_input.redis_key_base,
-                    label=StateActivitiesEnum.SESSION_DB_DATA,
-                    state_id=single_session_input.session_id,
-                )
-                for single_session_input in inputs.single_session_summaries_inputs
-            ],
-        )
-        # Convert session summaries strings to objects to extract event-related data
-        session_summaries = [
-            load_session_summary_from_string(session_summary_str) for session_summary_str in session_summaries_str
-        ]
-        # Combine event ids mappings from all the sessions to identify events and sessions assigned to patterns
-        combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
-            single_session_summaries_inputs=single_session_summaries_llm_inputs
-        )
-        # Combine patterns assignments to have a single pattern-to-events list
-        combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
-            patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
-        )
-        # Combine patterns ids with full event ids (from DB) and previous/next events in the segment per each assigned event
-        pattern_id_to_event_context_mapping = combine_patterns_ids_with_events_context(
-            combined_event_ids_mappings=combined_event_ids_mappings,
-            combined_patterns_assignments=combined_patterns_assignments,
-            session_summaries=session_summaries,
-        )
-        # Combine patterns info (name, description, etc.) with enriched events context
-        patterns_with_events_context = combine_patterns_with_events_context(
-            patterns=patterns_extraction,
-            pattern_id_to_event_context_mapping=pattern_id_to_event_context_mapping,
-            session_ids=session_ids,
-            user_id=inputs.user_id,
-        )
-        patterns_with_events_context_str = patterns_with_events_context.model_dump_json(exclude_none=True)
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            data=patterns_with_events_context_str,
-            label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
-        )
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            target_class=RawSessionGroupSummaryPatternsList,
+        ),
+    )
+    # Assign events <> patterns through LLM calls in chunks to keep the content meaningful
+    patterns_assignments_list_of_lists = await _generate_patterns_assignments(
+        patterns=patterns_extraction,
+        session_summaries_chunks_str=session_summaries_chunks_str,
+        user_id=inputs.user_id,
+        session_ids=session_ids,
+        model_to_use=inputs.model_to_use,
+        extra_summary_context=inputs.extra_summary_context,
+        trace_id=temporalio.activity.info().workflow_id,
+    )
+    # Get single session summaries LLM inputs from Redis to be able to enrich the patterns collected
+    single_session_summaries_llm_inputs = await _get_session_group_single_session_summaries_inputs_from_redis(
+        redis_client=redis_client,
+        redis_input_keys=[
+            generate_state_key(
+                key_base=single_session_input.redis_key_base,
+                label=StateActivitiesEnum.SESSION_DB_DATA,
+                state_id=single_session_input.session_id,
+            )
+            for single_session_input in inputs.single_session_summaries_inputs
+        ],
+    )
+    # Convert session summaries strings to objects to extract event-related data
+    session_summaries = [
+        load_session_summary_from_string(session_summary_str) for session_summary_str in session_summaries_str
+    ]
+    # Combine event ids mappings from all the sessions to identify events and sessions assigned to patterns
+    combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
+        single_session_summaries_inputs=single_session_summaries_llm_inputs
+    )
+    # Combine patterns assignments to have a single pattern-to-events list
+    combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
+        patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
+    )
+    # Combine patterns ids with full event ids (from DB) and previous/next events in the segment per each assigned event
+    pattern_id_to_event_context_mapping = combine_patterns_ids_with_events_context(
+        combined_event_ids_mappings=combined_event_ids_mappings,
+        combined_patterns_assignments=combined_patterns_assignments,
+        session_summaries=session_summaries,
+    )
+    # Combine patterns info (name, description, etc.) with enriched events context
+    patterns_with_events_context = combine_patterns_with_events_context(
+        patterns=patterns_extraction,
+        pattern_id_to_event_context_mapping=pattern_id_to_event_context_mapping,
+        session_ids=session_ids,
+        user_id=inputs.user_id,
+    )
+    patterns_with_events_context_str = patterns_with_events_context.model_dump_json(exclude_none=True)
+    await store_data_in_redis(
+        redis_client=redis_client,
+        redis_key=redis_output_key,
+        data=patterns_with_events_context_str,
+        label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
+    )
     return patterns_with_events_context
 
 
@@ -419,61 +421,65 @@ async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatte
         output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=",".join(inputs.session_ids),
     )
-    try:
-        # Check if combined patterns are already in Redis (for all the sessions at once)
-        await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-            target_class=RawSessionGroupSummaryPatternsList,
-        )
-        return None  # Already exists, no need to regenerate
-    except ValueError:
-        # Retrieve all chunk patterns from Redis
-        chunk_patterns = []
-        for chunk_key in inputs.redis_keys_of_chunks_to_combine:
-            try:
-                chunk_pattern = await get_data_class_from_redis(
-                    redis_client=redis_client,
-                    redis_key=chunk_key,
-                    label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-                    target_class=RawSessionGroupSummaryPatternsList,
-                )
-                chunk_patterns.append(chunk_pattern)
-            except ValueError as err:
-                # Raise error if any chunk is missing
-                logger.exception(
-                    f"Failed to retrieve chunk patterns from Redis key {chunk_key} when combining patterns from chunks: {err}",
-                    redis_key=chunk_key,
-                    user_id=inputs.user_id,
-                    session_ids=inputs.session_ids,
-                )
-                raise
-        if not chunk_patterns:
-            raise ApplicationError(
-                f"No chunk patterns could be retrieved for sessions {inputs.session_ids} "
-                f"for user {inputs.user_id}. All chunks may be missing or corrupted."
+    # Check if combined patterns are already in Redis (for all the sessions at once)
+    success = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_output_key,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        target_class=RawSessionGroupSummaryPatternsList,
+    )
+    if success:
+        # Already exists, no need to regenerate
+        return None
+    # Retrieve all chunk patterns from Redis
+    chunk_patterns = []
+    for chunk_key in inputs.redis_keys_of_chunks_to_combine:
+        try:
+            chunk_pattern = await get_data_class_from_redis(
+                redis_client=redis_client,
+                redis_key=chunk_key,
+                label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+                target_class=RawSessionGroupSummaryPatternsList,
             )
-
-        # Generate prompt for combining patterns from chunks
-        combined_patterns_prompt = generate_session_group_patterns_combination_prompt(
-            patterns_chunks=chunk_patterns,
-            extra_summary_context=inputs.extra_summary_context,
+            if chunk_pattern is None:
+                # Raise error if chunk is missing
+                raise ValueError(f"Chunk patterns not found in Redis for key {chunk_key}")
+            chunk_patterns.append(chunk_pattern)
+        except ValueError as err:
+            # Raise error if any chunk is missing or malformed
+            logger.exception(
+                f"Failed to retrieve chunk patterns from Redis key {chunk_key} when combining patterns from chunks: {err}",
+                redis_key=chunk_key,
+                user_id=inputs.user_id,
+                session_ids=inputs.session_ids,
+            )
+            raise
+    if not chunk_patterns:
+        raise ApplicationError(
+            f"No chunk patterns could be retrieved for sessions {inputs.session_ids} "
+            f"for user {inputs.user_id}. All chunks may be missing or corrupted."
         )
 
-        # Use LLM to intelligently combine and deduplicate patterns
-        combined_patterns = await get_llm_session_group_patterns_combination(
-            prompt=combined_patterns_prompt,
-            user_id=inputs.user_id,
-            session_ids=inputs.session_ids,
-            trace_id=temporalio.activity.info().workflow_id,
-        )
-        # Store the combined patterns in Redis with 24-hour TTL
-        combined_patterns_str = combined_patterns.model_dump_json(exclude_none=True)
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            data=combined_patterns_str,
-            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-        )
+    # Generate prompt for combining patterns from chunks
+    combined_patterns_prompt = generate_session_group_patterns_combination_prompt(
+        patterns_chunks=chunk_patterns,
+        extra_summary_context=inputs.extra_summary_context,
+    )
+
+    # Use LLM to intelligently combine and deduplicate patterns
+    combined_patterns = await get_llm_session_group_patterns_combination(
+        prompt=combined_patterns_prompt,
+        user_id=inputs.user_id,
+        session_ids=inputs.session_ids,
+        trace_id=temporalio.activity.info().workflow_id,
+    )
+
+    # Store the combined patterns in Redis with 24-hour TTL
+    combined_patterns_str = combined_patterns.model_dump_json(exclude_none=True)
+    await store_data_in_redis(
+        redis_client=redis_client,
+        redis_key=redis_output_key,
+        data=combined_patterns_str,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
     return None

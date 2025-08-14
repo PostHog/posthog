@@ -106,18 +106,19 @@ async def fetch_session_batch_events_activity(
             label=StateActivitiesEnum.SESSION_DB_DATA,
             state_id=session_id,
         )
-        try:
-            # Check if data for this session is already cached
-            await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=session_data_key,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                target_class=SingleSessionSummaryLlmInputs,
-            )
+        # Check if data for this session is already cached
+        success = await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=session_data_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        )
+        if success:
+            # Session data is cached, so we can skip fetching
             fetched_session_ids.append(session_id)
-        except ValueError:
-            # Session data not cached, need to fetch
-            session_ids_to_fetch.append(session_id)
+            continue
+        # Session data not cached, need to fetch
+        session_ids_to_fetch.append(session_id)
     # If all sessions already cached
     if not session_ids_to_fetch:
         return fetched_session_ids
