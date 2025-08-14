@@ -1,12 +1,13 @@
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProjectBasicType, TeamBasicType } from '~/types'
+import { ProjectBasicType, TeamBasicType, TeamPublicType, TeamType } from '~/types'
 
 import type { environmentSwitcherLogicType } from './environmentsSwitcherLogicType'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
+import { organizationProjectsLogic } from 'scenes/organizationProjectsLogic'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse<T> extends FuseClass<T> {}
@@ -23,7 +24,16 @@ export interface TeamBasicTypeWithProjectName extends TeamBasicType {
 export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
     path(['layout', 'navigation', 'environmentsSwitcherLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], teamLogic, ['currentTeam'], organizationLogic, ['currentOrganization']],
+        values: [
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentTeam'],
+            organizationTeamsLogic,
+            ['teams'],
+            organizationProjectsLogic,
+            ['projects'],
+        ],
     })),
     actions({
         setEnvironmentSwitcherSearch: (input: string) => ({ input }),
@@ -38,19 +48,16 @@ export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
     }),
     selectors({
         allTeamsSorted: [
-            (s) => [s.currentOrganization, s.currentTeam],
-            (currentOrganization, currentTeam): TeamBasicTypeWithProjectName[] => {
+            (s) => [(s as any).projects, (s as any).teams, s.currentTeam],
+            (
+                projects: ProjectBasicType[],
+                teams: TeamBasicType[],
+                currentTeam: TeamPublicType | TeamType | null
+            ): TeamBasicTypeWithProjectName[] => {
+                const projectIdToName = Object.fromEntries(projects.map((project) => [project.id, project.name]))
                 const collection: TeamBasicTypeWithProjectName[] = []
-                if (currentOrganization) {
-                    const projectIdToName = Object.fromEntries(
-                        currentOrganization.projects.map((project) => [project.id, project.name])
-                    )
-                    for (const team of currentOrganization.teams) {
-                        collection.push({
-                            ...team,
-                            project_name: projectIdToName[team.project_id],
-                        })
-                    }
+                for (const team of teams as TeamBasicType[]) {
+                    collection.push({ ...team, project_name: projectIdToName[team.project_id] ?? '' })
                 }
                 collection.sort((a, b) => {
                     // Sorting logic:
@@ -83,15 +90,10 @@ export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
             },
         ],
         projectsSorted: [
-            (s) => [s.currentOrganization, s.currentTeam],
-            (currentOrganization, currentTeam): ProjectBasicType[] => {
-                // Includes projects that have no environments
-                if (!currentOrganization) {
-                    return []
-                }
-                const collection: ProjectBasicType[] = currentOrganization.projects.slice()
+            (s) => [(s as any).projects, s.currentTeam],
+            (projects, currentTeam): ProjectBasicType[] => {
+                const collection: ProjectBasicType[] = (projects as ProjectBasicType[]).slice()
                 collection.sort((a, b) => {
-                    // Sorting logic: 1. first by whether the project is the current project, 2. then by project name
                     if (a.id === currentTeam?.id) {
                         return -1
                     } else if (b.id === currentTeam?.id) {

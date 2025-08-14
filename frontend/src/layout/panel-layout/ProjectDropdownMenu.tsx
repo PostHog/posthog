@@ -23,6 +23,7 @@ import { urls } from 'scenes/urls'
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { EnvironmentSwitcherOverlay } from '../navigation/EnvironmentSwitcher'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -42,8 +43,9 @@ export function ProjectDropdownMenu({
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { projectCreationForbiddenReason } = useValues(organizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { teams } = useValues(organizationTeamsLogic)
 
     if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
         return <EnvironmentSwitcherOverlay buttonProps={buttonProps} />
@@ -77,7 +79,7 @@ export function ProjectDropdownMenu({
                                         AvailableFeature.ORGANIZATIONS_PROJECTS,
                                         showCreateProjectModal,
                                         {
-                                            currentUsage: currentOrganization?.teams?.length,
+                                            currentUsage: teams?.length,
                                         }
                                     )
                                 }
@@ -141,7 +143,7 @@ export function ProjectDropdownMenu({
                         </Label>
                         <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
 
-                        {currentOrganization?.teams
+                        {(teams || [])
                             .filter((team) => team.id !== currentTeam?.id)
                             .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
                             .map((team) => {

@@ -10,6 +10,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { organizationTeamsLogic } from 'scenes/organizationTeamsLogic'
 
 import { AvailableFeature, TeamPublicType } from '~/types'
 
@@ -45,6 +46,7 @@ export function EnvironmentSwitcherOverlay({
     const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam, currentProject } = useValues(teamLogic)
+    const { teams } = useValues(organizationTeamsLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
     const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
@@ -138,9 +140,7 @@ export function EnvironmentSwitcherOverlay({
                     disabled
                     onClick={() => {
                         guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
-                            currentUsage: currentOrganization?.teams?.filter(
-                                (team) => team.project_id === currentTeam.project_id
-                            ).length,
+                            currentUsage: teams?.filter((t) => t.project_id === currentTeam.project_id).length,
                         })
                     }}
                 >
@@ -248,6 +248,7 @@ export function EnvironmentSwitcherOverlay({
         showCreateEnvironmentModal,
         hasEnvironmentsRollbackFeature,
         openModal,
+        teams,
     ])
 
     if (!currentOrganization || !currentTeam) {
@@ -282,7 +283,7 @@ export function EnvironmentSwitcherOverlay({
                             asChild
                             onClick={() =>
                                 guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                                    currentUsage: currentOrganization?.teams?.length,
+                                    currentUsage: teams?.length,
                                 })
                             }
                         >
@@ -363,12 +364,12 @@ function convertTeamToMenuItem(
 
 function determineProjectSwitchUrl(pathname: string, newTeamId: number): string {
     const { currentTeam } = teamLogic.values
-    const { currentOrganization } = organizationLogic.values
+    const { teams } = organizationTeamsLogic.values
 
     // Find the target team's project ID
     let targetTeamProjectId: number | null = null
-    if (currentOrganization?.teams) {
-        const targetTeam = currentOrganization.teams.find((team) => team.id === newTeamId)
+    if (teams && teams.length) {
+        const targetTeam = teams.find((team) => team.id === newTeamId)
         if (targetTeam) {
             targetTeamProjectId = targetTeam.project_id
         }

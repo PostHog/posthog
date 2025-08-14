@@ -440,6 +440,13 @@ def render_template(
                 many=False,
             )
             posthog_app_context["current_user"] = user_serialized.data
+            # Minimize organization payload in app context (avoid teams/projects)
+            if user.organization:
+                from posthog.api.shared import OrganizationBasicSerializer  # local import to avoid circulars
+
+                posthog_app_context["current_user"]["organization"] = OrganizationBasicSerializer(
+                    user.organization, context={"request": request}
+                ).data
             posthog_distinct_id = user_serialized.data.get("distinct_id")
             if user.team:
                 team_serialized = TeamSerializer(
