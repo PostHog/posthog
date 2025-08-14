@@ -7326,19 +7326,8 @@
                     "type": "array"
                 },
                 "context": {
-                    "additionalProperties": false,
-                    "description": "Context for the table, used by components like ColumnConfigurator",
-                    "properties": {
-                        "eventDefinitionId": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "enum": ["event_definition", "team_columns"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type"],
-                    "type": "object"
+                    "$ref": "#/definitions/DataTableNodeViewPropsContext",
+                    "description": "Context for the table, used by components like ColumnConfigurator"
                 },
                 "embedded": {
                     "description": "Uses the embedded version of LemonTable",
@@ -8800,6 +8789,23 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "DataTableNodeViewPropsContext": {
+            "additionalProperties": false,
+            "properties": {
+                "eventDefinitionId": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/DataTableNodeViewPropsContextType"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "DataTableNodeViewPropsContextType": {
+            "enum": ["event_definition", "team_columns"],
+            "type": "string"
+        },
         "DataVisualizationNode": {
             "additionalProperties": false,
             "properties": {
@@ -9369,12 +9375,15 @@
                     "type": "number"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
-                    "type": "string"
+                    "$ref": "#/definitions/DatabaseSchemaTableType"
                 }
             },
             "required": ["type", "id", "name", "fields"],
             "type": "object"
+        },
+        "DatabaseSchemaTableType": {
+            "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
+            "type": "string"
         },
         "DatabaseSchemaViewTable": {
             "additionalProperties": false,
@@ -9850,12 +9859,15 @@
                     ]
                 },
                 "type": {
-                    "enum": ["user", "role"],
-                    "type": "string"
+                    "$ref": "#/definitions/ErrorTrackingIssueAssigneeType"
                 }
             },
             "required": ["type", "id"],
             "type": "object"
+        },
+        "ErrorTrackingIssueAssigneeType": {
+            "enum": ["user", "role"],
+            "type": "string"
         },
         "ErrorTrackingIssueCorrelationQuery": {
             "additionalProperties": false,
@@ -21978,19 +21990,8 @@
                     "type": "boolean"
                 },
                 "context": {
-                    "additionalProperties": false,
-                    "description": "Context for the table, used by components like ColumnConfigurator",
-                    "properties": {
-                        "eventDefinitionId": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "enum": ["event_definition", "team_columns"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type"],
-                    "type": "object"
+                    "$ref": "#/definitions/DataTableNodeViewPropsContext",
+                    "description": "Context for the table, used by components like ColumnConfigurator"
                 },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
@@ -22801,12 +22802,15 @@
                     "type": "boolean"
                 },
                 "type": {
-                    "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldInputConfigType"
                 }
             },
             "required": ["type", "name", "label", "required", "placeholder"],
             "type": "object"
+        },
+        "SourceFieldInputConfigType": {
+            "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
+            "type": "string"
         },
         "SourceFieldOauthConfig": {
             "additionalProperties": false,
@@ -22852,8 +22856,7 @@
             "additionalProperties": false,
             "properties": {
                 "converter": {
-                    "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldSelectConfigConverter"
                 },
                 "defaultValue": {
                     "type": "string"
@@ -22896,6 +22899,10 @@
             },
             "required": ["type", "name", "label", "required", "defaultValue", "options"],
             "type": "object"
+        },
+        "SourceFieldSelectConfigConverter": {
+            "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
+            "type": "string"
         },
         "SourceFieldSwitchGroupConfig": {
             "additionalProperties": false,
@@ -23456,6 +23463,10 @@
             ],
             "type": "string"
         },
+        "SurveyQuestionBranchingType": {
+            "enum": ["next_question", "end", "response_based", "specific_question"],
+            "type": "string"
+        },
         "SurveyQuestionDescriptionContentType": {
             "enum": ["html", "text"],
             "type": "string"
@@ -23476,8 +23487,7 @@
                             "type": "object"
                         },
                         "type": {
-                            "enum": ["next_question", "end", "response_based", "specific_question"],
-                            "type": "string"
+                            "$ref": "#/definitions/SurveyQuestionBranchingType"
                         }
                     },
                     "required": ["type"],
