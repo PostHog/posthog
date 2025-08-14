@@ -10,6 +10,8 @@ from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.vercel_installation import VercelErrorResponseMixin
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.integration import Integration
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.experiment import Experiment
 from ee.vercel.client import VercelAPIClient
 from posthog.utils_cors import KNOWN_ORIGINS
 from urllib.parse import urlparse
@@ -75,6 +77,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
         resource_id = serializer.validated_data.get("resource_id")
         path = serializer.validated_data.get("path")
         url = serializer.validated_data.get("url")
+        experimentation_item_id = serializer.validated_data.get("experimentation_item_id")
 
         logger.info(
             "Received Vercel SSO redirect request",
@@ -82,6 +85,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             has_resource_id=resource_id is not None,
             path=path,
             url=url,
+            experimentation_item_id=experimentation_item_id,
         )
 
         client_id = settings.VERCEL_CLIENT_ID
@@ -121,7 +125,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             resource_id=resource_id,
         )
 
-        redirect_url = self._determine_redirect_url(path, url)
+        redirect_url = self._determine_redirect_url(path, url, experimentation_item_id, user)
         return HttpResponseRedirect(redirect_url)
 
     def _exchange_token(self, code, client_id, client_secret, state):
@@ -175,9 +179,20 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
         except Integration.DoesNotExist:
             logger.exception("Vercel SSO resource not found", resource_id=resource_id)
 
-    def _determine_redirect_url(self, path, url):
+    def _determine_redirect_url(self, path, url, experimentation_item_id, user):
         if url:
             return url
+
+        if experimentation_item_id:
+            item_url = self._get_experimentation_item_url(experimentation_item_id, user)
+            if item_url:
+                return item_url
+            # If item not found or invalid, log and fall through to default routing
+            logger.warning(
+                "Invalid experimentation item for Vercel SSO",
+                experimentation_item_id=experimentation_item_id,
+                user_id=user.id,
+            )
 
         if path == "billing":
             return "/organization/billing/overview"
@@ -187,3 +202,48 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             return "/#panel=support"
 
         return "/"
+
+    def _get_experimentation_item_url(self, experimentation_item_id, user):
+        """
+        experimentation_item_id format: flag_{pk} for feature flags, experiment_{pk} for experiments
+        """
+        if not experimentation_item_id:
+            return None
+
+        # Parse item type and ID
+        if experimentation_item_id.startswith("flag_"):
+            item_type = "flag"
+            item_id = experimentation_item_id.removeprefix("flag_")
+        elif experimentation_item_id.startswith("experiment_"):
+            item_type = "experiment"
+            item_id = experimentation_item_id.removeprefix("experiment_")
+        else:
+            return None
+
+        # Validate ID format
+        if not item_id.isdigit():
+            return None
+
+        # Get the item and check access
+        try:
+            item_pk = int(item_id)
+            if item_type == "flag":
+                return self._get_feature_flag_url(item_pk, user)
+            else:  # experiment
+                return self._get_experiment_url(item_pk, user)
+        except ValueError:
+            return None
+
+    def _get_feature_flag_url(self, flag_pk, user):
+        try:
+            feature_flag = FeatureFlag.objects.get(pk=flag_pk)
+            return f"/project/{feature_flag.team.id}/feature_flags/{feature_flag.pk}"
+        except FeatureFlag.DoesNotExist:
+            return None
+
+    def _get_experiment_url(self, experiment_pk, user):
+        try:
+            experiment = Experiment.objects.get(pk=experiment_pk)
+            return f"/project/{experiment.team.id}/experiments/{experiment.pk}"
+        except Experiment.DoesNotExist:
+            return None
