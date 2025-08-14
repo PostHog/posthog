@@ -307,7 +307,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
         let isMerged!: boolean
         await this.coordinator.run('addPersonlessDistinctIdForMerge', async (lTx, rTx) => {
-            const [p, s] = await Promise.all([
+            const [p, _s] = await Promise.all([
                 this.primaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, lTx),
                 this.secondaryRepo.addPersonlessDistinctIdForMerge(teamId, distinctId, rTx),
             ])
