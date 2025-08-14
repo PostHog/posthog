@@ -1,17 +1,19 @@
-from typing import Optional
+from typing import Any, Optional
 import structlog
+from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
+
 from posthog.models.cohort.cohort import CohortType
-from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup, PropertyOperatorType
 
 logger = structlog.get_logger(__name__)
 
 # Analytical behavioral property types
 ANALYTICAL_BEHAVIORAL_TYPES = {
-    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
-    BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
-    BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
-    BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
-    BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
+    "performed_event_first_time",
+    "performed_event_regularly",
+    "performed_event_sequence",
+    "stopped_performing_event",
+    "restarted_performing_event",
 }
 
 # Type hierarchy for determining precedence
@@ -23,85 +25,261 @@ TYPE_PRIORITY = {
 }
 
 
-def _parse_property_group(group: Optional[dict]) -> PropertyGroup:
-    """Parse a dictionary into PropertyGroup. Mirrors PropertyMixin._parse_property_group"""
-    if group and "type" in group and "values" in group:
-        return PropertyGroup(
-            PropertyOperatorType(group["type"].upper()),
-            _parse_property_group_list(group["values"]),
-        )
-    return PropertyGroup(PropertyOperatorType.AND, [])
+class PropertySerializer(serializers.Serializer):
+    """Serializer for individual property filters"""
+
+    type = serializers.ChoiceField(choices=["person", "behavioral", "cohort"])
+    key = serializers.CharField()
+    value = serializers.JSONField(required=False, allow_null=True)
+    operator = serializers.CharField(required=False, allow_null=True)
+    negation = serializers.BooleanField(required=False, default=False)
+
+    # Behavioral-specific fields
+    event_type = serializers.CharField(required=False)
+    time_value = serializers.IntegerField(required=False, allow_null=True)
+    time_interval = serializers.CharField(required=False, allow_null=True)
+    operator_value = serializers.IntegerField(required=False, allow_null=True)
+    seq_time_interval = serializers.CharField(required=False, allow_null=True)
+    seq_time_value = serializers.IntegerField(required=False, allow_null=True)
+    seq_event = serializers.CharField(required=False, allow_null=True)
+    seq_event_type = serializers.CharField(required=False, allow_null=True)
+    total_periods = serializers.IntegerField(required=False, allow_null=True)
+    min_periods = serializers.IntegerField(required=False, allow_null=True)
+    explicit_datetime = serializers.CharField(required=False, allow_null=True)
 
 
-def _parse_property_group_list(prop_list: Optional[list]):
-    """Parse a list of properties/property groups. Mirrors PropertyMixin._parse_property_group_list"""
-    if not prop_list:
-        return []
+class PropertyGroupSerializer(serializers.Serializer):
+    """Serializer for property groups (AND/OR logic)"""
 
-    # Determine what type of properties we have
-    property_group_count = sum(
-        1 for prop in prop_list if isinstance(prop, dict) and "type" in prop and "values" in prop
-    )
-    simple_property_count = sum(1 for prop in prop_list if isinstance(prop, dict) and "key" in prop)
+    type = serializers.ChoiceField(choices=["AND", "OR"])
+    values = serializers.ListField()
 
-    if property_group_count > 0 and simple_property_count > 0:
-        raise ValueError("Property list cannot contain both PropertyGroup and Property objects")
+    def to_internal_value(self, data):
+        """Parse into nested structure with validation"""
+        if not isinstance(data, dict):
+            raise ValidationError("Property group must be a dictionary")
 
-    if property_group_count > 0:
-        return [_parse_property_group(group) for group in prop_list if isinstance(group, dict)]
-    else:
-        return _parse_properties(prop_list)
+        if "type" not in data or "values" not in data:
+            raise ValidationError("Property group must have 'type' and 'values' fields")
 
+        validated = super().to_internal_value(data)
+        validated["values"] = self._parse_values(data["values"])
+        return validated
 
-def _parse_properties(properties: Optional[list]) -> list[Property]:
-    """Parse a list of property dictionaries into Property objects"""
-    if not properties:
-        return []
+    def _parse_values(self, values_list):
+        """Recursively parse property group values"""
+        if not values_list:
+            return []
 
-    return [Property(**prop) for prop in properties if isinstance(prop, dict)]
+        parsed_values = []
+        for value in values_list:
+            if isinstance(value, dict):
+                if "type" in value and "values" in value:
+                    # Nested property group
+                    group_serializer = PropertyGroupSerializer()
+                    parsed_values.append(group_serializer.to_internal_value(value))
+                elif "key" in value:
+                    # Individual property
+                    prop_serializer = PropertySerializer()
+                    parsed_values.append(prop_serializer.to_internal_value(value))
 
-
-def _extract_property_group_from_data(data: dict) -> Optional[PropertyGroup]:
-    """Extract and parse PropertyGroup from cohort data, returning None if no valid properties"""
-    filters = data.get("filters", {})
-    if not filters:
-        return None
-
-    properties_data = filters.get("properties", {})
-    if not properties_data:
-        return None
-
-    try:
-        return _parse_property_group(properties_data)
-    except (ValueError, KeyError, TypeError):
-        return None
+        return parsed_values
 
 
-def _extract_cohort_id(prop_value) -> int:
-    """Extract cohort ID from property value, handling both single values and lists"""
-    if not prop_value:
-        raise ValueError("Cohort filter has no value")
+class CohortFiltersSerializer(serializers.Serializer):
+    """Serializer for cohort filters"""
 
-    # Extract cohort ID from value (handle both list and single value)
-    if isinstance(prop_value, list):
-        if len(prop_value) != 1:
-            raise ValueError("Cohort filter must reference exactly one cohort")
-        cohort_value = str(prop_value[0])
-    else:
-        cohort_value = str(prop_value)
+    properties = PropertyGroupSerializer(required=False)
 
-    try:
-        return int(cohort_value)
-    except (ValueError, TypeError):
-        raise ValueError(f"Invalid cohort ID '{cohort_value}'")
+
+class CohortTypeValidationSerializer(serializers.Serializer):
+    """Main serializer for cohort type validation"""
+
+    cohort_type = serializers.ChoiceField(choices=[t.value for t in CohortType], required=False, allow_null=True)
+    filters = CohortFiltersSerializer(required=False, allow_null=True)
+    query = serializers.JSONField(required=False, allow_null=True)
+    is_static = serializers.BooleanField(required=False, default=False)
+
+    def __init__(self, *args, **kwargs):
+        self.team_id = kwargs.pop("team_id", None)
+        super().__init__(*args, **kwargs)
+
+    def validate(self, attrs):
+        """Validate that cohort type matches the filters"""
+        provided_type = attrs.get("cohort_type")
+
+        if not provided_type:
+            # If no type provided, determine it from filters
+            determined_type = self._determine_type_from_data(attrs)
+            attrs["cohort_type"] = determined_type.value
+            return attrs
+
+        # Validate provided type matches data
+        required_type = self._determine_type_from_data(attrs)
+
+        if provided_type != required_type.value:
+            raise ValidationError(
+                {
+                    "cohort_type": f"Cohort type '{provided_type}' does not match the filters. "
+                    f"Expected type: '{required_type.value}'"
+                }
+            )
+
+        return attrs
+
+    def _determine_type_from_data(self, data: dict) -> CohortType:
+        """Determine cohort type from data"""
+        visited_cohorts = set()
+        return self._determine_type_recursive(data, visited_cohorts)
+
+    def _determine_type_recursive(self, data: dict, visited: set[int]) -> CohortType:
+        """Recursively determine cohort type with circular reference detection"""
+
+        # Static cohorts are always STATIC
+        if data.get("is_static"):
+            return CohortType.STATIC
+
+        # Query-based cohorts are always ANALYTICAL
+        if data.get("query"):
+            return CohortType.ANALYTICAL
+
+        # Check filters
+        filters = data.get("filters", {})
+        if not filters:
+            raise ValidationError("Cannot determine type: no valid filters found")
+
+        properties = filters.get("properties")
+        if not properties:
+            raise ValidationError("Cannot determine type: no valid filters found")
+
+        # Check if any properties are analytical
+        if self._has_analytical_properties(properties):
+            return CohortType.ANALYTICAL
+
+        # Analyze properties to determine type
+        max_type = self._analyze_property_group_type(properties, visited)
+
+        if max_type is None:
+            raise ValidationError("Cannot determine type: no valid filters found")
+
+        return max_type
+
+    def _has_analytical_properties(self, properties: dict) -> bool:
+        """Check if property group contains analytical behavioral filters"""
+        if not properties:
+            return False
+
+        return self._check_analytical_in_group(properties)
+
+    def _check_analytical_in_group(self, group: dict) -> bool:
+        """Recursively check for analytical properties in a group"""
+        values = group.get("values", [])
+
+        for value in values:
+            if isinstance(value, dict):
+                if value.get("type") == "behavioral" and value.get("value") in ANALYTICAL_BEHAVIORAL_TYPES:
+                    return True
+                elif "type" in value and "values" in value:
+                    # Nested group
+                    if self._check_analytical_in_group(value):
+                        return True
+
+        return False
+
+    def _analyze_property_group_type(self, properties: dict, visited: set[int]) -> Optional[CohortType]:
+        """Analyze a property group to determine its cohort type"""
+
+        if not properties:
+            return None
+
+        max_type = None
+        values = properties.get("values", [])
+
+        for value in values:
+            if isinstance(value, dict):
+                if "type" in value and "values" in value:
+                    # Nested group
+                    nested_type = self._analyze_property_group_type(value, visited)
+                    max_type = self._highest_priority_cohort_type(max_type, nested_type)
+                else:
+                    # Individual property
+                    prop_type = self._get_property_type(value, visited)
+                    max_type = self._highest_priority_cohort_type(max_type, prop_type)
+
+        return max_type
+
+    def _get_property_type(self, prop: dict, visited: set[int]) -> CohortType:
+        """Get the cohort type for a single property"""
+
+        prop_type = prop.get("type")
+
+        if prop_type == "behavioral":
+            if prop.get("value") in ANALYTICAL_BEHAVIORAL_TYPES:
+                return CohortType.ANALYTICAL
+            return CohortType.BEHAVIORAL
+
+        elif prop_type == "person":
+            return CohortType.PERSON_PROPERTY
+
+        elif prop_type == "cohort":
+            # Handle cohort references
+            return self._get_referenced_cohort_type(prop.get("value"), visited)
+
+        else:
+            raise ValidationError(f"Unknown property type: {prop_type}")
+
+    def _get_referenced_cohort_type(self, cohort_value: Any, visited: set[int]) -> CohortType:
+        """Get the type of a referenced cohort"""
+
+        if not cohort_value:
+            raise ValidationError("Cohort filter has no value")
+
+        # Extract cohort ID
+        if isinstance(cohort_value, list):
+            if len(cohort_value) != 1:
+                raise ValidationError("Cohort filter must reference exactly one cohort")
+            cohort_id = int(cohort_value[0])
+        else:
+            cohort_id = int(cohort_value)
+
+        # Check for circular references
+        if cohort_id in visited:
+            raise ValidationError("Circular cohort reference detected")
+
+        # Get the referenced cohort
+        from posthog.models.cohort.cohort import Cohort
+
+        try:
+            referenced_cohort = Cohort.objects.get(id=cohort_id, team_id=self.team_id)
+        except Cohort.DoesNotExist:
+            raise ValidationError(f"Referenced cohort {cohort_id} not found")
+
+        # Build data for the referenced cohort
+        referenced_data = {
+            "is_static": referenced_cohort.is_static,
+            "query": referenced_cohort.query,
+            "filters": referenced_cohort.filters,
+        }
+
+        # Recursively determine type
+        return self._determine_type_recursive(referenced_data, visited | {cohort_id})
+
+    def _highest_priority_cohort_type(
+        self, current: Optional[CohortType], new: Optional[CohortType]
+    ) -> Optional[CohortType]:
+        """Return the higher priority cohort type based on complexity hierarchy"""
+        if current is None:
+            return new
+        if new is None:
+            return current
+        return current if TYPE_PRIORITY[current] > TYPE_PRIORITY[new] else new
 
 
 def validate_cohort_type_against_data(
-    provided_cohort_type: str, cohort_data: dict, team_id: int
+    provided_cohort_type: CohortType, cohort_data: dict, team_id: int
 ) -> tuple[bool, Optional[str]]:
     """
-    Validate cohort type against raw cohort data without model instantiation.
-    Pure function that can be used in serializers or elsewhere.
+    Validate cohort type against raw cohort data using DRF serializers.
 
     Args:
         provided_cohort_type: The cohort type string to validate
@@ -111,133 +289,45 @@ def validate_cohort_type_against_data(
     Returns:
         Tuple of (is_valid, error_message)
     """
-    # Validate the provided type string
-    try:
-        provided_type_enum = CohortType(provided_cohort_type)
-    except ValueError:
-        return False, f"Invalid cohort type: {provided_cohort_type}"
+    # Add the provided type to the data for validation
+    data = {**cohort_data, "cohort_type": provided_cohort_type}
 
-    # Determine required type from data
+    serializer = CohortTypeValidationSerializer(data=data, team_id=team_id)
+
     try:
-        required_type = determine_cohort_type_from_data(cohort_data, team_id)
-    except ValueError as e:
-        logger.warning("Cohort validation error", error=str(e))
+        serializer.is_valid(raise_exception=True)
+        return True, None
+    except ValidationError as e:
+        # Extract error message
+        if "cohort_type" in e.detail:
+            error_msg = e.detail["cohort_type"]
+            if isinstance(error_msg, list):
+                error_msg = error_msg[0]
+            return False, str(error_msg)
+        elif "non_field_errors" in e.detail:
+            error_msg = e.detail["non_field_errors"]
+            if isinstance(error_msg, list):
+                error_msg = error_msg[0]
+            return False, str(error_msg)
         return False, "Cohort validation failed due to invalid references or circular dependencies."
-
-    # Check for exact match
-    if provided_type_enum != required_type:
-        return (
-            False,
-            f"Cohort type '{provided_cohort_type}' does not match the filters. Expected type: '{required_type}'",
-        )
-
-    return True, None
 
 
 def determine_cohort_type_from_data(data: dict, team_id: int) -> CohortType:
     """
-    Determine cohort type from raw data without creating a model instance.
-    Mirrors Cohort.determine_cohort_type_based_on_filters()
+    Determine cohort type from raw data using DRF serializers.
+
+    Args:
+        data: Raw cohort data dict
+        team_id: Team ID for cohort reference validation
+
+    Returns:
+        The determined CohortType
     """
-    return _determine_cohort_type_from_data_recursive(data, team_id, set())
-
-
-def _determine_cohort_type_from_data_recursive(data: dict, team_id: int, visited: set[int]) -> CohortType:
-    """
-    Recursively determine cohort type with circular reference detection.
-    """
-    # Static cohorts are always STATIC
-    if data.get("is_static"):
-        return CohortType.STATIC
-
-    # Query-based cohorts are always ANALYTICAL
-    if data.get("query"):
-        return CohortType.ANALYTICAL
-
-    # Check for analytical filters
-    if _has_analytical_filters_in_data(data):
-        return CohortType.ANALYTICAL
-
-    # Analyze filters to determine type hierarchy
-    max_type = _analyze_filters_for_type_from_data(data, team_id, visited)
-
-    if max_type is None:
-        raise ValueError("Cannot determine type: no valid filters found")
-
-    return max_type
-
-
-def _has_analytical_filters_in_data(data: dict) -> bool:
-    """Check if data contains analytical filters without model instantiation"""
-    property_group = _extract_property_group_from_data(data)
-    if not property_group:
-        return False
-
-    return any(prop.type == "behavioral" and prop.value in ANALYTICAL_BEHAVIORAL_TYPES for prop in property_group.flat)
-
-
-def _analyze_filters_for_type_from_data(data: dict, team_id: int, visited: set[int]) -> Optional[CohortType]:
-    """Analyze filters from raw data to determine max complexity type"""
-    property_group = _extract_property_group_from_data(data)
-    if not property_group:
-        return None
-
-    max_type = None
-    has_any_filters = False
+    serializer = CohortTypeValidationSerializer(data=data, team_id=team_id)
 
     try:
-        for prop in property_group.flat:
-            has_any_filters = True
-
-            if prop.type == "behavioral":
-                max_type = _max_cohort_type(max_type, CohortType.BEHAVIORAL)
-            elif prop.type == "person":
-                max_type = _max_cohort_type(max_type, CohortType.PERSON_PROPERTY)
-            elif prop.type == "cohort":
-                cohort_type = _get_referenced_cohort_type(prop.value, team_id, visited)
-                max_type = _max_cohort_type(max_type, cohort_type)
-            else:
-                raise ValueError(f"Unknown property type '{prop.type}'")
-
-    except (ValueError, KeyError, TypeError) as e:
-        raise ValueError(f"Error parsing filters: {e}")
-
-    if not has_any_filters:
-        return None
-
-    return max_type or CohortType.PERSON_PROPERTY
-
-
-def _get_referenced_cohort_type(prop_value, team_id: int, visited: set[int]) -> CohortType:
-    """Get the cohort type of a referenced cohort"""
-    referenced_cohort_id = _extract_cohort_id(prop_value)
-
-    # Prevent circular references
-    if referenced_cohort_id in visited:
-        raise ValueError("Circular cohort reference detected")
-
-    # Get referenced cohort and determine its type
-    try:
-        from posthog.models.cohort.cohort import Cohort
-
-        referenced_cohort = Cohort.objects.get(id=referenced_cohort_id, team_id=team_id)
-
-        # Build cohort data for the referenced cohort
-        referenced_data = {
-            "is_static": referenced_cohort.is_static,
-            "query": referenced_cohort.query,
-            "filters": referenced_cohort.filters,
-        }
-
-        # Recursively determine type
-        return _determine_cohort_type_from_data_recursive(referenced_data, team_id, visited | {referenced_cohort_id})
-    except Cohort.DoesNotExist:
-        raise ValueError(f"Referenced cohort {referenced_cohort_id} not found")
-
-
-def _max_cohort_type(current: Optional[CohortType], new: CohortType) -> CohortType:
-    """Return the higher priority cohort type based on complexity hierarchy"""
-    if current is None:
-        return new
-
-    return current if TYPE_PRIORITY[current] > TYPE_PRIORITY[new] else new
+        serializer.is_valid(raise_exception=True)
+        return serializer._determine_type_from_data(serializer.validated_data)
+    except ValidationError as e:
+        logger.warning("Cohort type determination failed", error=str(e))
+        raise ValueError(f"Cannot determine cohort type: {str(e)}")

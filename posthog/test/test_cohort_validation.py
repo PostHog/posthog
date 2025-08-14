@@ -280,7 +280,7 @@ class TestCohortValidation(BaseTest):
         self.assertFalse(is_valid)
         self.assertIsNotNone(error_msg)
         assert error_msg is not None  # Type narrowing for mypy
-        self.assertIn("Invalid cohort type: invalid_type", error_msg)
+        self.assertIn('"invalid_type" is not a valid choice.', error_msg)
 
     def test_determine_cohort_type_from_data_nested_behavioral(self):
         """Cohorts referencing other behavioral cohorts should inherit BEHAVIORAL type"""
