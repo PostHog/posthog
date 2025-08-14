@@ -1,10 +1,10 @@
 import re
 from typing import cast
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
-    Type4,
+    SourceFieldInputConfigType,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -17,14 +17,14 @@ from posthog.temporal.data_imports.sources.chargebee.settings import ENDPOINTS, 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.CHARGEBEE
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.CHARGEBEE
 
     def get_schemas(self, config: ChargebeeSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
@@ -65,16 +65,24 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.CHARGEBEE,
+            name=SchemaExternalDataSourceType.CHARGEBEE,
             caption="",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="api_key", label="API key", type=Type4.TEXT, required=True, placeholder=""
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldInputConfig(
-                        name="site_name", label="Site name (subdomain)", type=Type4.TEXT, required=True, placeholder=""
+                        name="site_name",
+                        label="Site name (subdomain)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     ),
                 ],
             ),

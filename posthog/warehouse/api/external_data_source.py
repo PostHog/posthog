@@ -33,6 +33,7 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -236,7 +237,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         """Update source ensuring we merge with existing job inputs to allow partial updates."""
         existing_job_inputs = instance.job_inputs
 
-        source_type_model = ExternalDataSource.Type(instance.source_type)
+        source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
 
         if existing_job_inputs:
@@ -346,7 +347,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if isinstance(value, str):
                     payload[key] = value.strip()
 
-        source_type_model = ExternalDataSource.Type(source_type)
+        source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
         if not is_valid:
@@ -525,7 +526,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Missing required parameter: source_type"},
             )
 
-        source_type_model = ExternalDataSource.Type(source_type)
+        source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:

@@ -35,7 +35,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             insightLogic,
             ['insight', 'savedInsight'],
             insightSceneLogic,
-            ['insightId', 'insightMode', 'activeScene'],
+            ['insightId', 'insightMode', 'activeSceneId'],
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
@@ -220,7 +220,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return
             }
             // only run on insight scene
-            if (insightSceneLogic.values.activeScene !== Scene.Insight) {
+            if (insightSceneLogic.values.activeSceneId !== Scene.Insight) {
                 return
             }
             // don't save for saved insights
@@ -247,7 +247,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuery: ({ query }) => {
             if (
                 values.queryChanged &&
-                insightSceneLogic.values.activeScene === Scene.Insight &&
+                insightSceneLogic.values.activeSceneId === Scene.Insight &&
                 insightSceneLogic.values.insightId === 'new'
             ) {
                 // query is changed and we are in edit mode

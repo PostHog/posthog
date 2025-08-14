@@ -22,7 +22,7 @@ nodemon = { pkg-path = "nodemon" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
 cargo.pkg-path = "cargo"
 cargo.pkg-group = "rust-toolchain"
-cargo.version = "1.82.0"
+cargo.version = "1.88.0"
 rustc.pkg-path = "rustc"
 rustc.pkg-group = "rust-toolchain"
 clippy.pkg-path = "clippy"

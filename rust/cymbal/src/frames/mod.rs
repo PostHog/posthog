@@ -224,7 +224,7 @@ impl std::fmt::Display for Frame {
         )?;
 
         if let Some(source) = &self.source {
-            write!(f, "in {}", source)?;
+            write!(f, "in {source}")?;
             match (self.line, self.column) {
                 (Some(line), Some(column)) => writeln!(f, ":{line}:{column}"),
                 (Some(line), None) => writeln!(f, ":{line}"),
@@ -266,7 +266,7 @@ impl std::fmt::Display for Frame {
                 writeln!(f, "    no junk")?;
             } else {
                 for (key, value) in junk {
-                    writeln!(f, "    {}: {}", key, value)?;
+                    writeln!(f, "    {key}: {value}")?;
                 }
             }
         } else {
