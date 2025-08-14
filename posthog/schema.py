@@ -5085,6 +5085,30 @@ class ActorsQueryResponse(BaseModel):
     types: Optional[list[str]] = None
 
 
+class AnalyticsQueryResponseBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class AnyResponseType1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
