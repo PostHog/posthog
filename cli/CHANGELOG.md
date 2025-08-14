@@ -1,5 +1,8 @@
 # posthog-cli
 
-## 0.3.8
+## 0.4.1
+- add remote url to release metadata
+
+## 0.4.0
 - extract sourcemap url from source code
 - add process command to inject and upload sourcemaps
