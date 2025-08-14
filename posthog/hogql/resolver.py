@@ -645,6 +645,14 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
+            def in_lambda_scope() -> bool:
+                # KLUDGE: This is a bit of a hack to check whether current scope is a lambda function.
+                # We should fix this properly by allowing scopes other than just `SelectQueryType`
+                if len(scope.aliases) == 0:
+                    return False
+
+                return all(isinstance(value.type, ast.LambdaArgumentType) for value in scope.aliases.values())
+
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
@@ -654,8 +662,27 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
+
+                if in_lambda_scope() and len(self.scopes) > 1:
+                    try:
+                        popped_scope = self.scopes.pop()
+                        visited_node = self.visit_field(node)
+                        self.scopes.append(popped_scope)
+                        return visited_node
+                    except:
+                        pass
+
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
+                if in_lambda_scope() and len(self.scopes) > 1:
+                    try:
+                        popped_scope = self.scopes.pop()
+                        visited_node = self.visit_field(node)
+                        self.scopes.append(popped_scope)
+                        return visited_node
+                    except:
+                        pass
+
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
                     start=node.start,
