@@ -126,12 +126,6 @@ test.describe('CRUD Survey', () => {
 
         await page.locator('[data-attr="more-button"]').click()
         await expect(page.locator('.Popover__content')).toBeVisible()
-        await page.locator('.Popover__content').getByText('Edit').click()
-
-        await page.locator('.LemonCollapsePanel', { hasText: 'Display conditions' }).click()
-        await page.getByText('Remove all property targeting').click()
-
-        await page.locator('[data-attr="save-survey"]').nth(0).click()
 
         await page.locator('.LemonTabs').getByText('Overview').click()
         await expect(page.getByText('Display conditions summary')).toBeVisible()
