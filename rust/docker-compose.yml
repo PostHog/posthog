@@ -30,7 +30,7 @@ services:
         ports:
             - '9092:9092'
         healthcheck:
-            test: curl -f http://localhost:9644/v1/status/ready || exit 1
+            test: kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1
             interval: 5s
             timeout: 15s
             retries: 30
