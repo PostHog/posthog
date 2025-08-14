@@ -670,6 +670,7 @@ class Resolver(CloningVisitor):
                         self.scopes.append(popped_scope)
                         return visited_node
                     except:
+                        # We want to raise the original QueryError if the parent scope didn't work out
                         pass
 
                 raise QueryError(f"Unable to resolve field: {name}")
@@ -681,6 +682,7 @@ class Resolver(CloningVisitor):
                         self.scopes.append(popped_scope)
                         return visited_node
                     except:
+                        # We want to follow the original error path if the parent scope didn't work out
                         pass
 
                 type = ast.UnresolvedFieldType(name=name)
