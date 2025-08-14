@@ -85,12 +85,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             index: number,
             newRolloutPercentage?: number,
             newProperties?: AnyPropertyFilter[],
-            newVariant?: string | null
+            newVariant?: string | null,
+            newDescription?: string | null
         ) => ({
             index,
             newRolloutPercentage,
             newProperties,
             newVariant,
+            newDescription,
         }),
         setAffectedUsers: (index: number, count?: number) => ({ index, count }),
         setTotalUsers: (count: number) => ({ count }),
@@ -149,7 +151,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 ]
                 return { ...state, groups }
             },
-            updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant }) => {
+            updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant, newDescription }) => {
                 if (!state) {
                     return state
                 }
@@ -165,6 +167,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
                 if (newVariant !== undefined) {
                     groups[index] = { ...groups[index], variant: newVariant }
+                }
+
+                if (newDescription !== undefined) {
+                    const description = newDescription && newDescription.trim() ? newDescription : null
+                    groups[index] = { ...groups[index], description }
                 }
 
                 return { ...state, groups }

@@ -12,6 +12,8 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
+import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
@@ -39,6 +41,10 @@ import type { activityLogLogicType } from './activityLogLogicType'
  * **/
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
     switch (logItem?.scope) {
+        case ActivityScope.ALERT_CONFIGURATION:
+            return alertConfigurationActivityDescriber
+        case ActivityScope.ANNOTATION:
+            return annotationActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
         case ActivityScope.PLUGIN:
