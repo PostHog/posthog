@@ -335,10 +335,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 if not prop.value:
                     raise ValueError(f"Cohort filter in cohort {self.id} has no value")
 
+                # Handle different types of prop.value
+                if isinstance(prop.value, list):
+                    if len(prop.value) != 1:
+                        raise ValueError(
+                            f"Cohort filter in cohort {self.id} must reference exactly one cohort, got {len(prop.value)}"
+                        )
+                    cohort_value = prop.value[0]
+                else:
+                    cohort_value = prop.value
+
                 try:
-                    referenced_cohort_id = int(prop.value)
+                    referenced_cohort_id = int(cohort_value)
                 except (ValueError, TypeError):
-                    raise ValueError(f"Invalid cohort ID '{prop.value}' in cohort {self.id}")
+                    raise ValueError(f"Invalid cohort ID '{cohort_value}' in cohort {self.id}")
 
                 # Get referenced cohort and determine its type
                 try:
