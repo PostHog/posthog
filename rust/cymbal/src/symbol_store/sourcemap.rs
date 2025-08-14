@@ -329,7 +329,7 @@ fn maybe_as_data_url<T>(
             Err(e) => {
                 return Err(JsResolveErr::InvalidDataUrl(
                     source_url.into(),
-                    format!("Failed to decode base64 data: {:?}", e),
+                    format!("Failed to decode base64 data: {e:?}"),
                 )
                 .into())
             }
@@ -355,7 +355,7 @@ fn data_url_to_json_str(content: DataUrlContent) -> Result<String, Error> {
     let data = std::str::from_utf8(&content.data).map_err(|e| {
         JsResolveErr::InvalidDataUrl(
             "data".into(),
-            format!("Data URL was not valid UTF-8: {:?}", e),
+            format!("Data URL was not valid UTF-8: {e:?}"),
         )
     })?;
 
@@ -394,7 +394,7 @@ mod test {
         let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
 
         let SourceMappingUrl::Url(res) = res else {
-            panic!("Expected URL, got {:?}", res);
+            panic!("Expected URL, got {res:?}");
         };
 
         // We're doing relative-URL resolution here, so we have to account for that
@@ -485,7 +485,7 @@ mod test {
         let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
 
         let SourceMappingUrl::Data(res) = res else {
-            panic!("Expected Data, got {:?}", res);
+            panic!("Expected Data, got {res:?}");
         };
 
         let expected = include_str!("../../tests/static/inline_sourcemap_example.js.map");
