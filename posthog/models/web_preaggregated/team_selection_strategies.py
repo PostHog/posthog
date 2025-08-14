@@ -116,22 +116,27 @@ class FeatureEnrollmentStrategy(TeamSelectionStrategy):
         environment_host = self._get_region_host()
 
         try:
-            # Build HogQL query with optional host filtering
-            base_query = f"""
+            # Build HogQL query with parameterized values for security
+            base_query = """
                 SELECT DISTINCT
                     extract(properties.$current_url, '/project/([0-9]+)/') as project_id,
                     properties.$host
                 FROM events
                 WHERE event = '$feature_enrollment_update'
-                    AND properties.$host = '{environment_host}'
-                    AND timestamp >= '{self.since_date}'
-                    AND properties.$feature_flag = '{self.flag_key}'
+                    AND properties.$host = {environment_host}
+                    AND timestamp >= {since_date}
+                    AND properties.$feature_flag = {flag_key}
             """
 
             query_payload = {
                 "query": {
                     "kind": "HogQLQuery",
                     "query": base_query,
+                    "values": {
+                        "environment_host": environment_host,
+                        "since_date": self.since_date,
+                        "flag_key": self.flag_key,
+                    },
                     "limit": MAX_SELECT_RETURNED_ROWS,
                 }
             }

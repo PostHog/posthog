@@ -111,8 +111,13 @@ class TestFeatureEnrollmentStrategyMocked(BaseFeatureEnrollmentTest):
 
         query_payload = self.assert_api_call_structure(mock_post, "https://test-api.posthog.com")
         query = query_payload["query"]["query"]
-        assert "custom-flag" in query
-        assert "properties.$host = 'us.posthog.com'" in query
+        values = query_payload["query"]["values"]
+
+        # Check parameterized values are used correctly
+        assert values["flag_key"] == "custom-flag"
+        assert values["environment_host"] == "us.posthog.com"
+        assert "{flag_key}" in query
+        assert "{environment_host}" in query
         assert "event = '$feature_enrollment_update'" in query
 
     @patch("posthog.models.web_preaggregated.team_selection_strategies.is_cloud", return_value=True)
@@ -193,7 +198,7 @@ class TestFeatureEnrollmentStrategyAPIIntegration(ClickhouseTestMixin, APIBaseTe
 
         flush_persons_and_events()
 
-    # Patch requests.post to use Django test client but
+    # Patch requests.post to use Django test client
     def _redirect_request_to_test_api(self, url, json=None, headers=None, timeout=None):
         parsed_url = urlparse(url)
         path = parsed_url.path
