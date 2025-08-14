@@ -382,38 +382,32 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
     for group_index in range(5):
         field_name = f"$group_{group_index}"
 
-        # If no mapping exists, leave the original field unchanged
-        if group_index in group_mappings:
-            group_mapping = group_mappings[group_index]
+        group_mapping = group_mappings.get(group_index, None)
+        # If no mapping exists or the mapping predated this feature, leave the original field unchanged
+        if group_mapping and group_mapping.created_at:
+            # Store the original field as a "raw" version before replacing
+            original_field = database.events.fields[field_name]
+            raw_field_name = f"_{field_name}_raw"
+            database.events.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
 
-            if group_mapping.created_at is None:
-                # If no created_at, just use the regular field - no need to replace
-                continue
-            else:
-                # Store the original field as a "raw" version before replacing
-                original_field = database.events.fields[field_name]
-                raw_field_name = f"raw_{field_name}"
-                database.events.fields[raw_field_name] = original_field
+            created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
 
-                # Generate the conditional SQL: if(timestamp < 'created_at', '', raw_$group_N)
-                created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
-
-                database.events.fields[field_name] = ExpressionField(
-                    name=field_name,
-                    expr=ast.Call(
-                        name="if",
-                        args=[
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["timestamp"]),
-                                op=ast.CompareOperationOp.Lt,
-                                right=ast.Constant(value=created_at_str),
-                            ),
-                            ast.Constant(value=""),
-                            ast.Field(chain=[raw_field_name]),
-                        ],
-                    ),
-                    isolate_scope=True,
-                )
+            database.events.fields[field_name] = ExpressionField(
+                name=field_name,
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["timestamp"]),
+                            op=ast.CompareOperationOp.Lt,
+                            right=ast.Constant(value=created_at_str),
+                        ),
+                        ast.Constant(value=""),
+                        ast.Field(chain=[raw_field_name]),
+                    ],
+                ),
+                isolate_scope=True,
+            )
 
 
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
