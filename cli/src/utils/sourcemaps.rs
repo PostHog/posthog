@@ -237,5 +237,5 @@ pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
 
 fn is_javascript_file(path: &Path) -> bool {
     path.extension()
-        .map_or(false, |ext| ext == "js" || ext == "mjs" || ext == "cjs")
+        .is_none_or(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }
