@@ -15,8 +15,10 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from django.db import transaction
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.experiment import Experiment
 from posthog.event_usage import report_user_signed_up
 from posthog.utils import absolute_uri
+from django.utils.text import slugify
 from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
@@ -60,15 +62,15 @@ class VercelIntegration:
             return None
 
     @staticmethod
-    def _setup_vercel_client_for_feature_flag(feature_flag: FeatureFlag) -> tuple[VercelAPIClient, str, str] | None:
-        resource = VercelIntegration._get_vercel_resource_for_feature_flag(feature_flag)
+    def _setup_vercel_client_for_team(team: Team) -> tuple[VercelAPIClient, str, str] | None:
+        resource = VercelIntegration._get_vercel_resource_for_team(team)
         if not resource:
-            logger.exception("Vercel resource not found for feature flag", feature_flag_id=feature_flag.pk)
+            logger.exception("Vercel resource not found for team", team_id=team.id)
             return None
 
-        installation = VercelIntegration._get_installation_for_organization(resource.team.organization)
+        installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
-            logger.exception("Vercel installation not found for team", team_id=resource.team.id)
+            logger.exception("Vercel installation not found for team", team_id=team.id)
             return None
 
         access_token = VercelIntegration._get_access_token(installation)
@@ -83,6 +85,10 @@ class VercelIntegration:
         resource_id = str(resource.pk)
 
         return client, integration_config_id, resource_id
+
+    @staticmethod
+    def _setup_vercel_client(feature_flag: FeatureFlag) -> tuple[VercelAPIClient, str, str] | None:
+        return VercelIntegration._setup_vercel_client_for_team(feature_flag.team)
 
     @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
@@ -346,7 +352,7 @@ class VercelIntegration:
 
     @staticmethod
     def sync_feature_flag_to_vercel(feature_flag: FeatureFlag, created: bool) -> None:
-        setup_result = VercelIntegration._setup_vercel_client_for_feature_flag(feature_flag)
+        setup_result = VercelIntegration._setup_vercel_client(feature_flag)
         if not setup_result:
             return
 
@@ -376,7 +382,7 @@ class VercelIntegration:
             success = client.update_experimentation_item(
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
-                item_id=str(feature_flag.pk),
+                item_id=f"flag_{feature_flag.pk}",
                 data=update_data,
             )
             if success:
@@ -389,7 +395,7 @@ class VercelIntegration:
 
     @staticmethod
     def delete_feature_flag_from_vercel(feature_flag: FeatureFlag) -> None:
-        setup_result = VercelIntegration._setup_vercel_client_for_feature_flag(feature_flag)
+        setup_result = VercelIntegration._setup_vercel_client(feature_flag)
         if not setup_result:
             return
 
@@ -397,7 +403,7 @@ class VercelIntegration:
 
         logger.info("Starting Vercel feature flag deletion", feature_flag_id=feature_flag.pk)
         success = client.delete_experimentation_item(
-            integration_config_id=integration_config_id, resource_id=resource_id, item_id=str(feature_flag.pk)
+            integration_config_id=integration_config_id, resource_id=resource_id, item_id=f"flag_{feature_flag.pk}"
         )
         if success:
             logger.info(
@@ -415,9 +421,79 @@ class VercelIntegration:
             )
 
     @staticmethod
+    def sync_experiment_to_vercel(experiment: Experiment, created: bool) -> None:
+        setup_result = VercelIntegration._setup_vercel_client_for_team(experiment.team)
+        if not setup_result:
+            return
+
+        client, integration_config_id, resource_id = setup_result
+        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment)
+
+        if created:
+            success: bool = client.create_experimentation_items(
+                integration_config_id=integration_config_id, resource_id=resource_id, items=[vercel_item]
+            )
+            if success:
+                logger.info(
+                    "experiment_created_in_vercel",
+                    experiment_id=experiment.pk,
+                    integration_config_id=integration_config_id,
+                    resource_id=resource_id,
+                )
+        else:
+            update_data = {
+                "slug": vercel_item["slug"],
+                "origin": vercel_item["origin"],
+                "name": vercel_item["name"],
+                "category": vercel_item["category"],
+                "description": vercel_item["description"],
+                "isArchived": vercel_item["isArchived"],
+            }
+            success = client.update_experimentation_item(
+                integration_config_id=integration_config_id,
+                resource_id=resource_id,
+                item_id=f"experiment_{experiment.pk}",
+                data=update_data,
+            )
+            if success:
+                logger.info(
+                    "experiment_updated_in_vercel",
+                    experiment_id=experiment.pk,
+                    integration_config_id=integration_config_id,
+                    resource_id=resource_id,
+                )
+
+    @staticmethod
+    def delete_experiment_from_vercel(experiment: Experiment) -> None:
+        setup_result = VercelIntegration._setup_vercel_client_for_team(experiment.team)
+        if not setup_result:
+            return
+
+        client, integration_config_id, resource_id = setup_result
+
+        logger.info("Starting Vercel experiment deletion", experiment_id=experiment.pk)
+        success = client.delete_experimentation_item(
+            integration_config_id=integration_config_id, resource_id=resource_id, item_id=f"experiment_{experiment.pk}"
+        )
+        if success:
+            logger.info(
+                "experiment_deleted_from_vercel",
+                experiment_id=experiment.pk,
+                integration_config_id=integration_config_id,
+                resource_id=resource_id,
+            )
+        else:
+            logger.exception(
+                "experiment_delete_failed",
+                experiment_id=experiment.pk,
+                integration_config_id=integration_config_id,
+                resource_id=resource_id,
+            )
+
+    @staticmethod
     def _convert_feature_flag_to_vercel_item(feature_flag: FeatureFlag) -> dict:
         return {
-            "id": str(feature_flag.pk),
+            "id": f"flag_{feature_flag.pk}",
             "slug": feature_flag.key,
             "origin": absolute_uri(f"/project/{feature_flag.team.id}/feature_flags/{feature_flag.pk}"),
             "category": "flag",
@@ -428,11 +504,28 @@ class VercelIntegration:
         }
 
     @staticmethod
-    def _get_vercel_resource_for_feature_flag(feature_flag: FeatureFlag) -> Integration | None:
+    def _convert_experiment_to_vercel_item(experiment: Experiment) -> dict:
+        return {
+            "id": f"experiment_{experiment.pk}",
+            "slug": slugify(experiment.name) or f"experiment-{experiment.pk}",
+            "origin": absolute_uri(f"/project/{experiment.team.id}/experiments/{experiment.pk}"),
+            "category": "experiment",
+            "name": experiment.name,
+            "description": experiment.description or "",
+            "isArchived": experiment.archived or experiment.deleted,
+            "createdAt": experiment.created_at.timestamp(),
+        }
+
+    @staticmethod
+    def _get_vercel_resource_for_team(team: Team) -> Integration | None:
         try:
-            return Integration.objects.get(team=feature_flag.team, kind=Integration.IntegrationKind.VERCEL)
+            return Integration.objects.get(team=team, kind=Integration.IntegrationKind.VERCEL)
         except Integration.DoesNotExist:
             return None
+
+    @staticmethod
+    def _get_vercel_resource_for_feature_flag(feature_flag: FeatureFlag) -> Integration | None:
+        return VercelIntegration._get_vercel_resource_for_team(feature_flag.team)
 
 
 # TODO: Use jobs for these
@@ -444,3 +537,13 @@ def update_resource_experimentation_item(sender, instance: FeatureFlag, created,
 @receiver(post_delete, sender=FeatureFlag)
 def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs):
     VercelIntegration.delete_feature_flag_from_vercel(instance)
+
+
+@receiver(post_save, sender=Experiment)
+def update_experiment_experimentation_item(sender, instance: Experiment, created, **kwargs):
+    VercelIntegration.sync_experiment_to_vercel(instance, created)
+
+
+@receiver(post_delete, sender=Experiment)
+def delete_experiment_experimentation_item(sender, instance: Experiment, **kwargs):
+    VercelIntegration.delete_experiment_from_vercel(instance)
