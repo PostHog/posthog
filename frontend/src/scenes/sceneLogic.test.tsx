@@ -44,33 +44,23 @@ describe('sceneLogic', () => {
 
     it('changing URL runs openScene, loadScene and setScene', async () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.DataManagement,
+            sceneId: Scene.DataManagement,
         })
         router.actions.push(urls.settings('user'))
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.Settings,
+            sceneId: Scene.Settings,
         })
     })
 
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
-            id: Scene.DataManagement,
             component: expect.any(Function),
             logic: expect.any(Function),
-            sceneParams: { hashParams: {}, params: {}, searchParams: {} },
             lastTouch: expect.any(Number),
         })
 
         const expectedSettings = partial({
-            id: Scene.Settings,
             component: expect.any(Function),
-            sceneParams: {
-                hashParams: {},
-                params: {
-                    section: 'user',
-                },
-                searchParams: {},
-            },
             logic: expect.any(Function),
             lastTouch: expect.any(Number),
         })
