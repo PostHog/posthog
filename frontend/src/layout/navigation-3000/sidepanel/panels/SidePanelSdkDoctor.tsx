@@ -147,8 +147,7 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
 }
 
 export function SidePanelSdkDoctor(): JSX.Element {
-    const { sdkVersions, recentEventsLoading, outdatedSdkCount, featureFlagMisconfiguration } =
-        useValues(sidePanelSdkDoctorLogic)
+    const { sdkVersions, recentEventsLoading, featureFlagMisconfiguration } = useValues(sidePanelSdkDoctorLogic)
     // TODO: Multi-init detection temporarily disabled for post-MVP
     // const { multipleInitDetection } = useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
@@ -424,64 +423,98 @@ export function SidePanelSdkDoctor(): JSX.Element {
                     </Section>
                 )}
 
-                {outdatedSdkCount > 0 ? (
-                    <Section title={outdatedSdkCount === 1 ? 'Outdated SDK found' : 'Outdated SDKs found'}>
-                        <div className="p-3 bg-warning/10 rounded border border-warning/20">
-                            <div className="flex items-start">
-                                <IconWarning className="text-warning text-xl mt-0.5 mr-2 flex-shrink-0" />
-                                <div>
-                                    <p className="font-semibold">
-                                        <>{outdatedSdkCount === 1 ? 'Your SDK is' : 'Your SDKs are'}</> falling behind!
-                                        <br />
-                                        Time for an upgrade...
-                                    </p>
-                                    <p className="text-sm mt-1">
-                                        <>
-                                            An outdated SDK means you're missing out on bug fixes and enhancements.
-                                            <br />
-                                            {sdkVersions.some((sdk) => sdk.type === 'web' && sdk.isOutdated) && (
-                                                <>
-                                                    {' '}
-                                                    (If using our{' '}
-                                                    <Link
-                                                        to="https://app.posthog.com/settings/project#snippet"
-                                                        target="_blank"
-                                                        targetBlankIcon
-                                                        className="inline"
-                                                    >
-                                                        web snippet
-                                                    </Link>{' '}
-                                                    is an option for you, it will automatically keep you on the
-                                                    latest/current version of `posthog-js`.)
-                                                </>
-                                            )}
-                                        </>
-                                    </p>
-                                    <p className="text-sm mt-1">Check the links below to get caught up.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </Section>
-                ) : (
-                    // TODO: Multi-init detection temporarily disabled for post-MVP
-                    // !sdkVersions.some((sdk) => sdk.multipleInitializations) &&
-                    // !multipleInitDetection.detected &&
-                    !featureFlagMisconfiguration.detected && (
-                        <Section title="SDK health is good">
-                            <div className="p-3 bg-success/10 rounded border border-success/20">
+                {(() => {
+                    // Count SDKs that need updating (both outdated and close enough)
+                    const needsUpdateCount = sdkVersions.filter(
+                        (sdk) => sdk.isOutdated || (sdk.latestVersion && sdk.version !== sdk.latestVersion)
+                    ).length
+
+                    return needsUpdateCount > 0 ? (
+                        <Section title={needsUpdateCount === 1 ? 'Outdated SDK found' : 'Outdated SDKs found'}>
+                            <div className="p-3 bg-warning/10 rounded border border-warning/20">
                                 <div className="flex items-start">
-                                    <IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />
+                                    <IconWarning className="text-warning text-xl mt-0.5 mr-2 flex-shrink-0" />
                                     <div>
-                                        <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
-                                        <p className="text-sm mt-1">
-                                            You've got the latest. Nice work keeping everything current.
+                                        <p className="font-semibold">
+                                            <>{needsUpdateCount === 1 ? 'Your SDK has' : 'Your SDKs have'}</> fallen
+                                            behind!
+                                            <br />
+                                            Time for an update...
                                         </p>
+                                        <p className="text-sm mt-1">
+                                            <>
+                                                An outdated SDK means you're missing out on bug fixes and enhancements.
+                                                {sdkVersions.some((sdk) => sdk.type === 'web' && sdk.isOutdated) && (
+                                                    <>
+                                                        {' '}
+                                                        (If using our{' '}
+                                                        <Link
+                                                            to="https://app.posthog.com/settings/project#snippet"
+                                                            target="_blank"
+                                                            targetBlankIcon
+                                                            className="inline"
+                                                        >
+                                                            web snippet
+                                                        </Link>{' '}
+                                                        is an option for you, it will keep you up-to-date.)
+                                                        <br />
+                                                        <br />
+                                                    </>
+                                                )}
+                                                {(() => {
+                                                    // Check if we have multiple versions of the same SDK type
+                                                    const sdkTypeCounts: Record<string, number> = {}
+                                                    sdkVersions.forEach((sdk) => {
+                                                        sdkTypeCounts[sdk.type] = (sdkTypeCounts[sdk.type] || 0) + 1
+                                                    })
+                                                    const hasMultipleVersions = Object.values(sdkTypeCounts).some(
+                                                        (count) => count > 1
+                                                    )
+                                                    const hasWebSnippet = sdkVersions.some(
+                                                        (sdk) => sdk.type === 'web' && sdk.isOutdated
+                                                    )
+
+                                                    return hasMultipleVersions ? (
+                                                        <>
+                                                            {!hasWebSnippet && (
+                                                                <>
+                                                                    <br />
+                                                                    <br />
+                                                                </>
+                                                            )}
+                                                            Multiple versions of the same SDK can cause inaccuracies in
+                                                            your data.
+                                                        </>
+                                                    ) : null
+                                                })()}
+                                            </>
+                                        </p>
+                                        <p className="text-sm mt-1">Check the links below to get caught up.</p>
                                     </div>
                                 </div>
                             </div>
                         </Section>
+                    ) : (
+                        // TODO: Multi-init detection temporarily disabled for post-MVP
+                        // !sdkVersions.some((sdk) => sdk.multipleInitializations) &&
+                        // !multipleInitDetection.detected &&
+                        !featureFlagMisconfiguration.detected && (
+                            <Section title="SDK health is good">
+                                <div className="p-3 bg-success/10 rounded border border-success/20">
+                                    <div className="flex items-start">
+                                        <IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />
+                                        <div>
+                                            <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
+                                            <p className="text-sm mt-1">
+                                                You've got the latest. Nice work keeping everything current.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </Section>
+                        )
                     )
-                )}
+                })()}
 
                 {/* Render a section for each SDK category with SDKs */}
                 {Object.entries(groupedVersions).map(([category, categorySDKs]) => {
