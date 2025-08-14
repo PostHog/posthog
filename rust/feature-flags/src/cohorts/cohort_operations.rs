@@ -57,7 +57,7 @@ impl Cohort {
                     project_id,
                     e
                 );
-                FlagError::Internal(format!("Database query error: {}", e))
+                FlagError::Internal(format!("Database query error: {e}"))
             })?;
 
         Ok(cohorts)
@@ -619,7 +619,7 @@ mod tests {
     fn create_test_cohort_instance(id: CohortId, depends_on: Option<CohortId>) -> Cohort {
         Cohort {
             id,
-            name: Some(format!("Cohort {}", id)),
+            name: Some(format!("Cohort {id}")),
             description: None,
             team_id: 1,
             deleted: false,
