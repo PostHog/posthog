@@ -10,7 +10,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedPatternAssignedEvent,
 )
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_summary_notebook,
+    create_notebook_from_summary,
     _generate_notebook_content_from_summary,
 )
 
@@ -74,13 +74,13 @@ class TestNotebookCreation(APIBaseTest):
 
         return EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
 
-    def test_notebook_creation_with_summary_data(self):
+    async def test_notebook_creation_with_summary_data(self):
         """Test notebook creation with summary data"""
 
         session_ids = ["session_1", "session_2"]
         summary_data = self.create_test_summary_data()
 
-        notebook = create_summary_notebook(session_ids, self.user, self.team, summary_data)
+        notebook = await create_notebook_from_summary(session_ids, self.user, self.team, summary_data)
 
         # Verify the notebook was created
         self.assertIsNotNone(notebook)
