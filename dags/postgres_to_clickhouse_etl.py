@@ -3,7 +3,7 @@
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from dataclasses import dataclass
 import json
 
@@ -24,8 +24,6 @@ from dagster import (
 from dagster._core.definitions.backfill_policy import BackfillPolicy
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from dags.common import JobOwners
 
 
@@ -61,12 +59,15 @@ etl_retry_policy = RetryPolicy(
 
 def get_postgres_connection():
     """Get a connection to the Postgres database."""
+    # Get database config from Django settings
+    db_config = settings.DATABASES["default"]
+
     return psycopg2.connect(
-        host=settings.DATABASE_HOST,
-        port=settings.DATABASE_PORT,
-        database=settings.DATABASE_NAME,
-        user=settings.DATABASE_USER,
-        password=settings.DATABASE_PASSWORD,
+        host=db_config["HOST"],
+        port=db_config["PORT"],
+        database=db_config["NAME"],
+        user=db_config["USER"],
+        password=db_config["PASSWORD"],
         cursor_factory=psycopg2.extras.RealDictCursor,
     )
 
@@ -75,11 +76,10 @@ def get_organization_table_sql() -> str:
     """Get SQL for creating the organization table."""
     return """
         CREATE TABLE IF NOT EXISTS models.posthog_organization (
-            id Int64,
-            uuid UUID,
+            id UUID,
             name String,
             slug String,
-            logo_media_id Nullable(Int64),
+            logo_media_id Nullable(UUID),
             created_at DateTime64(6),
             updated_at DateTime64(6),
             session_cookie_age Nullable(Int32),
@@ -116,7 +116,7 @@ def get_team_table_sql() -> str:
         CREATE TABLE IF NOT EXISTS models.posthog_team (
             id Int64,
             uuid UUID,
-            organization_id Int64,
+            organization_id UUID,
             parent_team_id Nullable(Int64),
             project_id Int64,
             api_token String,
@@ -201,20 +201,82 @@ def get_team_table_sql() -> str:
     """
 
 
-def create_database_if_not_exists() -> None:
+def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
     """Create the models database in ClickHouse if it doesn't exist."""
+    if context:
+        context.log.info("Creating database 'models' if it doesn't exist...")
     create_db_sql = "CREATE DATABASE IF NOT EXISTS models"
-    run_sql_with_exceptions(create_db_sql, node_role=NodeRole.ALL)
+
+    try:
+        # Use sync_execute instead of run_sql_with_exceptions to ensure same connection
+        sync_execute(create_db_sql)
+        if context:
+            context.log.info("Database 'models' created/verified successfully")
+    except Exception as e:
+        if "already exists" in str(e).lower():
+            if context:
+                context.log.info("Database 'models' already exists")
+        else:
+            if context:
+                context.log.exception(f"Error creating database: {e}")
+            raise
 
 
-def create_clickhouse_tables() -> None:
+def create_clickhouse_tables(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
     """Create the organization and team tables in ClickHouse on all nodes."""
     # First ensure the database exists
-    create_database_if_not_exists()
+    create_database_if_not_exists(context)
 
-    # Create tables on all nodes
-    run_sql_with_exceptions(get_organization_table_sql(), node_role=NodeRole.ALL)
-    run_sql_with_exceptions(get_team_table_sql(), node_role=NodeRole.ALL)
+    # Verify database exists by listing databases
+    if context:
+        context.log.info("Verifying database exists...")
+    try:
+        result = sync_execute("SHOW DATABASES")
+        databases = [row[0] for row in result]
+        if context:
+            context.log.info(f"Available databases: {databases}")
+        if "models" not in databases:
+            raise Exception("Database 'models' was not created successfully")
+    except Exception as e:
+        if context:
+            context.log.exception(f"Error verifying database: {e}")
+        raise
+
+    # Drop and recreate tables to ensure correct schema
+    # This is safe since we're doing full refresh anyway
+    if context:
+        context.log.info("Dropping existing tables to ensure correct schema...")
+    try:
+        sync_execute("DROP TABLE IF EXISTS models.posthog_organization")
+        sync_execute("DROP TABLE IF EXISTS models.posthog_team")
+        if context:
+            context.log.info("Dropped existing tables")
+    except Exception as e:
+        if context:
+            context.log.warning(f"Error dropping tables (may not exist): {e}")
+
+    # Create tables using sync_execute for consistency
+    if context:
+        context.log.info("Creating posthog_organization table...")
+    try:
+        sync_execute(get_organization_table_sql())
+        if context:
+            context.log.info("Created posthog_organization table")
+    except Exception as e:
+        if context:
+            context.log.exception(f"Error creating organization table: {e}")
+        raise
+
+    if context:
+        context.log.info("Creating posthog_team table...")
+    try:
+        sync_execute(get_team_table_sql())
+        if context:
+            context.log.info("Created posthog_team table")
+    except Exception as e:
+        if context:
+            context.log.exception(f"Error creating team table: {e}")
+        raise
 
 
 def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: int = 10000) -> list[dict]:
@@ -224,7 +286,6 @@ def fetch_organizations(conn, last_sync: Optional[datetime] = None, batch_size: 
     query = """
         SELECT
             id,
-            uuid,
             name,
             slug,
             logo_media_id,
@@ -414,6 +475,12 @@ def transform_organization_row(row: dict) -> dict:
 
 def transform_team_row(row: dict) -> dict:
     """Transform a Postgres team row for ClickHouse insertion."""
+    # Convert UUID fields to strings for ClickHouse
+    uuid_fields = ["uuid", "organization_id"]
+    for field in uuid_fields:
+        if row.get(field) is not None:
+            row[field] = str(row[field])
+
     # Convert JSON fields to strings
     json_fields = [
         "has_completed_onboarding_for",
@@ -505,17 +572,12 @@ def insert_organizations_to_clickhouse(organizations: list[dict], batch_size: in
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
 
-        # Build parameterized query
-        placeholders = ", ".join([f"({', '.join(['%s'] * len(columns))})" for _ in batch])
-        query = f"INSERT INTO models.posthog_organization ({', '.join(columns)}) VALUES {placeholders}"
+        # ClickHouse requires passing data as list of tuples
+        data = [tuple(row.get(col) for col in columns) for row in batch]
 
-        # Flatten values for parameterized query
-        values = []
-        for row in batch:
-            for col in columns:
-                values.append(row.get(col))
+        query = f"INSERT INTO models.posthog_organization ({', '.join(columns)}) VALUES"
 
-        sync_execute(query, values)
+        sync_execute(query, data, with_column_types=False)
         total_inserted += len(batch)
 
     return total_inserted
@@ -537,17 +599,12 @@ def insert_teams_to_clickhouse(teams: list[dict], batch_size: int = 10000) -> in
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
 
-        # Build parameterized query
-        placeholders = ", ".join([f"({', '.join(['%s'] * len(columns))})" for _ in batch])
-        query = f"INSERT INTO models.posthog_team ({', '.join(columns)}) VALUES {placeholders}"
+        # ClickHouse requires passing data as list of tuples
+        data = [tuple(row.get(col) for col in columns) for row in batch]
 
-        # Flatten values for parameterized query
-        values = []
-        for row in batch:
-            for col in columns:
-                values.append(row.get(col))
+        query = f"INSERT INTO models.posthog_team ({', '.join(columns)}) VALUES"
 
-        sync_execute(query, values)
+        sync_execute(query, data, with_column_types=False)
         total_inserted += len(batch)
 
     return total_inserted
@@ -561,8 +618,10 @@ def sync_organizations(
     """Sync organizations from Postgres to ClickHouse."""
     state = ETLState()
 
+    context.log.info(f"Starting organization sync (full_refresh={config.full_refresh})")
+
     # Create tables if they don't exist
-    create_clickhouse_tables()
+    create_clickhouse_tables(context)
 
     # Get last sync timestamp from ClickHouse (if incremental)
     last_sync = None
@@ -574,8 +633,13 @@ def sync_organizations(
 
     # If full refresh, truncate the table
     if config.full_refresh:
-        sync_execute("TRUNCATE TABLE models.posthog_organization")
-        context.log.info("Truncated posthog_organization table for full refresh")
+        context.log.info("Full refresh requested, truncating posthog_organization table...")
+        try:
+            sync_execute("TRUNCATE TABLE models.posthog_organization")
+            context.log.info("Truncated posthog_organization table for full refresh")
+        except Exception as e:
+            context.log.warning(f"Could not truncate table (may not exist yet): {e}")
+            # Table might not exist, continue as it will be created
 
     # Connect to Postgres and fetch data
     pg_conn = get_postgres_connection()
@@ -619,8 +683,10 @@ def sync_teams(
     """Sync teams from Postgres to ClickHouse."""
     state = ETLState()
 
+    context.log.info(f"Starting team sync (full_refresh={config.full_refresh})")
+
     # Create tables if they don't exist
-    create_clickhouse_tables()
+    create_clickhouse_tables(context)
 
     # Get last sync timestamp from ClickHouse (if incremental)
     last_sync = None
@@ -632,8 +698,13 @@ def sync_teams(
 
     # If full refresh, truncate the table
     if config.full_refresh:
-        sync_execute("TRUNCATE TABLE models.posthog_team")
-        context.log.info("Truncated posthog_team table for full refresh")
+        context.log.info("Full refresh requested, truncating posthog_team table...")
+        try:
+            sync_execute("TRUNCATE TABLE models.posthog_team")
+            context.log.info("Truncated posthog_team table for full refresh")
+        except Exception as e:
+            context.log.warning(f"Could not truncate table (may not exist yet): {e}")
+            # Table might not exist, continue as it will be created
 
     # Connect to Postgres and fetch data
     pg_conn = get_postgres_connection()
@@ -741,7 +812,7 @@ def organizations_in_clickhouse(
     config = PostgresToClickHouseETLConfig(full_refresh=False)
 
     # Create tables if they don't exist
-    create_clickhouse_tables()
+    create_clickhouse_tables(context)
 
     # Determine the time window for this partition
     partition_key = context.partition_key
@@ -817,7 +888,7 @@ def teams_in_clickhouse(
     config = PostgresToClickHouseETLConfig(full_refresh=False)
 
     # Create tables if they don't exist
-    create_clickhouse_tables()
+    create_clickhouse_tables(context)
 
     # Determine the time window for this partition
     partition_key = context.partition_key
