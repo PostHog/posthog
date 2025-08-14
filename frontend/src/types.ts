@@ -3607,6 +3607,10 @@ export interface EventDefinition {
     default_columns?: string[]
 }
 
+export interface EventDefinitionMetrics {
+    query_usage_30_day: number
+}
+
 // TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum PropertyType {
     DateTime = 'DateTime',
