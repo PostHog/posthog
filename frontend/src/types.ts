@@ -3282,6 +3282,7 @@ export interface FeatureFlagGroupType {
     variant?: string | null
     users_affected?: number
     sort_key?: string | null // Client-side only stable id for sorting.
+    description?: string | null
 }
 
 export interface MultivariateFlagVariant {
