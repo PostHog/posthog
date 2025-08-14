@@ -35,7 +35,7 @@ describe('sceneLogic', () => {
     it('has preloaded some scenes', async () => {
         const preloadedScenes = [Scene.Error404, Scene.ErrorNetwork, Scene.ErrorProjectUnavailable]
         await expectLogic(logic).toMatchValues({
-            loadedScenes: truth(
+            exportedScenes: truth(
                 (obj: Record<string, any>) =>
                     Object.keys(obj).filter((key) => preloadedScenes.includes(key as Scene)).length === 3
             ),
@@ -77,13 +77,13 @@ describe('sceneLogic', () => {
 
         await expectLogic(logic).delay(1)
 
-        expect(logic.values.loadedScenes).toMatchObject({
+        expect(logic.values.exportedScenes).toMatchObject({
             [Scene.DataManagement]: expectedAnnotation,
         })
         router.actions.push(urls.settings('user'))
         await expectLogic(logic).delay(1)
 
-        expect(logic.values.loadedScenes).toMatchObject({
+        expect(logic.values.exportedScenes).toMatchObject({
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })
