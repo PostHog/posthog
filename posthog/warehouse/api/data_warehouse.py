@@ -71,10 +71,19 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
             else:
-                logger.exception("There was an error retrieving billing_period information")
+                logger.info("No billing period information available, using defaults")
                 return Response(
-                    status=status.HTTP_401_UNAUTHORIZED,
-                    data={"error": "An error occured retrieving billing_period information"},
+                    status=status.HTTP_200_OK,
+                    data={
+                        "billingInterval": billing_interval,
+                        "billingPeriodEnd": billing_period_end,
+                        "billingPeriodStart": billing_period_start,
+                        "materializedRowsInBillingPeriod": materialized_rows,
+                        "totalRows": rows_synced,
+                        "trackedBillingRows": billing_tracked_rows,
+                        "pendingBillingRows": pending_billing_rows,
+                        "warning": "Billing period information unavailable",
+                    },
                 )
         except Exception as e:
             logger.exception("There was an error retrieving billing information", exc_info=e)
