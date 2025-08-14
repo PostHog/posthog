@@ -395,7 +395,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         log_event_usage(
                             event_name=event_name,
                             team_id=resource.team.pk,
-                            user_id=self.request.user.pk,
+                            user_id=self.request.user.pk if self.request.user.is_authenticated else None,
                         )
                     except Exception as e:
                         # fail silently
@@ -425,7 +425,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         log_event_usage(
                             event_name=event_name,
                             team_id=resource.team.pk,
-                            user_id=self.request.user.pk,
+                            user_id=self.request.user.pk if self.request.user.is_authenticated else None,
                         )
                     except Exception as e:
                         # fail silently
