@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitInfo {
+    pub remote_url: Option<String>,
     pub repo_name: Option<String>,
     pub branch: String,
     pub commit_id: String,
@@ -17,11 +18,13 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
         None => return Ok(None),
     };
 
+    let remote_url = get_remote_url(&git_dir);
     let repo_name = get_repo_name(&git_dir);
     let branch = get_current_branch(&git_dir).context("Failed to determine current branch")?;
     let commit = get_head_commit(&git_dir, &branch).context("Failed to determine commit ID")?;
 
     Ok(Some(GitInfo {
+        remote_url,
         repo_name,
         branch,
         commit_id: commit,
@@ -41,6 +44,27 @@ fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
             return None;
         }
     }
+}
+
+fn get_remote_url(git_dir: &Path) -> Option<String> {
+    // Try grab it from the git config
+    let config_path = git_dir.join("config");
+    if config_path.exists() {
+        let config_content = match fs::read_to_string(&config_path) {
+            Ok(content) => content,
+            Err(_) => return None,
+        };
+
+        for line in config_content.lines() {
+            let line = line.trim();
+            if line.starts_with("url = ") && line.ends_with(".git") {
+                let url = line.trim_start_matches("url = ");
+                return Some(url.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 fn get_repo_name(git_dir: &Path) -> Option<String> {

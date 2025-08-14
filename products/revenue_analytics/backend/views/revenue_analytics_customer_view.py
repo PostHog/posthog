@@ -7,6 +7,7 @@ from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
@@ -117,7 +118,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
     @classmethod
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
-        if not source.source_type == ExternalDataSource.Type.STRIPE:
+        if not source.source_type == ExternalDataSourceType.STRIPE:
             return []
 
         # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
