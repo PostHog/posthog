@@ -187,7 +187,6 @@ impl EphemeralTopic {
         );
         config.set("debug", "consumer,cgrp,topic,fetch");
         config.set("socket.timeout.ms", "30000");
-        config.set("message.timeout.ms", "30000");
         // RedPanda compatibility settings
         config.set("enable.auto.commit", "false");
         config.set("auto.offset.reset", "earliest");
@@ -195,8 +194,7 @@ impl EphemeralTopic {
         config.set("heartbeat.interval.ms", "10000");
         config.set("max.poll.interval.ms", "300000");
         config.set("connections.max.idle.ms", "540000");
-        config.set("request.timeout.ms", "30000");
-        config.set("metadata.request.timeout.ms", "30000");
+        // Consumer-specific timeout settings
         config.set("fetch.wait.max.ms", "500");
         config.set("fetch.error.backoff.ms", "500");
         config.set("partition.assignment.strategy", "cooperative-sticky");
@@ -233,6 +231,8 @@ impl EphemeralTopic {
                         .iter()
                         .any(|t| t.name() == topic_name && !t.partitions().is_empty());
                     if ready {
+                        // Add extra delay to ensure topic is fully ready for production/consumption
+                        std::thread::sleep(Duration::from_millis(200));
                         break;
                     }
                 }
@@ -342,7 +342,14 @@ impl EphemeralTopic {
 impl Drop for EphemeralTopic {
     fn drop(&mut self) {
         info!("dropping EphemeralTopic {}...", self.topic_name);
+        
+        // First unsubscribe to stop any ongoing polls
         self.consumer.unsubscribe();
+        
+        // Give some time for any ongoing polls to complete
+        std::thread::sleep(Duration::from_millis(100));
+        
+        // Then delete the topic
         match futures::executor::block_on(timeout(
             Duration::from_secs(10),
             delete_topic(self.topic_name.clone()),
