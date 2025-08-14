@@ -12,12 +12,12 @@ from posthog.schema import (
     AssistantToolCall,
     HumanMessage,
     MaxActionContext,
-    MaxUIContext,
     MaxEventContext,
+    MaxUIContext,
 )
 
-from .conftest import MaxEval
-from .scorers import ToolRelevance
+from ..conftest import MaxEval
+from ..scorers import ToolRelevance
 
 
 @pytest.fixture

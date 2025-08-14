@@ -5,7 +5,7 @@ from braintrust_core.score import Scorer
 
 from products.surveys.backend.max_tools import CreateSurveyTool
 
-from .conftest import MaxEval
+from ..conftest import MaxEval
 
 
 @pytest.fixture
