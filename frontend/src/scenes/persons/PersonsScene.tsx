@@ -3,17 +3,15 @@ import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { personsSceneLogic } from './personsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { personsSceneLogic } from './personsSceneLogic'
 
-import { Query } from '~/queries/Query/Query'
-import { ProductKey, OnboardingStepKey } from '~/types'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { Query } from '~/queries/Query/Query'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -25,8 +23,6 @@ export function PersonsScene(): JSX.Element {
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     return (
         <SceneContent>
@@ -65,21 +61,17 @@ export function PersonsScene(): JSX.Element {
                 }
             />
 
-            {newSceneLayout && (
-                <>
-                    <SceneTitleSection
-                        name="People"
-                        description="A catalog of all the people behind your events"
-                        resourceType={{
-                            type: 'person',
-                            typePlural: 'persons',
-                            forceIcon: <IconPeople />,
-                        }}
-                        docsLink="https://posthog.com/docs/data/persons"
-                    />
-                    <SceneDivider />
-                </>
-            )}
+            <SceneTitleSection
+                name="People"
+                description="A catalog of all the people behind your events"
+                resourceType={{
+                    type: 'person',
+                    typePlural: 'persons',
+                    forceIcon: <IconPeople />,
+                }}
+                docsLink="https://posthog.com/docs/data/persons"
+            />
+            <SceneDivider />
 
             <Query
                 query={query}

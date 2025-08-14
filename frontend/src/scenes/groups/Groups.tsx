@@ -1,30 +1,28 @@
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Link } from 'lib/lemon-ui/Link'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { Query } from '~/queries/Query/Query'
 import { GroupTypeIndex } from '~/types'
 
-import { groupsListLogic } from './groupsListLogic'
-import { groupsSceneLogic } from './groupsSceneLogic'
+import { IconPeople } from '@posthog/icons'
+import { router } from 'kea-router'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { urls } from 'scenes/urls'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { groupsModel } from '~/models/groupsModel'
 import { QueryContext } from '~/queries/types'
 import { getCRMColumns } from './crm/utils'
+import { groupsListLogic } from './groupsListLogic'
+import { groupsSceneLogic } from './groupsSceneLogic'
 import { groupViewLogic } from './groupViewLogic'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconPeople } from '@posthog/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
@@ -35,8 +33,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -81,20 +77,16 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 }
             />
 
-            {newSceneLayout && (
-                <>
-                    <SceneTitleSection
-                        name={capitalizeFirstLetter(groupTypeNamePlural)}
-                        description={`A catalog of all ${groupTypeNamePlural} for this project`}
-                        resourceType={{
-                            type: groupTypeName,
-                            typePlural: groupTypeNamePlural,
-                            forceIcon: <IconPeople />,
-                        }}
-                    />
-                    <SceneDivider />
-                </>
-            )}
+            <SceneTitleSection
+                name={capitalizeFirstLetter(groupTypeNamePlural)}
+                description={`A catalog of all ${groupTypeNamePlural} for this project`}
+                resourceType={{
+                    type: groupTypeName,
+                    typePlural: groupTypeNamePlural,
+                    forceIcon: <IconPeople />,
+                }}
+            />
+            <SceneDivider />
 
             <Query
                 query={{ ...query, hiddenColumns }}

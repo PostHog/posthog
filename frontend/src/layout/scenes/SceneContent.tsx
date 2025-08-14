@@ -97,7 +97,14 @@ export function SceneTitleSection({
     onNameBlur,
     onDescriptionBlur,
     docsLink,
-}: SceneMainTitleProps): JSX.Element {
+}: SceneMainTitleProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    if (!newSceneLayout) {
+        return null
+    }
+
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
             {resourceType.forceIcon}

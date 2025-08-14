@@ -207,26 +207,24 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <SceneContent>
-                    {newSceneLayout && (
-                        <SceneTitleSection
-                            name={cohort.name}
-                            description={cohort.description}
-                            resourceType={{
-                                to: urls.cohorts(),
-                                type: RESOURCE_TYPE,
-                                typePlural: 'cohorts',
-                                tooltip: 'Go to all cohorts',
-                            }}
-                            isLoading={cohortLoading}
-                            onNameBlur={(value) => {
-                                setCohortValue('name', value)
-                            }}
-                            onDescriptionBlur={(value) => {
-                                setCohortValue('description', value)
-                            }}
-                            docsLink="https://posthog.com/docs/data/cohorts"
-                        />
-                    )}
+                    <SceneTitleSection
+                        name={cohort.name}
+                        description={cohort.description}
+                        resourceType={{
+                            to: urls.cohorts(),
+                            type: RESOURCE_TYPE,
+                            typePlural: 'cohorts',
+                            tooltip: 'Go to all cohorts',
+                        }}
+                        isLoading={cohortLoading}
+                        onNameBlur={(value) => {
+                            setCohortValue('name', value)
+                        }}
+                        onDescriptionBlur={(value) => {
+                            setCohortValue('description', value)
+                        }}
+                        docsLink="https://posthog.com/docs/data/cohorts"
+                    />
 
                     <SceneDivider />
 

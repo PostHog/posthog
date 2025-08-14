@@ -315,27 +315,25 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     </ScenePanelActions>
                 </ScenePanel>
 
-                {newSceneLayout && (
-                    <SceneTitleSection
-                        name={action.name}
-                        description={action.description}
-                        resourceType={{
-                            to: urls.actions(),
-                            type: RESOURCE_TYPE,
-                            tooltip: 'Go to all actions',
-                            typePlural: 'actions',
-                        }}
-                        markdown={true}
-                        isLoading={actionLoading}
-                        onNameBlur={(value) => {
-                            setActionValue('name', value)
-                        }}
-                        onDescriptionBlur={(value) => {
-                            setActionValue('description', value)
-                        }}
-                        docsLink="https://posthog.com/docs/data/actions"
-                    />
-                )}
+                <SceneTitleSection
+                    name={action.name}
+                    description={action.description}
+                    resourceType={{
+                        to: urls.actions(),
+                        type: RESOURCE_TYPE,
+                        tooltip: 'Go to all actions',
+                        typePlural: 'actions',
+                    }}
+                    markdown={true}
+                    isLoading={actionLoading}
+                    onNameBlur={(value) => {
+                        setActionValue('name', value)
+                    }}
+                    onDescriptionBlur={(value) => {
+                        setActionValue('description', value)
+                    }}
+                    docsLink="https://posthog.com/docs/data/actions"
+                />
 
                 <SceneDivider />
 
