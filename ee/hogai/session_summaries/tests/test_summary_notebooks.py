@@ -10,8 +10,10 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedPatternAssignedEvent,
 )
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_summary_notebook,
+    create_notebook_from_summary,
     _generate_notebook_content_from_summary,
+    format_single_sessions_status,
+    format_patterns_extraction_status,
 )
 
 
@@ -74,13 +76,13 @@ class TestNotebookCreation(APIBaseTest):
 
         return EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
 
-    def test_notebook_creation_with_summary_data(self):
+    async def test_notebook_creation_with_summary_data(self):
         """Test notebook creation with summary data"""
 
         session_ids = ["session_1", "session_2"]
         summary_data = self.create_test_summary_data()
 
-        notebook = create_summary_notebook(session_ids, self.user, self.team, summary_data)
+        notebook = await create_notebook_from_summary(session_ids, self.user, self.team, summary_data)
 
         # Verify the notebook was created
         self.assertIsNotNone(notebook)
@@ -509,3 +511,204 @@ class TestNotebookCreation(APIBaseTest):
                 content_text,
                 f"Failed for {millis}ms -> t={expected_timestamp}",
             )
+
+    def test_format_single_sessions_status_empty(self):
+        """Test formatting an empty sessions status dictionary"""
+        result = format_single_sessions_status({})
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["attrs"]["level"], 2)
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check empty bullet list
+        self.assertEqual(result["content"][1]["type"], "bulletList")
+        self.assertEqual(result["content"][1]["content"], [])
+
+    def test_format_single_sessions_status_all_pending(self):
+        """Test formatting when all sessions are pending"""
+        sessions_status = {
+            "session-1": False,
+            "session-2": False,
+            "session-3": False,
+        }
+        result = format_single_sessions_status(sessions_status)
+        # Check structure
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 3)
+        # Check each item
+        for i, (session_id, _) in enumerate(sessions_status.items()):
+            list_item = bullet_list["content"][i]
+            self.assertEqual(list_item["type"], "listItem")
+            paragraph = list_item["content"][0]
+            self.assertEqual(paragraph["type"], "paragraph")
+            text = paragraph["content"][0]
+            self.assertEqual(text["type"], "text")
+            self.assertEqual(text["text"], f"{session_id} ❌")
+
+    def test_format_single_sessions_status_mixed(self):
+        """Test formatting with mixed session statuses"""
+        sessions_status = {
+            "session-1": True,
+            "session-2": False,
+            "session-3": True,
+            "session-4": False,
+        }
+        result = format_single_sessions_status(sessions_status)
+        # Check structure
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 4)
+        # Check each item
+        for i, (session_id, is_completed) in enumerate(sessions_status.items()):
+            list_item = bullet_list["content"][i]
+            self.assertEqual(list_item["type"], "listItem")
+            paragraph = list_item["content"][0]
+            self.assertEqual(paragraph["type"], "paragraph")
+            text = paragraph["content"][0]
+            self.assertEqual(text["type"], "text")
+            emoji = "✅" if is_completed else "❌"
+            self.assertEqual(text["text"], f"{session_id} {emoji}")
+
+    def test_format_single_sessions_status_all_completed(self):
+        """Test formatting when all sessions are completed"""
+        sessions_status = {
+            "session-1": True,
+            "session-2": True,
+            "session-3": True,
+        }
+        result = format_single_sessions_status(sessions_status)
+        # Check structure
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 3)
+        # Check each item
+        for i, (session_id, _) in enumerate(sessions_status.items()):
+            list_item = bullet_list["content"][i]
+            self.assertEqual(list_item["type"], "listItem")
+            paragraph = list_item["content"][0]
+            self.assertEqual(paragraph["type"], "paragraph")
+            text = paragraph["content"][0]
+            self.assertEqual(text["type"], "text")
+            self.assertEqual(text["text"], f"{session_id} ✅")
+
+    def test_format_single_sessions_status_single_session(self):
+        """Test formatting with a single session"""
+        sessions_status = {"single-session": True}
+        result = format_single_sessions_status(sessions_status)
+        # Check structure
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 1)
+        # Check the single item
+        list_item = bullet_list["content"][0]
+        self.assertEqual(list_item["type"], "listItem")
+        paragraph = list_item["content"][0]
+        self.assertEqual(paragraph["type"], "paragraph")
+        text = paragraph["content"][0]
+        self.assertEqual(text["type"], "text")
+        self.assertEqual(text["text"], "single-session ✅")
+
+    def test_format_patterns_extraction_status_empty(self):
+        """Test formatting an empty patterns list"""
+        result = format_patterns_extraction_status([])
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + message
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["attrs"]["level"], 2)
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Extracted Patterns")
+        # Check empty message
+        self.assertEqual(result["content"][1]["type"], "paragraph")
+        self.assertIn("No patterns extracted yet", str(result["content"][1]))
+
+    def test_format_patterns_extraction_status_with_patterns(self):
+        """Test formatting patterns with full details"""
+        patterns = [
+            {
+                "pattern_id": 1,
+                "pattern_name": "Login Flow Issues",
+                "pattern_description": "Users experiencing difficulties during login",
+                "severity": "high",
+                "indicators": ["multiple login attempts", "error messages", "password reset"],
+            },
+            {
+                "pattern_id": 2,
+                "pattern_name": "Navigation Confusion",
+                "pattern_description": "Users getting lost in navigation",
+                "severity": "medium",
+                "indicators": ["back button usage", "repeated page visits"],
+            },
+        ]
+
+        result = format_patterns_extraction_status(patterns)
+        # Check structure
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Extracted Patterns")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 2)  # Two patterns
+
+        # Check first pattern
+        first_item = bullet_list["content"][0]
+        self.assertEqual(first_item["type"], "listItem")
+        self.assertEqual(len(first_item["content"]), 3)  # header, description, indicators
+
+        # Verify pattern content includes name and severity
+        first_header = first_item["content"][0]
+        self.assertEqual(first_header["type"], "paragraph")
+        header_text = first_header["content"][0]["text"]
+        self.assertIn("Login Flow Issues", header_text)
+        self.assertIn("high", header_text)
+
+    def test_format_patterns_extraction_status_without_indicators(self):
+        """Test formatting patterns without indicators"""
+        patterns = [
+            {
+                "pattern_id": 1,
+                "pattern_name": "Simple Pattern",
+                "pattern_description": "A pattern without indicators",
+                "severity": "low",
+                "indicators": [],
+            }
+        ]
+
+        result = format_patterns_extraction_status(patterns)
+        # Check structure
+        self.assertEqual(result["type"], "doc")
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+
+        # Check pattern item has only 2 paragraphs (no indicators)
+        first_item = bullet_list["content"][0]
+        self.assertEqual(first_item["type"], "listItem")
+        self.assertEqual(len(first_item["content"]), 2)  # header, description only

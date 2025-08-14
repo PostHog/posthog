@@ -35,6 +35,7 @@ class TestAITemporalModuleIntegrity:
             "stream_llm_single_session_summary_activity",
             "get_llm_single_session_summary_activity",
             "fetch_session_batch_events_activity",
+            "get_patterns_from_redis_activity",
             "extract_session_group_patterns_activity",
             "assign_events_to_patterns_activity",
             "fetch_session_data_activity",

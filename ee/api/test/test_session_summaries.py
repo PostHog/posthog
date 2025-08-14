@@ -72,7 +72,7 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary")
     def test_create_summaries_success(
         self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
@@ -115,10 +115,18 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Check extra_summary_context separately
         self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")
 
+        # Verify create_notebook_from_summary was called
+        mock_create_notebook.assert_called_once_with(
+            session_ids=["session1", "session2"],
+            user=self.user,
+            team=self.team,
+            summary=mock_result,
+        )
+
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary")
     def test_create_summaries_without_focus_area(
         self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
@@ -147,6 +155,14 @@ class TestSessionSummariesAPI(APIBaseTest):
             min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
             extra_summary_context=None,
+        )
+
+        # Verify create_notebook_from_summary was called
+        mock_create_notebook.assert_called_once_with(
+            session_ids=["session1", "session2"],
+            user=self.user,
+            team=self.team,
+            summary=mock_result,
         )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -277,7 +293,7 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary")
     def test_create_summaries_execution_failure(
         self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
@@ -336,7 +352,7 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary")
     def test_create_summaries_single_session(
         self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
     ) -> None:
@@ -357,3 +373,11 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         # Verify session validation was called once
         mock_find_sessions.assert_called_once_with(session_ids=["single_session"], team=self.team)
+
+        # Verify create_notebook_from_summary was called
+        mock_create_notebook.assert_called_once_with(
+            session_ids=["single_session"],
+            user=self.user,
+            team=self.team,
+            summary=mock_result,
+        )

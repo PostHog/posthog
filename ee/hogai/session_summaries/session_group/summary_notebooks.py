@@ -2,8 +2,8 @@ from datetime import datetime
 
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.notebook.util import (
-    TipTapNode,
     TipTapContent,
+    TipTapNode,
     create_heading_with_text,
     create_text_content,
     create_bullet_list,
@@ -17,23 +17,118 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
     PatternAssignedEventSegmentContext,
+    RawSessionGroupSummaryPattern,
 )
 
 
-def create_summary_notebook(
+def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNode:
+    """Format sessions status dictionary as a TipTap bullet list with a header"""
+    items = []
+    for session_id, is_completed in sessions_status.items():
+        emoji = "✅" if is_completed else "❌"
+        items.append(f"{session_id} {emoji}")
+
+    bullet_list = create_bullet_list(items)
+    # Add a proper header
+    content = [
+        {
+            "type": "heading",
+            "attrs": {"level": 2},
+            "content": [{"type": "text", "text": "Session Processing Status"}],
+        },
+        bullet_list,
+    ]
+    # Wrap content in a doc node
+    json_content = {"type": "doc", "content": content}
+    return json_content
+
+
+def format_extracted_patterns_status(patterns: list[RawSessionGroupSummaryPattern]) -> TipTapNode:
+    """Format extracted patterns as a TipTap document with header and details"""
+    content = []
+    # Add header
+    content.append(
+        {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Extracted Patterns"}]}
+    )
+    if not patterns:
+        # Show a message when no patterns are extracted yet
+        content.append(create_paragraph_with_text("No patterns extracted yet..."))
+    else:
+        # Create a list of patterns with their details
+        pattern_items = []
+        for pattern in patterns:
+            # Create pattern header with name and severity
+            pattern_name = pattern.pattern_name
+            severity = pattern.severity
+            pattern_header = f"**{pattern_name}** (Severity: {severity})"
+
+            # Create pattern description
+            pattern_desc = pattern.pattern_description
+
+            # Create indicators list if available
+            indicators = pattern.indicators
+            if indicators:
+                indicators_text = "Indicators: " + ", ".join(indicators)
+                pattern_content = [
+                    create_paragraph_with_text(pattern_header),
+                    create_paragraph_with_text(pattern_desc),
+                    create_paragraph_with_text(indicators_text),
+                ]
+            else:
+                pattern_content = [create_paragraph_with_text(pattern_header), create_paragraph_with_text(pattern_desc)]
+
+            # Add as a list item with nested content
+            pattern_items.append({"type": "listItem", "content": pattern_content})
+
+        # Add the bullet list
+        content.append({"type": "bulletList", "content": pattern_items})
+
+    return {"type": "doc", "content": content}
+
+
+async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
+    """Create an empty notebook for a summary."""
+    notebook = await Notebook.objects.acreate(
+        team=team,
+        title=f"Session Summaries Report - {team.name} ({datetime.now().strftime('%Y-%m-%d')})",
+        content="",
+        created_by=user,
+        last_modified_by=user,
+    )
+    return notebook
+
+
+async def create_notebook_from_summary(
     session_ids: list[str], user: User, team: Team, summary: EnrichedSessionGroupSummaryPatternsList
 ) -> Notebook:
     """Create a notebook with session summary patterns."""
     notebook_content = _generate_notebook_content_from_summary(
         summary=summary, session_ids=session_ids, project_name=team.name, team_id=team.id
     )
-    notebook = Notebook.objects.create(
+    notebook = await Notebook.objects.acreate(
         team=team,
         title=f"Session Summaries Report - {team.name} ({datetime.now().strftime('%Y-%m-%d')})",
         content=notebook_content,
         created_by=user,
         last_modified_by=user,
     )
+    return notebook
+
+
+async def update_notebook_with_summary(
+    notebook_short_id: str,
+    session_ids: list[str],
+    user: User,
+    team: Team,
+    summary: EnrichedSessionGroupSummaryPatternsList,
+) -> Notebook:
+    """Update a notebook with session summary patterns."""
+    notebook = await Notebook.objects.aget(short_id=notebook_short_id)
+    notebook_content = _generate_notebook_content_from_summary(
+        summary=summary, session_ids=session_ids, project_name=team.name, team_id=team.id
+    )
+    notebook.content = notebook_content
+    await notebook.asave()
     return notebook
 
 

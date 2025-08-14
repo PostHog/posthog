@@ -17,7 +17,7 @@ from rest_framework.viewsets import GenericViewSet
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from posthog.cloud_utils import is_cloud
-from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
+from ee.hogai.session_summaries.session_group.summary_notebooks import create_notebook_from_summary
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
@@ -118,7 +118,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 max_timestamp=max_timestamp,
                 extra_summary_context=extra_summary_context,
             )
-            create_summary_notebook(session_ids=session_ids, user=user, team=self.team, summary=summary)
+            async_to_sync(create_notebook_from_summary)(
+                session_ids=session_ids, user=user, team=self.team, summary=summary
+            )
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(

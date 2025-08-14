@@ -8,16 +8,22 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, GROUP_SUMMARIES_MIN_SESSIONS
-from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
-from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
+from ee.hogai.session_summaries.session_group.summary_notebooks import (
+    create_empty_notebook_for_summary,
+    update_notebook_with_summary,
+)
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.ai.session_summary.summarize_session_group import (
+    SessionSummaryStreamUpdate,
+    execute_summarize_session_group,
+)
 from langgraph.config import get_stream_writer
 from langchain_core.messages import AIMessageChunk
+from posthog.schema import NotebookUpdateMessage
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -46,6 +52,7 @@ class SessionSummarizationNode(AssistantNode):
                 extra={"node": "SessionSummarizationNode", "message": progress_message},
             )
             return
+        # TODO: Move to util
         message_chunk = AIMessageChunk(
             content="",
             additional_kwargs={"reasoning": {"summary": [{"text": f"**{progress_message}**"}]}},
@@ -53,6 +60,22 @@ class SessionSummarizationNode(AssistantNode):
         message = (message_chunk, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
         return
+
+    def _stream_notebook_content(self, content: dict, state: AssistantState, writer: StreamWriter | None) -> None:
+        """Stream TipTap content directly to a notebook if notebook_id is present in state."""
+        if not writer:
+            self.logger.warning("Stream writer not available for notebook update")
+            return
+        # Check if we have a notebook_id in the state
+        if not state.notebook_id:
+            self.logger.warning("No notebook_id in state, skipping notebook update")
+            return
+        # Create a notebook update message; not providing id to count it as a partial message on FE
+        notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content)
+        # Stream the notebook update
+        message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
+        writer(("session_summarization_node", "messages", message))
+        return None
 
     async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
         """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
@@ -142,11 +165,18 @@ class SessionSummarizationNode(AssistantNode):
         self._stream_progress(progress_message=f"Generating a summary, almost there", writer=writer)
         return "\n".join(summaries)
 
-    async def _summarize_sessions_as_group(self, session_ids: list[str], writer: StreamWriter | None) -> str:
+    async def _summarize_sessions_as_group(
+        self, session_ids: list[str], state: AssistantState, writer: StreamWriter | None
+    ) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
-        summary = None
-        async for update in execute_summarize_session_group(
+
+        # # Stream initial status to notebook
+        # notebook_content = f"# Session Group Analysis\n\n**Analyzing {len(session_ids)} sessions in detail...**\n\n"
+        # notebook_content += f"**Time range:** {min_timestamp} to {max_timestamp}\n\n"
+        # self._stream_notebook_messages(notebook_content, state, writer)
+
+        async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
             user_id=self._user.id,
             team=self._team,
@@ -155,21 +185,41 @@ class SessionSummarizationNode(AssistantNode):
             extra_summary_context=None,
             local_reads_prod=False,
         ):
-            if isinstance(update, str):
+            # Max "reasoning" text update message
+            if update_type == SessionSummaryStreamUpdate.UI_STATUS:
+                if not isinstance(data, str):
+                    raise ValueError(
+                        f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
+                        f"(expected: str)"
+                    )
                 # Status message - stream to user
-                self._stream_progress(progress_message=update, writer=writer)
-            elif isinstance(update, EnrichedSessionGroupSummaryPatternsList):
-                # Final summary
-                summary = update
+                self._stream_progress(progress_message=data, writer=writer)
+            # Notebook intermediate data update messages
+            elif update_type == SessionSummaryStreamUpdate.NOTEBOOK_UPDATE:
+                if not isinstance(data, dict):
+                    raise ValueError(
+                        f"Unexpected data type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(data)} "
+                        f"(expected: dict)"
+                    )
+                # Update notebook with intermediate data
+                self._stream_notebook_content(data, state, writer)
+            # Final summary result
+            elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
+                summary = data
+                # Store the summary in the notebook
+                await update_notebook_with_summary(
+                    notebook_short_id=state.notebook_id,
+                    # TODO: Decide if we want two separate notebooks (remove the one with status updates) or a single one
+                    session_ids=session_ids,
+                    user=self._user,
+                    team=self._team,
+                    summary=summary,
+                )
+                return summary.model_dump_json(exclude_none=True)
             else:
                 raise ValueError(
-                    f"Unexpected update type ({type(update)}) in session group summarization (session_ids: {session_ids})."
+                    f"Unexpected update type ({update_type}) in session group summarization (session_ids: {session_ids})."
                 )
-        if summary:
-            await database_sync_to_async(create_summary_notebook)(
-                session_ids=session_ids, user=self._user, team=self._team, summary=summary
-            )
-            return summary.model_dump_json(exclude_none=True)
         else:
             raise ValueError(f"No summary was generated from session group summarization (session_ids: {session_ids})")
 
@@ -177,6 +227,10 @@ class SessionSummarizationNode(AssistantNode):
         start_time = time.time()
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         writer = self._get_stream_writer()
+        # Check if the notebook is provided, create a notebook to fill if not
+        if not state.notebook_id:
+            notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
+            state.notebook_id = notebook.short_id
         # If query was not provided for some reason
         if not state.session_summarization_query:
             self._log_failure(
@@ -184,7 +238,7 @@ class SessionSummarizationNode(AssistantNode):
                 conversation_id,
                 start_time,
             )
-            return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
+            return self._create_error_response(self._base_error_instructions, state)
         try:
             # Generate filters to get session ids from DB
             replay_filters = await self._generate_replay_filters(state.session_summarization_query)
@@ -194,7 +248,7 @@ class SessionSummarizationNode(AssistantNode):
                     conversation_id,
                     start_time,
                 )
-                return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
+                return self._create_error_response(self._base_error_instructions, state)
             # Query the filters to get session ids
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
             if not session_ids:
@@ -225,9 +279,21 @@ class SessionSummarizationNode(AssistantNode):
                     progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
                     writer=writer,
                 )
-                summaries_content = await self._summarize_sessions_as_group(session_ids=session_ids, writer=writer)
+                summaries_content = await self._summarize_sessions_as_group(
+                    session_ids=session_ids, state=state, writer=writer
+                )
             return PartialAssistantState(
+                # TODO: Add final notebook update message here, before the tool call message, ensure to include the id
                 messages=[
+                    # TODO: Put actual content there
+                    NotebookUpdateMessage(
+                        id=str(uuid4()),
+                        notebook_id=state.notebook_id,
+                        content={
+                            "type": "doc",
+                            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Test"}]}],
+                        },
+                    ),
                     AssistantToolCallMessage(
                         content=summaries_content,
                         tool_call_id=state.root_tool_call_id or "unknown",
@@ -236,22 +302,25 @@ class SessionSummarizationNode(AssistantNode):
                 ],
                 session_summarization_query=None,
                 root_tool_call_id=None,
+                # Ensure to pass the notebook id to the next node
+                notebook_id=state.notebook_id,
             )
         except Exception as err:
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
-            return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
+            return self._create_error_response(self._base_error_instructions, state)
 
-    def _create_error_response(self, message: str, root_tool_call_id: str | None) -> PartialAssistantState:
+    def _create_error_response(self, message: str, state: AssistantState) -> PartialAssistantState:
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(
                     content=message,
-                    tool_call_id=root_tool_call_id or "unknown",
+                    tool_call_id=state.root_tool_call_id or "unknown",
                     id=str(uuid4()),
                 ),
             ],
             session_summarization_query=None,
             root_tool_call_id=None,
+            notebook_id=state.notebook_id,
         )
 
     def _log_failure(self, message: str, conversation_id: str, start_time: float, error: Any = None):
