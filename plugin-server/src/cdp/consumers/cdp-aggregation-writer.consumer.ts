@@ -102,7 +102,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
     }
 
     // Process batch by aggregating and writing to postgres
-    private processBatch(parsedBatch: ParsedBatch): { backgroundTask: Promise<void> } {
+    private async processBatch(parsedBatch: ParsedBatch): Promise<void> {
         // Deduplicate person performed events
         const deduplicatedPersonEvents = this.deduplicatePersonPerformedEvents(parsedBatch.personPerformedEvents)
 
@@ -111,19 +111,8 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             parsedBatch.behaviouralFilterMatchedEvents
         )
 
-        // Return the write operation as a background task so we can start processing the next batch
-        return {
-            backgroundTask: this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents).catch(
-                (error) => {
-                    logger.error('Failed to write to postgres in background', {
-                        error: error.message,
-                        personEventsCount: deduplicatedPersonEvents.length,
-                        behaviouralEventsCount: aggregatedBehaviouralEvents.length,
-                    })
-                    throw error
-                }
-            ),
-        }
+        // This will write both arrays in one transaction
+        await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
     }
 
     // Helper to build person events CTE using unnest
@@ -259,10 +248,8 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
             return await this.runInstrumented('handleEachBatch', async () => {
                 const parsedBatch = await this._parseKafkaBatch(messages)
 
-                // Process the batch (aggregate and write to postgres in background)
-                const { backgroundTask } = this.processBatch(parsedBatch)
-
-                return { backgroundTask }
+                // Process the batch (aggregate and write to postgres)
+                await this.processBatch(parsedBatch)
             })
         })
     }
