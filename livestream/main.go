@@ -64,7 +64,6 @@ func main() {
 			metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
 			metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
 			metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
-			metrics.SubTotal.Set(float64(filter.ActiveSubscriptions()))
 			time.Sleep(7127 * time.Millisecond)
 		}
 	}()
