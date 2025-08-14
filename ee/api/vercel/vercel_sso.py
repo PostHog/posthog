@@ -19,6 +19,7 @@ class VercelSSORedirectSerializer(serializers.Serializer):
     mode = serializers.CharField(required=True)
     code = serializers.CharField(required=True)
     state = serializers.CharField(required=False, allow_blank=True)
+    resource_id = serializers.CharField(required=False, allow_blank=True)
 
     def validate_mode(self, value):
         if value != "sso":
@@ -38,7 +39,10 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
 
         code = serializer.validated_data["code"]
         state = serializer.validated_data.get("state")
-        logger.info("vercel_sso_redirect_received", has_state=state is not None)
+        resource_id = serializer.validated_data.get("resource_id")
+        logger.info(
+            "vercel_sso_redirect_received", has_state=state is not None, has_resource_id=resource_id is not None
+        )
 
         client_id = settings.VERCEL_CLIENT_ID
         client_secret = settings.VERCEL_CLIENT_SECRET
@@ -66,7 +70,13 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             return JsonResponse({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        logger.info("vercel_sso_user_logged_in", user_id=user.id, installation_id=installation_id)
+
+        if resource_id:
+            self._set_active_project(user, resource_id)
+
+        logger.info(
+            "vercel_sso_user_logged_in", user_id=user.id, installation_id=installation_id, resource_id=resource_id
+        )
         return HttpResponseRedirect("/")
 
     def _exchange_token(self, code, client_id, client_secret, state):
@@ -96,3 +106,21 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
         except OrganizationIntegration.DoesNotExist:
             logger.exception("vercel_sso_installation_not_found", installation_id=installation_id)
             return None
+
+    def _set_active_project(self, user, resource_id):
+        try:
+            resource = Integration.objects.get(pk=resource_id)
+            team = resource.team
+            if team and user.teams.filter(pk=team.pk).exists():
+                user.current_team = team
+                user.save()
+                logger.info("vercel_sso_active_project_set", user_id=user.id, team_id=team.id, resource_id=resource_id)
+            else:
+                logger.warning(
+                    "vercel_sso_user_not_member_of_team",
+                    user_id=user.id,
+                    team_id=team.id if team else None,
+                    resource_id=resource_id,
+                )
+        except Integration.DoesNotExist:
+            logger.exception("vercel_sso_resource_not_found", resource_id=resource_id)
