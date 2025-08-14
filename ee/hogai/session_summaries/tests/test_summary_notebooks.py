@@ -514,7 +514,15 @@ class TestNotebookCreation(APIBaseTest):
     def test_format_single_sessions_status_empty(self):
         """Test formatting an empty sessions status dictionary"""
         result = format_single_sessions_status({})
-        self.assertEqual(result, {"type": "bulletList", "content": []})
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["attrs"]["level"], 2)
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check empty bullet list
+        self.assertEqual(result["content"][1]["type"], "bulletList")
+        self.assertEqual(result["content"][1]["content"], [])
 
     def test_format_single_sessions_status_all_pending(self):
         """Test formatting when all sessions are pending"""
@@ -525,11 +533,18 @@ class TestNotebookCreation(APIBaseTest):
         }
         result = format_single_sessions_status(sessions_status)
         # Check structure
-        self.assertEqual(result["type"], "bulletList")
-        self.assertEqual(len(result["content"]), 3)
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 3)
         # Check each item
         for i, (session_id, _) in enumerate(sessions_status.items()):
-            list_item = result["content"][i]
+            list_item = bullet_list["content"][i]
             self.assertEqual(list_item["type"], "listItem")
             paragraph = list_item["content"][0]
             self.assertEqual(paragraph["type"], "paragraph")
@@ -547,11 +562,18 @@ class TestNotebookCreation(APIBaseTest):
         }
         result = format_single_sessions_status(sessions_status)
         # Check structure
-        self.assertEqual(result["type"], "bulletList")
-        self.assertEqual(len(result["content"]), 4)
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 4)
         # Check each item
         for i, (session_id, is_completed) in enumerate(sessions_status.items()):
-            list_item = result["content"][i]
+            list_item = bullet_list["content"][i]
             self.assertEqual(list_item["type"], "listItem")
             paragraph = list_item["content"][0]
             self.assertEqual(paragraph["type"], "paragraph")
@@ -569,11 +591,18 @@ class TestNotebookCreation(APIBaseTest):
         }
         result = format_single_sessions_status(sessions_status)
         # Check structure
-        self.assertEqual(result["type"], "bulletList")
-        self.assertEqual(len(result["content"]), 3)
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 3)
         # Check each item
         for i, (session_id, _) in enumerate(sessions_status.items()):
-            list_item = result["content"][i]
+            list_item = bullet_list["content"][i]
             self.assertEqual(list_item["type"], "listItem")
             paragraph = list_item["content"][0]
             self.assertEqual(paragraph["type"], "paragraph")
@@ -586,10 +615,17 @@ class TestNotebookCreation(APIBaseTest):
         sessions_status = {"single-session": True}
         result = format_single_sessions_status(sessions_status)
         # Check structure
-        self.assertEqual(result["type"], "bulletList")
-        self.assertEqual(len(result["content"]), 1)
+        self.assertEqual(result["type"], "doc")
+        self.assertEqual(len(result["content"]), 2)  # heading + bullet list
+        # Check heading
+        self.assertEqual(result["content"][0]["type"], "heading")
+        self.assertEqual(result["content"][0]["content"][0]["text"], "Session Processing Status")
+        # Check bullet list
+        bullet_list = result["content"][1]
+        self.assertEqual(bullet_list["type"], "bulletList")
+        self.assertEqual(len(bullet_list["content"]), 1)
         # Check the single item
-        list_item = result["content"][0]
+        list_item = bullet_list["content"][0]
         self.assertEqual(list_item["type"], "listItem")
         paragraph = list_item["content"][0]
         self.assertEqual(paragraph["type"], "paragraph")

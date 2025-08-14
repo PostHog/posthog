@@ -22,13 +22,11 @@ from ee.hogai.session_summaries.session_group.patterns import (
 
 def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNode:
     """Format sessions status dictionary as a TipTap bullet list with a header"""
-    if not sessions_status:
-        return create_bullet_list([])
-
     items = []
     for session_id, is_completed in sessions_status.items():
         emoji = "✅" if is_completed else "❌"
         items.append(f"{session_id} {emoji}")
+
     bullet_list = create_bullet_list(items)
     # Add a proper header
     content = [
