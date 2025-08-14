@@ -65,8 +65,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const pruneQueue: eventWithTime[] = []
     let nextPreloadIndex: number | null = null
 
-    const lastObjectUrl = new Map<number, string>()
-
     const canvasMutationEvents = events.filter(isCanvasMutation)
 
     // Buffers mutations from user interactions before Replayer was ready
@@ -180,33 +178,18 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     img.style.height = 'initial'
 
                     const url = URL.createObjectURL(blob)
-                    const prev = lastObjectUrl.get(data.id)
 
-                    img.onload = () => {
-                        try {
-                            URL.revokeObjectURL(url)
-                        } catch {}
-                        if (lastObjectUrl.get(data.id) === url) {
-                            lastObjectUrl.delete(data.id)
-                        }
-                    }
-                    img.onerror = () => {
-                        try {
-                            URL.revokeObjectURL(url)
-                        } catch {}
-                        if (lastObjectUrl.get(data.id) === url) {
-                            lastObjectUrl.delete(data.id)
-                        }
-                    }
+                    // Swap to new frame, and revoke all previously tracked urls for this id.
+                    revokeAllForIdExcept(data.id) // nothing kept, we’re replacing the frame
+                    trackUrl(data.id, url)
 
-                    // switch to the new frame first, then revoke the previous
+                    const done: () => void = () => {
+                        finalizeUrl(data.id, url)
+                    }
+                    img.onload = done
+                    img.onerror = done
+
                     img.src = url
-                    if (prev && prev !== url) {
-                        try {
-                            URL.revokeObjectURL(prev)
-                        } catch {}
-                    }
-                    lastObjectUrl.set(data.id, url)
                 },
                 'image/webp',
                 0.4
@@ -277,4 +260,51 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
 const handleMutationError = (error: unknown): void => {
     posthog.captureException(error)
+}
+
+// helpers near the top of CanvasReplayerPlugin
+const objectUrlsById = new Map<number, Set<string>>()
+
+const trackUrl = (id: number, url: string): void => {
+    let set = objectUrlsById.get(id)
+    if (!set) {
+        set = new Set()
+        objectUrlsById.set(id, set)
+    }
+    set.add(url)
+}
+
+const revokeUrl = (url: string): void => {
+    try {
+        URL.revokeObjectURL(url)
+    } catch {}
+}
+
+const revokeAllForIdExcept = (id: number, keep?: string): void => {
+    const set = objectUrlsById.get(id)
+    if (!set) {
+        return
+    }
+    for (const u of set) {
+        if (keep && u === keep) {
+            continue
+        }
+        revokeUrl(u)
+        set.delete(u)
+    }
+    if (set.size === 0) {
+        objectUrlsById.delete(id)
+    }
+}
+
+const finalizeUrl = (id: number, url: string): void => {
+    // This runs on load/error. Revoke the url we just used and drop it from the set.
+    revokeUrl(url)
+    const set = objectUrlsById.get(id)
+    if (set) {
+        set.delete(url)
+        if (set.size === 0) {
+            objectUrlsById.delete(id)
+        }
+    }
 }
