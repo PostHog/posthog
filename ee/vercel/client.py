@@ -32,7 +32,7 @@ class VercelAPIClient:
             response = self.session.post(url, json={"items": items})
             if response.status_code == 204:
                 logger.info(
-                    "vercel_experimentation_items_created",
+                    "Successfully created Vercel experimentation items",
                     integration_config_id=integration_config_id,
                     resource_id=resource_id,
                     item_count=len(items),
@@ -40,19 +40,18 @@ class VercelAPIClient:
                 return True
             else:
                 logger.error(
-                    "vercel_experimentation_items_create_failed",
+                    "Failed to create Vercel experimentation items",
                     integration_config_id=integration_config_id,
                     resource_id=resource_id,
                     status_code=response.status_code,
                     response_text=response.text,
                 )
                 return False
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "vercel_experimentation_items_create_error",
+                "Error occurred while creating Vercel experimentation items",
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
-                error=str(e),
             )
             return False
 
@@ -65,7 +64,7 @@ class VercelAPIClient:
             response = self.session.patch(url, json=data)
             if response.status_code == 204:
                 logger.info(
-                    "vercel_experimentation_item_updated",
+                    "Successfully updated Vercel experimentation item",
                     integration_config_id=integration_config_id,
                     resource_id=resource_id,
                     item_id=item_id,
@@ -73,7 +72,7 @@ class VercelAPIClient:
                 return True
             else:
                 logger.error(
-                    "vercel_experimentation_item_update_failed",
+                    "Failed to update Vercel experimentation item",
                     integration_config_id=integration_config_id,
                     resource_id=resource_id,
                     item_id=item_id,
@@ -81,13 +80,12 @@ class VercelAPIClient:
                     response_text=response.text,
                 )
                 return False
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "vercel_experimentation_item_update_error",
+                "Error occurred while updating Vercel experimentation item",
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
                 item_id=item_id,
-                error=str(e),
             )
             return False
 
@@ -98,7 +96,7 @@ class VercelAPIClient:
             response = self.session.delete(url)
             if response.status_code == 204:
                 logger.info(
-                    "vercel_experimentation_item_deleted",
+                    "Successfully deleted Vercel experimentation item",
                     integration_config_id=integration_config_id,
                     resource_id=resource_id,
                     item_id=item_id,
@@ -106,7 +104,7 @@ class VercelAPIClient:
                 return True
             else:
                 logger.error(
-                    "vercel_experimentation_item_delete_failed",
+                    "Failed to delete Vercel experimentation item",
                     integration_config_id=integration_config_id,
                     resource_id=resource_id,
                     item_id=item_id,
@@ -114,13 +112,12 @@ class VercelAPIClient:
                     response_text=response.text,
                 )
                 return False
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "vercel_experimentation_item_delete_error",
+                "Error occurred while deleting Vercel experimentation item",
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
                 item_id=item_id,
-                error=str(e),
             )
             return False
 
@@ -153,23 +150,22 @@ class VercelAPIClient:
 
             if response.status_code == 200:
                 logger.info(
-                    "vercel_sso_token_exchange_success",
+                    "Successfully exchanged Vercel SSO token",
                     client_id=client_id,
                     has_state=state is not None,
                 )
                 return response.json()
             else:
                 logger.error(
-                    "vercel_sso_token_exchange_failed",
+                    "Failed to exchange Vercel SSO token",
                     client_id=client_id,
                     status_code=response.status_code,
                     response_text=response.text,
                 )
                 return None
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "vercel_sso_token_exchange_error",
+                "Error occurred while exchanging Vercel SSO token",
                 client_id=client_id,
-                error=str(e),
             )
             return None

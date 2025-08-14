@@ -55,8 +55,8 @@ class VercelSSORedirectSerializer(serializers.Serializer):
             return value
         except serializers.ValidationError:
             raise
-        except Exception as e:
-            logger.exception("vercel_sso_url_validation_error", url=value, error=str(e))
+        except Exception:
+            logger.exception("Failed to validate Vercel SSO URL", url=value)
             raise serializers.ValidationError("Invalid URL format")
 
 
@@ -67,7 +67,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
     def sso_redirect(self, request: HttpRequest) -> HttpResponse:
         serializer = VercelSSORedirectSerializer(data=request.GET)
         if not serializer.is_valid():
-            logger.exception("vercel_sso_invalid_parameters", errors=serializer.errors)
+            logger.exception("Invalid parameters received for Vercel SSO redirect", errors=serializer.errors)
             return JsonResponse({"error": "Invalid parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         code = serializer.validated_data["code"]
@@ -77,7 +77,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
         url = serializer.validated_data.get("url")
 
         logger.info(
-            "vercel_sso_redirect_received",
+            "Received Vercel SSO redirect request",
             has_state=state is not None,
             has_resource_id=resource_id is not None,
             path=path,
@@ -93,7 +93,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
 
         id_token = token_response.get("id_token")
         if not id_token:
-            logger.exception("vercel_sso_missing_id_token")
+            logger.exception("Missing id_token in Vercel SSO token response")
             return JsonResponse({"error": "Missing id_token"}, status=status.HTTP_400_BAD_REQUEST)
 
         jwt_payload = self._decode_jwt(id_token)
@@ -102,7 +102,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
 
         installation_id = jwt_payload.get("installation_id")
         if not installation_id:
-            logger.exception("vercel_sso_missing_installation_id")
+            logger.exception("Missing installation_id in Vercel SSO JWT payload")
             return JsonResponse({"error": "Missing installation_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         user = self._find_user(installation_id)
@@ -115,7 +115,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             self._set_active_project(user, resource_id)
 
         logger.info(
-            "vercel_sso_user_logged_in",
+            "Successfully logged in user via Vercel SSO",
             user_id=user.id,
             installation_id=installation_id,
             resource_id=resource_id,
@@ -131,7 +131,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
                 code=code, client_id=client_id, client_secret=client_secret, state=state
             )
         except Exception:
-            logger.exception("vercel_sso_token_exchange_error")
+            logger.exception("Failed to exchange Vercel SSO token")
             return None
 
     def _decode_jwt(self, id_token):
@@ -139,7 +139,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             vercel_auth = VercelAuthentication()
             return vercel_auth._validate_jwt_token(id_token, "User")
         except Exception:
-            logger.exception("vercel_sso_jwt_decode_error")
+            logger.exception("Failed to decode Vercel SSO JWT token")
             return None
 
     def _find_user(self, installation_id):
@@ -149,7 +149,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             )
             return installation.organization.members.filter(is_active=True).first()
         except OrganizationIntegration.DoesNotExist:
-            logger.exception("vercel_sso_installation_not_found", installation_id=installation_id)
+            logger.exception("Vercel installation not found for SSO", installation_id=installation_id)
             return None
 
     def _set_active_project(self, user, resource_id):
@@ -159,16 +159,21 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             if team and user.teams.filter(pk=team.pk).exists():
                 user.current_team = team
                 user.save()
-                logger.info("vercel_sso_active_project_set", user_id=user.id, team_id=team.id, resource_id=resource_id)
+                logger.info(
+                    "Successfully set active project for Vercel SSO user",
+                    user_id=user.id,
+                    team_id=team.id,
+                    resource_id=resource_id,
+                )
             else:
                 logger.warning(
-                    "vercel_sso_user_not_member_of_team",
+                    "User is not a member of the team for Vercel SSO resource",
                     user_id=user.id,
                     team_id=team.id if team else None,
                     resource_id=resource_id,
                 )
         except Integration.DoesNotExist:
-            logger.exception("vercel_sso_resource_not_found", resource_id=resource_id)
+            logger.exception("Vercel SSO resource not found", resource_id=resource_id)
 
     def _determine_redirect_url(self, path, url):
         if url:
