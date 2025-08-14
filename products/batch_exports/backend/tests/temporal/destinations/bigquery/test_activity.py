@@ -82,7 +82,14 @@ async def _run_activity(
     min_ingested_timestamp: dt.datetime = TEST_TIME,
     use_internal_stage: bool = False,
 ):
-    """Helper function to run insert_into_snowflake_activity and assert records in Snowflake"""
+    """Helper function to run BigQuery main activity and assert records are exported.
+
+    This function executes either `insert_into_bigquery_activity`, or
+    `insert_into_internal_stage_activity` and `insert_into_bigquery_activity_from_stage`
+    depending on the value of `use_internal_stage`.
+
+    This allows using a single function to test both versions of the pipeline.
+    """
     insert_inputs = BigQueryInsertInputs(
         team_id=team.pk,
         table_id=table_id,
