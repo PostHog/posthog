@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 from typing import Generic, Optional, cast
+from collections.abc import Sequence
 from uuid import uuid4
 
 from langchain_core.agents import AgentAction
@@ -14,7 +15,7 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import find_start_message
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     FailureMessage,
@@ -81,7 +82,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     ) -> PartialAssistantState:
         start_id = state.start_id
         generated_plan = state.plan or ""
-        intermediate_steps = state.intermediate_steps or []
+        intermediate_steps: Sequence[IntermediateStep] = state.intermediate_steps or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
         message_history = await self._construct_messages(state, validation_error_message=validation_error_message)
