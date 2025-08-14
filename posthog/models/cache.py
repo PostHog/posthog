@@ -3,6 +3,7 @@ from django.core import serializers
 from django.db.models import QuerySet, Manager
 from posthog.git import get_git_commit_short
 from posthog.redis import get_client
+from posthog.settings import TEST
 
 
 class CachedQuerySet(QuerySet):
@@ -17,6 +18,9 @@ class CachedQuerySet(QuerySet):
         return key
 
     def fetch_cached(self, team_id: int, timeout: int = 300, key_prefix: Optional[str] = None):
+        if TEST:
+            return list(self)
+
         redis_client = get_client()
         key = self.get_commit_cache_key(team_id=team_id, key_prefix=key_prefix)
 
