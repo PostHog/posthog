@@ -16,14 +16,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { OrganizationInviteType } from '~/types'
 
 import { inviteLogic } from './inviteLogic'
-import { EmailUnavailableMessage } from './InviteModal'
+import { EmailUnavailableForInvitesBanner } from './InviteModal'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
     return invite.is_expired ? (
         <b>Expired – please recreate</b>
     ) : (
-        <CopyToClipboardInline data-attr="invite-link" description="invite link">
+        <CopyToClipboardInline data-attr="invite-link" description="invite link" iconPosition="start">
             {url}
         </CopyToClipboardInline>
     )
@@ -59,18 +59,15 @@ function makeActionsComponent(
         )
     }
 }
-export function Invites(): JSX.Element {
+
+export function InvitesTable(): JSX.Element {
     const { invites, invitesLoading } = useValues(inviteLogic)
-    const { deleteInvite, showInviteModal } = useActions(inviteLogic)
-    const { preflight } = useValues(preflightLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { deleteInvite } = useActions(inviteLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-
-    const userCannotInvite = restrictionReason && !currentOrganization?.members_can_invite
 
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
@@ -120,18 +117,34 @@ export function Invites(): JSX.Element {
             render: !restrictionReason ? makeActionsComponent(deleteInvite) : undefined,
         },
     ]
+    return (
+        <LemonTable
+            dataSource={invites}
+            columns={columns}
+            rowKey="id"
+            loading={invitesLoading}
+            data-attr="invites-table"
+            emptyState="There are no outstanding invitations. You can invite another team member above."
+        />
+    )
+}
+
+export function Invites(): JSX.Element {
+    const { showInviteModal } = useActions(inviteLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
+
+    const userCannotInvite = restrictionReason && !currentOrganization?.members_can_invite
 
     return (
         <div className="deprecated-space-y-4">
-            {!preflight?.email_service_available && <EmailUnavailableMessage />}
-            <LemonTable
-                dataSource={invites}
-                columns={columns}
-                rowKey="id"
-                loading={invitesLoading}
-                data-attr="invites-table"
-                emptyState="There are no outstanding invitations. You can invite another team member above."
-            />
+            {!preflight?.email_service_available && <EmailUnavailableForInvitesBanner />}
+            <InvitesTable />
             <LemonButton
                 type="primary"
                 onClick={showInviteModal}
