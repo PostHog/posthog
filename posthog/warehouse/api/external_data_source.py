@@ -620,7 +620,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Returns aggregated statistics for the data warehouse scene including total rows processed.
         Used by the frontend data warehouse scene to display usage information.
         """
-        billing_interval = "lifetime"
+        billing_interval = ""
         rows_synced = 0
         data_modeling_rows = 0
 
@@ -662,14 +662,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(
             status=status.HTTP_200_OK,
             data={
-                "billingPeriodStart": billing_period_start,
-                "billingPeriodEnd": billing_period_end,
                 "billingInterval": billing_interval,
                 "externalData": {
+                    "billingPeriodEnd": billing_period_end,
+                    "billingPeriodStart": billing_period_start,
+                    "dataModelingRows": data_modeling_rows,
                     "trackedBillingRows": billing_tracked_rows,
                     "pendingBillingRows": pending_billing_rows,
                     "totalRows": rows_synced,
                 },
-                "dataModelingRows": data_modeling_rows,
             },
         )
