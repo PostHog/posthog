@@ -353,6 +353,22 @@ export type SupportFormLogicProps = {
     onClose?: () => void
 }
 
+export interface ReactErrorContext {
+    type: 'react_error'
+    error: {
+        name: string
+        message: string
+        stack?: string | null
+    }
+    feature?: string
+    url?: string
+    teamId?: number | null
+    posthogEventUuid?: string
+    commitHash?: string
+}
+
+export type SupportErrorContext = ReactErrorContext
+
 export type SupportFormFields = {
     name: string
     email: string
@@ -361,6 +377,7 @@ export type SupportFormFields = {
     severity_level: SupportTicketSeverityLevel | null
     message: string
     isEmailFormOpen?: boolean | 'true' | 'false'
+    errorContext?: SupportErrorContext | null
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -417,6 +434,7 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: null,
                 target_area: null,
                 message: '',
+                errorContext: null,
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -475,12 +493,49 @@ export const supportLogic = kea<supportLogicType>([
             target_area,
             severity_level,
             message,
+            errorContext,
         }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
             }
             kind = kind ?? 'support'
+
+            // Correlate component error with stored PostHog exceptions ONCE when form opens
+            let enhancedErrorContext = errorContext
+            try {
+                if (errorContext && window.recentPostHogExceptions && window.recentPostHogExceptions.length > 0) {
+                    const recentExceptions = window.recentPostHogExceptions
+                    let matchedPostHogException = null
+
+                    // Try to find exact match based on error name/type and message/value
+                    if (errorContext.type === 'react_error' && errorContext.error) {
+                        matchedPostHogException = recentExceptions.find(
+                            (exception) =>
+                                exception.errorName === errorContext.error.name &&
+                                exception.errorMessage === errorContext.error.message
+                        )
+                    }
+
+                    // If no exact match found, use the most recent (latest) exception
+                    if (!matchedPostHogException && recentExceptions.length > 0) {
+                        matchedPostHogException = recentExceptions[recentExceptions.length - 1]
+                    }
+
+                    // Create enhanced error context with PostHog data
+                    if (matchedPostHogException) {
+                        enhancedErrorContext = {
+                            ...errorContext,
+                            posthogEventUuid: matchedPostHogException.uuid,
+                            commitHash: matchedPostHogException.commitHash,
+                        }
+                    }
+                }
+            } catch (correlationError) {
+                console.error('Error context correlation failed:', correlationError)
+                enhancedErrorContext = errorContext
+            }
+
             actions.resetSendSupportRequest({
                 name: name ?? '',
                 email: email ?? '',
@@ -488,6 +543,7 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: area,
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
+                errorContext: enhancedErrorContext || null,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -505,7 +561,15 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }: SupportFormFields) => {
+        submitZendeskTicket: async ({
+            name,
+            email,
+            kind,
+            target_area,
+            severity_level,
+            message,
+            errorContext,
+        }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -634,7 +698,8 @@ export const supportLogic = kea<supportLogicType>([
                                   (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
                                       teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
                                       'unknown')
-                                : ''),
+                                : '') +
+                            getErrorContextString(errorContext ?? null),
                     },
                 },
             }
@@ -810,3 +875,43 @@ export const supportLogic = kea<supportLogicType>([
         },
     })),
 ])
+
+function getErrorContextString(errorContext: SupportErrorContext | null): string {
+    try {
+        if (!errorContext) {
+            return ''
+        }
+
+        const formatters = {
+            react_error: (ctx: ReactErrorContext) =>
+                [
+                    'Bug Type: React Error',
+                    ctx.error?.name && ctx.error?.message && `Error: ${ctx.error.name} - ${ctx.error.message}`,
+                ].filter(Boolean),
+        }
+
+        const formatter = formatters[errorContext.type]
+        if (!formatter) {
+            return ''
+        }
+
+        let formattedContext: string[]
+        if (errorContext.type === 'react_error') {
+            formattedContext = formatters.react_error(errorContext).filter((item): item is string => Boolean(item))
+        } else {
+            return ''
+        }
+
+        const lines = [
+            '=== Error Context ===',
+            ...formattedContext,
+            errorContext.posthogEventUuid && `Event: ${errorContext.posthogEventUuid}`,
+            errorContext.commitHash && `Commit: ${errorContext.commitHash}`,
+        ].filter(Boolean)
+
+        return `\n\n${lines.join('\n')}`
+    } catch (formatError) {
+        console.error('Error context formatting failed:', formatError)
+        return `\n\n=== Error Context ===\nError context formatting failed`
+    }
+}
