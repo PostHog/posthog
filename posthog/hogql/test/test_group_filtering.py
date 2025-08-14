@@ -2,13 +2,13 @@
 Tests for created_at filtering of group fields based on GroupTypeMapping creation time.
 """
 
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from datetime import datetime, UTC
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.models import GroupTypeMapping
 from posthog.test.base import APIBaseTest
 
 
@@ -22,7 +22,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_field_with_mapping_and_created_at(self):
         """Test that $group_0 gets filtering when GroupTypeMapping exists with created_at"""
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="company",
@@ -58,14 +58,14 @@ class TestGroupKeyFiltering(APIBaseTest):
     def test_multiple_group_fields(self):
         """Test filtering with multiple group type mappings"""
         # Create mappings for groups 0 and 1
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="company",
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="team",
@@ -89,7 +89,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_field_in_where_clause(self):
         """Test that group filtering works in WHERE clauses"""
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="company",
@@ -110,7 +110,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_join_with_filtering(self):
         """Test that group_1.properties access includes filtering for $group_1"""
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="team",
@@ -131,7 +131,7 @@ class TestGroupKeyFiltering(APIBaseTest):
     def test_multiple_group_joins_with_mixed_mappings(self):
         """Test joins to multiple groups with some having filtering and others not"""
         # Create mapping only for group_0
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="company",
@@ -154,7 +154,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_non_clickhouse_dialect_no_filtering(self):
         """Test that non-ClickHouse dialects don't get filtering"""
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="company",
@@ -173,7 +173,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_alias_with_filtering(self):
         """Test that group aliases (e.g., 'company' for $group_0) work with filtering"""
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="company",
@@ -195,7 +195,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_alias_in_where_clause(self):
         """Test that group aliases work with filtering in WHERE clauses"""
-        create_group_type_mapping_without_created_at(
+        GroupTypeMapping.objects.create(
             team=self.team,
             project=self.team.project,
             group_type="company",

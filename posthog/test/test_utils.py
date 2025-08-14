@@ -512,8 +512,6 @@ class TestFlatten(TestCase):
 
 
 def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
-    from posthog.models.group_type_mapping import GroupTypeMapping
-
     instance = GroupTypeMapping.objects.create(**kwargs)
     GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
     instance.refresh_from_db()
