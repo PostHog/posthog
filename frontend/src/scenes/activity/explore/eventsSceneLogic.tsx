@@ -1,6 +1,5 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,12 +10,17 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { Node } from '~/queries/schema/schema-general'
-import { ActivityTab } from '~/types'
+import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { Scene } from 'scenes/sceneTypes'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
+    tabAwareScene(),
     connect(() => ({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
@@ -31,8 +35,22 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             },
         ],
         query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery) => savedQuery || defaultQuery],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'Activity',
+                    name: `Activity`,
+                    path: urls.activity(),
+                },
+                {
+                    key: Scene.ExploreEvents,
+                    name: 'Explore',
+                },
+            ],
+        ],
     }),
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.activity(ActivityTab.ExploreEvents),
             {},
@@ -41,7 +59,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL

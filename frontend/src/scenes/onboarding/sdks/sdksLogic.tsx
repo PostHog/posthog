@@ -47,7 +47,7 @@ export const sdksLogic = kea<sdksLogicType>([
         values: [
             onboardingLogic,
             ['productKey'],
-            liveEventsTableLogic,
+            liveEventsTableLogic({ tabId: 'onboarding' }),
             ['eventHosts'],
             featureFlagLogic,
             ['featureFlags'],
