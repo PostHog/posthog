@@ -30,6 +30,15 @@ impl rdkafka::ClientContext for KafkaContext {
             self.liveness.report_healthy_blocking();
         }
 
+        let total_brokers = stats.brokers.len();
+        let up_brokers = stats
+            .brokers
+            .values()
+            .filter(|broker| broker.state == "UP")
+            .count();
+        let down_brokers = total_brokers.saturating_sub(up_brokers);
+        gauge!("capture_kafka_any_brokers_down").set(if down_brokers > 0 { 1.0 } else { 0.0 });
+
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
@@ -52,6 +61,13 @@ impl rdkafka::ClientContext for KafkaContext {
 
         for (_, stats) in stats.brokers {
             let id_string = format!("{}", stats.nodeid);
+
+            // Per-broker connectivity (1 = connected/UP, 0 = not connected)
+            gauge!(
+                "capture_kafka_broker_connected",
+                "broker" => id_string.clone()
+            )
+            .set(if stats.state == "UP" { 1.0 } else { 0.0 });
             if let Some(rtt) = stats.rtt {
                 gauge!(
                     "capture_kafka_produce_rtt_latency_us",
