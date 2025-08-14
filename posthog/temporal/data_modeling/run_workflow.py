@@ -493,6 +493,9 @@ async def materialize_model(
             delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
     except Exception as e:
         error_message = str(e)
+
+        await logger.aerror(f"Error materializing model {model_label}: {error_message}")
+
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
