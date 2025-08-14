@@ -15,9 +15,13 @@ pub struct Token {
 
 impl Token {
     pub fn get_host(&self, host: Option<&str>) -> String {
-        self.host
-            .clone()
-            .unwrap_or_else(|| host.unwrap_or("https://us.posthog.com").to_string())
+        host.map(str::to_string)
+            .unwrap_or_else(|| {
+                self.host
+                    .clone()
+                    .unwrap_or("https://us.posthog.com".to_string())
+            })
+            .to_string()
     }
 }
 
