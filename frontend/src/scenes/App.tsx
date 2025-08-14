@@ -105,7 +105,6 @@ function AppScene(): JSX.Element | null {
                     logic={activeLoadedScene.logic}
                     props={sceneParamsWithTabId}
                 >
-                    {' '}
                     {sceneElement}
                 </BindLogic>
             ) : (
