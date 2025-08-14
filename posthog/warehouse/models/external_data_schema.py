@@ -10,7 +10,7 @@ from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.warehouse.data_load.service import (
@@ -24,7 +24,7 @@ from posthog.warehouse.types import IncrementalFieldType
 from posthog.sync import database_sync_to_async
 
 
-class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
