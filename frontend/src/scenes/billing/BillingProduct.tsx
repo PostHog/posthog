@@ -193,47 +193,45 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {/* Combined monetary gauge for variants */}
                     {isSessionReplayWithAddons && (
                         <div className="mt-6 mb-4 ml-2">
-                            <div className="flex items-center gap-x-8">
-                                <div className="grow">
+                            <div className="grid grid-cols-[1fr_130px_100px] gap-4 items-center">
+                                <div>
                                     <BillingGauge items={combinedGaugeItems} product={{ ...product, unit: '$' }} />
                                 </div>
-                                <div className="flex gap-8 flex-wrap items-end shrink-0">
-                                    <Tooltip
-                                        title={`The current ${
-                                            billing?.discount_percent ? 'discounted ' : ''
-                                        }amount you have been billed for this ${
-                                            billing?.billing_period?.interval
-                                        } so far. This number updates once daily.`}
-                                    >
-                                        <div className="flex flex-col items-center">
-                                            <div className="font-bold text-3xl leading-7">
-                                                {humanFriendlyCurrency(combinedMonetaryData.currentTotal)}
-                                            </div>
-                                            <span className="text-xs text-secondary">
-                                                Month-to-date <IconInfo className="text-muted text-sm" />
-                                            </span>
+                                <Tooltip
+                                    title={`The current ${
+                                        billing?.discount_percent ? 'discounted ' : ''
+                                    }amount you have been billed for this ${
+                                        billing?.billing_period?.interval
+                                    } so far. This number updates once daily.`}
+                                >
+                                    <div className="flex flex-col items-end">
+                                        <div className="font-bold text-3xl leading-7">
+                                            {humanFriendlyCurrency(combinedMonetaryData.currentTotal)}
                                         </div>
-                                    </Tooltip>
-                                    <Tooltip
-                                        title={`This is roughly calculated based on your current bill${
-                                            billing?.discount_percent ? ', discounts on your account,' : ''
-                                        } and the remaining time left in this billing period. This number updates once daily.${
-                                            combinedMonetaryData.billingLimit &&
-                                            combinedMonetaryData.projectedTotal >= combinedMonetaryData.billingLimit
-                                                ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit.`
-                                                : ''
-                                        }`}
-                                    >
-                                        <div className="flex flex-col items-center">
-                                            <div className="font-bold text-secondary text-lg leading-5">
-                                                {humanFriendlyCurrency(combinedMonetaryData.projectedTotal)}
-                                            </div>
-                                            <span className="text-xs text-secondary">
-                                                Projected <IconInfo className="text-muted text-sm" />
-                                            </span>
+                                        <span className="text-xs text-secondary whitespace-nowrap">
+                                            Month-to-date <IconInfo className="text-muted text-sm" />
+                                        </span>
+                                    </div>
+                                </Tooltip>
+                                <Tooltip
+                                    title={`This is roughly calculated based on your current bill${
+                                        billing?.discount_percent ? ', discounts on your account,' : ''
+                                    } and the remaining time left in this billing period. This number updates once daily.${
+                                        combinedMonetaryData.billingLimit &&
+                                        combinedMonetaryData.projectedTotal >= combinedMonetaryData.billingLimit
+                                            ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit.`
+                                            : ''
+                                    }`}
+                                >
+                                    <div className="flex flex-col items-end justify-end">
+                                        <div className="font-bold text-secondary text-xl">
+                                            {humanFriendlyCurrency(combinedMonetaryData.projectedTotal)}
                                         </div>
-                                    </Tooltip>
-                                </div>
+                                        <span className="text-xs text-secondary whitespace-nowrap">
+                                            Projected <IconInfo className="text-muted text-sm" />
+                                        </span>
+                                    </div>
+                                </Tooltip>
                             </div>
                         </div>
                     )}
@@ -258,7 +256,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                                     return (
                                         <div key={variant.key}>
-                                            <div className="grid grid-cols-[24px_1fr_100px_100px] gap-2 items-center">
+                                            <div className="grid grid-cols-[24px_1fr_130px_100px] gap-4 items-center">
                                                 <LemonButton
                                                     icon={
                                                         variantExpandedStates?.[variant.key] ? (
@@ -413,7 +411,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 billing?.billing_period?.interval
                                                             } so far. This number updates once daily.`}
                                                         >
-                                                            <div className="flex flex-col items-center">
+                                                            <div className="flex flex-col items-end">
                                                                 <div className="font-bold text-3xl leading-7">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
@@ -428,7 +426,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                     : 0))
                                                                     )}
                                                                 </div>
-                                                                <span className="text-xs text-secondary">
+                                                                <span className="text-xs text-secondary whitespace-nowrap">
                                                                     {capitalizeFirstLetter(
                                                                         billing?.billing_period?.interval || ''
                                                                     )}
@@ -453,7 +451,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                         : ''
                                                                 }`}
                                                             >
-                                                                <div className="flex flex-col items-center justify-end">
+                                                                <div className="flex flex-col items-end justify-end">
                                                                     <div className="font-bold text-secondary text-lg leading-5">
                                                                         {humanFriendlyCurrency(
                                                                             parseFloat(
@@ -466,7 +464,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                         : 0))
                                                                         )}
                                                                     </div>
-                                                                    <span className="text-xs text-secondary">
+                                                                    <span className="text-xs text-secondary whitespace-nowrap">
                                                                         Projected{' '}
                                                                         <IconInfo className="text-muted text-sm" />
                                                                     </span>
