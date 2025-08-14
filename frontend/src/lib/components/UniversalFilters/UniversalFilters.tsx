@@ -14,6 +14,7 @@ import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
 import { isEditableFilter, isEventFilter } from './utils'
+import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 
 type UniversalFiltersProps = {
     rootKey: string
@@ -78,6 +79,7 @@ const Value = ({
     initiallyOpen = false,
     metadataSource,
     className,
+    operatorAllowList,
 }: {
     index: number
     filter: UniversalFilterValue
@@ -86,6 +88,7 @@ const Value = ({
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
     className?: string
+    operatorAllowList?: OperatorValueSelectProps['operatorAllowlist']
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
@@ -123,6 +126,7 @@ const Value = ({
                         setFilter={(_, property) => onChange(property)}
                         disablePopover={false}
                         taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
+                        operatorAllowList={operatorAllowList}
                     />
                 ) : null
             }
