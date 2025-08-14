@@ -389,10 +389,14 @@ export function isNonEmptyObject(candidate: unknown): candidate is Record<string
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
-export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+export function objectClean<T extends Record<string | number | symbol, unknown>>(
+    obj: T,
+    options?: { removeNulls?: boolean }
+): T {
+    const { removeNulls = false } = options || {}
     const response = { ...obj }
     Object.keys(response).forEach((key) => {
-        if (response[key] === undefined) {
+        if (removeNulls ? response[key] == null : response[key] === undefined) {
             delete response[key]
         }
     })
