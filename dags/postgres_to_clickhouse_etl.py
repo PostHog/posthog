@@ -222,8 +222,15 @@ def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, As
             raise
 
 
-def create_clickhouse_tables(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
-    """Create the organization and team tables in ClickHouse on all nodes."""
+def create_clickhouse_tables(
+    context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None, force_recreate: bool = False
+) -> None:
+    """Create the organization and team tables in ClickHouse on all nodes.
+
+    Args:
+        context: Execution context for logging
+        force_recreate: If True, drop and recreate tables even if they exist
+    """
     # First ensure the database exists
     create_database_if_not_exists(context)
 
@@ -242,37 +249,38 @@ def create_clickhouse_tables(context: Optional[Union[OpExecutionContext, AssetEx
             context.log.exception(f"Error verifying database: {e}")
         raise
 
-    # Drop and recreate tables to ensure correct schema
-    # This is safe since we're doing full refresh anyway
-    if context:
-        context.log.info("Dropping existing tables to ensure correct schema...")
-    try:
-        sync_execute("DROP TABLE IF EXISTS models.posthog_organization")
-        sync_execute("DROP TABLE IF EXISTS models.posthog_team")
+    # Only drop tables if explicitly requested (e.g., schema changes)
+    if force_recreate:
         if context:
-            context.log.info("Dropped existing tables")
-    except Exception as e:
-        if context:
-            context.log.warning(f"Error dropping tables (may not exist): {e}")
+            context.log.info("Force recreate requested, dropping existing tables...")
+        try:
+            sync_execute("DROP TABLE IF EXISTS models.posthog_organization")
+            sync_execute("DROP TABLE IF EXISTS models.posthog_team")
+            if context:
+                context.log.info("Dropped existing tables")
+        except Exception as e:
+            if context:
+                context.log.warning(f"Error dropping tables (may not exist): {e}")
 
-    # Create tables using sync_execute for consistency
+    # Create tables if they don't exist
+    # The IF NOT EXISTS clause ensures we don't error if tables already exist
     if context:
-        context.log.info("Creating posthog_organization table...")
+        context.log.info("Creating posthog_organization table if it doesn't exist...")
     try:
         sync_execute(get_organization_table_sql())
         if context:
-            context.log.info("Created posthog_organization table")
+            context.log.info("Created/verified posthog_organization table")
     except Exception as e:
         if context:
             context.log.exception(f"Error creating organization table: {e}")
         raise
 
     if context:
-        context.log.info("Creating posthog_team table...")
+        context.log.info("Creating posthog_team table if it doesn't exist...")
     try:
         sync_execute(get_team_table_sql())
         if context:
-            context.log.info("Created posthog_team table")
+            context.log.info("Created/verified posthog_team table")
     except Exception as e:
         if context:
             context.log.exception(f"Error creating team table: {e}")
@@ -444,6 +452,12 @@ def fetch_teams(conn, last_sync: Optional[datetime] = None, batch_size: int = 10
 
 def transform_organization_row(row: dict) -> dict:
     """Transform a Postgres organization row for ClickHouse insertion."""
+    # Convert UUID fields to strings for ClickHouse
+    uuid_fields = ["id", "logo_media_id"]
+    for field in uuid_fields:
+        if row.get(field) is not None:
+            row[field] = str(row[field])
+
     # Convert JSON fields to strings
     json_fields = ["available_product_features", "usage", "customer_trust_scores", "personalization"]
 
@@ -829,7 +843,6 @@ def organizations_in_clickhouse(
             """
             SELECT
                 id,
-                uuid,
                 name,
                 slug,
                 logo_media_id,
