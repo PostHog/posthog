@@ -1477,42 +1477,7 @@ function checkVersionAgainstLatest(
         lib = 'posthog-react-native'
     }
 
-    // Hardcoded check for Node.js SDK
-    if (type === 'node') {
-        // Hardcoded latest version for Node.js SDK
-        const mockLatestVersion = '4.17.1'
-
-        try {
-            // Parse version components
-            const components = version.split('.')
-            const major = parseInt(components[0])
-            const minor = parseInt(components[1])
-
-            // Check if version is outdated based on our consistent logic
-            const isOutdated = major < 4 || (major === 4 && minor < 17)
-
-            // Calculate releases ahead (mock value)
-            let releasesAhead = 0
-
-            if (major < 4) {
-                releasesAhead = 10 // Major version behind is significant
-            } else if (major === 4 && minor < 17) {
-                releasesAhead = 17 - minor // Minor versions behind
-            }
-
-            return {
-                isOutdated,
-                releasesAhead,
-                latestVersion: mockLatestVersion,
-            }
-        } catch {
-            // If parsing fails, use the fallback check
-            return {
-                isOutdated: checkIfVersionOutdated(lib, version),
-                latestVersion: mockLatestVersion,
-            }
-        }
-    }
+    // TODO: Node.js now uses CHANGELOG.md data - removed hardcoded version logic
 
     // If we don't have data for this SDK type or the SDK type is "other", fall back to hardcoded check
     if (!latestVersionsData[type] || type === 'other') {
