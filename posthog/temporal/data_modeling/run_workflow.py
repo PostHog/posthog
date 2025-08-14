@@ -718,25 +718,29 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         stack=[],
     )
 
-    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedWithNamesAndTypes"
+    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     unsupported_arrow_types = ["FIXED_SIZE_BINARY", "JSON", "UUID", "ENUM"]
 
     # Query for types first, check for any types ArrowStream doesn't support
     # and rewrite the query wrapping those columns in a `toString(..)`
     async with get_client() as client:
-        table_describe_response = await client.read_query(query=table_describe_query, query_parameters=context.values)
         query_typings: list[tuple[str, str, bool]] = []
         has_type_to_convert = False
-        for line in table_describe_response.decode("utf-8").splitlines():
-            split_arr = line.strip().split("\t")
-            column_name = split_arr[0]
-            ch_type = split_arr[1]
 
-            if any(uat.lower() in ch_type.lower() for uat in unsupported_arrow_types):
-                has_type_to_convert = True
-                query_typings.append((column_name, ch_type, True))
-            else:
-                query_typings.append((column_name, ch_type, False))
+        async with client.apost_query(
+            query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
+        ) as ch_response:
+            table_describe_response = await ch_response.content.read()
+            for line in table_describe_response.decode("utf-8").splitlines():
+                split_arr = line.strip().split("\t")
+                column_name = split_arr[0]
+                ch_type = split_arr[1]
+
+                if any(uat.lower() in ch_type.lower() for uat in unsupported_arrow_types):
+                    has_type_to_convert = True
+                    query_typings.append((column_name, ch_type, True))
+                else:
+                    query_typings.append((column_name, ch_type, False))
 
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")

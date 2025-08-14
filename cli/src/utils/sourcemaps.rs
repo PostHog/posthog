@@ -195,7 +195,8 @@ pub fn get_sourcemap_reference(lines: Lines) -> Result<Option<String>> {
     for line in lines.rev() {
         if line.starts_with("//# sourceMappingURL=") || line.starts_with("//@ sourceMappingURL=") {
             let url = str::from_utf8(&line.as_bytes()[21..])?.trim().to_owned();
-            return Ok(Some(url));
+            let decoded_url = urlencoding::decode(&url)?;
+            return Ok(Some(decoded_url.into_owned()));
         }
     }
     Ok(None)
@@ -236,5 +237,5 @@ pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
 
 fn is_javascript_file(path: &Path) -> bool {
     path.extension()
-        .map_or(false, |ext| ext == "js" || ext == "mjs" || ext == "cjs")
+        .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }

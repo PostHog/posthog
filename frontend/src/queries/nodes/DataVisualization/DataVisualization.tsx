@@ -1,7 +1,7 @@
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useCallback, useState } from 'react'
@@ -35,9 +35,10 @@ import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { VariablesForInsight } from './Components/Variables/Variables'
-import { variablesLogic } from './Components/Variables/variablesLogic'
+import { variablesLogic, VariablesLogicProps } from './Components/Variables/variablesLogic'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 export interface DataTableVisualizationProps {
     uniqueKey?: string | number
@@ -51,6 +52,8 @@ export interface DataTableVisualizationProps {
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
 let uniqueNode = 0
@@ -63,6 +66,7 @@ export function DataTableVisualization({
     cachedResults,
     readOnly,
     variablesOverride,
+    attachTo,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
@@ -101,27 +105,27 @@ export function DataTableVisualization({
 
     const { loadData } = useActions(dataVisualizationLogic(dataVisualizationLogicProps))
 
+    const variablesLogicProps: VariablesLogicProps = {
+        key: dataVisualizationLogicProps.key,
+        readOnly: readOnly ?? false,
+        dashboardId: insightProps.dashboardId,
+        sourceQuery: query,
+        setQuery: setQuery,
+        onUpdate: (query: DataVisualizationNode) => {
+            loadData(shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking', undefined, query.source)
+        },
+    }
+
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
+    useAttachedLogic(dataVisualizationLogic(dataVisualizationLogicProps), attachTo)
+    useAttachedLogic(displayLogic({ key: dataVisualizationLogicProps.key }), attachTo)
+    useAttachedLogic(variablesLogic(variablesLogicProps), attachTo)
+
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
                 <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <BindLogic
-                        logic={variablesLogic}
-                        props={{
-                            key: dataVisualizationLogicProps.key,
-                            readOnly: readOnly ?? false,
-                            dashboardId: insightProps.dashboardId,
-                            sourceQuery: query,
-                            setQuery: setQuery,
-                            onUpdate: (query: DataVisualizationNode) => {
-                                loadData(
-                                    shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking',
-                                    undefined,
-                                    query.source
-                                )
-                            },
-                        }}
-                    >
+                    <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                             <InternalDataTableVisualization
                                 uniqueKey={key}
