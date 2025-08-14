@@ -383,7 +383,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -391,7 +390,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -456,7 +456,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -464,7 +463,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -754,7 +754,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -762,7 +761,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -827,7 +827,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -835,7 +834,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1463,7 +1463,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -1471,7 +1470,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1563,7 +1563,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -1571,7 +1570,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1914,7 +1914,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -1922,7 +1921,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1987,7 +1987,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -1995,7 +1994,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -2453,7 +2453,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -2461,7 +2460,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -2526,7 +2526,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -2534,7 +2533,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -3026,7 +3026,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -3034,7 +3033,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -3099,7 +3099,6 @@
   '''
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."created_by_id",
-         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -3107,7 +3106,8 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
          "posthog_grouptypemapping"."default_columns",
-         "posthog_grouptypemapping"."detail_dashboard_id"
+         "posthog_grouptypemapping"."detail_dashboard_id",
+         "posthog_grouptypemapping"."created_at"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
