@@ -65,6 +65,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const pruneQueue: eventWithTime[] = []
     let nextPreloadIndex: number | null = null
 
+    const lastObjectUrl = new Map<number, string>()
+
     const canvasMutationEvents = events.filter(isCanvasMutation)
 
     // Buffers mutations from user interactions before Replayer was ready
@@ -170,17 +172,42 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         if (img) {
             target.toBlob(
                 (blob) => {
-                    if (blob) {
-                        img.style.width = 'initial'
-                        img.style.height = 'initial'
-
-                        const url = URL.createObjectURL(blob)
-                        // no longer need to read the blob so it's revoked
-                        img.onload = () => URL.revokeObjectURL(url)
-                        img.src = url
+                    if (!blob) {
+                        return
                     }
+
+                    img.style.width = 'initial'
+                    img.style.height = 'initial'
+
+                    const url = URL.createObjectURL(blob)
+                    const prev = lastObjectUrl.get(data.id)
+
+                    img.onload = () => {
+                        try {
+                            URL.revokeObjectURL(url)
+                        } catch {}
+                        if (lastObjectUrl.get(data.id) === url) {
+                            lastObjectUrl.delete(data.id)
+                        }
+                    }
+                    img.onerror = () => {
+                        try {
+                            URL.revokeObjectURL(url)
+                        } catch {}
+                        if (lastObjectUrl.get(data.id) === url) {
+                            lastObjectUrl.delete(data.id)
+                        }
+                    }
+
+                    // switch to the new frame first, then revoke the previous
+                    img.src = url
+                    if (prev && prev !== url) {
+                        try {
+                            URL.revokeObjectURL(prev)
+                        } catch {}
+                    }
+                    lastObjectUrl.set(data.id, url)
                 },
-                // ensures transparency is possible
                 'image/webp',
                 0.4
             )
