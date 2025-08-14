@@ -20,7 +20,7 @@ jobs:
         name: Build and push PostHog image for AI evaluations
         if: |
             github.repository == 'PostHog/posthog' && (
-                github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ai-evals-image')
+                github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build-ai-evals-image')
             )
         runs-on: depot-ubuntu-latest
         permissions:
