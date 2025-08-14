@@ -263,32 +263,64 @@ impl EphemeralTopic {
     }
 
     pub fn next_event(&self) -> anyhow::Result<serde_json::Value> {
-        match self.consumer.poll(self.read_timeout) {
-            Some(Ok(message)) => {
-                let body = message.payload().expect("empty kafka message");
-                let event = serde_json::from_slice(body)?;
-                Ok(event)
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+        
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    let body = message.payload().expect("empty kafka message");
+                    let event = serde_json::from_slice(body)?;
+                    return Ok(event);
+                }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition")) 
+                        && retries < MAX_RETRIES {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {}", err);
+                }
+                None => bail!("kafka read timeout"),
             }
-            Some(Err(err)) => bail!("kafka read error: {}", err),
-            None => bail!("kafka read timeout"),
         }
     }
     pub fn next_message_key(&self) -> anyhow::Result<Option<String>> {
-        match self.consumer.poll(self.read_timeout) {
-            Some(Ok(message)) => {
-                let key = message.key();
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+        
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    let key = message.key();
 
-                if let Some(key) = key {
-                    let key = std::str::from_utf8(key)?;
-                    let key = String::from_str(key)?;
+                    if let Some(key) = key {
+                        let key = std::str::from_utf8(key)?;
+                        let key = String::from_str(key)?;
 
-                    Ok(Some(key))
-                } else {
-                    Ok(None)
+                        return Ok(Some(key));
+                    } else {
+                        return Ok(None);
+                    }
                 }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition")) 
+                        && retries < MAX_RETRIES {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {}", err);
+                }
+                None => bail!("kafka read timeout"),
             }
-            Some(Err(err)) => bail!("kafka read error: {}", err),
-            None => bail!("kafka read timeout"),
         }
     }
 
