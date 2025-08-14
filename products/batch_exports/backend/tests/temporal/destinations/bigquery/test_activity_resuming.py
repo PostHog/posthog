@@ -291,13 +291,13 @@ async def test_insert_into_bigquery_activity_completes_range_when_there_is_a_fai
 
     heartbeat_details: list[BigQueryHeartbeatDetails] = []
 
-    def track_hearbeat_details(*details):
+    def track_heartbeat_details(*details):
         """Record heartbeat details received."""
         nonlocal heartbeat_details
         bigquery_details = BigQueryHeartbeatDetails.from_activity_details(details)
         heartbeat_details.append(bigquery_details)
 
-    activity_environment.on_heartbeat = track_hearbeat_details
+    activity_environment.on_heartbeat = track_heartbeat_details
 
     insert_inputs = BigQueryInsertInputs(
         team_id=ateam.pk,
