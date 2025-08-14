@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from posthog.schema import AssistantFunnelsQuery, AssistantHogQLQuery, AssistantRetentionQuery, AssistantTrendsQuery
 
-Q = TypeVar("T", AssistantHogQLQuery, AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery)
+Q = TypeVar("Q", AssistantHogQLQuery, AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery)
 
 
 class SchemaGeneratorOutput(BaseModel, Generic[Q]):
