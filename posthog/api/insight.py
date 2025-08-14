@@ -664,7 +664,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         request: Optional[Request] = self.context.get("request")
-        dashboard_filters_override = filters_override_requested_by_client(request) if request else None
+        dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
         dashboard_variables_override = variables_override_requested_by_client(
             request, dashboard, list(self.context["insight_variables"])
         )
@@ -731,7 +731,7 @@ class InsightSerializer(InsightBasicSerializer):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
-                filters_override = filters_override_requested_by_client(self.context["request"])
+                filters_override = filters_override_requested_by_client(self.context["request"], dashboard)
                 variables_override = variables_override_requested_by_client(
                     self.context["request"], dashboard, list(self.context["insight_variables"])
                 )
