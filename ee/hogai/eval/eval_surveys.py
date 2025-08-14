@@ -76,15 +76,11 @@ def call_surveys_max_tool(demo_org_team_user, django_db_blocker):
 
         # Create the test feature flags if they don't exist
         for flag_data in test_flags:
-            await FeatureFlag.objects.aget_or_create(
-                team=team,
-                key=flag_data["key"],
-                defaults={
-                    "name": flag_data["name"],
-                    "filters": flag_data["filters"],
-                    "created_by": user,
-                },
+            flag = await FeatureFlag.objects.aget_or_create(
+                team=team, created_by=user, key=flag_data["key"], name=flag_data["name"], filters=flag_data["filters"]
             )
+            if not flag:
+                raise Exception("Failed to create feature flag")
 
         try:
             max_tool = CreateSurveyTool(team=team, user=user)
