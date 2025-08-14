@@ -50,6 +50,8 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 getUserFlags: async (_, breakpoint) => {
                     const params = {
                         groups: getGroups(values.posthog),
+                        // Pass app user's distinct_id so flags are evaluated for the correct user context
+                        distinct_id: values.posthog?.get_distinct_id(),
                     }
                     const response = await toolbarFetch(
                         `/api/projects/@current/feature_flags/my_flags${encodeParams(params, '?')}`

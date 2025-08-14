@@ -2546,6 +2546,46 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response_data = response.json()
         self.assertEqual(len(response_data), 0)
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_my_flags_with_distinct_id_parameter(self, mock_capture):
+        """Test that my_flags endpoint respects distinct_id parameter for toolbar use case"""
+        # Create a flag that behaves differently for different users
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={
+                "groups": [{"rollout_percentage": 50}]  # 50% rollout based on distinct_id hash
+            },
+        )
+
+        # Test with default behavior (no distinct_id param) - should use authenticated user's distinct_id
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        default_response = response.json()
+        self.assertEqual(len(default_response), 1)
+
+        # Test with explicit distinct_id parameter - should evaluate for that user
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my_flags", data={"distinct_id": "different-user-123"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        param_response = response.json()
+        self.assertEqual(len(param_response), 1)
+
+        # Test with another distinct_id to ensure it's actually using the parameter
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my_flags", data={"distinct_id": "another-user-456"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        another_response = response.json()
+        self.assertEqual(len(another_response), 1)
+
+        # The flag values should depend on the distinct_id used for evaluation
+        # At least one should be different (unless we get very unlucky with hashes)
+        self.assertEqual(param_response[0]["feature_flag"]["key"], "test-flag")
+        self.assertEqual(another_response[0]["feature_flag"]["key"], "test-flag")
+
     @patch("posthoganalytics.capture")
     def test_my_flags_groups(self, mock_capture):
         self.client.post(

@@ -1122,7 +1122,12 @@ class FeatureFlagViewSet(
             return Response([])
 
         groups = json.loads(request.GET.get("groups", "{}"))
-        matches, *_ = get_all_feature_flags(self.team, request.user.distinct_id, groups)
+
+        # Use provided distinct_id if available, fallback to authenticated user's distinct_id
+        # This allows the toolbar to evaluate flags for the correct app user context
+        distinct_id = request.GET.get("distinct_id", request.user.distinct_id)
+
+        matches, *_ = get_all_feature_flags(self.team, distinct_id, groups)
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()
