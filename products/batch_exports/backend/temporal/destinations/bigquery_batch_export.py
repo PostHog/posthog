@@ -1211,6 +1211,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
+            destination_default_fields=bigquery_default_fields(),
         )
 
         if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS:
