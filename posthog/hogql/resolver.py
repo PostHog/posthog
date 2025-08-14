@@ -662,28 +662,8 @@ class Resolver(CloningVisitor):
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
 
-                if scope.is_lambda_type and len(self.scopes) > 1:
-                    try:
-                        popped_scope = self.scopes.pop()
-                        visited_node = self.visit_field(node)
-                        self.scopes.append(popped_scope)
-                        return visited_node
-                    except:
-                        # We want to raise the original QueryError if the parent scope didn't work out
-                        pass
-
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
-                if scope.is_lambda_type and len(self.scopes) > 1:
-                    try:
-                        popped_scope = self.scopes.pop()
-                        visited_node = self.visit_field(node)
-                        self.scopes.append(popped_scope)
-                        return visited_node
-                    except:
-                        # We want to follow the original error path if the parent scope didn't work out
-                        pass
-
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
                     start=node.start,
