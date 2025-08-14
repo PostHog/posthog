@@ -32,12 +32,9 @@ from dags.common import JobOwners
 class PostgresToClickHouseETLConfig(Config):
     """Configuration for the Postgres to ClickHouse ETL job."""
 
-    full_refresh: bool = dagster.Field(
-        default=False,
-        description="If true, drop and recreate tables with full data load. If false, do incremental sync.",
-    )
-    batch_size: int = dagster.Field(default=10000, description="Number of rows to process in each batch")
-    max_execution_time: int = dagster.Field(default=3600, description="Maximum execution time in seconds")
+    full_refresh: bool = False
+    batch_size: int = 10000
+    max_execution_time: int = 3600
 
 
 @dataclass
@@ -713,7 +710,6 @@ hourly_partition = HourlyPartitionsDefinition(
 
 @job(
     tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
-    config=PostgresToClickHouseETLConfig,
     partitions_def=hourly_partition,
 )
 def postgres_to_clickhouse_etl_job():
