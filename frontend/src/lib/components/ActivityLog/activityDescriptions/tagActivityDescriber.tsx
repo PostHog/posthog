@@ -4,6 +4,12 @@ import {
     HumanizedChange,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Link } from 'lib/lemon-ui/Link'
+import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { urls } from 'scenes/urls'
+import { getFilterLabel } from '~/taxonomy/helpers'
+import { EntityFilter } from '~/types'
 
 const nameOrId = (name?: string | null, id?: string | null): string => {
     if (name) {
@@ -18,12 +24,75 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
     }
 
     const objectType = context.related_object_type
-    const objectName = context.related_object_name || `${objectType} ${context.related_object_id}`
+    const objectTypeDisplayName = objectType.replace(/_/g, ' ')
+    const objectId = context.related_object_id
+    let objectName = context.related_object_name || `${objectType} ${objectId}`
+
+    const getDisplayName = (): string => {
+        if (objectType === 'event_definition') {
+            return getDisplayNameFromEntityFilter({ name: objectName } as EntityFilter, false) || objectName
+        }
+        if (objectType === 'property_definition') {
+            return getFilterLabel(objectName, TaxonomicFilterGroupType.EventProperties)
+        }
+        return objectName
+    }
+
+    const displayName = getDisplayName()
+
+    const getObjectLink = () => {
+        switch (objectType) {
+            case 'dashboard':
+                return (
+                    <Link to={urls.dashboard(objectId)}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
+            case 'insight':
+                return (
+                    <Link to={urls.insightView(objectId)}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
+            case 'action':
+                return (
+                    <Link to={urls.action(objectId)}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
+            case 'feature_flag':
+                return (
+                    <Link to={urls.featureFlag(objectId)}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
+            case 'event_definition':
+                return (
+                    <Link to={urls.eventDefinition(objectId)}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
+            case 'property_definition':
+                return (
+                    <Link to={urls.propertyDefinition(objectId)}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
+            case 'experiment_saved_metric':
+                return (
+                    <Link to={urls.experimentsSharedMetric(objectId)}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
+            default:
+                return <strong>{displayName}</strong>
+        }
+    }
 
     return (
         <>
             {preposition && `${preposition} `}
-            {objectType} <strong>{objectName}</strong>
+            {objectTypeDisplayName} {getObjectLink()}
         </>
     )
 }
