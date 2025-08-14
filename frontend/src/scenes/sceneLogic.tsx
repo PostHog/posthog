@@ -348,15 +348,6 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeTab],
             (activeTab): SceneParams => activeTab?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
         ],
-        sceneParamsWithTabId: [
-            (s) => [s.sceneParams, s.activeTabId],
-            (sceneParams, activeTabId): Record<string, any> => {
-                return {
-                    ...sceneParams.params,
-                    tabId: activeTabId,
-                }
-            },
-        ],
         activeSceneId: [
             (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable],
             (sceneId, isCurrentTeamUnavailable) => {
@@ -399,14 +390,20 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             },
         ],
-        activeSceneLogic: [
+        activeScenePropsWithTabId: [
             (s) => [s.activeExportedScene, s.sceneParams, s.activeTabId],
-            (activeExportedScene, sceneParams, activeTabId): BuiltLogic | null => {
+            (activeExportedScene, sceneParams, activeTabId): Record<string, any> => {
+                return {
+                    ...activeExportedScene?.paramsToProps?.(sceneParams),
+                    tabId: activeTabId,
+                }
+            },
+        ],
+        activeSceneLogic: [
+            (s) => [s.activeExportedScene, s.activeScenePropsWithTabId],
+            (activeExportedScene, activeScenePropsWithTabId): BuiltLogic | null => {
                 if (activeExportedScene?.logic) {
-                    return activeExportedScene.logic.build({
-                        ...activeExportedScene.paramsToProps?.(sceneParams),
-                        tabId: activeTabId,
-                    })
+                    return activeExportedScene.logic.build(activeScenePropsWithTabId)
                 }
 
                 return null
