@@ -169,7 +169,8 @@ def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) 
     return response_data
 
 
-# NOTE: All models that affect the cache should have a signal to update the cache
+# NOTE: All models that affect feature flag evaluation should have a signal to update the cache
+# GroupTypeMapping excluded as it's primarily managed by Node.js plugin-server
 
 
 @receiver(post_save, sender=FeatureFlag)
@@ -187,15 +188,3 @@ def cohort_changed(sender, instance: "Cohort", **kwargs):
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
-
-
-@receiver(post_save, sender=GroupTypeMapping)
-@receiver(post_delete, sender=GroupTypeMapping)
-def group_type_mapping_changed(sender, instance: "GroupTypeMapping", created=None, **kwargs):
-    from posthog.tasks.feature_flags import update_team_flags_cache
-    from posthog.models.team import Team
-
-    # GroupTypeMapping uses project_id, so we need to get team_id from it
-    team = Team.objects.filter(project_id=instance.project_id).first()
-    if team:
-        transaction.on_commit(lambda: update_team_flags_cache.delay(team.id))
