@@ -80,16 +80,9 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     if not context.team_id:
         raise InternalHogQLError("context.team_id not found")
 
-    table = table_type.table
-    team_id = table.get_field("team_id")
-    if hasattr(team_id, "expr"):
-        team_id = team_id.expr
-    else:
-        team_id = ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type))
-
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
-        left=team_id,
+        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
         right=ast.Constant(value=context.team_id),
         type=ast.BooleanType(),
     )
