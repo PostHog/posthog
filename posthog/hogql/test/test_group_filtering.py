@@ -43,7 +43,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         )
 
     def test_group_field_without_mapping(self):
-        """Test that $group_0 returns empty string when no GroupTypeMapping exists"""
+        """Test that $group_0 falls back when no GroupTypeMapping exists"""
         self.database = create_hogql_database(team=self.team)
         self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
@@ -53,7 +53,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql = print_ast(parsed, context=self.context, dialect="clickhouse")
 
         # Should return an empty string constant (parameterized)
-        self.assertIn("SELECT %(hogql_val_0)s AS `$group_0` FROM events WHERE equals(events.team_id,", sql)
+        self.assertIn("SELECT events.`$group_0` AS `$group_0` FROM events", sql)
 
     def test_multiple_group_fields(self):
         """Test filtering with multiple group type mappings"""
@@ -85,7 +85,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         self.assertIn("if(less(toTimeZone(events.timestamp,", sql)
         self.assertIn("events.`$group_0`) AS `$group_0`", sql)
         self.assertIn("events.`$group_1`) AS `$group_1`", sql)
-        self.assertIn("%(hogql_val_6)s AS `$group_2`", sql)  # Group 2 should be parameterized empty string
+        self.assertIn("events.`$group_2` AS `$group_2`", sql)
 
     def test_group_field_in_where_clause(self):
         """Test that group filtering works in WHERE clauses"""
@@ -149,8 +149,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
         self.assertIn("ON equals(if(less(toTimeZone(events.timestamp,", sql)
         self.assertIn("events.`$group_0`), events__group_0.key)", sql)
-        # Group 1 should use empty string since no mapping exists
-        self.assertIn("ON equals(%(hogql_val_", sql)
+        self.assertIn("ON equals(events.`$group_1`, events__group_1.key)", sql)
 
     def test_non_clickhouse_dialect_no_filtering(self):
         """Test that non-ClickHouse dialects don't get filtering"""
