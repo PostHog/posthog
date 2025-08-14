@@ -191,11 +191,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                      */
                     trackUrl(data.id, url)
 
-                    const done: () => void = () => {
-                        finalizeUrl(data.id, url)
-                    }
-                    img.onload = done
-                    img.onerror = done
+                    img.onload = () => finalizeUrl(data.id, url)
+                    img.onerror = () => finalizeUrl(data.id, url)
 
                     img.src = url
 
