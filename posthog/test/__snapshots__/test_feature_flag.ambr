@@ -3106,6 +3106,8 @@
 # name: TestFeatureFlagMatcher.test_multiple_flags
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -3161,6 +3163,8 @@
 # name: TestFeatureFlagMatcher.test_multiple_flags.4
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
@@ -3265,6 +3269,8 @@
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags
   '''
   SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."created_by_id",
+         "posthog_grouptypemapping"."created_at",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."project_id",
          "posthog_grouptypemapping"."group_type",
