@@ -209,7 +209,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         self.assertEqual(deleted_log.detail["name"], "original-tag")
 
         # May also create new Tag if "updated-tag" didn't exist before
-        tag_creation_logs: QuerySet[ActivityLog, ActivityLog] = ActivityLog.objects.filter(
+        tag_creation_logs: QuerySet[ActivityLog] = ActivityLog.objects.filter(
             scope="Tag", activity="created"
         )
         if tag_creation_logs.exists():
