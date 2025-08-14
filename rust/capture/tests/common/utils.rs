@@ -179,7 +179,8 @@ pub struct EphemeralTopic {
 impl EphemeralTopic {
     pub async fn new() -> Self {
         let mut config = ClientConfig::new();
-        config.set("group.id", "capture_integration_tests");
+        let group_id = random_string("capture_it", 12);
+        config.set("group.id", &group_id);
         config.set(
             "bootstrap.servers",
             DEFAULT_CONFIG.kafka.kafka_hosts.clone(),
