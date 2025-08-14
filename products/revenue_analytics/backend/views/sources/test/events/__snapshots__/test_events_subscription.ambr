@@ -7,15 +7,15 @@
          product_id AS product_id,
          toString(person_id) AS customer_id,
          NULL AS status,
-         started_at AS started_at,
-         ended_at AS ended_at,
+         min_timestamp AS started_at,
+         if(greater(addDays(max_timestamp, 45.0), today()), NULL, max_timestamp) AS ended_at,
          NULL AS metadata
   FROM
     (SELECT person.id AS person_id,
             properties.subscription_id AS subscription_id,
             min(properties.product_id) AS product_id,
-            min(timestamp) AS started_at,
-            max(timestamp) AS ended_at
+            min(timestamp) AS min_timestamp,
+            max(timestamp) AS max_timestamp
      FROM events
      WHERE true
      GROUP BY subscription_id,
@@ -31,15 +31,15 @@
          product_id AS product_id,
          toString(person_id) AS customer_id,
          NULL AS status,
-         started_at AS started_at,
-         ended_at AS ended_at,
+         min_timestamp AS started_at,
+         if(greater(addDays(max_timestamp, 45.0), today()), NULL, max_timestamp) AS ended_at,
          NULL AS metadata
   FROM
     (SELECT person.id AS person_id,
             properties.subscription_id AS subscription_id,
             min(properties.product_id) AS product_id,
-            min(timestamp) AS started_at,
-            max(timestamp) AS ended_at
+            min(timestamp) AS min_timestamp,
+            max(timestamp) AS max_timestamp
      FROM events
      WHERE true
      GROUP BY subscription_id,
