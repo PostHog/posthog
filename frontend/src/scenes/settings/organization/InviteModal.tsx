@@ -24,7 +24,7 @@ const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fil
 )
 export const MAX_INVITES_AT_ONCE = 20
 
-export function EmailUnavailableMessage(): JSX.Element {
+export function EmailUnavailableForInvitesBanner(): JSX.Element {
     return (
         <LemonBanner type="info" className="my-2">
             <>
