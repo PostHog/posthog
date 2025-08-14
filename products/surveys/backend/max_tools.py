@@ -71,7 +71,7 @@ class CreateSurveyTool(MaxTool):
             )
             return survey_creation_schema
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, SurveyCreationSchema]:
+    async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
         """
         Generate survey configuration from natural language instructions.
         """
@@ -83,7 +83,10 @@ class CreateSurveyTool(MaxTool):
 
             try:
                 if not result.questions:
-                    return "❌ Survey must have at least one question", result
+                    return "❌ Survey must have at least one question", {
+                        "error": "validation_failed",
+                        "details": "No questions provided",
+                    }
 
                 # Apply appearance defaults and prepare survey data
                 survey_data = self._prepare_survey_data(result, team)
@@ -96,18 +99,20 @@ class CreateSurveyTool(MaxTool):
                 survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
 
                 launch_msg = " and launched" if result.should_launch else ""
-                return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", result
+                return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
+                    "survey_id": survey.id,
+                    "survey_name": survey.name,
+                }
 
             except Exception as validation_error:
-                return f"❌ Survey validation failed: {str(validation_error)}", SurveyCreationSchema(
-                    questions=[], should_launch=False, name="", description="", type="popover"
-                )
+                return f"❌ Survey validation failed: {str(validation_error)}", {
+                    "error": "validation_failed",
+                    "details": str(validation_error),
+                }
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"❌ Failed to create survey", SurveyCreationSchema(
-                questions=[], should_launch=False, name="", description="", type="popover"
-            )
+            return f"❌ Failed to create survey", {"error": "creation_failed", "details": str(e)}
 
     def _prepare_survey_data(self, survey_schema: SurveyCreationSchema, team: Team) -> dict[str, Any]:
         """Prepare survey data with appearance defaults applied."""

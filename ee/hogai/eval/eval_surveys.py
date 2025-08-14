@@ -10,6 +10,90 @@ from posthog.schema import SurveyCreationSchema
 from .conftest import MaxEval
 
 
+def validate_survey_output(output, scorer_name):
+    """Common validation logic for survey scorers."""
+    if not output.get("success", False):
+        return Score(
+            name=scorer_name,
+            score=0,
+            metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
+        )
+
+    survey_output = output.get("survey_creation_output")
+    if not survey_output:
+        return Score(name=scorer_name, score=0, metadata={"reason": "No survey output returned"})
+
+    return survey_output
+
+
+async def create_test_feature_flags(team, user):
+    """Create test feature flags for evaluation scenarios."""
+    from posthog.models import FeatureFlag
+
+    test_flags = [
+        {
+            "key": "new-checkout-flow",
+            "name": "New Checkout Flow",
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+        },
+        {
+            "key": "ab-test-experiment",
+            "name": "A/B Test Experiment",
+            "filters": {
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        },
+        {
+            "key": "homepage-redesign",
+            "name": "Homepage Redesign",
+            "filters": {
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "variant-a", "rollout_percentage": 33},
+                        {"key": "variant-b", "rollout_percentage": 33},
+                        {"key": "variant-c", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        },
+        {
+            "key": "pricing-page-test",
+            "name": "Pricing Page Test",
+            "filters": {
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        },
+    ]
+
+    created_flags = []
+    for flag_data in test_flags:
+        flag, created = await FeatureFlag.objects.aget_or_create(
+            team=team,
+            key=flag_data["key"],
+            defaults={
+                "name": flag_data["name"],
+                "filters": flag_data["filters"],
+                "created_by": user,
+            },
+        )
+        created_flags.append(flag)
+
+    return created_flags
+
+
 @pytest.fixture
 def call_surveys_max_tool(demo_org_team_user, django_db_blocker):
     """
@@ -23,64 +107,7 @@ def call_surveys_max_tool(demo_org_team_user, django_db_blocker):
         Call the survey creation tool and return structured output.
         """
         # Create test feature flags for evaluation
-        from posthog.models import FeatureFlag
-
-        # Create feature flags that might be referenced in test cases
-        test_flags = [
-            {
-                "key": "new-checkout-flow",
-                "name": "New Checkout Flow",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
-            },
-            {
-                "key": "ab-test-experiment",
-                "name": "A/B Test Experiment",
-                "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 50},
-                            {"key": "treatment", "rollout_percentage": 50},
-                        ]
-                    },
-                },
-            },
-            {
-                "key": "homepage-redesign",
-                "name": "Homepage Redesign",
-                "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "variant-a", "rollout_percentage": 33},
-                            {"key": "variant-b", "rollout_percentage": 33},
-                            {"key": "variant-c", "rollout_percentage": 34},
-                        ]
-                    },
-                },
-            },
-            {
-                "key": "pricing-page-test",
-                "name": "Pricing Page Test",
-                "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 50},
-                            {"key": "treatment", "rollout_percentage": 50},
-                        ]
-                    },
-                },
-            },
-        ]
-
-        # Create the test feature flags if they don't exist
-        for flag_data in test_flags:
-            flag = await FeatureFlag.objects.aget_or_create(
-                team=team, created_by=user, key=flag_data["key"], name=flag_data["name"], filters=flag_data["filters"]
-            )
-            if not flag:
-                raise Exception("Failed to create feature flag")
+        await create_test_feature_flags(team, user)
 
         try:
             max_tool = CreateSurveyTool(team=team, user=user)
@@ -431,17 +458,10 @@ class SurveyFeatureFlagIntegrationScorer(Scorer):
         if not expected:
             return None
 
-        # Check if the survey was created successfully
-        if not output.get("success", False):
-            return Score(
-                name=self._name(),
-                score=0,
-                metadata={"reason": "Survey creation failed", "error": output.get("error", "Unknown error")},
-            )
-
-        survey_output = output.get("survey_creation_output")
-        if not survey_output:
-            return Score(name=self._name(), score=0, metadata={"reason": "No survey output returned"})
+        # Use common validation logic
+        survey_output = validate_survey_output(output, self._name())
+        if isinstance(survey_output, Score):  # Validation failed, return the error score
+            return survey_output
 
         # Check feature flag integration expectations
         expected_flag_id = expected.get("expected_flag_id")
@@ -466,13 +486,14 @@ class SurveyFeatureFlagIntegrationScorer(Scorer):
         # Check 3: Variant should be set if expected
         if should_have_variant:
             checks.append("has_variant")
-            conditions = survey_output.conditions
-            if conditions and conditions.linkedFlagVariant:
+            conditions = getattr(survey_output, "conditions", None)
+            if conditions and hasattr(conditions, "linkedFlagVariant") and conditions.linkedFlagVariant:
                 successes.append("has_variant")
                 # Check 4: Variant should match if specified
                 if expected_variant:
                     checks.append("correct_variant")
-                    if conditions.linkedFlagVariant == expected_variant:
+                    # Handle special case of "any" variant - should pass if any variant is set
+                    if expected_variant == "any" or conditions.linkedFlagVariant == expected_variant:
                         successes.append("correct_variant")
 
         # If no checks were added, it means no feature flag criteria were specified
@@ -494,9 +515,9 @@ class SurveyFeatureFlagIntegrationScorer(Scorer):
                 "reason": f"Feature flag integration passed {successful_checks}/{total_checks} checks",
                 "successful_checks": successes,
                 "failed_checks": failed_checks,
-                "survey_name": survey_output.name,
+                "survey_name": getattr(survey_output, "name", "Unknown"),
                 "linked_flag_id": getattr(survey_output, "linked_flag_id", None),
-                "variant_condition": survey_output.conditions.linkedFlagVariant if survey_output.conditions else None,
+                "variant_condition": getattr(getattr(survey_output, "conditions", None), "linkedFlagVariant", None),
                 "expected_flag_id": expected_flag_id,
                 "expected_variant": expected_variant,
             },
@@ -613,25 +634,25 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
         data=[
             # Test case 1: NPS survey should have rating question first
             EvalCase(
-                input="Create an NPS survey to measure customer loyalty",
+                input="Create a satisfaction survey (NPS) to measure customer loyalty",
                 expected={"first_question_type": "rating", "min_questions": 1},
                 metadata={"test_type": "nps_survey"},
             ),
             # Test case 2: PMF survey should have single choice question first
             EvalCase(
-                input="Create a PMF survey to measure product-market fit",
+                input="Make a product-market fit (PMF) survey, following PMF best practices.",
                 expected={"first_question_type": "single_choice", "min_questions": 1},
                 metadata={"test_type": "pmf_survey"},
             ),
             # Test case 3: Open feedback survey should have open text question first
             EvalCase(
-                input="Create an open feedback survey for general customer insights",
+                input="Make a general customer insights survey.",
                 expected={"first_question_type": "open", "min_questions": 1},
                 metadata={"test_type": "open_feedback_survey"},
             ),
             # Test case 4: Comprehensive survey should still be kept short for in-app use
             EvalCase(
-                input="Create a comprehensive survey to understand user demographics, usage patterns, satisfaction levels, feature preferences, and improvement suggestions. First question should be a single choice question.",
+                input="Make a survey on demographics, usage, satisfaction, features, and suggestions. First question = single choice.",
                 expected={"min_questions": 1, "first_question_type": "single_choice"},
                 metadata={"test_type": "comprehensive_survey_length_constraint"},
             ),
@@ -691,6 +712,28 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
                     "expected_variant": "control",
                 },
                 metadata={"test_type": "ab_test_control_group"},
+            ),
+            # Test case 10: Edge case - Invalid feature flag reference
+            EvalCase(
+                input="Create a survey for users with the 'non-existent-flag' feature flag to get their feedback",
+                expected={
+                    "first_question_type": "open",
+                    "min_questions": 1,
+                    "should_have_flag": False,  # Should not link to non-existent flag
+                },
+                metadata={"test_type": "feature_flag_invalid_reference"},
+            ),
+            # Test case 11: Feature flag with specific variant and additional context
+            EvalCase(
+                input="Create an engagement survey for users experiencing the 'variant-b' of our 'homepage-redesign' experiment to understand their interaction patterns",
+                expected={
+                    "first_question_type": "rating",
+                    "min_questions": 1,
+                    "should_have_flag": True,
+                    "should_have_variant": True,
+                    "expected_variant": "variant-b",
+                },
+                metadata={"test_type": "feature_flag_specific_variant_context"},
             ),
         ],
         pytestconfig=pytestconfig,
