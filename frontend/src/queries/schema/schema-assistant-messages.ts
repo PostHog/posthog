@@ -1,6 +1,5 @@
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
-import type { AssistantContextualTool } from 'scenes/max/max-constants'
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
