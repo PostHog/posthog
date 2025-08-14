@@ -285,12 +285,6 @@ const trackUrl = (id: number, url: string): void => {
     set.add(url)
 }
 
-const revokeUrl = (url: string): void => {
-    try {
-        URL.revokeObjectURL(url)
-    } catch {}
-}
-
 const revokeAllForIdExcept = (id: number, keep?: string): void => {
     const set = objectUrlsById.get(id)
     if (!set) {
@@ -300,7 +294,7 @@ const revokeAllForIdExcept = (id: number, keep?: string): void => {
         if (keep && u === keep) {
             continue
         }
-        revokeUrl(u)
+        URL.revokeObjectURL(u)
         set.delete(u)
     }
     if (set.size === 0) {
@@ -310,7 +304,7 @@ const revokeAllForIdExcept = (id: number, keep?: string): void => {
 
 const finalizeUrl = (id: number, url: string): void => {
     // This runs on load/error. Revoke the url we just used and drop it from the set.
-    revokeUrl(url)
+    URL.revokeObjectURL(url)
     const set = objectUrlsById.get(id)
     if (set) {
         set.delete(url)
