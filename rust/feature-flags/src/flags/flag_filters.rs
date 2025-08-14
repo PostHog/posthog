@@ -10,7 +10,7 @@ impl FlagFilters {
             || self
                 .super_groups
                 .as_ref()
-                .map_or(false, |groups| !groups.is_empty())
+                .is_some_and(|groups| !groups.is_empty())
             || self
                 .groups
                 .iter()
