@@ -206,6 +206,16 @@ export const sceneLogic = kea<sceneLogicType>([
                         const newActiveIndex = Math.max(index - 1, 0)
                         newState = newState.map((tab, i) => (i === newActiveIndex ? { ...tab, active: true } : tab))
                     }
+                    if (newState.length === 0) {
+                        newState.push({
+                            id: generateTabId(),
+                            active: true,
+                            pathname: '/new',
+                            search: '',
+                            hash: '',
+                            title: 'New tab',
+                        })
+                    }
                     return newState
                 },
                 activateTab: (state, { tab }) => {
