@@ -1022,7 +1022,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
 
     def test_hogql_database_cache(self):
-        with patch("posthog.models.cache.TEST_OVERRIDE", True):
+        with patch("posthog.hogql.database.database.CACHE_TEST_OVERRIDE", True):
             with patch("posthog.hogql.database.database.is_cache_enabled") as is_cache_enabled_mock:
                 is_cache_enabled_mock.return_value = True
                 with self.assertNumQueries(FuzzyInt(5, 7)):
@@ -1045,7 +1045,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 create_hogql_database(team=self.team)
 
         # no more errors
-        with patch("posthog.models.cache.TEST_OVERRIDE", True):
+        with patch("posthog.hogql.database.database.CACHE_TEST_OVERRIDE", True):
             with patch("posthog.hogql.database.database.is_cache_enabled") as is_cache_enabled_mock:
                 is_cache_enabled_mock.return_value = True
                 with self.assertNumQueries(5):
@@ -1062,18 +1062,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 return
 
             client = mock.Mock()
-            client.delete.side_effect = fake_delete
+            client.hdel.side_effect = fake_delete
             get_client_mock.return_value = client
 
             GroupTypeMapping.objects.create(
                 team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
             )
 
-            assert client.delete.call_count == 1
+            assert client.hdel.call_count == 1
 
             DataWarehouseSavedQuery.objects.create(team=self.team, name="test", query="select 1")
 
-            assert client.delete.call_count == 2
+            assert client.hdel.call_count == 2
 
             DataWarehouseTable.objects.create(
                 name="table_1",
@@ -1086,7 +1086,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            assert client.delete.call_count == 3
+            assert client.hdel.call_count == 3
 
             DataWarehouseJoin.objects.create(
                 team=self.team,
@@ -1097,4 +1097,4 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 field_name="test",
             )
 
-            assert client.delete.call_count == 4
+            assert client.hdel.call_count == 4

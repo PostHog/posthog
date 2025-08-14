@@ -7,13 +7,10 @@ from prometheus_client import Counter
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.redis import get_client
-from posthog.settings import TEST
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
-
-TEST_OVERRIDE = False
 
 DATABASE_CACHE_COUNTER = Counter(
     "posthog_get_model_cache",
@@ -66,27 +63,23 @@ class CachedQuerySet(QuerySet):
         return key
 
     def fetch_cached(self, team_id: int, timeout: int = 3600, key_prefix: Optional[str] = None):
-        # we want the behavior for tests to be unaffected unless specifically testing this logic
-        testing = TEST and not TEST_OVERRIDE
+        try:
+            redis_client = get_client()
+            key = self.get_commit_cache_hash_key(team_id=team_id, key_prefix=key_prefix)
 
-        if not testing:
-            try:
-                redis_client = get_client()
-                key = self.get_commit_cache_hash_key(team_id=team_id, key_prefix=key_prefix)
+            data = redis_client.hget(key, self.model.__name__)
+            if data is not None:
+                DATABASE_CACHE_COUNTER.labels(result="hit_redis", model=self.model.__name__).inc()
+                return [deserialized.object for deserialized in serializers.deserialize("json", data)]
 
-                data = redis_client.hget(key, self.model.__name__)
-                if data is not None:
-                    DATABASE_CACHE_COUNTER.labels(result="hit_redis", model=self.model.__name__).inc()
-                    return [deserialized.object for deserialized in serializers.deserialize("json", data)]
+            data = serializers.serialize("json", self)
 
-                data = serializers.serialize("json", self)
-
-                redis_client.hset(key, self.model.__name__, data)
-                redis_client.expire(key, timeout)
-                DATABASE_CACHE_COUNTER.labels(result="hit_db", model=self.model.__name__).inc()
-            except Exception as e:
-                capture_exception(e)
-                DATABASE_CACHE_COUNTER.labels(result="error", model=self.model.__name__).inc()
+            redis_client.hset(key, self.model.__name__, data)
+            redis_client.expire(key, timeout)
+            DATABASE_CACHE_COUNTER.labels(result="hit_db", model=self.model.__name__).inc()
+        except Exception as e:
+            capture_exception(e)
+            DATABASE_CACHE_COUNTER.labels(result="error", model=self.model.__name__).inc()
 
         return list(self)
 

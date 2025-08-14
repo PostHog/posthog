@@ -15,8 +15,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.db.models import Prefetch, Q
 from pydantic import BaseModel, ConfigDict
 
+from posthog.settings import TEST
 from posthog.exceptions_capture import capture_exception
-from posthog.git import get_git_commit_short
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -409,14 +409,8 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 TableStore = dict[str, Table | TableGroup]
 
 
-def get_commit_cache_key(team_id: int, model_name: str) -> str:
-    current_sha = get_git_commit_short()
-
-    # cache key based on sha to invalidate cache on deploys in case of migrations
-    return f"hogql_database:{team_id}:{current_sha}:{model_name}"
-
-
 CACHE_KEY_PREFIX = "hogql_database"
+CACHE_TEST_OVERRIDE = False
 
 
 def create_hogql_database(
@@ -450,7 +444,7 @@ def create_hogql_database(
         # Team is definitely not None at this point, make mypy believe that
         team = cast("Team", team)
 
-    cache_enabled = is_cache_enabled(team)
+    cache_enabled = (not TEST and is_cache_enabled(team)) or CACHE_TEST_OVERRIDE
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
