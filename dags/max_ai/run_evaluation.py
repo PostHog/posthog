@@ -1,3 +1,5 @@
+import os
+
 import dagster
 from dagster_docker import PipesDockerClient
 from django.conf import settings
@@ -37,10 +39,22 @@ def export_projects(config: ExportProjectsConfig):
 
 
 class EvaluationConfig(dagster.Config):
+    image: str
+    """Name of the Docker image to run."""
+    image_tag: str
+    """Tag of the Docker image to run."""
     experiment_name: str
     """Name of the experiment."""
     evaluation_module: str
     """Python module containing the evaluation runner."""
+
+
+def get_registry_credentials():
+    return {
+        "url": dagster.EnvVar("AWS_EKS_REGISTRY_URL").get_value(),
+        "username": "AWS",
+        "password": dagster.EnvVar("AWS_EKS_REGISTRY_PASSWORD").get_value(),
+    }
 
 
 @dagster.op
@@ -72,7 +86,7 @@ def spawn_evaluation_container(
 
     asset_result = docker_pipes_client.run(
         context=context,
-        image="posthog-ai-evals:test",
+        image=f"{config.image}:{config.image_tag}",
         container_kwargs={
             "privileged": True,
             "auto_remove": True,
@@ -91,6 +105,7 @@ def spawn_evaluation_container(
             "BRAINTRUST_API_KEY": settings.BRAINTRUST_API_KEY,
         },
         extras=evaluation_config.model_dump(exclude_unset=True),
+        registry=get_registry_credentials(),
     ).get_materialize_result()
 
     context.log_event(
@@ -108,7 +123,12 @@ def spawn_evaluation_container(
     config=dagster.RunConfig(
         ops={
             "export_projects": ExportProjectsConfig(project_ids=[]),
-            "spawn_evaluation_container": EvaluationConfig(evaluation_module="", experiment_name="offline_evaluation"),
+            "spawn_evaluation_container": EvaluationConfig(
+                evaluation_module="",
+                experiment_name="offline_evaluation",
+                image=f"{os.getenv('AWS_EKS_REGISTRY_URL')}/{os.getenv('AWS_EKS_REPOSITORY_NAME')}",
+                image_tag="master",
+            ),
         }
     ),
 )
