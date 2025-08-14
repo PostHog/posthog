@@ -140,16 +140,7 @@ web_pre_aggregate_job = dagster.define_asset_job(
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         "dagster/max_runtime": str(DAGSTER_DAILY_JOB_TIMEOUT),
     },
-    config={
-        "execution": {
-            "config": {
-                "multiprocess": {
-                    "max_concurrent": 1,
-                    "op_execution_timeout": DAGSTER_DAILY_JOB_TIMEOUT,
-                }
-            }
-        }
-    },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
 
 
