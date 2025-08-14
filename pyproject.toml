@@ -156,6 +156,7 @@ dependencies = [
     "asgiref==3.8.1",
     "django-mcp-server==0.5.6",
     "playwright>=1.54.0",
+    "django-admin-inline-paginator===0.4.0",
 ]
 
 [dependency-groups]

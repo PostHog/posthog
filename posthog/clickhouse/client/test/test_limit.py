@@ -1,4 +1,10 @@
-from posthog.clickhouse.client.limit import RateLimit, ConcurrencyLimitExceeded
+import uuid
+from unittest.mock import Mock, patch
+from posthog.clickhouse.client.limit import (
+    RateLimit,
+    ConcurrencyLimitExceeded,
+)
+from posthog.constants import AvailableFeature
 from posthog.test.base import BaseTest
 from collections.abc import Callable
 
@@ -205,3 +211,104 @@ class TimeHelper:
         self.sleep_times.append(duration)
         self.on_sleep(duration)
         self.t += duration
+
+
+class TestOrgConcurrencyLimit(BaseTest):
+    """Test the get_org_app_concurrency_limit helper function"""
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_no_org_limit_returns_none(self):
+        """Test that get_org_app_concurrency_limit returns None when no org limit is found"""
+        from posthog.clickhouse.client.limit import get_org_app_concurrency_limit
+
+        # Mock Redis to return None (cache miss)
+        with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis:
+            mock_redis.return_value.get.return_value = None
+
+            # Call the helper method directly
+            result = get_org_app_concurrency_limit(self.organization.id)
+
+            # Should return None since no org-specific limit is configured
+            self.assertIsNone(result)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_org_limit_with_cache_miss_then_hit(self):
+        """Test that cache miss hits database, then subsequent calls use cache"""
+        from posthog.clickhouse.client.limit import get_org_app_concurrency_limit
+
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 50,
+            }
+        ]
+        self.organization.save()
+
+        # First call: cache miss, should hit database and cache the result
+        with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis:
+            mock_redis.return_value.get.return_value = None
+            mock_redis.return_value.setex = Mock()
+
+            result = get_org_app_concurrency_limit(self.organization.id)
+
+            # Should return the org limit
+            self.assertEqual(result, 50)
+            # Verify that setex was called to cache the result
+            mock_redis.return_value.setex.assert_called_once_with(
+                f"org_app_concurrency_limit:{self.organization.id}", 3600, 50
+            )
+
+        # Second call: cache hit, should not hit database
+        with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis2:
+            mock_redis2.return_value.get.return_value = b"50"
+
+            result2 = get_org_app_concurrency_limit(self.organization.id)
+
+            # Should return cached value
+            self.assertEqual(result2, 50)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_org_limit_with_invalid_limit_values(self):
+        """Test that invalid limit values return None"""
+        from posthog.clickhouse.client.limit import get_org_app_concurrency_limit
+
+        test_cases = [
+            {
+                "key": AvailableFeature.ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": "not-a-number",
+            },
+            {
+                "key": AvailableFeature.ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": None,
+            },
+            {
+                "key": AvailableFeature.ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+            },  # missing limit
+        ]
+
+        with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis:
+            mock_redis.return_value.get.return_value = None
+
+            for feature_config in test_cases:
+                self.organization.available_product_features = [feature_config]
+                self.organization.save()
+
+                result = get_org_app_concurrency_limit(self.organization.id)
+                self.assertIsNone(result)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_org_limit_exception_handling(self):
+        """Test that exceptions are handled gracefully"""
+        from posthog.clickhouse.client.limit import get_org_app_concurrency_limit
+
+        # Test with non-existent org
+        with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis:
+            mock_redis.return_value.get.return_value = None
+
+            result = get_org_app_concurrency_limit(uuid.uuid4())  # Non-existent org
+            self.assertIsNone(result)
