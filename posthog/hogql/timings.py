@@ -44,7 +44,7 @@ class HogQLTimingsImpl(HogQLTimings):
         self._timing_starts = {self._timing_pointer: perf_counter()}
 
     def clone_for_subquery(self, series_index: int):
-        return HogQLTimings(f"{self._timing_pointer}/series_{series_index}")
+        return HogQLTimingsImpl(f"{self._timing_pointer}/series_{series_index}")
 
     def clear_timings(self):
         self.timings = {}

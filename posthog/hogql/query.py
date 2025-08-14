@@ -19,7 +19,7 @@ from posthog.hogql.printer import (
     print_prepared_ast,
 )
 from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.timings import HogQLTimings, HogQLTimingsImpl
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
@@ -66,6 +66,10 @@ class HogQLQueryExecutor:
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
+
+        if self.debug and type(self.timings) is HogQLTimings:
+            self.timings = HogQLTimingsImpl()
+
         self.error: Optional[str] = None
         self.explain: Optional[list[str]] = None
         self.results = None
