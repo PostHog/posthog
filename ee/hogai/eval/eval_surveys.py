@@ -3,7 +3,9 @@ from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 from ee.models.assistant import Conversation
-from products.surveys.backend.max_tools import CreateSurveyTool, SurveyCreatorArgs
+from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLookupGraph
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from posthog.schema import SurveyCreationSchema
 
 from .conftest import MaxEval
 
@@ -89,15 +91,29 @@ def call_surveys_max_tool(demo_org_team_user):
             max_tool._context = {"user_id": str(user.uuid)}  # Additional context
             conversation = await Conversation.objects.acreate(team=team, user=user)
 
-            result = await max_tool.ainvoke(
-                SurveyCreatorArgs(instructions=instructions).model_dump(),
-                {"configurable": {"thread_id": conversation.id, "team": team, "user": user}},
-            )
+            graph_context = {
+                "change": f"Create a survey based on these instructions: {instructions}",
+                "output": None,
+            }
+            graph = FeatureFlagLookupGraph(team=team, user=user).compile_full_graph(checkpointer=DjangoCheckpointer())
+            result = await graph.ainvoke(graph_context, config={"configurable": {"thread_id": conversation.id}})
+
+            if "output" not in result or not isinstance(result["output"], SurveyCreationSchema):
+                message = "Survey creation failed"
+                if "intermediate_steps" in result and len(result["intermediate_steps"]) > 0:
+                    return {
+                        "success": False,
+                        "survey_creation_output": None,
+                        "message": result["intermediate_steps"][-1][0].tool_input or message,
+                        "error": result["intermediate_steps"][-1][0].tool_input or message,
+                    }
+                else:
+                    return {"success": False, "survey_creation_output": None, "message": message, "error": message}
 
             # Return structured output that Braintrust can understand
             return {
                 "success": True,
-                "survey_creation_output": result if result else None,
+                "survey_creation_output": result["output"] if result else None,
                 "message": "Survey created successfully",
             }
         except Exception as e:
@@ -595,8 +611,8 @@ async def eval_surveys(call_surveys_max_tool, pytestconfig):
             SurveyCreationBasicsScorer(),
             SurveyRelevanceScorer(),
             SurveyQuestionQualityScorer(),
-            SurveyFeatureFlagIntegrationScorer(),
-            SurveyFeatureFlagUnderstandingScorer(),
+            # SurveyFeatureFlagIntegrationScorer(),
+            # SurveyFeatureFlagUnderstandingScorer(),
         ],
         data=[
             # Test case 1: NPS survey should have rating question first

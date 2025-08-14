@@ -62,14 +62,16 @@ class CreateSurveyTool(MaxTool):
         if isinstance(result["output"], SurveyCreationSchema):
             return result["output"]
         else:
-            survey_creation_schema = SurveyCreationSchema(questions=[], should_launch=False)
+            survey_creation_schema = SurveyCreationSchema(
+                questions=[], should_launch=False, name="", description="", type="popover"
+            )
             capture_exception(
                 Exception(f"Survey creation graph returned unexpected output type: {type(result.get('output'))}"),
                 {"team_id": self._team.id, "user_id": self._user.id, "result": str(result)},
             )
             return survey_creation_schema
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(self, instructions: str) -> tuple[str, SurveyCreationSchema]:
         """
         Generate survey configuration from natural language instructions.
         """
@@ -78,12 +80,10 @@ class CreateSurveyTool(MaxTool):
             team = self._team
 
             result = await self._create_survey_from_instructions(instructions)
+
             try:
                 if not result.questions:
-                    return "❌ Survey must have at least one question", {
-                        "error": "validation_failed",
-                        "details": "No questions provided",
-                    }
+                    return "❌ Survey must have at least one question", result
 
                 # Apply appearance defaults and prepare survey data
                 survey_data = self._prepare_survey_data(result, team)
@@ -96,21 +96,18 @@ class CreateSurveyTool(MaxTool):
                 survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
 
                 launch_msg = " and launched" if result.should_launch else ""
-                return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
-                    "survey_id": str(survey.id),
-                    "survey_name": survey.name,
-                    "error": None,
-                }
+                return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", result
 
             except Exception as validation_error:
-                return f"❌ Survey validation failed: {str(validation_error)}", {
-                    "error": "validation_failed",
-                    "details": str(validation_error),
-                }
+                return f"❌ Survey validation failed: {str(validation_error)}", SurveyCreationSchema(
+                    questions=[], should_launch=False, name="", description="", type="popover"
+                )
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"❌ Failed to create survey", {"error": str(e)}
+            return f"❌ Failed to create survey", SurveyCreationSchema(
+                questions=[], should_launch=False, name="", description="", type="popover"
+            )
 
     def _prepare_survey_data(self, survey_schema: SurveyCreationSchema, team: Team) -> dict[str, Any]:
         """Prepare survey data with appearance defaults applied."""
