@@ -107,7 +107,7 @@ class QueryLogArchiveTable(LazyTable):
         )
 
 
-class RawQueryLogArchive(Table):
+class RawQueryLogArchiveTable(Table):
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "query_id": StringDatabaseField(name="query_id", nullable=False),
