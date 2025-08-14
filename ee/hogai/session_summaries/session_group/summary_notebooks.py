@@ -20,7 +20,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
 )
 
 
-def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapContent:
+def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapNode:
     """Format sessions status dictionary as a TipTap bullet list with a header"""
     if not sessions_status:
         return create_bullet_list([])
@@ -39,7 +39,9 @@ def format_single_sessions_status(sessions_status: dict[str, bool]) -> TipTapCon
         },
         bullet_list,
     ]
-    return content
+    # Wrap content in a doc node
+    json_content = {"type": "doc", "content": content}
+    return json_content
 
 
 async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:

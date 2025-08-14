@@ -75,7 +75,7 @@ class SessionSummaryStreamUpdate(Enum):
 
 UPDATE_TYPE_TO_OUTPUT_MAPPING = {
     SessionSummaryStreamUpdate.UI_STATUS: str,
-    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE: list,
+    SessionSummaryStreamUpdate.NOTEBOOK_UPDATE: dict,
     SessionSummaryStreamUpdate.FINAL_RESULT: EnrichedSessionGroupSummaryPatternsList,
 }
 
@@ -528,7 +528,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 
 async def _start_session_group_summary_workflow(
     inputs: SessionGroupSummaryInputs, workflow_id: str
-) -> AsyncGenerator[tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | list], None]:
+) -> AsyncGenerator[tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | dict], None]:
     """Start the workflow and yield status updates until completion."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
@@ -609,7 +609,7 @@ async def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-) -> AsyncGenerator[tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | list], None]:
+) -> AsyncGenerator[tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | dict], None]:
     """
     Start the workflow and yield status updates and final summary for the group of sessions.
     """

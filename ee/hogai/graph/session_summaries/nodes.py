@@ -61,9 +61,7 @@ class SessionSummarizationNode(AssistantNode):
         writer(("session_summarization_node", "messages", message))
         return
 
-    def _stream_notebook_content(
-        self, content: list[dict[str, Any]], state: AssistantState, writer: StreamWriter | None
-    ) -> None:
+    def _stream_notebook_content(self, content: dict, state: AssistantState, writer: StreamWriter | None) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
         if not writer:
             self.logger.warning("Stream writer not available for notebook update")
@@ -72,10 +70,8 @@ class SessionSummarizationNode(AssistantNode):
         if not state.notebook_id:
             self.logger.warning("No notebook_id in state, skipping notebook update")
             return
-        # Wrap content in a doc node
-        json_content = {"type": "doc", "content": content}
         # Create a notebook update message; not providing id to count it as a partial message on FE
-        notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=json_content)
+        notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content)
         # Stream the notebook update
         message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
@@ -200,10 +196,10 @@ class SessionSummarizationNode(AssistantNode):
                 self._stream_progress(progress_message=data, writer=writer)
             # Notebook intermediate data update messages
             elif update_type == SessionSummaryStreamUpdate.NOTEBOOK_UPDATE:
-                if not isinstance(data, list):
+                if not isinstance(data, dict):
                     raise ValueError(
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(data)} "
-                        f"(expected: list)"
+                        f"(expected: dict)"
                     )
                 # Update notebook with intermediate data
                 self._stream_notebook_content(data, state, writer)
