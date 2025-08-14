@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
-import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, ReactNode, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 
 import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
@@ -32,24 +32,41 @@ export type LemonDialogProps = Pick<
     isLoadingCallback?: (isLoading: boolean) => void
 }
 
-export function LemonDialog({
-    onAfterClose,
-    onClose,
-    primaryButton,
-    tertiaryButton,
-    secondaryButton,
-    content,
-    initialFormValues,
-    closeOnNavigate = true,
-    shouldAwaitSubmit = false,
-    footer,
-    isLoadingCallback,
-    ...props
-}: LemonDialogProps): JSX.Element {
+type LemonDialogRef = {
+    closeDialog: () => void
+}
+
+export const LemonDialog = forwardRef<LemonDialogRef, LemonDialogProps>(function LemonDialog(
+    {
+        onAfterClose,
+        onClose,
+        primaryButton,
+        tertiaryButton,
+        secondaryButton,
+        content,
+        initialFormValues,
+        closeOnNavigate = true,
+        shouldAwaitSubmit = false,
+        footer,
+        isLoadingCallback,
+        ...props
+    }: LemonDialogProps,
+    ref
+): JSX.Element {
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
     const [isOpen, setIsOpen] = useState(true)
     const [isLoading, setIsLoading] = useState(false)
+
+    useImperativeHandle(
+        ref,
+        () => ({
+            closeDialog: () => {
+                setIsOpen(false)
+            },
+        }),
+        [setIsOpen]
+    )
 
     primaryButton =
         primaryButton ||
@@ -120,7 +137,7 @@ export function LemonDialog({
             {content}
         </LemonModal>
     )
-}
+})
 
 export const LemonFormDialog = ({
     initialValues = {},
@@ -160,6 +177,8 @@ export const LemonFormDialog = ({
         setFormValues(initialValues)
     }, [setFormValues, initialValues])
 
+    const ref = useRef<LemonDialogRef>(null)
+
     return (
         <Form
             logic={lemonDialogLogic}
@@ -167,10 +186,12 @@ export const LemonFormDialog = ({
             onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>): void => {
                 if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
                     void onSubmit(form)
+                    ref?.current?.closeDialog()
                 }
             }}
         >
             <LemonDialog
+                ref={ref}
                 {...props}
                 content={resolvedContent}
                 primaryButton={primaryButton}
