@@ -128,7 +128,8 @@ function canQuestionSkipSubmitButton(
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setQuestionType } =
+        useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -158,6 +159,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <LemonSelect
                         data-attr={`survey-question-type-${index}`}
                         onSelect={(newType) => {
+                            const isCurrentTypeMultipleSurveyQuestion =
+                                question.type === SurveyQuestionType.MultipleChoice ||
+                                question.type === SurveyQuestionType.SingleChoice
                             const editingQuestion =
                                 defaultSurveyFieldValues[question.type].questions[0].question !== question.question
                             const editingDescription =
@@ -166,14 +170,22 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             const editingThankYouMessage =
                                 defaultSurveyFieldValues[question.type].appearance.thankYouMessageHeader !==
                                 survey.appearance?.thankYouMessageHeader
-                            setDefaultForQuestionType(
-                                index,
-                                question,
-                                newType,
-                                editingQuestion,
-                                editingDescription,
-                                editingThankYouMessage
-                            )
+
+                            const isNewTypeMultipleSurveyQuestion =
+                                newType === SurveyQuestionType.MultipleChoice ||
+                                newType === SurveyQuestionType.SingleChoice
+
+                            if (isCurrentTypeMultipleSurveyQuestion && isNewTypeMultipleSurveyQuestion) {
+                                setQuestionType(index, newType)
+                            } else {
+                                setDefaultForQuestionType(
+                                    index,
+                                    newType,
+                                    editingQuestion,
+                                    editingDescription,
+                                    editingThankYouMessage
+                                )
+                            }
                             resetBranchingForQuestion(index)
                         }}
                         options={[
