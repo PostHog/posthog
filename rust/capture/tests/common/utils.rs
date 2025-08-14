@@ -199,6 +199,8 @@ impl EphemeralTopic {
         config.set("metadata.request.timeout.ms", "30000");
         config.set("fetch.wait.max.ms", "500");
         config.set("fetch.error.backoff.ms", "500");
+        config.set("partition.assignment.strategy", "cooperative-sticky")
+
 
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
