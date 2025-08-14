@@ -425,7 +425,7 @@ describe('insightLogic', () => {
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
-            savedInsightsLogic.mount()
+            savedInsightsLogic.mount({ tabId: '1' })
 
             // 2. the insights are loaded
             await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
@@ -505,7 +505,7 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic.mount({ tabId: '1' })
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -533,7 +533,7 @@ describe('insightLogic', () => {
         dashLogic.mount()
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
 
-        savedInsightsLogic.mount()
+        savedInsightsLogic.mount({ tabId: '1' })
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
@@ -549,7 +549,7 @@ describe('insightLogic', () => {
     })
 
     test('updateInsight updates dashboards', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic.mount({ tabId: '1' })
         logic = insightLogic({
             dashboardItemId: Insight43,
             cachedInsight: {
@@ -563,7 +563,7 @@ describe('insightLogic', () => {
     })
 
     test('save as new insight', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic.mount({ tabId: '1' })
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,

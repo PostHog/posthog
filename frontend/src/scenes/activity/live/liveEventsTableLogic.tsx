@@ -4,18 +4,23 @@ import api from 'lib/api'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { LiveEvent } from '~/types'
+import { Breadcrumb, LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
 export interface LiveEventsTableProps {
-    showLiveStreamErrorToast: boolean
+    showLiveStreamErrorToast?: boolean
+    tabId?: string
 }
 
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
+    tabAwareScene(),
     props({} as LiveEventsTableProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -112,6 +117,20 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                     })
                 })
             },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.ExploreEvents,
+                    name: `Activity`,
+                    path: urls.activity(),
+                },
+                {
+                    key: Scene.LiveEvents,
+                    name: 'Live',
+                },
+            ],
         ],
     })),
     listeners(({ actions, values, cache, props }) => ({
