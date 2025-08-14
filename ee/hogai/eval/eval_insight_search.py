@@ -32,21 +32,21 @@ def extract_evaluation_info_from_state(state) -> dict:
 
     # Determine if insights were selected or rejected
     # Use both VisualizationMessage presence AND evaluation result content
-    insights_selected = len(visualization_messages) > 0 or found_insights_in_evaluation
-    creating_new_insight = bool(state.root_tool_insight_plan)
+    has_selected_insights = len(visualization_messages) > 0 or found_insights_in_evaluation
+    is_creating_new_insight = bool(state.root_tool_insight_plan)
 
     # Also check for "No existing insights found" message which indicates new insight creation
     # BUT only if we don't already have insights selected (VisualizationMessage takes precedence)
-    if not creating_new_insight and not insights_selected:
+    if not is_creating_new_insight and not has_selected_insights:
         for msg in state.messages:
             if hasattr(msg, "content"):
                 content = str(msg.content)
                 if "No existing insights found matching your query" in content:
-                    creating_new_insight = True
+                    is_creating_new_insight = True
                     break
 
     selected_insight_ids = []
-    if insights_selected:
+    if has_selected_insights:
         for msg in state.messages:
             if hasattr(msg, "content"):
                 content = str(msg.content)
@@ -71,8 +71,8 @@ def extract_evaluation_info_from_state(state) -> dict:
 
     return {
         "selected_insights": selected_insight_ids,
-        "insights_selected": insights_selected,
-        "creating_new_insight": creating_new_insight,
+        "has_selected_insights": has_selected_insights,
+        "is_creating_new_insight": is_creating_new_insight,
         "evaluation_message": evaluation_message,
         "visualization_count": len(visualization_messages),
     }
@@ -110,12 +110,12 @@ def call_insight_search(demo_org_team_user):
 
         eval_info = extract_evaluation_info_from_state(state)
 
-        if eval_info["creating_new_insight"]:
+        if eval_info["is_creating_new_insight"]:
             evaluation_result = {
                 "should_use_existing": False,
                 "explanation": "Evaluation decided to create new insight (root_tool_insight_plan set)",
             }
-        elif eval_info["insights_selected"]:
+        elif eval_info["has_selected_insights"]:
             evaluation_result = {
                 "should_use_existing": True,
                 "explanation": f"Selected {eval_info['visualization_count']} insight(s) - found visualization messages",
@@ -127,7 +127,7 @@ def call_insight_search(demo_org_team_user):
             }
 
         selected_insights = eval_info["selected_insights"]
-        if not selected_insights and eval_info["insights_selected"]:
+        if not selected_insights and eval_info["has_selected_insights"]:
             # Return empty list to make the failure visible in evaluation
             selected_insights = []
 
@@ -137,8 +137,6 @@ def call_insight_search(demo_org_team_user):
             "selected_insights": unique_insights,
             "search_query": search_query,
             "evaluation_result": evaluation_result,
-            "iteration_count": None,
-            "pages_read": None,
         }
 
     return callable

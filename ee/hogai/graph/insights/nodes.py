@@ -111,7 +111,7 @@ class InsightSearchNode(AssistantNode):
 
         return [select_insight, reject_all_insights]
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         search_query = state.search_insights_query
 
         try:
@@ -120,7 +120,7 @@ class InsightSearchNode(AssistantNode):
             if self._get_total_insights_count() == 0:
                 return self._handle_empty_database(state)
 
-            selected_insights = self._search_insights_iteratively(search_query or "")
+            selected_insights = await self._search_insights_iteratively(search_query or "")
             evaluation_result = self._evaluate_insights_with_tools(
                 selected_insights, search_query or "", max_selections=1
             )
@@ -236,12 +236,12 @@ class InsightSearchNode(AssistantNode):
 
         return page_insights
 
-    def _search_insights_iteratively(self, search_query: str) -> list[int]:
+    async def _search_insights_iteratively(self, search_query: str) -> list[int]:
         """Execute iterative insight search with LLM and tool calling."""
         messages = self._build_search_messages(search_query)
         llm_with_tools = self._prepare_llm_with_tools()
 
-        selected_insights = self._perform_iterative_search(messages, llm_with_tools)
+        selected_insights = await self._perform_iterative_search(messages, llm_with_tools)
 
         if not selected_insights:
             return []
@@ -279,7 +279,7 @@ class InsightSearchNode(AssistantNode):
             return self._model.bind_tools([read_tool])
         return self._model
 
-    def _perform_iterative_search(self, messages: list[BaseMessage], llm_with_tools) -> list[int]:
+    async def _perform_iterative_search(self, messages: list[BaseMessage], llm_with_tools) -> list[int]:
         """Perform the iterative search with the LLM."""
         selected_insights = []
 
@@ -287,30 +287,14 @@ class InsightSearchNode(AssistantNode):
             self._current_iteration += 1
 
             try:
-                response = llm_with_tools.invoke(messages)
-
-                if getattr(response, "tool_calls", None):
-                    self._process_tool_response(response, messages)
-                else:
-                    content = response.content if isinstance(response.content, str) else str(response.content)
-                    selected_insights = self._parse_insight_ids(content)
-                    break
-
+                response = llm_with_tools.ainvoke(messages)
+                content = response.content if isinstance(response.content, str) else str(response.content)
+                selected_insights = self._parse_insight_ids(content)
             except Exception as e:
                 capture_exception(e)
                 break
 
         return selected_insights
-
-    def _process_tool_response(self, response, messages: list[BaseMessage]) -> None:
-        """Process tool calls from the LLM response."""
-        messages.append(response)
-
-        for tool_call in response.tool_calls:
-            if tool_call["name"] == "read_insights_page":
-                page_number = tool_call["args"]["page_number"]
-                tool_content = self._get_page_content_for_tool(page_number)
-                messages.append(ToolMessage(content=tool_content, tool_call_id=tool_call["id"]))
 
     def _get_page_content_for_tool(self, page_number: int) -> str:
         """Get page content for tool response."""

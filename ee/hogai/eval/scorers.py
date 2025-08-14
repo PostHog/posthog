@@ -428,8 +428,6 @@ class InsightSearchOutput(TypedDict, total=False):
     selected_insights: list[int]
     search_query: str | None
     evaluation_result: dict | None
-    iteration_count: int | None
-    pages_read: int | None
 
 
 class InsightSearchRelevance(ScorerWithPartial):
