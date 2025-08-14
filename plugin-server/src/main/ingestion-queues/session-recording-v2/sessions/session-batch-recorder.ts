@@ -230,11 +230,14 @@ export class SessionBatchRecorder {
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
-                    if (writers[retentionPeriod] === null) {
-                        writers[retentionPeriod] = this.storage.newBatch(retentionPeriod)
+                    let writer: SessionBatchFileWriter | null = writers[retentionPeriod]
+
+                    if (writer === null) {
+                        writer = this.storage.newBatch(retentionPeriod)
+                        writers[retentionPeriod] = writer
                     }
 
-                    const { bytesWritten, url } = await writers[retentionPeriod].writeSession(buffer)
+                    const { bytesWritten, url } = await writer.writeSession(buffer)
 
                     blockMetadata.push({
                         sessionId: sessionBlockRecorder.sessionId,
@@ -269,8 +272,10 @@ export class SessionBatchRecorder {
 
             await Promise.all(
                 ValidRetentionPeriods.map(async (retentionPeriod) => {
-                    if (writers[retentionPeriod] !== null) {
-                        await writers[retentionPeriod].finish()
+                    const writer: SessionBatchFileWriter | null = writers[retentionPeriod]
+
+                    if (writer !== null) {
+                        await writer.finish()
                     }
                 })
             )

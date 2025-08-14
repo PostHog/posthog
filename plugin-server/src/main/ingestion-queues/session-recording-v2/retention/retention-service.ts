@@ -98,7 +98,7 @@ export async function fetchTeamRetentionPeriods(client: PostgresRouter): Promise
             WHERE session_recording_opt_in = true
         `,
         [],
-        'fetchTeamTokensWithRecordings'
+        'fetchTeamRetentionPeriods'
     )
 
     return selectResult.rows.reduce(

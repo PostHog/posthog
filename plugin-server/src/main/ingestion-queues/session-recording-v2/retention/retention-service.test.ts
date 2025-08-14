@@ -198,11 +198,12 @@ describe('RetentionService', () => {
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
             try {
-                // Wait for the new value to appear using a spinlock, don't advance time though
-                while (true) {
+                // Wait for the error to appear using a spinlock, don't advance time though
+                for (let i = 0; i < 100; ++i) {
                     await retentionService.getRetentionByTeamId(1)
                     await Promise.resolve() // Allow other promises to resolve
                 }
+                throw new Error('Test timeout: Expected error was never thrown')
             } catch (error) {
                 expect(error.message).toMatch('Error during retention period lookup: Unknown team id 1')
             }
@@ -315,19 +316,20 @@ describe('RetentionService', () => {
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
             try {
-                // Wait for the new value to appear using a spinlock, don't advance time though
-                while (true) {
+                // Wait for the error to appear using a spinlock, don't advance time though
+                for (let i = 0; i < 100; ++i) {
                     await retentionService.addRetentionToMessage(createTeamMessage(1))
                     await Promise.resolve() // Allow other promises to resolve
                 }
+                throw new Error('Test timeout: Expected error was never thrown')
             } catch (error) {
                 expect(error.message).toMatch('Error during retention period lookup: Unknown team id 1')
             }
         })
 
         it('should load retention from Redis if key exists', async () => {
-            mockRedisClient.exists.mockReturnValue(1)
-            mockRedisClient.get.mockReturnValue('30d')
+            mockRedisClient.exists = jest.fn().mockReturnValue(1)
+            mockRedisClient.get = jest.fn().mockReturnValue('30d')
 
             const validMessage = createTeamMessage(1)
             const messageWithRetention = await retentionService.addRetentionToMessage(validMessage)
@@ -340,7 +342,7 @@ describe('RetentionService', () => {
         })
 
         it('should store retention in Redis if key does not exist', async () => {
-            mockRedisClient.exists.mockReturnValue(0)
+            mockRedisClient.exists = jest.fn().mockReturnValue(0)
 
             const validMessage = createTeamMessage(1)
             const messageWithRetention = await retentionService.addRetentionToMessage(validMessage)
