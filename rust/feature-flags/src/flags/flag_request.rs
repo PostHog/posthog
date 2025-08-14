@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -85,12 +87,9 @@ impl FlagRequest {
             }
         };
 
-        // Simple string replacement to handle JavaScript's non-standard JSON values
+        // Smart replacement that only affects unquoted values (preserves quoted strings)
         // This matches Python decide endpoint behavior: parse_constant=lambda x: None
-        let sanitized_payload = payload
-            .replace("-Infinity", "null")
-            .replace("Infinity", "null")
-            .replace("NaN", "null");
+        let sanitized_payload = Self::sanitize_unquoted_non_finite_values(&payload);
 
         match serde_json::from_str::<FlagRequest>(&sanitized_payload) {
             Ok(request) => Ok(request),
@@ -101,6 +100,22 @@ impl FlagRequest {
                 )))
             }
         }
+    }
+
+    /// Sanitizes JSON by replacing unquoted NaN/Infinity with null, preserving quoted strings
+    /// This matches Python decide endpoint behavior: parse_constant=lambda x: None
+    fn sanitize_unquoted_non_finite_values(json_str: &str) -> String {
+        macro_rules! replace_non_finite {
+            ($result:expr, $pattern:expr) => {{
+                static RE: Lazy<Regex> = Lazy::new(|| Regex::new($pattern).unwrap());
+                RE.replace_all($result, "null$1").into_owned()
+            }};
+        }
+
+        let mut result = json_str.to_string();
+        result = replace_non_finite!(&result, r"(?i)-infinity(\s*[,}\]])");
+        result = replace_non_finite!(&result, r"(?i)\binfinity(\s*[,}\]])");
+        replace_non_finite!(&result, r"(?i)\bnan(\s*[,}\]])")
     }
 
     /// Extracts the token from the request.
@@ -234,7 +249,7 @@ mod tests {
 
     #[test]
     fn json_sanitization_handles_nan_infinity() {
-        // Test NaN
+        // Test NaN as unquoted value (gets replaced with null)
         let json_with_nan =
             r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": NaN}}"#;
         let request =
@@ -244,7 +259,21 @@ mod tests {
             json!(null)
         );
 
-        // Test Infinity
+        // Test NaN as quoted string (should be preserved)
+        let json_with_nan_string =
+            r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": "NaN", "infinity": 'Infinity'}}"#;
+        let request =
+            FlagRequest::from_bytes(Bytes::from(json_with_nan_string)).expect("Should handle quoted NaN");
+        assert_eq!(
+            request.person_properties.as_ref().unwrap()["nan"],
+            json!("NaN")  // Quoted strings are preserved
+        );
+        assert_eq!(
+            request.person_properties.as_ref().unwrap()["infinity"],
+            json!("Infinity")  // Quoted strings are preserved
+        );
+
+        // Test Infinity (gets replaced with null)
         let json_with_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"infinity": Infinity}}"#;
         let request = FlagRequest::from_bytes(Bytes::from(json_with_infinity))
             .expect("Should handle Infinity");
@@ -253,7 +282,7 @@ mod tests {
             json!(null)
         );
 
-        // Test negative Infinity
+        // Test negative Infinity (gets replaced with null)
         let json_with_neg_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"neg_infinity": -Infinity}}"#;
         let request = FlagRequest::from_bytes(Bytes::from(json_with_neg_infinity))
             .expect("Should handle -Infinity");
