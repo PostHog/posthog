@@ -118,8 +118,10 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
             # Should succeed
             self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
-            # Quality check should have been called at least once
-            mock_quality_check.assert_called()
+            # Quality check should have been called exactly once (happy path, loop breaks on success)
+            mock_quality_check.assert_called_once()
+            # Graph should have been called exactly once (happy path, loop breaks on success)
+            mock_graph.ainvoke.assert_called_once()
             # Verify it was called with the expected SQL query
             call_args = mock_quality_check.call_args[0][0]
             self.assertEqual(call_args.query.query, "SELECT count() FROM events")

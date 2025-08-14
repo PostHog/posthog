@@ -152,6 +152,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                         SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=final_result.query))
                     )
                     final_error = None
+                    break  # All good, let's go
             except PydanticOutputParserException as e:
                 graph_context["change"] += f"\n\nAvoid this error that we had with our previous attempt:\n\n{str(e)}"
                 final_error = e
