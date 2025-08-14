@@ -56,6 +56,7 @@ from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort.validation import validate_cohort_type_against_data
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
@@ -241,6 +242,28 @@ class CohortSerializer(serializers.ModelSerializer):
             "experiment_set",
         ]
 
+    def validate_cohort_type(self, value):
+        """Validate that the cohort type matches the filters"""
+        if not value:
+            return value
+
+        cohort_data = {
+            "cohort_type": value,
+            "is_static": self.initial_data.get(
+                "is_static", getattr(self.instance, "is_static", False) if self.instance else False
+            ),
+            "query": self.initial_data.get("query", getattr(self.instance, "query", None) if self.instance else None),
+            "filters": self.initial_data.get(
+                "filters", getattr(self.instance, "filters", None) if self.instance else None
+            ),
+        }
+
+        is_valid, error_msg = validate_cohort_type_against_data(value, cohort_data, team_id=self.context["team_id"])
+        if not is_valid:
+            raise ValidationError(error_msg)
+
+        return value
+
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
         request = self.context["request"]
         if request.FILES.get("csv"):
@@ -267,18 +290,6 @@ class CohortSerializer(serializers.ModelSerializer):
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
-        # Check if cohort_type was explicitly provided by the API
-        provided_cohort_type = validated_data.get("cohort_type")
-
-        # Validate cohort type before creating the DB entry
-        if provided_cohort_type:
-            # Create a temporary cohort instance for validation, but don't save it to the DB
-            virtualized_cohort = Cohort(team_id=self.context["team_id"], **validated_data)
-            is_valid, error_msg = virtualized_cohort.validate_cohort_type(provided_cohort_type)
-            if not is_valid:
-                raise ValidationError(error_msg)
-
-        # If the validation passes, create the cohort
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
@@ -505,11 +516,6 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
-        if cohort.cohort_type:
-            # Validate that the type passed by the API matches the filter requirements
-            is_valid, error_msg = cohort.validate_cohort_type(cohort.cohort_type)
-            if not is_valid:
-                raise ValidationError(error_msg)
 
         deleted_state = validated_data.get("deleted", None)
 
