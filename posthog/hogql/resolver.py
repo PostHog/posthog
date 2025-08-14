@@ -36,6 +36,7 @@ from posthog.hogql.resolver_utils import (
     extract_select_queries,
     lookup_cte_by_name,
     lookup_field_by_name,
+    lookup_table_by_name,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -555,7 +556,7 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None)
+        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
 
         for arg in node.args:
             node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
@@ -588,8 +589,7 @@ class Resolver(CloningVisitor):
         name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
-        if len(node.chain) > 1 and name in scope.tables:
-            type = scope.tables[name]
+        type = lookup_table_by_name(scope, node)
 
         # If it's a wildcard
         if name == "*" and len(node.chain) == 1:
@@ -606,6 +606,13 @@ class Resolver(CloningVisitor):
         # Field in scope
         if not type:
             type = lookup_field_by_name(scope, name, self.context)
+
+        # If scope is a lambda, check with the parent scope
+        if not type and scope.is_lambda_type and len(self.scopes) > 1:
+            type = lookup_table_by_name(self.scopes[-2], node)
+
+            if not type:
+                type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
         if not type:
             cte = lookup_cte_by_name(self.scopes, name)
@@ -645,14 +652,6 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
-            def in_lambda_scope() -> bool:
-                # KLUDGE: This is a bit of a hack to check whether current scope is a lambda function.
-                # We should fix this properly by allowing scopes other than just `SelectQueryType`
-                if len(scope.aliases) == 0:
-                    return False
-
-                return all(isinstance(value.type, ast.LambdaArgumentType) for value in scope.aliases.values())
-
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
@@ -663,7 +662,7 @@ class Resolver(CloningVisitor):
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
 
-                if in_lambda_scope() and len(self.scopes) > 1:
+                if scope.is_lambda_type and len(self.scopes) > 1:
                     try:
                         popped_scope = self.scopes.pop()
                         visited_node = self.visit_field(node)
@@ -675,7 +674,7 @@ class Resolver(CloningVisitor):
 
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
-                if in_lambda_scope() and len(self.scopes) > 1:
+                if scope.is_lambda_type and len(self.scopes) > 1:
                     try:
                         popped_scope = self.scopes.pop()
                         visited_node = self.visit_field(node)
