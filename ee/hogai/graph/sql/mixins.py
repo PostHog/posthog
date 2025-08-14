@@ -4,6 +4,7 @@ from typing import cast
 from langchain_core.prompts import ChatPromptTemplate
 
 from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.warehouse import serialize_database_schema
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -12,15 +13,18 @@ from posthog.hogql.errors import ExposedHogQLError, NotImplementedError as HogQL
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
+from posthog.schema import AssistantHogQLQuery
 from posthog.sync import database_sync_to_async
 
-from ..schema_generator.parsers import PydanticOutputParserException
+from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (
     HOGQL_GENERATOR_SYSTEM_PROMPT,
     SQL_EXPRESSIONS_DOCS,
     SQL_SUPPORTED_AGGREGATIONS_DOCS,
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
+
+SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 
 
 class HogQLGeneratorMixin(AssistantContextMixin):
@@ -60,10 +64,16 @@ class HogQLGeneratorMixin(AssistantContextMixin):
 
         return prompt
 
-    @database_sync_to_async(thread_sensitive=False)
-    def _parse_generated_hogql(self, query: str | None, hogql_context: HogQLContext):
-        if query is None:
-            raise PydanticOutputParserException(llm_output="", validation_message="Output is empty")
+    def _parse_output(self, output: dict) -> SQLSchemaGeneratorOutput:
+        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
+        return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
+
+    async def _quality_check_output(self, output: SQLSchemaGeneratorOutput):
+        database = await self._get_database()
+        hogql_context = self._get_default_hogql_context(database)
+        query = output.query.query if output.query else None
+        if not query:
+            raise PydanticOutputParserException(llm_output="", validation_message=f"Output is empty ({output})")
         try:
             parsed_query = parse_select(query, placeholders={})
 
@@ -86,4 +96,3 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             raise PydanticOutputParserException(llm_output=query, validation_message=err_msg)
         except Exception as e:
             raise PydanticOutputParserException(llm_output=query, validation_message=str(e))
-        return query
