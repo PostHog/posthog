@@ -620,8 +620,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Returns aggregated statistics for the data warehouse scene including total rows processed.
         Used by the frontend data warehouse scene to display usage information.
         """
-        billing_period_type = "lifetime"
-        external_data_rows = 0
+        billing_interval = "lifetime"
+        rows_synced = 0
         data_modeling_rows = 0
 
         try:
@@ -632,28 +632,44 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_period = org_billing["billing_period"]
                 billing_period_start = parser.parse(billing_period["current_period_start"])
                 billing_period_end = parser.parse(billing_period["current_period_end"])
-                billing_period_type = billing_period.get("interval", "monthly")
+                billing_interval = billing_period.get("interval", "monthly")
 
-                external_data_jobs = ExternalDataJob.objects.filter(
+                usage_summary = org_billing.get("usage_summary", {})
+                billing_tracked_rows = usage_summary.get("rows_synced", {}).get("usage", 0)
+
+                all_external_jobs = ExternalDataJob.objects.filter(
                     team_id=self.team_id,
+                    created_at__gte=billing_period_start,
+                    created_at__lt=billing_period_end,
                     billable=True,
+                )
+                total_db_rows = all_external_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
+
+                pending_billing_rows = max(0, total_db_rows - billing_tracked_rows)
+
+                rows_synced = billing_tracked_rows + pending_billing_rows
+
+                data_modeling_jobs = DataModelingJob.objects.filter(
+                    team_id=self.team_id,
                     created_at__gte=billing_period_start,
                     created_at__lt=billing_period_end,
                 )
-                data_modeling_jobs = DataModelingJob.objects.filter(
-                    team_id=self.team_id, created_at__gte=billing_period_start, created_at__lt=billing_period_end
-                )
-
-                external_data_rows = external_data_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
                 data_modeling_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
+
         except Exception as e:
             logger.exception("Could not retrieve billing information", exc_info=e)
 
         return Response(
             status=status.HTTP_200_OK,
             data={
-                "billingPeriodRowsProcessed": external_data_rows,
-                "dataModelingRowsProcessed": data_modeling_rows,
-                "typeOfBillingPeriod": billing_period_type,
+                "billingPeriodStart": billing_period_start,
+                "billingPeriodEnd": billing_period_end,
+                "billingInterval": billing_interval,
+                "externalData": {
+                    "trackedBillingRows": billing_tracked_rows,
+                    "pendingBillingRows": pending_billing_rows,
+                    "totalRows": rows_synced,
+                },
+                "dataModelingRows": data_modeling_rows,
             },
         )

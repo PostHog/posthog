@@ -3325,9 +3325,15 @@ const api = {
                 .get()
         },
         async dwhSceneStats(options?: ApiMethodOptions): Promise<{
-            billingPeriodRowsProcessed: number
-            typeOfBillingPeriod: string
-            dataModelingRowsProcessed: number
+            billingInterval: string
+            billingPeriodEnd: string
+            billingPeriodStart: string
+            dataModelingRows: number
+            externalData: {
+                billingTrackedRows: number
+                pendingBillingRows: number
+                totalRows: number
+            }
         }> {
             return await new ApiRequest().externalDataSources().withAction('dwh_scene_stats').get(options)
         },
