@@ -215,6 +215,16 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
     },
+    "Organization": {
+        "name": "organization name",
+        "enforce_2fa": "two-factor authentication requirement",
+        "members_can_invite": "member invitation permissions",
+        "members_can_use_personal_api_keys": "personal API key permissions",
+        "allow_publicly_shared_resources": "public sharing permissions",
+        "is_member_join_email_enabled": "member join email notifications",
+        "session_cookie_age": "session cookie age",
+        "default_experiment_stats_method": "default experiment stats method",
+    },
 }
 
 # Fields that prevent activity signal triggering entirely when only these fields change
@@ -348,6 +358,15 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "customer_id",
         "customer_trust_scores",
         "personalization",
+        "members",
+        "memberships",
+        "available_product_features",
+        "domain_whitelist",
+        "setup_section_2_completed",
+        "plugins_access_level",
+        "is_hipaa",
+        "is_ai_data_processing_approved",
+        "never_drop_data",
     ],
     "BatchExport": [
         "latest_runs",

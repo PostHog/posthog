@@ -23,6 +23,7 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -95,7 +96,7 @@ class OrganizationManager(models.Manager):
         return organization, organization_membership, team
 
 
-class Organization(UUIDModel):
+class Organization(ModelActivityMixin, UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(

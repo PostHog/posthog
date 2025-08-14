@@ -2,6 +2,7 @@ from functools import cached_property
 from typing import Any, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
+from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
@@ -21,10 +22,12 @@ from posthog.models import (
     Team,
     Organization,
 )
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
-from posthog.models.signals import mute_selected_signals
+from posthog.models.signals import mute_selected_signals, model_activity_signal
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
@@ -306,7 +309,14 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 groups=groups(organization),
             )
 
-        return super().update(request, *args, **kwargs)
+        # Set user context for activity logging
+        with ImpersonatedContext(request):
+            return super().update(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        # Set user context for activity logging
+        with ImpersonatedContext(self.request):
+            super().perform_create(serializer)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"])
@@ -398,3 +408,22 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"success": True, "message": "Migration started"}, status=202)
+
+
+@receiver(model_activity_signal, sender=Organization)
+def handle_organization_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+        ),
+    )
