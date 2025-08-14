@@ -37,9 +37,7 @@ const AISummary = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.El
         <AIConsentPopoverWrapper showArrow placement="bottom-start">
             <div className="relative">
                 <MaxTool
-                    name="experiment_results_summary"
-                    displayName="Generate Experiment Results Summary"
-                    description="Max can generate a summary of the experiment results, including the key findings, insights, and recommendations."
+                    identifier="experiment_results_summary"
                     context={{
                         experiment_data: experiment,
                         experiment_id: experimentId,

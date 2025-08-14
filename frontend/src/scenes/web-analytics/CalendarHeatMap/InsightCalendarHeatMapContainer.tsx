@@ -10,7 +10,7 @@ import { WebActiveHoursHeatmap } from '../WebActiveHoursHeatmap/WebActiveHoursHe
 import { LemonBanner } from '@posthog/lemon-ui'
 
 interface CalendarHeatMapProps {
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
 }
 
 export function InsightCalendarHeatMapContainer({ context }: CalendarHeatMapProps): JSX.Element | null {

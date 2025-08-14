@@ -73,12 +73,12 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const node = nodesById[props.id]
 
     return (
-        <>
+        <div className="transition-all hover:translate-y-[-2px]">
             {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
             {Step?.renderNode(props) || <StepView action={props.data} />}
-        </>
+        </div>
     )
 }

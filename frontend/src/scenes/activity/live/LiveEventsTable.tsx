@@ -7,10 +7,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonEventName } from 'scenes/actions/EventName'
+import { EventName } from 'products/actions/frontend/components/EventName'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import type { LiveEvent } from '~/types'
 
@@ -98,7 +97,7 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2">
-                    <LemonEventName
+                    <EventName
                         value={filters.eventType}
                         onChange={(value) => setFilters({ ...filters, eventType: value })}
                         placeholder="Filter by event"

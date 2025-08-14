@@ -1,5 +1,6 @@
 import typing
 from enum import StrEnum
+from django.db import models
 
 
 class IncrementalFieldType(StrEnum):
@@ -29,3 +30,28 @@ class PartitionSettings(typing.NamedTuple):
 
     partition_count: int
     partition_size: int
+
+
+class ExternalDataSourceType(models.TextChoices):
+    STRIPE = "Stripe", "Stripe"
+    HUBSPOT = "Hubspot", "Hubspot"
+    POSTGRES = "Postgres", "Postgres"
+    ZENDESK = "Zendesk", "Zendesk"
+    SNOWFLAKE = "Snowflake", "Snowflake"
+    SALESFORCE = "Salesforce", "Salesforce"
+    MYSQL = "MySQL", "MySQL"
+    MONGODB = "MongoDB", "MongoDB"
+    MSSQL = "MSSQL", "MSSQL"
+    VITALLY = "Vitally", "Vitally"
+    BIGQUERY = "BigQuery", "BigQuery"
+    CHARGEBEE = "Chargebee", "Chargebee"
+    GOOGLEADS = "GoogleAds", "GoogleAds"
+    TEMPORALIO = "TemporalIO", "TemporalIO"
+    DOIT = "DoIt", "DoIt"
+    GOOGLESHEETS = "GoogleSheets", "GoogleSheets"
+    METAADS = "MetaAds", "MetaAds"
+    KLAVIYO = "Klaviyo", "Klaviyo"
+    MAILCHIMP = "Mailchimp", "Mailchimp"
+    BRAZE = "Braze", "Braze"
+    MAILJET = "Mailjet", "Mailjet"
+    REDSHIFT = "Redshift", "Redshift"
