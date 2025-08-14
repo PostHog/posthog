@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from django.core import serializers
 from django.db.models import QuerySet, Manager
 import posthoganalytics
@@ -8,6 +8,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.redis import get_client
 from posthog.settings import TEST
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 
 TEST_OVERRIDE = False
 
@@ -25,16 +29,10 @@ DATABASE_INVALIDATION_COUNTER = Counter(
 
 
 # temporary for rollout purposes
-def is_cache_enabled(team_id: int) -> bool:
+def is_cache_enabled(team: "Team") -> bool:
     """
     Use the hogql database cache.
     """
-    from posthog.models.team import Team
-
-    if not Team.objects.filter(id=team_id).exists():
-        return False
-
-    team = Team.objects.get(id=team_id)
 
     return posthoganalytics.feature_enabled(
         "hogql-database-cache",
@@ -71,7 +69,7 @@ class CachedQuerySet(QuerySet):
         # we want the behavior for tests to be unaffected unless specifically testing this logic
         testing = TEST and not TEST_OVERRIDE
 
-        if not testing and is_cache_enabled(team_id):
+        if not testing:
             try:
                 redis_client = get_client()
                 key = self.get_commit_cache_key(team_id=team_id, key_prefix=key_prefix)

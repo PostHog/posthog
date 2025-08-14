@@ -1023,11 +1023,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     def test_hogql_database_cache(self):
         with patch("posthog.models.cache.TEST_OVERRIDE", True):
-            with self.assertNumQueries(FuzzyInt(5, 7)):
-                create_hogql_database(team=self.team)
+            with patch("posthog.hogql.database.database.is_cache_enabled") as is_cache_enabled_mock:
+                is_cache_enabled_mock.return_value = True
+                with self.assertNumQueries(FuzzyInt(5, 7)):
+                    create_hogql_database(team=self.team)
 
-            with self.assertNumQueries(0):
-                create_hogql_database(team=self.team)
+                with self.assertNumQueries(0):
+                    create_hogql_database(team=self.team)
 
     def test_hogql_database_redis_error(self):
         create_hogql_database(team=self.team)
@@ -1044,11 +1046,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # no more errors
         with patch("posthog.models.cache.TEST_OVERRIDE", True):
-            with self.assertNumQueries(5):
-                create_hogql_database(team=self.team)
+            with patch("posthog.hogql.database.database.is_cache_enabled") as is_cache_enabled_mock:
+                is_cache_enabled_mock.return_value = True
+                with self.assertNumQueries(5):
+                    create_hogql_database(team=self.team)
 
-            with self.assertNumQueries(0):
-                create_hogql_database(team=self.team)
+                with self.assertNumQueries(0):
+                    create_hogql_database(team=self.team)
 
     def test_hogql_database_cache_invalidation(self):
         # Patch Redis client to assert cache behavior
