@@ -632,7 +632,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_period = org_billing["billing_period"]
                 billing_period_start = parser.parse(billing_period["current_period_start"])
                 billing_period_end = parser.parse(billing_period["current_period_end"])
-                billing_interval = billing_period.get("interval", "monthly")
+                billing_interval = billing_period.get("interval", "month")
 
                 usage_summary = org_billing.get("usage_summary", {})
                 billing_tracked_rows = usage_summary.get("rows_synced", {}).get("usage", 0)
