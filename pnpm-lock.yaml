@@ -2054,7 +2054,7 @@ importers:
         version: 0.27.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.6(react@18.2.0)))(kea@3.1.6(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -12749,11 +12749,6 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea@3.1.6:
-    resolution: {integrity: sha512-EftYkqGyI8hdC8Eo9r6jGtUSxdykNe1L+Cpu+7t/SEWc9f3OPFtNFPF+hdxdYBeZp2Je3EY6BAEQfWhP4mbUPA==}
-    peerDependencies:
-      react: '>= 16.8'
-
   kea@3.1.7:
     resolution: {integrity: sha512-BN9bS4NMI57TwJRANL55H5Cl2Px0ciyv58wtnzzfwH7d2R9fEmcuRREpLfp3blglSrgfGUWM4b+Pz6CwxJxjzQ==}
     peerDependencies:
@@ -22410,11 +22405,11 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.6(react@18.2.0)))(kea@3.1.6(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       antd: 5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      kea: 3.1.6(react@18.2.0)
-      kea-router: 3.4.1(kea@3.1.6(react@18.2.0))
+      kea: 3.1.7(react@18.2.0)
+      kea-router: 3.4.1(kea@3.1.7(react@18.2.0))
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
@@ -31884,11 +31879,6 @@ snapshots:
     dependencies:
       kea: 3.1.7(react@18.2.0)
 
-  kea-router@3.4.1(kea@3.1.6(react@18.2.0)):
-    dependencies:
-      kea: 3.1.6(react@18.2.0)
-      url-pattern: 1.0.3
-
   kea-router@3.4.1(kea@3.1.7(react@18.2.0)):
     dependencies:
       kea: 3.1.7(react@18.2.0)
@@ -31923,13 +31913,6 @@ snapshots:
   kea-window-values@3.0.1(kea@3.1.7(react@18.2.0)):
     dependencies:
       kea: 3.1.7(react@18.2.0)
-
-  kea@3.1.6(react@18.2.0):
-    dependencies:
-      react: 18.2.0
-      redux: 4.2.0
-      reselect: 4.1.7
-      use-sync-external-store: 1.5.0(react@18.2.0)
 
   kea@3.1.7(react@18.2.0):
     dependencies:
