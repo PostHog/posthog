@@ -141,14 +141,18 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def get_scoped_organization_ids(self, personal_api_key: PersonalAPIKey) -> list[str]:
         """Get organization IDs that should receive activity logs for this API key."""
+        org_ids = []
+
         if personal_api_key.scoped_organizations:
-            return personal_api_key.scoped_organizations
+            org_ids = personal_api_key.scoped_organizations
         elif personal_api_key.scoped_teams:
             teams = Team.objects.filter(pk__in=personal_api_key.scoped_teams).select_related("organization")
-            return list({str(team.organization_id) for team in teams})
+            org_ids = list({team.organization_id for team in teams})
         else:
             user_permissions = UserPermissions(personal_api_key.user)
-            return [str(org_id) for org_id in user_permissions.organization_memberships.keys()]
+            org_ids = list(user_permissions.organization_memberships.keys())
+
+        return [str(org_id) for org_id in org_ids]
 
 
 class PersonalApiKeySelfAccessPermission(BasePermission):
