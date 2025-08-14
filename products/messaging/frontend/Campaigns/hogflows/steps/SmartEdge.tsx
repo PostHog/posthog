@@ -1,8 +1,7 @@
 import { BaseEdge, EdgeProps, useEdges, Edge, EdgeLabelRenderer } from '@xyflow/react'
 import { HogFlowEdge } from '../types'
 import { LemonTag } from '@posthog/lemon-ui'
-
-const MINIMUM_EDGE_SPACING = 150 // Minimum horizontal distance between parallel edges
+import { MINIMUM_EDGE_SPACING } from '../constants'
 
 // Programmatic function to get smart step path with horizontal branching
 // Handles both edge-to-edge spacing and edge-to-node collision avoidance
@@ -88,28 +87,53 @@ export function getSmartStepPath({
     // The x value that the main "usable" (i.e. vertical, droppable, label-able) segment of the path will travel along
     const branchX = sourceX + horizontalOffset
 
-    let pathCommands =
-        horizontalOffset === 0
-            ? [
-                  `M ${sourceX} ${sourceY}`, // Move to source
-                  `L ${sourceX} ${targetY}`, // 1. Draw straight line down from source to target
-              ]
-            : [
-                  `M ${sourceX} ${sourceY}`, // Move to source
-                  `L ${sourceX} ${segment1EndY - borderRadius}`, // 1. Down from source (stopping before rounded corner)
-                  `Q ${sourceX} ${segment1EndY} ${
-                      sourceX + (branchX > sourceX ? borderRadius : -borderRadius)
-                  } ${segment1EndY}`, // Rounded corner
-                  `L ${branchX - (branchX > sourceX ? borderRadius : -borderRadius)} ${segment1EndY}`, // 2. Horizontal to branch position (stopping before corner)
-                  `Q ${branchX} ${segment1EndY} ${branchX} ${segment1EndY + borderRadius}`, // Rounded corner
-                  `L ${branchX} ${segment3EndY - borderRadius}`, // 3. Down in branch (stopping before corner)
-                  `Q ${branchX} ${segment3EndY} ${
-                      branchX - (branchX > targetX ? borderRadius : -borderRadius)
-                  } ${segment3EndY}`, // Rounded corner
-                  `L ${targetX + (branchX > targetX ? borderRadius : -borderRadius)} ${segment3EndY}`, // 4. Horizontal back to target X (stopping before corner)
-                  `Q ${targetX} ${segment3EndY} ${targetX} ${segment3EndY + borderRadius}`, // Rounded corner
-                  `L ${targetX} ${targetY}`, // 5. Down to target
-              ]
+    let pathCommands: string[]
+
+    const NEGLIGIBLE_DRIFT = 10
+
+    // There are 4 types of line segments that can be drawn:
+
+    // Case 1: Straight vertical line
+    if (Math.abs(sourceX - targetX) < NEGLIGIBLE_DRIFT && horizontalOffset === 0) {
+        pathCommands = [`M ${sourceX} ${sourceY}`, `L ${targetX} ${targetY}`]
+    }
+    // Case 2: L-shaped path that branches outwards and then straight down to target
+    else if (Math.abs(targetX - branchX) < NEGLIGIBLE_DRIFT) {
+        pathCommands = [
+            `M ${sourceX} ${sourceY}`,
+            `L ${sourceX} ${segment1EndY - borderRadius}`,
+            `Q ${sourceX} ${segment1EndY} ${sourceX + (branchX > sourceX ? borderRadius : -borderRadius)} ${segment1EndY}`,
+            `L ${branchX - (branchX > sourceX ? borderRadius : -borderRadius)} ${segment1EndY}`,
+            `Q ${branchX} ${segment1EndY} ${branchX} ${segment1EndY + borderRadius}`,
+            `L ${targetX} ${targetY}`,
+        ]
+    }
+    // Case 3: Reverse L-shaped path that goes straight down and then branches back inwards to target
+    else if (Math.abs(targetX - sourceX) > NEGLIGIBLE_DRIFT && horizontalOffset === 0) {
+        pathCommands = [
+            `M ${sourceX} ${sourceY}`,
+            `L ${sourceX} ${segment3EndY - borderRadius}`,
+            `Q ${sourceX} ${segment3EndY} ${sourceX + (targetX > sourceX ? borderRadius : -borderRadius)} ${segment3EndY}`,
+            `L ${targetX - (targetX > sourceX ? borderRadius : -borderRadius)} ${segment3EndY}`,
+            `Q ${targetX} ${segment3EndY} ${targetX} ${segment3EndY + borderRadius}`,
+            `L ${targetX} ${targetY}`,
+        ]
+    }
+    // Case 4: 5-segment path that branches outwards, travels down, then branches back inwards to target
+    else {
+        pathCommands = [
+            `M ${sourceX} ${sourceY}`,
+            `L ${sourceX} ${segment1EndY - borderRadius}`,
+            `Q ${sourceX} ${segment1EndY} ${sourceX + (branchX > sourceX ? borderRadius : -borderRadius)} ${segment1EndY}`,
+            `L ${branchX - (branchX > sourceX ? borderRadius : -borderRadius)} ${segment1EndY}`,
+            `Q ${branchX} ${segment1EndY} ${branchX} ${segment1EndY + borderRadius}`,
+            `L ${branchX} ${segment3EndY - borderRadius}`,
+            `Q ${branchX} ${segment3EndY} ${branchX - (branchX > targetX ? borderRadius : -borderRadius)} ${segment3EndY}`,
+            `L ${targetX + (branchX > targetX ? borderRadius : -borderRadius)} ${segment3EndY}`,
+            `Q ${targetX} ${segment3EndY} ${targetX} ${segment3EndY + borderRadius}`,
+            `L ${targetX} ${targetY}`,
+        ]
+    }
     const svgPath = pathCommands.join(' ')
 
     // Calculate label position (middle of the branched section)

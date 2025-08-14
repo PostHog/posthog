@@ -24,7 +24,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.query_log import RawQueryLogTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
@@ -545,9 +544,7 @@ class _Printer(Visitor[str]):
             else:
                 sql = table_type.table.to_printed_hogql()
 
-            if isinstance(table_type.table, FunctionCallTable) and not (
-                isinstance(table_type.table, S3Table) or isinstance(table_type.table, RawQueryLogTable)
-            ):
+            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
                 if node.table_args is None:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
