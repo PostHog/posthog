@@ -75,7 +75,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             logger.exception("Could not retrieve billing information", exc_info=e)
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                data={"error": str(e)},
+                data={"error": "An error occurred while retrieving billing information"},
             )
 
         return Response(
