@@ -204,7 +204,7 @@ def get_organization_name(org_id: str) -> str:
     return "Unknown Organization"
 
 
-def get_team_name(team_id: int) -> str:
+def get_team_name(team_id: Optional[int]) -> str:
     """Get team name from ID, with fallback."""
     try:
         team = Team.objects.filter(id=team_id).first()
