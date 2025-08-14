@@ -181,10 +181,19 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
                     : null,
         ],
+        availableStaticTools: [
+            (s) => [s.featureFlags],
+            (featureFlags): ToolRegistration[] =>
+                STATIC_TOOLS.filter((tool) => {
+                    // Only register the static tools that either aren't flagged or have their flag enabled
+                    const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
+                    return !toolDefinition.flag || featureFlags[toolDefinition.flag]
+                }),
+        ],
         toolMap: [
-            (s) => [s.registeredToolMap],
-            (registeredToolMap) => ({
-                ...Object.fromEntries(STATIC_TOOLS.map((tool) => [tool.identifier, tool])),
+            (s) => [s.registeredToolMap, s.availableStaticTools],
+            (registeredToolMap, availableStaticTools) => ({
+                ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
                 ...registeredToolMap,
             }),
         ],

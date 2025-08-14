@@ -28,7 +28,7 @@ export interface ToolDefinition<N extends string = string> {
 /** Active instance of a tool. */
 export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'description'> {
     /** A unique identifier for the tool */
-    identifier: AssistantContextualTool
+    identifier: keyof typeof TOOL_DEFINITIONS
     /**
      * Optional specific @posthog/icons icon
      * @default <IconWrench />
