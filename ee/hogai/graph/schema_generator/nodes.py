@@ -124,7 +124,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 )
 
         if not result:
-            # We've got no usable result after exhausting all attempts - it's failure message time
+            # We've got no usable result after exhausting all iteration attempts - it's failure message time
             return PartialAssistantState(
                 messages=[
                     FailureMessage(
@@ -136,6 +136,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 query_generation_retry_count=len(intermediate_steps) + 1,
             )
 
+        # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
         return PartialAssistantState(
             messages=[
                 VisualizationMessage(

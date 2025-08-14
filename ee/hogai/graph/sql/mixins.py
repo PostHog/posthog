@@ -73,7 +73,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         hogql_context = self._get_default_hogql_context(database)
         query = output.query.query if output.query else None
         if not query:
-            raise PydanticOutputParserException(llm_output="", validation_message=f"Output is empty ({output})")
+            raise PydanticOutputParserException(llm_output="", validation_message=f"Output is empty")
         try:
             parsed_query = parse_select(query, placeholders={})
 

@@ -110,7 +110,7 @@ class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[F
         )
 
 
-class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
+class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     name: str = "generate_hogql_query"
     description: str = (
         "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor"
@@ -153,7 +153,7 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
                     )
                     final_error = None
             except PydanticOutputParserException as e:
-                graph_context["change"] += f"\n\nAvoid this error: {str(e)}"
+                graph_context["change"] += f"\n\nAvoid this error that we had with our previous attempt:\n\n{str(e)}"
                 final_error = e
 
         if not final_result:
