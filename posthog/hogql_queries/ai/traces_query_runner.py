@@ -102,7 +102,7 @@ class TracesQueryRunner(QueryRunner):
             WITH relevant_trace_ids AS (
                 SELECT properties.$ai_trace_id as trace_id
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace')
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                   AND properties.$ai_trace_id IS NOT NULL
                   AND {subquery_conditions}
                 ORDER BY timestamp DESC
@@ -145,20 +145,22 @@ class TracesQueryRunner(QueryRunner):
                           event = '$ai_generation'
                     ), 4
                 ) AS total_cost,
-                IF({return_full_trace},
-                    arraySort(
-                        x -> x.3,
-                        groupArrayIf(
-                            tuple(uuid, event, timestamp, properties),
-                            event != '$ai_trace'
-                        )
-                    ),
-                    arrayFilter(
-                        x -> x.2 IN ('$ai_metric','$ai_feedback'),
-                        arraySort(x -> x.3,
+                arrayDistinct(
+                    IF({return_full_trace},
+                        arraySort(
+                            x -> x.3,
                             groupArrayIf(
                                 tuple(uuid, event, timestamp, properties),
                                 event != '$ai_trace'
+                            )
+                        ),
+                        arrayFilter(
+                            x -> x.2 IN ('$ai_metric','$ai_feedback'),
+                            arraySort(x -> x.3,
+                                groupArrayIf(
+                                    tuple(uuid, event, timestamp, properties),
+                                    event != '$ai_trace'
+                                )
                             )
                         )
                     )
@@ -176,7 +178,7 @@ class TracesQueryRunner(QueryRunner):
                 ) AS trace_name
             FROM events
             WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
+                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
               AND properties.$ai_trace_id IN (SELECT trace_id FROM relevant_trace_ids)
               AND {filter_conditions}

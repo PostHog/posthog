@@ -130,7 +130,7 @@ function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T>
     // find the currently mounted scene logic to get the active scene, but don't use the kea connect()
     // method to do this as we don't want to mount the sceneLogic if it isn't already mounted
     const mountedSceneLogic = sceneLogic.findMounted()
-    const activeScene = mountedSceneLogic?.values.activeScene
+    const activeScene = mountedSceneLogic?.values.activeSceneId
 
     const tags = query.tags ? { ...query.tags } : {}
     if (!tags.scene && activeScene) {
