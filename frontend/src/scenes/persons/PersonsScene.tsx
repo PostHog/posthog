@@ -23,7 +23,8 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         // If I remove the "{closable && !disabledReason && ...}" block from within
         // "frontend/src/lib/components/PropertyFilters/components/PropertyFilterButton.tsx"
         // ... then the issue goes away. We should still figure out why this happens.
-        // debugger
+        // Throwing seems to make it go away.
+        throw new Error('PersonsScene rendered with no tabId')
     }
 
     const { query } = useValues(personsSceneLogic)
