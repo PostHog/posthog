@@ -682,7 +682,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
-                    loadedScene = { id: scene, ...(_scene as SceneExport), sceneParams: params }
+                    loadedScene = { id: scene, ...(_scene as SceneExport<{}>), sceneParams: params }
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {

@@ -76,12 +76,10 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<MessagingSceneProps> = {
     component: MessagingScene,
     logic: messagingSceneLogic,
-    paramsToProps: ({ params: { tab } }): (typeof messagingSceneLogic)['props'] => ({
-        tab,
-    }),
+    paramsToProps: ({ params: { tab } }) => ({ tab }),
 }
 
 export function MessagingScene(): JSX.Element {

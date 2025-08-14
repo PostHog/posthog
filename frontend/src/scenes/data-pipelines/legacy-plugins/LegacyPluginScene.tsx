@@ -88,12 +88,10 @@ export const legacyPluginSceneLogic = kea<legacyPluginSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<(typeof legacyPluginSceneLogic)['props']> = {
     component: LegacyPluginScene,
     logic: legacyPluginSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof legacyPluginSceneLogic)['props'] => ({
-        id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
 export function LegacyPluginScene(): JSX.Element {

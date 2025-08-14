@@ -13,9 +13,9 @@ import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { LegacySharedFunnelsMetricForm } from './LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from './LegacySharedTrendsMetricForm'
-import { sharedMetricLogic } from './sharedMetricLogic'
+import { sharedMetricLogic, SharedMetricLogicProps } from './sharedMetricLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SharedMetricLogicProps> = {
     component: SharedMetric,
     logic: sharedMetricLogic,
     paramsToProps: ({ params: { id, action } }) => ({

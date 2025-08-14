@@ -24,10 +24,10 @@ interface NotebookSceneProps {
     shortId?: string
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<NotebookSceneLogicProps> = {
     component: NotebookScene,
     logic: notebookSceneLogic,
-    paramsToProps: ({ params: { shortId } }: { params: NotebookSceneProps }): NotebookSceneLogicProps => ({
+    paramsToProps: ({ params: { shortId } }: { params: NotebookSceneProps }) => ({
         shortId: shortId || 'missing',
     }),
 }

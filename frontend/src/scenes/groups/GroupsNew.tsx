@@ -3,20 +3,16 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { groupsNewLogic } from 'scenes/groups/groupsNewLogic'
+import { groupsNewLogic, GroupsNewLogicProps } from 'scenes/groups/groupsNewLogic'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconPlus, IconTrash } from '@posthog/icons'
 
-interface GroupsNewSceneProps {
-    groupTypeIndex?: string
-}
-
-export const scene: SceneExport = {
+export const scene: SceneExport<GroupsNewLogicProps> = {
     component: GroupsNew,
     logic: groupsNewLogic,
-    paramsToProps: ({ params: { groupTypeIndex } }: { params: GroupsNewSceneProps }) => ({
+    paramsToProps: ({ params: { groupTypeIndex } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
     }),
 }
