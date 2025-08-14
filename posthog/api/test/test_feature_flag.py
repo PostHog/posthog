@@ -3485,7 +3485,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(18):
+        with self.assertNumQueries(19):
             # 1. SAVEPOINT
             # 2. SELECT "posthog_personalapikey"."id",
             # 3. RELEASE SAVEPOINT
@@ -3502,8 +3502,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # 14. SELECT "posthog_cohort". id = 99999
             # 15. SELECT "posthog_team"."id", "posthog_team"."uuid",
             # 16. SELECT "posthog_cohort". id = deleted cohort
-            # 17. SELECT "posthog_cohort". id = cohort from other team
-            # 18. SELECT "posthog_grouptypemapping"."id", -- group type mapping
+            # 17. SELECT "posthog_team"."id", "posthog_team"."uuid",
+            # 18. SELECT "posthog_cohort". id = cohort from other team
+            # 19. SELECT "posthog_grouptypemapping"."id", -- group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",

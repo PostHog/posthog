@@ -9,7 +9,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APIClient
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
@@ -20,7 +19,6 @@ from posthog.models.team.team import Team
 from posthog.schema import PropertyOperator, PersonsOnEventsMode
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
-    calculate_cohort_from_list,
     get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
 )
@@ -300,21 +298,106 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
-    def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
+    def test_static_cohort_csv_upload_end_to_end(self):
+        """Test CSV upload end-to-end with actual celery task execution"""
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"email": "email@example.org"})
         Person.objects.create(team=self.team, distinct_ids=["123"])
         Person.objects.create(team=self.team, distinct_ids=["456"])
+        Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
 
         csv = SimpleUploadedFile(
             "example.csv",
             str.encode(
                 """
-User ID,
-email@example.org,
+User ID
+email@example.org
 123
+0
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "test", "csv": csv, "is_static": True},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertFalse(cohort.is_calculating)
+        # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertEqual(distinct_ids, {"123", "0"})
+
+        # Test CSV update
+        csv_update = SimpleUploadedFile(
+            "example.csv",
+            str.encode(
+                """
+User ID
+456
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+                {"name": "test", "csv": csv_update},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        # Verify CSV update worked - 456 should now be included
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertIn("456", distinct_ids)  # New ID should be included
+
+        # Test name-only update without CSV
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+            {"name": "test2"},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.name, "test2")
+        # Verify distinct_ids remain the same after name-only update
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertIn("456", distinct_ids)  # Should still contain 456
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_distinct_id_column(self, patch_calculate_cohort_from_list):
+        """Test multi-column CSV upload with distinct_id column"""
+        Person.objects.create(team=self.team, distinct_ids=["user123"])
+        Person.objects.create(team=self.team, distinct_ids=["user456"])
+        Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
+
+        csv = SimpleUploadedFile(
+            "multicolumn.csv",
+            str.encode(
+                """name,distinct_id,email
+John Doe,user123,john@example.com
+Jane Smith,user456,jane@example.com
+Zero User,0,zero@example.com
 """
             ),
             content_type="application/csv",
@@ -322,57 +405,267 @@ email@example.org,
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
-            {"name": "test", "csv": csv, "is_static": True},
+            {"name": "test_multicolumn", "csv": csv, "is_static": True},
             format="multipart",
         )
+
         self.assertEqual(response.status_code, 201)
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+        # Verify the correct distinct IDs were extracted, including '0'
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["user123", "user456", "0"], team_id=self.team.id
+        )
 
-        calculate_cohort_from_list(response.json()["id"], ["email@example.org", "123"])
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 1)
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_distinct_hyphen_id_column(self, patch_calculate_cohort_from_list):
+        """Test multi-column CSV upload with distinct-id column (with hyphen)"""
+        Person.objects.create(team=self.team, distinct_ids=["user789"])
 
         csv = SimpleUploadedFile(
-            "example.csv",
+            "multicolumn_hyphen.csv",
             str.encode(
-                """
-User ID,
-456
+                """name,distinct-id,email
+Test User,user789,test@example.com
 """
             ),
             content_type="application/csv",
         )
 
-        #  A weird issue with pytest client, need to user Rest framework's one
-        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
-        client = APIClient()
-        client.force_login(self.user)
-        response = client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            {"name": "test", "csv": csv},
-            format="multipart",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
-
-        calculate_cohort_from_list(response.json()["id"], ["456"])
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 2)
-
-        # Only change name without updating CSV
-        response = client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            {"name": "test2"},
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_hyphen", "csv": csv, "is_static": True},
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).name, "test2")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        patch_calculate_cohort_from_list.assert_called_with(response.json()["id"], ["user789"], team_id=self.team.id)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_multicolumn_without_distinct_id_fails(self, patch_calculate_cohort_from_list):
+        """Test that multi-column CSV without distinct_id column fails with clear error"""
+        csv = SimpleUploadedFile(
+            "no_distinct_id.csv",
+            str.encode(
+                """name,email,age
+John Doe,john@example.com,30
+Jane Smith,jane@example.com,25
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_fail", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("distinct_id", response_data["detail"])
+        self.assertIn("name, email, age", response_data["detail"])
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_empty_file_fails(self, patch_calculate_cohort_from_list):
+        """Test that empty CSV file fails with clear error"""
+        csv = SimpleUploadedFile(
+            "empty.csv",
+            str.encode(""),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_empty", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("empty", response_data["detail"])
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_no_valid_ids_fails(self, patch_calculate_cohort_from_list):
+        """Test that CSV with no valid distinct IDs fails with clear error"""
+        csv = SimpleUploadedFile(
+            "no_ids.csv",
+            str.encode(
+                """,,,
+,
+,
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_no_ids", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("no valid distinct IDs", response_data["detail"])
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_single_column_backwards_compatibility(self, patch_calculate_cohort_from_list):
+        """Test that single-column CSV still works (backwards compatibility)"""
+        Person.objects.create(team=self.team, distinct_ids=["legacy_user"])
+
+        csv = SimpleUploadedFile(
+            "single_column.csv",
+            str.encode(
+                """legacy_user
+another_user
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_legacy", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["legacy_user", "another_user"], team_id=self.team.id
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_whitespace_handling(self, patch_calculate_cohort_from_list):
+        """Test that whitespace is properly trimmed from distinct IDs in multi-column CSV"""
+        Person.objects.create(team=self.team, distinct_ids=["user123"])
+        Person.objects.create(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "whitespace.csv",
+            str.encode(
+                """name,distinct_id,email
+John Doe,  user123  ,john@example.com
+Jane Smith,	user456	,jane@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_whitespace", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify whitespace is trimmed from distinct IDs
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["user123", "user456"], team_id=self.team.id
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_commas_in_distinct_ids(self, patch_calculate_cohort_from_list):
+        """Test that CSV quoting/escaping works when distinct IDs contain commas"""
+        Person.objects.create(team=self.team, distinct_ids=["user,123"])
+        Person.objects.create(team=self.team, distinct_ids=["user,456,special"])
+
+        csv = SimpleUploadedFile(
+            "comma_ids.csv",
+            str.encode(
+                """name,distinct_id,email
+"John Doe","user,123","john@example.com"
+"Jane Smith","user,456,special","jane@example.com"
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_comma_ids", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify comma-containing distinct IDs are correctly parsed
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["user,123", "user,456,special"], team_id=self.team.id
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_quotes_in_distinct_ids(self, patch_calculate_cohort_from_list):
+        """Test that CSV escaping works when distinct IDs contain quotes"""
+        Person.objects.create(team=self.team, distinct_ids=['user"123'])
+        Person.objects.create(team=self.team, distinct_ids=['user"special"456'])
+
+        csv = SimpleUploadedFile(
+            "quote_ids.csv",
+            str.encode(
+                """name,distinct_id,email
+"John Doe","user""123","john@example.com"
+"Jane Smith","user""special""456","jane@example.com"
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_quote_ids", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify quote-containing distinct IDs are correctly parsed
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ['user"123', 'user"special"456'], team_id=self.team.id
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_inconsistent_column_count(self, patch_calculate_cohort_from_list):
+        """Test that rows with incorrect column count are gracefully skipped in multi-column CSV"""
+        Person.objects.create(team=self.team, distinct_ids=["user123"])
+        Person.objects.create(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "inconsistent_columns.csv",
+            str.encode(
+                """email,distinct_id
+myemail@posthog.com,user123
+incomplete_row_missing_distinct_id
+anotheremail@posthog.com,user456
+another_incomplete_row
+user789
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_inconsistent", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify only rows with correct column count are processed
+        # Should skip: "incomplete_row_missing_distinct_id", "another_incomplete_row", "user789"
+        # Should include: "user123", "user456"
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["user123", "user456"], team_id=self.team.id
+        )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
