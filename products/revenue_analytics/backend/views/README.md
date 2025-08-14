@@ -94,13 +94,13 @@ from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHand
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     source = handle.source
     if source is None:
-        return []
+        return
 
     # Find the relevant schema/table for this source
     schemas = source.schemas.all()
     charge_schema = next((s for s in schemas if s.name == "Charge"), None)
     if charge_schema is None or charge_schema.table is None:
-        return []
+        return
 
     table = charge_schema.table
     prefix = view_prefix_for_source(source)
@@ -392,19 +392,21 @@ pytest products/revenue_analytics/backend/views/test/test_orchestrator.py -v
 
 ```bash
 # Test all events source builders
-pytest products/revenue_analytics/backend/views/sources/test/events/ -v
+pytest products/revenue_analytics/backend/views/sources/test/events/ -v --snapshot-update
 
 # Test all Stripe source builders
-pytest products/revenue_analytics/backend/views/sources/test/stripe/ -v
+pytest products/revenue_analytics/backend/views/sources/test/stripe/ -v --snapshot-update
 
 # Test specific builder
-pytest products/revenue_analytics/backend/views/sources/test/stripe/test_stripe_charge.py -v
+pytest products/revenue_analytics/backend/views/sources/test/stripe/test_stripe_charge.py -v --snapshot-update
 ```
 
 **3. HogQL Query Integration Tests**
 
+These are useful to know whether changes in your code produced any change on the output queries
+
 ```bash
-pytest products/revenue_analytics/backend/hogql_queries/test/ -v
+pytest products/revenue_analytics/backend/hogql_queries/test/ -v --snapshot-update
 ```
 
 ### Testing your implementation via queries

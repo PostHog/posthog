@@ -19,7 +19,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     team = handle.team
 
     if len(team.revenue_analytics_config.events) == 0:
-        return []
+        return
 
     generic_team_expr = events_expr_for_team(team)
 

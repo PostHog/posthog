@@ -20,18 +20,18 @@ from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHand
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     source = handle.source
     if source is None:
-        return []
+        return
 
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
     schemas = source.schemas.all()
     customer_schema = next((schema for schema in schemas if schema.name == STRIPE_CUSTOMER_RESOURCE_NAME), None)
     if customer_schema is None:
-        return []
+        return
 
     customer_schema = cast(ExternalDataSchema, customer_schema)
     if customer_schema.table is None:
-        return []
+        return
 
     invoice_schema = next((schema for schema in schemas if schema.name == STRIPE_INVOICE_RESOURCE_NAME), None)
     invoice_table = None

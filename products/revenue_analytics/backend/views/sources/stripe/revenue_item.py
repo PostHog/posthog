@@ -102,7 +102,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     """
     source = handle.source
     if source is None:
-        return []
+        return
 
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
@@ -111,7 +111,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
 
     if invoice_schema is None and charge_schema is None:
-        return []
+        return
 
     invoice_table: DataWarehouseTable | None = None
     charge_table: DataWarehouseTable | None = None
@@ -127,7 +127,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     elif charge_table is not None:
         team = charge_table.team
     else:
-        return []
+        return
 
     prefix = view_prefix_for_source(source)
 

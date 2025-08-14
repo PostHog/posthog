@@ -15,18 +15,18 @@ from products.revenue_analytics.backend.views.sources.helpers import extract_jso
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     source = handle.source
     if source is None:
-        return []
+        return
 
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
     schemas = source.schemas.all()
     subscription_schema = next((schema for schema in schemas if schema.name == STRIPE_SUBSCRIPTION_RESOURCE_NAME), None)
     if subscription_schema is None:
-        return []
+        return
 
     subscription_schema = cast(ExternalDataSchema, subscription_schema)
     if subscription_schema.table is None:
-        return []
+        return
 
     table = cast(DataWarehouseTable, subscription_schema.table)
     prefix = view_prefix_for_source(source)
