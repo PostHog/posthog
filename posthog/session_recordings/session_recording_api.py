@@ -159,7 +159,9 @@ def _get_session_ids_from_comment_search(
     if operator == PropertyOperator.IS_SET:
         base_query = base_query.filter(content__isnull=False).exclude(content="")
     elif operator == PropertyOperator.EXACT:
-        base_query = base_query.filter(content=value)
+        # the exact matching query accepts an array of values
+        for v in value if isinstance(value, list) else [value]:
+            base_query = base_query.filter(content=v)
     elif operator == PropertyOperator.ICONTAINS:
         base_query = base_query.filter(content__icontains=value)
     else:

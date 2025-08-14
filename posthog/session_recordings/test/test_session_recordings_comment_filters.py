@@ -109,7 +109,7 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
     @parameterized.expand(
         [
             ("no_match", "xyz123", PropertyOperator.ICONTAINS, []),
-            ("exact_match", "needle", PropertyOperator.ICONTAINS, ["session_with_needle"]),
+            ("exact_match", ["needle"], PropertyOperator.ICONTAINS, ["session_with_needle"]),
             ("partial_match", "need", PropertyOperator.ICONTAINS, ["session_with_needle", "session_with_need"]),
             ("case_insensitive", "NEEDLE", PropertyOperator.ICONTAINS, ["session_with_needle"]),
             ("phrase_match", "bug fix", PropertyOperator.ICONTAINS, ["session_with_bug"]),
@@ -123,14 +123,14 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
             ),
             (
                 "comments equal",
-                "Fixed the bug fix issue in the login form",
+                ["Fixed the bug fix issue in the login form"],
                 PropertyOperator.EXACT,
                 ["session_with_bug"],
             ),
         ]
     )
     def test_comment_text_filtering(
-        self, _name: str, search_text: str, operator: str, expected_session_ids: list[str]
+        self, _name: str, search_text: str, operator: str | list[str], expected_session_ids: list[str]
     ) -> None:
         response_data = self._list_recordings_by_comment(search_text, operator)
 
@@ -147,7 +147,7 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
         actual_session_ids = [recording["id"] for recording in response_data["results"]]
         assert len(actual_session_ids) > 0, "Expected some recordings to be returned when comment text is empty"
 
-    def _list_recordings_by_comment(self, search_text: str, operator: str) -> dict:
+    def _list_recordings_by_comment(self, search_text: str | list[str], operator: str) -> dict:
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings",
             {
