@@ -3403,6 +3403,16 @@ export interface RevenueAnalyticsEventItem {
     subscriptionProperty?: string
 
     /**
+     * The number of days we still consider a subscription to be active
+     * after the last event. This is useful to avoid the current month's data
+     * to look as if most of the subscriptions have churned since we might not
+     * have an event for the current month.
+     *
+     * @default 45
+     */
+    subscriptionDropoffDays: number
+
+    /**
      * TODO: In the future, this should probably be renamed to
      * `currencyProperty` to follow the pattern above
      *

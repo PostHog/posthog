@@ -4131,6 +4131,14 @@ class RevenueAnalyticsEventItem(BaseModel):
         ),
     )
     revenueProperty: str
+    subscriptionDropoffDays: Optional[float] = Field(
+        default=45,
+        description=(
+            "The number of days we still consider a subscription to be active after the last event. This is useful to"
+            " avoid the current month's data to look as if most of the subscriptions have churned since we might not"
+            " have an event for the current month."
+        ),
+    )
     subscriptionProperty: Optional[str] = Field(
         default=None,
         description=(

@@ -21304,12 +21304,23 @@
                 "revenueProperty": {
                     "type": "string"
                 },
+                "subscriptionDropoffDays": {
+                    "default": 45,
+                    "description": "The number of days we still consider a subscription to be active after the last event. This is useful to avoid the current month's data to look as if most of the subscriptions have churned since we might not have an event for the current month.",
+                    "type": "number"
+                },
                 "subscriptionProperty": {
                     "description": "Property used to identify what subscription the revenue event refers to Useful when trying to detect churn/LTV/ARPU/etc.",
                     "type": "string"
                 }
             },
-            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
+            "required": [
+                "eventName",
+                "revenueProperty",
+                "subscriptionDropoffDays",
+                "revenueCurrencyProperty",
+                "currencyAwareDecimal"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsGoal": {
