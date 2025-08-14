@@ -390,7 +390,16 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             },
         ],
-        activeScenePropsWithTabId: [
+        activeSceneComponentParamsWithTabId: [
+            (s) => [s.sceneParams, s.activeTabId],
+            (sceneParams, activeTabId): Record<string, any> => {
+                return {
+                    ...sceneParams.params,
+                    tabId: activeTabId,
+                }
+            },
+        ],
+        activeSceneLogicPropsWithTabId: [
             (s) => [s.activeExportedScene, s.sceneParams, s.activeTabId],
             (activeExportedScene, sceneParams, activeTabId): Record<string, any> => {
                 return {
@@ -400,10 +409,10 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
         activeSceneLogic: [
-            (s) => [s.activeExportedScene, s.activeScenePropsWithTabId],
-            (activeExportedScene, activeScenePropsWithTabId): BuiltLogic | null => {
+            (s) => [s.activeExportedScene, s.activeSceneLogicPropsWithTabId],
+            (activeExportedScene, activeSceneLogicPropsWithTabId): BuiltLogic | null => {
                 if (activeExportedScene?.logic) {
-                    return activeExportedScene.logic.build(activeScenePropsWithTabId)
+                    return activeExportedScene.logic.build(activeSceneLogicPropsWithTabId)
                 }
 
                 return null
