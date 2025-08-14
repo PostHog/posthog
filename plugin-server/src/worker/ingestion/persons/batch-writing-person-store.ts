@@ -779,9 +779,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     ): Promise<CreatePersonResult> {
         this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
         this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
-        // NICKS TODO: look at this, we either use a tx or this.personRepository...
-        // but we don't pass the tx into the createPerson call.
-        // lets find out what's happening in the person create service...
         const result = await (tx || this.personRepository).createPerson(
             createdAt,
             properties,
