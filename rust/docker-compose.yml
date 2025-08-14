@@ -19,8 +19,6 @@ services:
             - --memory 1G
             - --reserve-memory 200M
             - --overprovisioned
-            - --set redpanda.empty_seed_starts_cluster=false
-            - --seeds kafka:33145
             - --set redpanda.auto_create_topics_enabled=true
             - --set redpanda.log_segment_size=16777216
             - --set redpanda.retention_bytes=536870912
@@ -31,10 +29,9 @@ services:
             - '9092:9092'
         healthcheck:
             test: curl -f http://localhost:9644/v1/status/ready || exit 1
-            interval: 5s
-            timeout: 15s
-            retries: 30
-            start_period: 60s
+            interval: 3s
+            timeout: 10s
+            retries: 10
 
     redis:
         image: redis:6.2.7-alpine
