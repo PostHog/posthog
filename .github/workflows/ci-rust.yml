@@ -61,7 +61,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
@@ -106,14 +106,21 @@ jobs:
             - name: Setup dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
               run: |
-                  docker compose up kafka redis db echo_server objectstorage -d --wait
+                  docker compose up kafka redis db echo_server objectstorage -d --wait --wait-timeout 180
                   docker compose up setup_test_db
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Dump Kafka logs on failure
+              if: failure()
+              run: |
+                  docker ps -a || true
+                  docker logs --tail=500 rust-kafka-1 || true
+                  docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
@@ -192,7 +199,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
               with:
                   components: clippy,rustfmt
 

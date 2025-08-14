@@ -1,13 +1,16 @@
-from django.contrib import admin
 from django.utils.html import format_html
+from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.models import Team
 
 
-class TeamInline(admin.TabularInline):
+class TeamInline(TabularInlinePaginated):
     extra = 0
     model = Team
+    per_page = 20
+    pagination_key = "page-team"
+    show_change_link = True
 
     fields = (
         "id",

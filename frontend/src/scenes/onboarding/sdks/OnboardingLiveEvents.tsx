@@ -40,7 +40,7 @@ const columns: LemonTableColumns<LiveEvent> = [
 ]
 
 export function OnboardingLiveEvents(): JSX.Element | null {
-    const { events } = useValues(liveEventsTableLogic)
+    const { events } = useValues(liveEventsTableLogic({ tabId: 'onboarding' }))
 
     if (events.length === 0) {
         return null
