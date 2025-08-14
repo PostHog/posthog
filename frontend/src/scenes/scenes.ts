@@ -49,7 +49,6 @@ export const preloadedScenes: Record<string, LoadedScene> = {
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
-    [Scene.Action]: { projectBased: true, name: 'Action', defaultDocsPath: '/docs/data/actions' },
     [Scene.Activity]: { projectBased: true, name: 'Activity', defaultDocsPath: '/docs/data/events' },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
@@ -435,9 +434,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSharing(':id')]: [Scene.Dashboard, 'dashboardSharing'],
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
-    [urls.createAction()]: [Scene.Action, 'createAction'],
-    [urls.duplicateAction(null)]: [Scene.Action, 'duplicateAction'],
-    [urls.action(':id')]: [Scene.Action, 'action'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
@@ -456,7 +452,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
-    [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
     [urls.eventDefinitionEdit(':id')]: [Scene.EventDefinitionEdit, 'eventDefinitionEdit'],

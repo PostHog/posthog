@@ -8,15 +8,15 @@ import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
-
-import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
+
+import { urls } from 'scenes/urls'
+import type { actionEditLogicType } from './actionEditLogicType'
 
 export interface SetActionProps {
     merge?: boolean
@@ -79,7 +79,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 // Remove URL from steps if it's not an autocapture or a pageview
                 let updatedSteps = updatedAction.steps
                 if (updatedSteps !== undefined) {
-                    updatedSteps = updatedSteps.map((step) => ({
+                    updatedSteps = updatedSteps.map((step: ActionStepType) => ({
                         ...step,
                         ...(step.event === '$autocapture' || step.event === '$pageview'
                             ? {}
@@ -141,11 +141,15 @@ export const actionEditLogic = kea<actionEditLogicType>([
     selectors({
         hasCohortFilters: [
             (s) => [s.action],
-            (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+            (action) =>
+                action?.steps?.some((step: ActionStepType) => step.properties?.find((p: any) => p.type === 'cohort')) ??
+                false,
         ],
         originalActionHasCohortFilters: [
             () => [(_, p: ActionEditLogicProps) => p.action],
-            (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+            (action) =>
+                action?.steps?.some((step: ActionStepType) => step.properties?.find((p: any) => p.type === 'cohort')) ??
+                false,
         ],
         showCohortDisablesFunctionsWarning: [
             (s) => [s.hasCohortFilters, s.originalActionHasCohortFilters],
