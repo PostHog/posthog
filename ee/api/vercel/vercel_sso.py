@@ -11,6 +11,8 @@ from ee.api.vercel.vercel_installation import VercelErrorResponseMixin
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.integration import Integration
 from ee.vercel.client import VercelAPIClient
+from posthog.utils_cors import KNOWN_ORIGINS
+from urllib.parse import urlparse
 
 logger = structlog.get_logger(__name__)
 
@@ -20,11 +22,42 @@ class VercelSSORedirectSerializer(serializers.Serializer):
     code = serializers.CharField(required=True)
     state = serializers.CharField(required=False, allow_blank=True)
     resource_id = serializers.CharField(required=False, allow_blank=True)
+    product_id = serializers.CharField(required=False, allow_blank=True)
+    project_id = serializers.CharField(required=False, allow_blank=True)
+    experimentation_item_id = serializers.CharField(required=False, allow_blank=True)
+    invoice_id = serializers.CharField(required=False, allow_blank=True)
+    path = serializers.CharField(required=False, allow_blank=True)
+    url = serializers.CharField(required=False, allow_blank=True)
 
     def validate_mode(self, value):
         if value != "sso":
             raise serializers.ValidationError("Mode must be 'sso'")
         return value
+
+    def validate_path(self, value):
+        if value and value not in ["billing", "usage", "support"]:
+            raise serializers.ValidationError("Path must be one of: 'billing', 'usage', 'support'")
+        return value
+
+    def validate_url(self, value):
+        if not value:
+            return value
+
+        try:
+            parsed = urlparse(value)
+
+            if parsed.scheme not in ["http", "https"]:
+                raise serializers.ValidationError("URL must use http or https scheme")
+
+            if parsed.netloc not in KNOWN_ORIGINS:
+                raise serializers.ValidationError("URL domain is not in allowed origins")
+
+            return value
+        except serializers.ValidationError:
+            raise
+        except Exception as e:
+            logger.exception("vercel_sso_url_validation_error", url=value, error=str(e))
+            raise serializers.ValidationError("Invalid URL format")
 
 
 class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
@@ -40,8 +73,15 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
         code = serializer.validated_data["code"]
         state = serializer.validated_data.get("state")
         resource_id = serializer.validated_data.get("resource_id")
+        path = serializer.validated_data.get("path")
+        url = serializer.validated_data.get("url")
+
         logger.info(
-            "vercel_sso_redirect_received", has_state=state is not None, has_resource_id=resource_id is not None
+            "vercel_sso_redirect_received",
+            has_state=state is not None,
+            has_resource_id=resource_id is not None,
+            path=path,
+            url=url,
         )
 
         client_id = settings.VERCEL_CLIENT_ID
@@ -75,9 +115,14 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
             self._set_active_project(user, resource_id)
 
         logger.info(
-            "vercel_sso_user_logged_in", user_id=user.id, installation_id=installation_id, resource_id=resource_id
+            "vercel_sso_user_logged_in",
+            user_id=user.id,
+            installation_id=installation_id,
+            resource_id=resource_id,
         )
-        return HttpResponseRedirect("/")
+
+        redirect_url = self._determine_redirect_url(path, url)
+        return HttpResponseRedirect(redirect_url)
 
     def _exchange_token(self, code, client_id, client_secret, state):
         try:
@@ -124,3 +169,16 @@ class VercelSSOViewSet(VercelErrorResponseMixin, ViewSet):
                 )
         except Integration.DoesNotExist:
             logger.exception("vercel_sso_resource_not_found", resource_id=resource_id)
+
+    def _determine_redirect_url(self, path, url):
+        if url:
+            return url
+
+        if path == "billing":
+            return "/organization/billing/overview"
+        elif path == "usage":
+            return "/organization/billing/usage"
+        elif path == "support":
+            return "/#panel=support"
+
+        return "/"
