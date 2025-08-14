@@ -65,8 +65,7 @@ pub async fn flags(
         .get("X-Original-Endpoint")
         .and_then(|v| v.to_str().ok())
         .map(|v| v == "decide")
-        .unwrap_or(false) 
-        || path.as_str().starts_with("/decide");
+        .unwrap_or(false);
 
     // Modify query params to enable config for decide requests
     let mut modified_query_params = query_params.clone();
