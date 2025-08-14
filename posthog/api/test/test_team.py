@@ -125,6 +125,8 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_by": None,
+                        "created_at": None,
                     },
                     {
                         "group_type": "place",
@@ -133,6 +135,8 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_by": None,
+                        "created_at": None,
                     },
                     {
                         "group_type": "thing",
@@ -141,6 +145,8 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_by": None,
+                        "created_at": None,
                     },
                 ],
             )
