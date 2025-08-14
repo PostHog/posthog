@@ -159,12 +159,6 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
     pub cookieless_salt_ttl_seconds: u64,
 
-    #[envconfig(from = "COOKIELESS_REDIS_HOST", default = "localhost")]
-    pub cookieless_redis_host: String,
-
-    #[envconfig(from = "COOKIELESS_REDIS_PORT", default = "6379")]
-    pub cookieless_redis_port: u64,
-
     #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "/i/v0/e/")]
     pub new_analytics_capture_endpoint: String,
 
@@ -266,13 +260,6 @@ impl Config {
         } else {
             &self.redis_writer_url
         }
-    }
-
-    pub fn get_redis_cookieless_url(&self) -> String {
-        format!(
-            "redis://{}:{}",
-            self.cookieless_redis_host, self.cookieless_redis_port
-        )
     }
 
     pub fn get_cookieless_config(&self) -> CookielessConfig {
