@@ -179,18 +179,6 @@ impl CheckpointExporter {
         // Cleanup old local checkpoints
         self.cleanup_local_checkpoints().await?;
 
-        // Cleanup old remote checkpoints if this was a full upload
-        if is_full_upload && self.uploader.is_available().await {
-            if let Err(e) = self
-                .uploader
-                .cleanup_old_checkpoints(self.config.max_local_checkpoints)
-                .await
-            {
-                error!("Failed to cleanup old remote checkpoints: {}", e);
-                // Don't fail the checkpoint for cleanup errors
-            }
-        }
-
         info!("Checkpoint {} completed successfully", checkpoint_name);
         Ok(())
     }
