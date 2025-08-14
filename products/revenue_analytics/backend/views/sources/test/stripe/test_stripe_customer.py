@@ -49,10 +49,6 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         customer_query = queries[0]
         customer_table = self.get_stripe_table_by_schema_name(CUSTOMER_RESOURCE_NAME)
 
-        self.assertBuiltQueryStructure(
-            customer_query, str(customer_table.id), f"stripe.{self.external_data_source.prefix}"
-        )
-
         # Test the query structure
         self.assertQueryContainsFields(customer_query.query, CUSTOMER_SCHEMA)
         self.assertBuiltQueryStructure(

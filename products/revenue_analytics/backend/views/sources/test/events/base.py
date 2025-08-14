@@ -86,7 +86,7 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
         Args:
             currency_code: 3-letter currency code (e.g., "USD", "EUR")
         """
-        if currency_code not in [code.value for code in CurrencyCode]:
+        if currency_code not in CurrencyCode._value2member_map_:
             raise ValueError(f"Invalid currency code: {currency_code}")
 
         self.team.base_currency = currency_code

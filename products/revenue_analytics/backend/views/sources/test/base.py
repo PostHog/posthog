@@ -50,7 +50,7 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
         Assert that a SelectQuery contains all expected fields in its select clause.
 
         Args:
-            query: ast.SelectQuery object
+            query: ast.Expr object, should either be a SelectQuery or a SelectSetQuery, or else we'll raise ValueError
             schema: Schema object we should match against
         """
 

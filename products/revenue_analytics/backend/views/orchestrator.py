@@ -46,7 +46,7 @@ def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHa
 
 def _query_to_view(
     query: BuiltQuery, view_kind: DatabaseSchemaManagedViewTableKind, handle: SourceHandle
-) -> Iterable[RevenueAnalyticsBaseView]:
+) -> RevenueAnalyticsBaseView:
     schema = SCHEMAS[view_kind]
     view_cls = KIND_TO_CLASS[view_kind]
 

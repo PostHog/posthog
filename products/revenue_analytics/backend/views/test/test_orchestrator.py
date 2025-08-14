@@ -81,7 +81,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(subscription_views), 0)
 
     def test_revenue_view_non_stripe_source(self):
-        """Test that RevenueAnalyticsBaseView returns None for non-Stripe sources"""
+        """Test that the orchestrator returns None for non-Stripe sources"""
         self.source.source_type = "Salesforce"
         self.source.save()
 
@@ -90,7 +90,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(source_views), 0)
 
     def test_revenue_view_missing_schema(self):
-        """Test that RevenueAnalyticsBaseView handles missing schema gracefully"""
+        """Test that the orchestrator handles missing schema gracefully"""
         self.schema.delete()
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
@@ -98,7 +98,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(source_views), 0)
 
     def test_revenue_view_prefix(self):
-        """Test that RevenueAnalyticsBaseView handles prefix correctly"""
+        """Test that the orchestrator handles prefix correctly"""
         self.source.prefix = "prefix"
         self.source.save()
 
@@ -108,7 +108,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(source_views[0].name, "stripe.prefix.revenue_item_revenue_view")
 
     def test_revenue_view_no_prefix(self):
-        """Test that RevenueAnalyticsBaseView handles no prefix correctly"""
+        """Test that the orchestrator handles no prefix correctly"""
         self.source.prefix = None
         self.source.save()
 
@@ -118,7 +118,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(source_views[0].name, "stripe.revenue_item_revenue_view")
 
     def test_revenue_view_prefix_with_underscores(self):
-        """Test that RevenueAnalyticsBaseView handles prefix with underscores correctly"""
+        """Test that the orchestrator handles prefix with underscores correctly"""
         self.source.prefix = "prefix_with_underscores_"
         self.source.save()
 
@@ -128,7 +128,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(source_views[0].name, "stripe.prefix_with_underscores.revenue_item_revenue_view")
 
     def test_revenue_view_prefix_with_empty_string(self):
-        """Test that RevenueAnalyticsBaseView handles empty prefix"""
+        """Test that the orchestrator handles empty prefix"""
         self.source.prefix = ""
         self.source.save()
 
@@ -138,7 +138,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(source_views[0].name, "stripe.revenue_item_revenue_view")
 
     def test_revenue_all_views(self):
-        """Test that RevenueAnalyticsBaseView creates both charge and customer views"""
+        """Test that the orchestrator creates both charge and customer views"""
         customer_table = DataWarehouseTable.objects.create(
             name="customer",
             format="Parquet",

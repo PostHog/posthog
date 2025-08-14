@@ -73,7 +73,7 @@ class TestChargeEventsBuilder(EventsSourceBaseTest):
 
         # Should use is_zero_decimal_in_stripe check
         # by comparing against a list of zero-decimal currencies
-        # List is ommited here for brevity
+        # List is omitted here for brevity
         self.assertIn("in(original_currency, [", purchase_sql)
         self.assertQueryMatchesSnapshot(purchase_sql, replace_all_numbers=True)
 
