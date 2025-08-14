@@ -54,9 +54,6 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
-	filter := events.NewFilter(subChan, unSubChan, phEventChan)
-	go filter.Run()
-
 	go func() {
 		for {
 			metrics.IncomingQueue.Set(consumer.IncomingRatio())
@@ -67,6 +64,9 @@ func main() {
 			time.Sleep(7127 * time.Millisecond)
 		}
 	}()
+
+	filter := events.NewFilter(subChan, unSubChan, phEventChan)
+	go filter.Run()
 
 	// Echo instance
 	e := echo.New()
