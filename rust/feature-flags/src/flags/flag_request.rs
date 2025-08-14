@@ -234,12 +234,12 @@ mod tests {
 
     #[test]
     fn json_sanitization_handles_nan_infinity() {
-        // Test NaN variations - these should parse successfully with NaN converted to null
+        // Test NaN
         let json_with_nan = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": NaN}}"#;
         let request = FlagRequest::from_bytes(Bytes::from(json_with_nan)).expect("Should handle NaN");
         assert_eq!(request.person_properties.as_ref().unwrap()["nan"], json!(null));
 
-        // Test Infinity variations
+        // Test Infinity
         let json_with_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"infinity": Infinity}}"#;
         let request = FlagRequest::from_bytes(Bytes::from(json_with_infinity)).expect("Should handle Infinity");
         assert_eq!(request.person_properties.as_ref().unwrap()["infinity"], json!(null));
