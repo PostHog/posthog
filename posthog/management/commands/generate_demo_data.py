@@ -135,7 +135,7 @@ class Command(BaseCommand):
                         "Hedgebox Inc.",
                         is_staff=bool(options.get("staff")),
                         password=password,
-                        disallow_collision=True,
+                        email_collision_handling="disambiguate",
                     )
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
