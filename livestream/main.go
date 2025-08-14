@@ -54,6 +54,9 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
+	filter := events.NewFilter(subChan, unSubChan, phEventChan)
+	go filter.Run()
+
 	go func() {
 		for {
 			metrics.IncomingQueue.Set(consumer.IncomingRatio())
@@ -61,12 +64,10 @@ func main() {
 			metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
 			metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
 			metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
+			metrics.SubTotal.Set(float64(filter.ActiveSubscriptions()))
 			time.Sleep(7127 * time.Millisecond)
 		}
 	}()
-
-	filter := events.NewFilter(subChan, unSubChan, phEventChan)
-	go filter.Run()
 
 	// Echo instance
 	e := echo.New()
