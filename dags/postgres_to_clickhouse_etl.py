@@ -201,8 +201,17 @@ def get_team_table_sql() -> str:
     """
 
 
+def create_database_if_not_exists() -> None:
+    """Create the models database in ClickHouse if it doesn't exist."""
+    create_db_sql = "CREATE DATABASE IF NOT EXISTS models"
+    run_sql_with_exceptions(create_db_sql, node_role=NodeRole.ALL)
+
+
 def create_clickhouse_tables() -> None:
     """Create the organization and team tables in ClickHouse on all nodes."""
+    # First ensure the database exists
+    create_database_if_not_exists()
+
     # Create tables on all nodes
     run_sql_with_exceptions(get_organization_table_sql(), node_role=NodeRole.ALL)
     run_sql_with_exceptions(get_team_table_sql(), node_role=NodeRole.ALL)
