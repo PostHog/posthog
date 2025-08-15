@@ -1642,7 +1642,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS["languageCodeToName"] = HogQLFunctionMeta(
     suffix_args=[
         ast.Constant(value=LANGUAGE_CODES),
         ast.Constant(value=LANGUAGE_NAMES),
-        ast.Constant(value="Unknown")
+        ast.Constant(value="Unknown"),
     ],
     signatures=[((StringType(),), StringType())]
 )
