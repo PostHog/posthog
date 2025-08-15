@@ -32,6 +32,7 @@ import { ActivityScope, PersonsTabType, PersonType, ProductKey, PropertyDefiniti
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
+import { PersonSummary } from './PersonSummary'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -110,7 +111,7 @@ export function PersonScene(): JSX.Element | null {
         primaryDistinctId,
         eventsQuery,
         exceptionsQuery,
-    } = useValues(personsLogic)
+    } = useValues(personsLogic) as any
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
@@ -183,6 +184,11 @@ export function PersonScene(): JSX.Element | null {
                 }}
                 data-attr="persons-tabs"
                 tabs={[
+                    {
+                        key: PersonsTabType.SUMMARY,
+                        label: <span data-attr="persons-summary-tab">Overview</span>,
+                        content: <PersonSummary person={person} />,
+                    },
                     feedEnabled
                         ? {
                               key: PersonsTabType.FEED,
@@ -309,7 +315,7 @@ export function PersonScene(): JSX.Element | null {
                                           <LemonSelect
                                               value={distinctId || primaryDistinctId}
                                               onChange={(value) => value && setDistinctId(value)}
-                                              options={person.distinct_ids.map((distinct_id) => ({
+                                              options={person.distinct_ids.map((distinct_id: string) => ({
                                                   label: distinct_id,
                                                   value: distinct_id,
                                               }))}

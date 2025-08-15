@@ -1513,6 +1513,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
+    SUMMARY = 'summary',
     FEED = 'feed',
     EVENTS = 'events',
     EXCEPTIONS = 'exceptions',
