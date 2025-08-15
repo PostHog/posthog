@@ -9685,6 +9685,12 @@
                 "id": {
                     "type": "string"
                 },
+                "last_seen": {
+                    "type": "string"
+                },
+                "library": {
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "type": ["string", "null"]
                 },
@@ -9721,6 +9727,8 @@
                 "event",
                 "first_seen",
                 "id",
+                "last_seen",
+                "library",
                 "name",
                 "odds_ratio",
                 "population",
