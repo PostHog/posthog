@@ -196,6 +196,9 @@ export const actionEditLogic = kea<actionEditLogicType>([
     afterMount(({ actions, props }) => {
         if (!props.id) {
             actions.setActionValue('steps', [{ ...DEFAULT_ACTION_STEP }])
+        } else if (props.action) {
+            // Sync the prop action with the internal state when mounting with an existing action
+            actions.setAction(props.action, { merge: false })
         }
     }),
 
