@@ -3,7 +3,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { errorTrackingImpactSceneLogic } from './errorTrackingImpactSceneLogic'
 import { useActions, useValues } from 'kea'
-import { LemonEventName } from 'scenes/actions/EventName'
+import { EventName } from 'products/actions/frontend/components/EventName'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
@@ -96,7 +96,7 @@ const InitialState = (): JSX.Element => {
                 See what issues are causing the most impact on your conversion, activation or any other event you're
                 tracking in PostHog.
             </div>
-            <LemonEventName value={event} onChange={setEvent} allEventsOption="clear" placement="bottom" />
+            <EventName value={event} onChange={setEvent} allEventsOption="clear" placement="bottom" />
         </div>
     )
 }
@@ -111,7 +111,7 @@ export const Options = (): JSX.Element => {
             {selectedIssueIds.length > 0 ? (
                 <BulkActions issues={issues} selectedIds={selectedIssueIds} />
             ) : (
-                <LemonEventName value={event} onChange={setEvent} allEventsOption="clear" placement="bottom" />
+                <EventName value={event} onChange={setEvent} allEventsOption="clear" placement="bottom" />
             )}
         </div>
     )

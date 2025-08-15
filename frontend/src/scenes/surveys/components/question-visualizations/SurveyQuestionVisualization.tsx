@@ -6,11 +6,11 @@ import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-vi
 import { ResponseSummariesButton } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { QuestionProcessedResponses, surveyLogic } from 'scenes/surveys/surveyLogic'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { SurveyQuestion, SurveyQuestionType } from '~/types'
+import { QuestionProcessedResponses, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { SCALE_LABELS } from '../../constants'
 import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
@@ -18,6 +18,7 @@ import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
 interface Props {
     question: SurveyQuestion
     questionIndex: number
+    demoData?: QuestionProcessedResponses // For demo mode
 }
 
 function QuestionTitle({
@@ -149,9 +150,35 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
     }
 }
 
-export function SurveyQuestionVisualization({ question, questionIndex }: Props): JSX.Element | null {
+export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
     const { consolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
         useValues(surveyLogic)
+
+    if (demoData) {
+        return (
+            <div className="flex flex-col gap-2">
+                <QuestionTitle
+                    question={question}
+                    questionIndex={questionIndex}
+                    totalResponses={demoData.totalResponses}
+                />
+                <div className="flex flex-col gap-4">
+                    {question.type === SurveyQuestionType.Rating && demoData.type === SurveyQuestionType.Rating && (
+                        <RatingQuestionViz question={question} questionIndex={questionIndex} processedData={demoData} />
+                    )}
+                    {(question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice) &&
+                        (demoData.type === SurveyQuestionType.SingleChoice ||
+                            demoData.type === SurveyQuestionType.MultipleChoice) && (
+                            <MultipleChoiceQuestionViz responseData={demoData.data} />
+                        )}
+                    {question.type === SurveyQuestionType.Open && demoData.type === SurveyQuestionType.Open && (
+                        <OpenQuestionViz question={question} responseData={demoData.data} />
+                    )}
+                </div>
+            </div>
+        )
+    }
 
     if (!question.id || question.type === SurveyQuestionType.Link) {
         return null

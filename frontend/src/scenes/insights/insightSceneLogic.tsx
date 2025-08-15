@@ -59,7 +59,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             teamLogic,
             ['currentTeam', 'currentTeamId'],
             sceneLogic,
-            ['activeScene'],
+            ['activeSceneId'],
             preflightLogic,
             ['disableNavigationHooks'],
             filterTestAccountsDefaultsLogic,
@@ -343,7 +343,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = alert_id !== values.alertId
 
             if (
-                currentScene?.activeScene === Scene.Insight &&
+                currentScene?.activeSceneId === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
@@ -453,7 +453,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     beforeUnload(({ values }) => ({
         enabled: (newLocation?: CombinedLocation) => {
             // Don't run this check on other scenes
-            if (values.activeScene !== Scene.Insight) {
+            if (values.activeSceneId !== Scene.Insight) {
                 return false
             }
 

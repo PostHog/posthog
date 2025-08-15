@@ -181,8 +181,7 @@ pub fn newline_delim<T: Send>(
                 }
                 Err(e) => {
                     return Err(e.context(format!(
-                        "Starting at byte {} of current chunk",
-                        last_validly_consumed_byte
+                        "Starting at byte {last_validly_consumed_byte} of current chunk"
                     )));
                 }
             }

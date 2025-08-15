@@ -30,7 +30,7 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
         query: dataNode,
         key: dataNodeKey,
         dataNodeCollectionId: queryKey,
-        modifiers: { debug: true },
+        modifiers: { debug: true, timings: true },
     }
     const { response } = useValues(dataNodeLogic(dataNodeLogicProps))
 
