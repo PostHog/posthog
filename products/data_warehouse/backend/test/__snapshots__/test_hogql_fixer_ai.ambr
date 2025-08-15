@@ -96,7 +96,7 @@
   
   This is a list of all the available tables in the database:
   ```
-  ['events', 'groups', 'persons', 'sessions']
+  ['events', 'groups', 'persons', 'sessions', 'query_log']
   ```
   
   `person` or `event` metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.

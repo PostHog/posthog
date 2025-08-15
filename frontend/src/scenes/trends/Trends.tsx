@@ -11,10 +11,11 @@ import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 
 interface Props {
     view: InsightType
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     embedded?: boolean
     inSharedMode?: boolean
 }

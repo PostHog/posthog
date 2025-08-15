@@ -4,7 +4,7 @@ import { cn } from 'lib/utils/css-classes'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { SceneTab, sceneLogic } from '~/scenes/sceneLogic'
+import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
@@ -12,6 +12,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
+import { SceneTab } from 'scenes/sceneTypes'
 
 export interface SceneTabsProps {
     className?: string
@@ -99,7 +100,7 @@ interface SceneTabProps {
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const canRemoveTab = true
-    const { clickOnTab, removeTab } = useActions(sceneLogic)
+    const { clickOnTab, removeTab, renameTab } = useActions(sceneLogic)
     return (
         <Link
             onClick={(e) => {
@@ -107,6 +108,13 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 e.preventDefault()
                 if (!isDragging) {
                     clickOnTab(tab)
+                }
+            }}
+            onDoubleClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                if (!isDragging) {
+                    renameTab(tab)
                 }
             }}
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
@@ -120,7 +128,9 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 className
             )}
         >
-            <div className="flex-grow text-left whitespace-pre">{tab.title}</div>
+            <div className={cn('flex-grow text-left whitespace-pre', tab.customTitle && 'italic')}>
+                {tab.customTitle || tab.title}
+            </div>
             {canRemoveTab && (
                 <ButtonPrimitive
                     onClick={(e) => {

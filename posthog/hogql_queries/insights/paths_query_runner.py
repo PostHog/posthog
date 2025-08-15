@@ -18,7 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -42,7 +42,7 @@ SESSION_TIME_THRESHOLD_DEFAULT_SECONDS = 30 * 60  # 30 minutes
 EDGE_LIMIT_DEFAULT = 50
 
 
-class PathsQueryRunner(QueryRunner):
+class PathsQueryRunner(AnalyticsQueryRunner):
     query: PathsQuery
     response: PathsQueryResponse
     cached_response: CachedPathsQueryResponse
@@ -841,7 +841,7 @@ class PathsQueryRunner(QueryRunner):
 
         return validated_results
 
-    def calculate(self) -> PathsQueryResponse:
+    def _calculate(self) -> PathsQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

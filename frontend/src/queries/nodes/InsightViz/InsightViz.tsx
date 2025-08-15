@@ -1,7 +1,7 @@
 import './InsightViz.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,6 +19,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { getCachedResults } from './utils'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps<any>): string => {
@@ -33,12 +34,14 @@ type InsightVizProps = {
     uniqueKey?: string | number
     query: InsightVizNode
     setQuery: (node: InsightVizNode) => void
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     readOnly?: boolean
     embedded?: boolean
     inSharedMode?: boolean
     filtersOverride?: DashboardFilter | null
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
 let uniqueNode = 0
@@ -53,6 +56,7 @@ export function InsightViz({
     inSharedMode,
     filtersOverride,
     variablesOverride,
+    attachTo,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps =
@@ -113,6 +117,10 @@ export function InsightViz({
             inSharedMode={inSharedMode}
         />
     )
+
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
+    useAttachedLogic(insightLogic(insightProps as InsightLogicProps) as BuiltLogic, attachTo)
+    useAttachedLogic(insightVizDataLogic(insightProps as InsightLogicProps), attachTo)
 
     return (
         <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>
