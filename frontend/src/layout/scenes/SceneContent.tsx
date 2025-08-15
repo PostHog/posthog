@@ -15,8 +15,8 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FileSystemIconColor } from '~/types'
 
-export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="scene-content flex flex-col gap-y-4">{children}</div>
+export function SceneContent({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
+    return <div className={cn('scene-content flex flex-col gap-y-4', className)}>{children}</div>
 }
 
 interface SceneSectionProps {
