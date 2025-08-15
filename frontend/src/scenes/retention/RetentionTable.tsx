@@ -11,7 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { DEFAULT_RETENTION_TOTAL_INTERVALS, OVERALL_MEAN_KEY, RETENTION_EMPTY_BREAKDOWN_VALUE } from './retentionLogic'
+import { DEFAULT_RETENTION_TOTAL_INTERVALS, OVERALL_MEAN_KEY } from './retentionLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 import { NO_BREAKDOWN_VALUE } from './types'
@@ -26,6 +26,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
         retentionFilter,
         expandedBreakdowns,
         retentionMeans,
+        breakdownDisplayNames,
     } = useValues(retentionTableLogic(insightProps))
     const { toggleBreakdown } = useActions(retentionTableLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
@@ -79,13 +80,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         ) : (
                                             <IconChevronRight />
                                         )}
-                                        <span>
-                                            {noBreakdown
-                                                ? 'Mean'
-                                                : breakdownValue === null || breakdownValue === ''
-                                                  ? RETENTION_EMPTY_BREAKDOWN_VALUE
-                                                  : breakdownValue}{' '}
-                                        </span>
+                                        <span>{breakdownDisplayNames[breakdownValue] || breakdownValue} </span>
                                     </div>
                                 </td>
 

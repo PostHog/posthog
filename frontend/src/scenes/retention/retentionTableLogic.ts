@@ -1,8 +1,11 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
-import { InsightLogicProps, InsightType } from '~/types'
+import { cohortsModel } from '~/models/cohortsModel'
+import { CohortType, InsightLogicProps, InsightType } from '~/types'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import { retentionLogic } from './retentionLogic'
 import type { retentionTableLogicType } from './retentionTableLogicType'
@@ -19,7 +22,9 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             insightVizDataLogic(props),
             ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme'],
             retentionLogic(props),
-            ['results', 'selectedBreakdownValue', 'retentionMeans'],
+            ['results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownFilter'],
+            cohortsModel,
+            ['cohortsById'],
         ],
         actions: [retentionLogic(props), ['setSelectedBreakdownValue']],
     })),
@@ -124,6 +129,40 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                     },
                     {} as Record<string, RetentionTableRow[]>
                 ),
+        ],
+
+        breakdownDisplayNames: [
+            (s) => [s.tableRowsSplitByBreakdownValue, s.breakdownFilter, s.cohortsById],
+            (
+                tableRowsSplitByBreakdownValue: Record<string, RetentionTableRow[]>,
+                breakdownFilter: BreakdownFilter | null,
+                cohortsById: Partial<Record<string | number, CohortType>>
+            ): Record<string, string> => {
+                const breakdownKeys = Object.keys(tableRowsSplitByBreakdownValue)
+                return breakdownKeys.reduce(
+                    (acc, breakdownValue) => {
+                        if (breakdownValue === NO_BREAKDOWN_VALUE) {
+                            acc[breakdownValue] = 'Mean'
+                        } else {
+                            // Convert cohortsById to array for formatBreakdownLabel
+                            const cohorts: CohortType[] = Object.values(cohortsById).filter(Boolean) as CohortType[]
+                            // Convert string breakdown value back to original type for formatBreakdownLabel
+                            const originalBreakdownValue = /^\d+$/.test(breakdownValue)
+                                ? Number(breakdownValue)
+                                : breakdownValue
+                            const formattedLabel = formatBreakdownLabel(
+                                originalBreakdownValue,
+                                breakdownFilter,
+                                cohorts,
+                                undefined // formatPropertyValueForDisplay not needed for cohorts
+                            )
+                            acc[breakdownValue] = formattedLabel
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                )
+            },
         ],
     }),
 ])
