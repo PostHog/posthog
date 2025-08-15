@@ -100,12 +100,10 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
 }
 
 fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
-    let decoded = general_purpose::STANDARD
-        .decode(body)
-        .map_err(|e| {
-            tracing::warn!("Base64 decoding error: {}", e);
-            FlagError::RequestDecodingError(format!("Base64 decoding error: {e}"))
-        })?;
+    let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
+        tracing::warn!("Base64 decoding error: {}", e);
+        FlagError::RequestDecodingError(format!("Base64 decoding error: {e}"))
+    })?;
     Ok(Bytes::from(decoded))
 }
 
@@ -160,14 +158,14 @@ pub fn decode_form_data(
             tracing::warn!("Gzip compression not supported for form-urlencoded data");
             return Err(FlagError::RequestDecodingError(
                 "Gzip compression not supported for form-urlencoded data".into(),
-            ))
+            ));
         }
         Some(Compression::Base64) | None => decode_base64(Bytes::from(cleaned_base64))?,
         Some(Compression::Unsupported) => {
             tracing::warn!("Unsupported compression type for form-urlencoded data");
             return Err(FlagError::RequestDecodingError(
                 "Unsupported compression type".into(),
-            ))
+            ));
         }
     };
 
