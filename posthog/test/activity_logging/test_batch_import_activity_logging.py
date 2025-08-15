@@ -52,6 +52,7 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
         self.assertIn("import_config", batch_import_masked)
 
     def test_batch_import_integration_test(self):
+        """Integration test to verify the basic setup works"""
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
@@ -60,10 +61,12 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
             self.assertIsNotNone(batch_import["id"])
 
             self.update_batch_import(batch_import["id"], {"status": "completed"})
+
         finally:
             activity_storage.clear_user()
 
     def test_batch_import_signal_handler_create(self):
+        """Test that the signal handler works for batch import creation"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
@@ -120,6 +123,7 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
             assert activity_log.detail is not None
             changes = activity_log.detail.get("changes", [])
             self.assertTrue(len(changes) > 0)
+
         finally:
             activity_storage.clear_user()
 
@@ -144,5 +148,6 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
             self.assertIsNotNone(activity_log)
             assert activity_log is not None
             self.assertEqual(activity_log.user, self.user)
+
         finally:
             activity_storage.clear_user()
