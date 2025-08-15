@@ -15,7 +15,6 @@ import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -35,6 +34,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SURVEY_CREATED_SOURCE, SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
@@ -180,14 +180,7 @@ function Surveys(): JSX.Element {
                     </div>
 
                     {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
-                        <ProductIntroduction
-                            productName="Surveys"
-                            thingName="survey"
-                            description="Use surveys to gather qualitative feedback from your users on new or existing features."
-                            action={() => router.actions.push(urls.surveyTemplates())}
-                            isEmpty={surveys.length === 0}
-                            productKey={ProductKey.SURVEYS}
-                        />
+                        <SurveysEmptyState numOfSurveys={surveys.length} />
                     )}
                     {!shouldShowEmptyState && (
                         <>

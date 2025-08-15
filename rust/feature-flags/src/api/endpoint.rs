@@ -60,21 +60,27 @@ pub async fn flags(
 ) -> Result<Json<ServiceResponse>, FlagError> {
     let request_id = Uuid::new_v4();
 
-    let context = RequestContext {
-        request_id,
-        state,
-        ip,
-        headers: headers.clone(),
-        meta: query_params.clone(),
-        body,
-    };
-
     // Check if this request came through the decide proxy
     let is_from_decide = headers
         .get("X-Original-Endpoint")
         .and_then(|v| v.to_str().ok())
         .map(|v| v == "decide")
         .unwrap_or(false);
+
+    // Modify query params to enable config for decide requests
+    let mut modified_query_params = query_params.clone();
+    if is_from_decide && modified_query_params.config.is_none() {
+        modified_query_params.config = Some(true);
+    }
+
+    let context = RequestContext {
+        request_id,
+        state,
+        ip,
+        headers: headers.clone(),
+        meta: modified_query_params,
+        body,
+    };
 
     // Parse version from query params
     let query_version = context

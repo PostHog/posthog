@@ -10,7 +10,6 @@ import { SettingSectionId } from './settings/types'
 export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
-    Activity = 'Activity',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -48,6 +47,7 @@ export enum Scene {
     Experiments = 'Experiments',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExploreEvents = 'ExploreEvents',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -62,6 +62,7 @@ export enum Scene {
     LegacyPlugin = 'LegacyPlugin',
     Link = 'Link',
     Links = 'Links',
+    LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
     Max = 'Max',

@@ -38,7 +38,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             title: 'Type',
             key: 'type',
             render: function Render(_, _definition: PropertyDefinition) {
-                return <LemonTag type="muted">{_definition.property_type ?? '-'}</LemonTag>
+                return <LemonTag type="muted">{_definition.property_type ?? '—'}</LemonTag>
             },
         },
         ...(hasTagging
@@ -59,7 +59,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             render: function Render(_, _definition: PropertyDefinition) {
                 return (
                     <LemonTag className="font-mono" type="muted">
-                        {_definition.example ?? '-'}
+                        {_definition.example !== undefined ? JSON.stringify(_definition.example) : '—'}
                     </LemonTag>
                 )
             },

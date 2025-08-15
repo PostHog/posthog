@@ -422,7 +422,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data/persons',
                         },
                         {
-                            identifier: Scene.Activity,
+                            identifier: Scene.ExploreEvents,
                             label: 'Activity',
                             icon: <IconLive />,
                             to: urls.activity(),

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, cast
+from typing import Any, Optional, cast
 from collections.abc import Callable
 
 from posthog import settings as app_settings
@@ -13,7 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql.variables import replace_variables
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     CachedHogQLQueryResponse,
     HogQLQuery,
@@ -25,7 +25,7 @@ from posthog.schema import (
 )
 
 
-class HogQLQueryRunner(QueryRunner):
+class HogQLQueryRunner(AnalyticsQueryRunner):
     query: HogQLQuery | HogQLASTQuery
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse
@@ -65,14 +65,19 @@ class HogQLQueryRunner(QueryRunner):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
         if finder.placeholder_fields or finder.placeholder_expressions:
             with self.timings.measure("replace_placeholders"):
-                parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, values))
+                var_dict: dict[str, Any] = {}
+                var_values: dict[str, Any] = {"variables": var_dict, **values} if values else {"variables": var_dict}
+                if self.query.variables:
+                    for var in list(self.query.variables.values()):
+                        var_values["variables"][var.code_name] = var.value
+                    parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, var_values))
 
         return parsed_select
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
-    def calculate(self) -> HogQLQueryResponse:
+    def _calculate(self) -> HogQLQueryResponse:
         query = self.to_query()
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:
