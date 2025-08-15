@@ -277,6 +277,12 @@ class FunctionCallTable(Table):
     max_args: Optional[int] = None
 
 
+class DANGEROUS_NoTeamIdCheckTable(Table):
+    """Don't use this other than referencing tables that contain no user data"""
+
+    pass
+
+
 class SavedQuery(Table):
     """
     A table that returns a subquery, e.g. my_saved_query -> (SELECT * FROM some_saved_table). The team_id guard is NOT added for the overall subquery

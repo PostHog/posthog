@@ -2483,6 +2483,14 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_team_id_guarding_events(self):
+        sql = self._select(
+            "SELECT event FROM events",
+        )
+        assert (
+            sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
+        )
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):

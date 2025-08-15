@@ -148,3 +148,9 @@ class S3Table(FunctionCallTable):
             structure=self.structure,
             context=context,
         )
+
+
+class DataWarehouseTable(S3Table):
+    """A table placeholder for checking warehouse tables"""
+
+    pass
