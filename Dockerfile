@@ -147,7 +147,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Pre-install Playwright's Chromium into the image so workers can launch a browser at runtime
 # (the Python 'playwright' package was installed by uv sync above)
-RUN uv run python -m playwright install --with-deps chromium
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium
 
 
 #
