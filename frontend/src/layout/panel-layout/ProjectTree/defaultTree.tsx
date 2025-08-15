@@ -137,13 +137,17 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
+    // Get the official icon color
+    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
+
+    // fallback: Get the file system color
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
     ]?.iconColor
 
-    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
-
-    const color = iconTypeColor ?? fileSystemColor ?? colorOverride ?? ['currentColor', 'currentColor']
+    // If we have a color override, use it
+    // Otherwise, use the official icon color, then the file system color and finally if all else is undefined use the inherited default color
+    const color = colorOverride ?? iconTypeColor ?? fileSystemColor ?? ['currentColor', 'currentColor']
     return color.length === 1 ? [color[0], color[0]] : (color as FileSystemIconColor)
 }
 
