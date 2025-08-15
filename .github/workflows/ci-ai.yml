@@ -25,7 +25,7 @@ jobs:
             )
 
         steps:
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   # Check out the actual branch instead of merge commit with master,
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
@@ -38,7 +38,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
 
@@ -70,7 +70,7 @@ jobs:
 
             - name: Post eval summary to PR
               if: github.event_name == 'pull_request'
-              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              uses: actions/github-script@v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   script: |
