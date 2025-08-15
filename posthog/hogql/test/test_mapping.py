@@ -300,3 +300,29 @@ class TestMappings(BaseTest):
                 "d": "50",
             },
         )
+
+    def test_language_code_to_name_function(self):
+        """Test the languageCodeToName function that maps language codes to full language names."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                languageCodeToName('en') as english_name,
+                languageCodeToName('es') as spanish_name,
+                languageCodeToName('invalid') as invalid_code,
+                languageCodeToName(NULL) as null_code
+            """,
+            self.team,
+        )
+    
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+    
+        # Test valid language codes
+        self.assertEqual(result_dict["english_name"], "English")
+        self.assertEqual(result_dict["spanish_name"], "Spanish")
+        
+        # Test edge cases - these should return "Unknown"
+        self.assertEqual(result_dict["invalid_code"], "Unknown")
+        self.assertEqual(result_dict["null_code"], "Unknown")
+
