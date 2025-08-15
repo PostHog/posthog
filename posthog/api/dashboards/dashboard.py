@@ -509,14 +509,14 @@ class DashboardSerializer(DashboardBasicSerializer):
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all tile serialization tasks
-                future_to_order = {}
+                futures = []
                 for order, tile in enumerate(sorted_tiles):
                     future = executor.submit(serialize_tile_with_context, tile, order, self.context)
-                    future_to_order[future] = order
+                    futures.append(future)
 
                 # Collect results maintaining original order
                 tile_results = [None] * len(sorted_tiles)
-                for future in as_completed(future_to_order):
+                for future in as_completed(futures):
                     order, tile_data = future.result()
                     tile_results[order] = tile_data
 
