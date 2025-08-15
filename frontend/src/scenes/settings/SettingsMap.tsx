@@ -91,6 +91,7 @@ import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
+import { CRMUsageMetricsConfig } from './environment/CRMUsageMetricsConfig'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -345,6 +346,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'crm-usage-metrics',
+                title: 'Usage metrics',
+                component: <CRMUsageMetricsConfig />,
+                flag: 'CRM_USAGE_METRICS',
             },
         ],
     },
