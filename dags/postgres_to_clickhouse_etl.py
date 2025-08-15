@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 from dataclasses import dataclass
 import json
+import uuid
 
 import dagster
 from django.conf import settings
@@ -273,7 +274,9 @@ def fetch_organizations_in_batches(conn, last_sync: Optional[datetime] = None, b
 
     Yields batches of organization records.
     """
-    cursor = conn.cursor(name="organizations_cursor")  # Named cursor for server-side processing
+    # Use unique cursor name to avoid conflicts with concurrent runs
+    cursor_name = f"organizations_cursor_{uuid.uuid4().hex[:8]}"
+    cursor = conn.cursor(name=cursor_name)  # Named cursor for server-side processing
 
     try:
         query = """
@@ -339,7 +342,9 @@ def fetch_teams_in_batches(conn, last_sync: Optional[datetime] = None, batch_siz
 
     Yields batches of team records.
     """
-    cursor = conn.cursor(name="teams_cursor")  # Named cursor for server-side processing
+    # Use unique cursor name to avoid conflicts with concurrent runs
+    cursor_name = f"teams_cursor_{uuid.uuid4().hex[:8]}"
+    cursor = conn.cursor(name=cursor_name)  # Named cursor for server-side processing
 
     try:
         query = """
