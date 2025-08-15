@@ -103,7 +103,7 @@ function Screenshot(): JSX.Element {
                 data-attr="replay-screenshot"
                 items={[
                     {
-                        label: <div className="flex w-full deprecated-space-x-2 justify-between">PNG</div>,
+                        label: <div className="flex w-full deprecated-space-x-2 justify-between">Screenshot</div>,
                         onClick: () => takeScreenshot(ExporterFormat.PNG),
                         'data-attr': 'replay-screenshot-png',
                     },
@@ -126,7 +126,7 @@ function Screenshot(): JSX.Element {
                         'data-attr': 'replay-screenshot-mp4',
                     },
                 ]}
-                label="Screenshot"
+                label="Capture"
             />
         )
     }

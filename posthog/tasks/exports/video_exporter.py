@@ -58,18 +58,19 @@ def record_replay_to_file(
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
             except PlaywrightTimeoutError:
                 pass
+            measured_width: Optional[int] = None
             try:
                 final_height = page.evaluate(
                     "() => { const el = document.querySelector('.replayer-wrapper'); if (el) { const r = el.getBoundingClientRect(); return Math.max(r.height, document.body.scrollHeight);} return document.body.scrollHeight; }"
                 )
-                final_width = (
+                width_candidate = (
                     page.evaluate(
                         "() => { const r = document.querySelector('.replayer-wrapper'); if (r) return r.offsetWidth || 0; const t = document.querySelector('table'); if (t) return Math.floor((t.offsetWidth || 0) * 1.5); return 0; }"
                     )
                     or width
                 )
-                final_width = max(width, min(1800, int(final_width)))
-                page.set_viewport_size({"width": final_width, "height": int(final_height) + HEIGHT_OFFSET})
+                measured_width = max(width, min(1800, int(width_candidate)))
+                page.set_viewport_size({"width": measured_width, "height": int(final_height) + HEIGHT_OFFSET})
             except Exception:
                 pass
             ready_at = time.monotonic()
@@ -77,6 +78,9 @@ def record_replay_to_file(
             page.wait_for_timeout(5000)
             video = page.video
             page.close()
+            if video is None:
+                raise RuntimeError("Playwright did not produce a video. Ensure record_video_dir is set.")
+
             pre_roll = max(0.0, ready_at - record_started)
             tmp_webm = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.webm")
             if hasattr(video, "save_as"):
@@ -119,7 +123,10 @@ def record_replay_to_file(
                         check=True,
                     )
                 elif ext == ".gif":
-                    vf = f"fps=12,scale={final_width}:-2:flags=lanczos" if "final_width" in locals() else "fps=12"
+                    vf_parts = ["fps=12"]
+                    if measured_width is not None:
+                        vf_parts.append(f"scale={measured_width}:-2:flags=lanczos")
+                    vf = ",".join(vf_parts)
                     subprocess.run(
                         [
                             "ffmpeg",

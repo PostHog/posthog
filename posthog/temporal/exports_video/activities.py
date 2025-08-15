@@ -2,7 +2,6 @@ import os
 import uuid
 import tempfile
 import shutil
-from dataclasses import dataclass
 from typing import Any
 from temporalio import activity
 import datetime as dt
@@ -12,16 +11,6 @@ from posthog.utils import absolute_uri
 
 # Optional: stable browser cache for Playwright worker processes
 os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", os.path.join("/tmp", "ms-playwright"))
-
-
-@dataclass
-class BuildContextOut:
-    url_to_render: str
-    css_selector: str
-    width: int
-    height: int
-    export_format: str
-    tmp_ext: str
 
 
 @activity.defn
@@ -52,15 +41,11 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
 
 @activity.defn
 def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
-    # Reuse your existing implementation by calling a helper
-    # Extract your Playwright+ffmpeg logic from image_exporter into a helper:
-    # from posthog.tasks.exports.video_exporter import record_replay_to_file
     from posthog.tasks.exports.video_exporter import record_replay_to_file
 
     tmp_dir = tempfile.mkdtemp(prefix="ph-video-export-")
+    tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
     try:
-        tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
-        # record_replay_to_file saves to image_path based on build format settings
         record_replay_to_file(
             image_path=tmp_path,
             url_to_render=build["url_to_render"],
@@ -69,9 +54,10 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
             screenshot_height=build["height"],
         )
         return {"tmp_path": tmp_path}
-    finally:
-        # Don't delete tmp_dir yet; persist activity needs the file. Caller cleans up.
-        pass
+    except Exception:
+        # Clean up temp directory on failure
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
 
 @activity.defn
