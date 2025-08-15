@@ -20,8 +20,8 @@ export function SceneContent({ children, className }: { children: React.ReactNod
 }
 
 interface SceneSectionProps {
-    title: React.ReactNode
-    description?: React.ReactNode
+    title?: React.ReactNode
+    description?: string
     isLoading?: boolean
     children: React.ReactNode
     className?: string
@@ -41,12 +41,15 @@ export function SceneSection({
 
     // If not in new scene layout, we don't want to show anything new
     if (!newSceneLayout) {
+        if (hideTitleAndDescription) {
+            return <div className={cn('scene-section--fallback flex flex-col gap-4', className)}>{children}</div>
+        }
         return (
             <div className={cn('scene-section--fallback flex flex-col gap-4', className)}>
-                {!hideTitleAndDescription && (
+                {(title || description) && (
                     <div className="flex flex-col">
-                        <h2 className="flex-1 subtitle mt-0">{title}</h2>
-                        <p className="m-0">{description}</p>
+                        {title && <h2 className="flex-1 subtitle mt-0">{title}</h2>}
+                        {description && <p className="m-0">{description}</p>}
                     </div>
                 )}
                 {children}
@@ -57,9 +60,9 @@ export function SceneSection({
     if (isLoading) {
         return (
             <div className={cn('flex flex-col gap-4', className)}>
-                {!hideTitleAndDescription && (
+                {(title || description) && (
                     <div className="flex flex-col gap-0">
-                        <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
+                        {title && <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>}
                         {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
                     </div>
                 )}
@@ -68,11 +71,15 @@ export function SceneSection({
         )
     }
 
+    if (hideTitleAndDescription) {
+        return <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>{children}</div>
+    }
+
     return (
         <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>
-            {!hideTitleAndDescription && (
+            {(title || description) && (
                 <div className="flex flex-col gap-0">
-                    <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
+                    {title && <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>}
                     {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
                 </div>
             )}
@@ -143,12 +150,14 @@ export function SceneTitleSection({
                     </span>
                     <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
                 </div>
-                <SceneDescription
-                    description={description}
-                    markdown={markdown}
-                    isLoading={isLoading}
-                    onBlur={onDescriptionBlur}
-                />
+                {!description && onDescriptionBlur && (
+                    <SceneDescription
+                        description={description}
+                        markdown={markdown}
+                        isLoading={isLoading}
+                        onBlur={onDescriptionBlur}
+                    />
+                )}
             </div>
             {docsURL && (
                 <Link

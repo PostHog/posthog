@@ -83,7 +83,7 @@ export function ToolbarLaunch(): JSX.Element {
                     </LemonBanner>
                 </SceneSection>
 
-                <SceneSection title="" description="" hideTitleAndDescription>
+                <SceneSection title="Features" description="The toolbar launches PostHog right in your app or website.">
                     <div className="grid grid-cols-2 gap-4 max-w-[800px] mb-6 mt-4 mx-auto">
                         {features.map((feature) => (
                             <FeatureHighlight key={feature.title} {...feature} />

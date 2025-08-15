@@ -19,9 +19,19 @@ import { AddSourceDropdown } from './AddSourceDropdown'
 import { ListDisplay } from './ListDisplay'
 import { ItemName, PaginationControls } from './PaginationControls'
 import { StatusIcon } from './StatusIcon'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { SceneSection } from '~/layout/scenes/SceneContent'
+import { cn } from 'lib/utils/css-classes'
 
-export function NativeExternalDataSourceConfiguration(): JSX.Element {
+export function NativeExternalDataSourceConfiguration({
+    hideTitle = false,
+    hideDescription = false,
+}: {
+    hideTitle?: boolean
+    hideDescription?: boolean
+}): JSX.Element {
     const { nativeSources, loading } = useValues(marketingAnalyticsLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     // Helper functions to reduce duplication
     const getRequiredFields = (sourceType: string): string[] => {
@@ -102,12 +112,23 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
     }
 
     return (
-        <div>
-            <h3 className="mb-2">Native data warehouse sources configuration</h3>
-            <p className="mb-4">
-                Configure data warehouse sources to display marketing analytics in PostHog. You'll need to sync the
-                required tables for each source to enable the functionality.
-            </p>
+        <SceneSection
+            hideTitleAndDescription={!newSceneLayout}
+            title={!hideTitle ? 'Native data warehouse sources configuration' : undefined}
+            description="Configure data warehouse sources to display marketing analytics in PostHog. You'll need to sync the required tables for each source to enable the functionality."
+            className={cn(!newSceneLayout && 'gap-y-0')}
+        >
+            {!newSceneLayout && (!hideTitle || !hideDescription) && (
+                <>
+                    {!hideTitle && <h3 className="mb-2">Native data warehouse sources configuration</h3>}
+                    {!hideDescription && (
+                        <p className="mb-4">
+                            Configure data warehouse sources to display marketing analytics in PostHog. You'll need to
+                            sync the required tables for each source to enable the functionality.
+                        </p>
+                    )}
+                </>
+            )}
             <PaginationControls
                 hasMoreItems={hasMoreSources}
                 showAll={showAll}
@@ -211,6 +232,6 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                     },
                 ]}
             />
-        </div>
+        </SceneSection>
     )
 }
