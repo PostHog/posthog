@@ -2177,6 +2177,8 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
 }
 
 export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    last_seen: string
+    library: string | null
     event: string
     odds_ratio: number
     population: {
@@ -3401,6 +3403,16 @@ export interface RevenueAnalyticsEventItem {
      * Useful when trying to detect churn/LTV/ARPU/etc.
      */
     subscriptionProperty?: string
+
+    /**
+     * The number of days we still consider a subscription to be active
+     * after the last event. This is useful to avoid the current month's data
+     * to look as if most of the subscriptions have churned since we might not
+     * have an event for the current month.
+     *
+     * @default 45
+     */
+    subscriptionDropoffDays: number
 
     /**
      * TODO: In the future, this should probably be renamed to

@@ -24,7 +24,7 @@ export interface CohortCriteriaRowBuilderProps {
     hideDeleteIcon?: boolean
     onChangeType?: (nextType: BehavioralFilterType) => void
     cohort?: CohortType
-    explicitCohortTypes?: boolean
+    explicitCohortTypes?: string | boolean
 }
 
 export function CohortCriteriaRowBuilder({

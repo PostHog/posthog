@@ -145,6 +145,7 @@
                       "id",
                       "created_at",
                       "properties",
+                      "revenue_analytics",
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type",
                       "$virt_revenue",
@@ -675,6 +676,7 @@
               "revenue_analytics": {
                   "chain": null,
                   "fields": [
+                      "team_id",
                       "person_id",
                       "revenue",
                       "revenue_last_30_days"
@@ -683,7 +685,7 @@
                   "id": "revenue_analytics",
                   "name": "revenue_analytics",
                   "schema_valid": true,
-                  "table": "raw_persons_revenue_analytics",
+                  "table": "persons_revenue_analytics",
                   "type": "lazy_table"
               },
               "$virt_initial_referring_domain_type": {
@@ -1543,6 +1545,7 @@
                       "id",
                       "created_at",
                       "properties",
+                      "revenue_analytics",
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type",
                       "$virt_revenue",
@@ -2038,6 +2041,7 @@
               "revenue_analytics": {
                   "chain": null,
                   "fields": [
+                      "team_id",
                       "person_id",
                       "revenue",
                       "revenue_last_30_days"
@@ -2046,7 +2050,7 @@
                   "id": "revenue_analytics",
                   "name": "revenue_analytics",
                   "schema_valid": true,
-                  "table": "raw_persons_revenue_analytics",
+                  "table": "persons_revenue_analytics",
                   "type": "lazy_table"
               },
               "$virt_initial_referring_domain_type": {

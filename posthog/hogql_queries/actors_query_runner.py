@@ -41,6 +41,17 @@ class ActorsQueryRunner(AnalyticsQueryRunner):
         if self.query.source:
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
             self.modifiers = self.source_query_runner.modifiers
+        else:
+            # For direct person queries (no source), ensure we use V2 to get latest person data only
+            # This fixes the issue where deleted person properties still show up from old person rows
+            from posthog.schema import PersonsArgMaxVersion
+
+            if (
+                self.modifiers.personsArgMaxVersion is None
+                or self.modifiers.personsArgMaxVersion == PersonsArgMaxVersion.AUTO
+            ):
+                self.modifiers = self.modifiers.model_copy()
+                self.modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V2
 
         self.strategy = self.determine_strategy()
         self.calculating = False
