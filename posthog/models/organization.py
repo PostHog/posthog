@@ -283,7 +283,7 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
-class OrganizationMembership(UUIDModel):
+class OrganizationMembership(ModelActivityMixin, UUIDModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 
@@ -385,6 +385,22 @@ class OrganizationMembership(UUIDModel):
             "keys": keys_data,
             "team_ids": team_ids,
         }
+
+    def delete(self, *args, **kwargs):
+        from posthog.models.signals import model_activity_signal
+        from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+
+        model_activity_signal.send(
+            sender=self.__class__,
+            scope=self.__class__.__name__,
+            before_update=self,
+            after_update=None,
+            activity="deleted",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+
+        return super().delete(*args, **kwargs)
 
     __repr__ = sane_repr("organization", "user", "level")
 

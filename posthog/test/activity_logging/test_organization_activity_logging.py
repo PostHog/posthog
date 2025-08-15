@@ -1,5 +1,7 @@
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.activity_log_utils import ActivityLogTestHelper
+from posthog.models import User, Organization
+from posthog.models.organization import OrganizationMembership
 
 
 class TestOrganizationActivityLogging(ActivityLogTestHelper):
@@ -146,3 +148,79 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         twofa_change = next((c for c in changes if c["field"] == "two-factor authentication requirement"), None)
         assert twofa_change is not None
         self.assertEqual(twofa_change["after"], True)
+
+    def test_organization_membership_creation_activity_logging(self):
+        org_response = self.create_organization("Test Membership Org")
+        org = Organization.objects.get(id=org_response["id"])
+        new_user = User.objects.create_user(
+            email="testmember@example.com", password="testpass123", first_name="Test", last_name="Member"
+        )
+        membership = new_user.join(organization=org, level=OrganizationMembership.Level.MEMBER)
+
+        log = ActivityLog.objects.filter(
+            organization_id=org.id, scope="OrganizationMembership", activity="created", item_id=str(membership.id)
+        ).first()
+
+        assert log is not None
+        self.assertEqual(log.activity, "created")
+        self.assertEqual(log.item_id, str(membership.id))
+        self.assertIn("joined", log.detail["name"])
+        self.assertIn("testmember@example.com", log.detail["name"])
+
+        context = log.detail.get("context", {})
+        self.assertEqual(context["user_email"], "testmember@example.com")
+        self.assertEqual(context["organization_name"], "Test Membership Org")
+
+    def test_organization_membership_deletion_activity_logging(self):
+        org_response = self.create_organization("Test Delete Membership Org")
+        org = Organization.objects.get(id=org_response["id"])
+        member_user = User.objects.create_user(
+            email="deletemember@example.com", password="testpass123", first_name="Delete", last_name="Member"
+        )
+        membership = member_user.join(organization=org, level=OrganizationMembership.Level.MEMBER)
+        membership_id = str(membership.id)
+
+        response = self.client.delete(f"/api/organizations/{org.id}/members/{member_user.uuid}/")
+        self.assertEqual(response.status_code, 204)
+
+        log = ActivityLog.objects.filter(
+            organization_id=org.id, scope="OrganizationMembership", activity="deleted"
+        ).first()
+
+        assert log is not None
+        self.assertEqual(log.activity, "deleted")
+        self.assertEqual(log.item_id, membership_id)
+        self.assertIn("left", log.detail["name"])
+        self.assertIn("deletemember@example.com", log.detail["name"])
+
+        context = log.detail.get("context", {})
+        self.assertEqual(context["user_email"], "deletemember@example.com")
+        self.assertEqual(context["organization_name"], "Test Delete Membership Org")
+
+    def test_organization_membership_level_update_activity_logging(self):
+        org_response = self.create_organization("Test Update Membership Org")
+        org = Organization.objects.get(id=org_response["id"])
+        member_user = User.objects.create_user(
+            email="updatemember@example.com", password="testpass123", first_name="Update", last_name="Member"
+        )
+        membership = member_user.join(organization=org, level=OrganizationMembership.Level.MEMBER)
+
+        response = self.client.patch(
+            f"/api/organizations/{org.id}/members/{member_user.uuid}/", {"level": 8}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+
+        log = ActivityLog.objects.filter(
+            organization_id=org.id, scope="OrganizationMembership", activity="updated"
+        ).first()
+
+        assert log is not None
+        self.assertEqual(log.activity, "updated")
+        self.assertEqual(log.item_id, str(membership.id))
+        self.assertIn("membership updated", log.detail["name"])
+
+        changes = log.detail.get("changes", [])
+        level_change = next((c for c in changes if c["field"] == "level"), None)
+        assert level_change is not None
+        self.assertEqual(level_change["before"], 1)
+        self.assertEqual(level_change["after"], 8)
