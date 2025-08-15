@@ -14,6 +14,7 @@ import {
     RevenueAnalyticsEventItem,
     RevenueAnalyticsGoal,
     RevenueCurrencyPropertyConfig,
+    SubscriptionDropoffMode,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
@@ -83,6 +84,10 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         updateEventRevenueProperty: (eventName: string, property: string) => ({ eventName, property }),
         updateEventSubscriptionProperty: (eventName: string, property: string) => ({ eventName, property }),
         updateEventSubscriptionDropoffDays: (eventName: string, property: number) => ({ eventName, property }),
+        updateEventSubscriptionDropoffMode: (eventName: string, property: SubscriptionDropoffMode) => ({
+            eventName,
+            property,
+        }),
 
         addGoal: (goal: RevenueAnalyticsGoal) => ({ goal }),
         deleteGoal: (index: number) => ({ index }),
@@ -119,6 +124,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                                 revenueCurrencyProperty: { static: revenueCurrency },
                                 currencyAwareDecimal: false,
                                 subscriptionDropoffDays: 45,
+                                subscriptionDropoffMode: 'last_event',
                             },
                         ],
                     }
@@ -137,6 +143,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 updateEventRevenueProperty: updatePropertyReducerBuilder('revenueProperty'),
                 updateEventSubscriptionProperty: updatePropertyReducerBuilder('subscriptionProperty'),
                 updateEventSubscriptionDropoffDays: updatePropertyReducerBuilder('subscriptionDropoffDays'),
+                updateEventSubscriptionDropoffMode: updatePropertyReducerBuilder('subscriptionDropoffMode'),
 
                 addGoal: (state: RevenueAnalyticsConfig | null, { goal }) => {
                     if (!state) {
