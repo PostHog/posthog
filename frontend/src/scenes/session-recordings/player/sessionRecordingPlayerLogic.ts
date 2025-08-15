@@ -1384,7 +1384,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // We need to subtract 1 second as the player starts immediately
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
 
-            actions.startReplayExport(values.sessionRecordingId, timestamp, format, {
+            actions.startReplayExport(values.sessionRecordingId, format, timestamp, {
                 width: iframe?.width ? Number(iframe.width) : 1400,
                 height: iframe?.height ? Number(iframe.height) : 600,
                 css_selector: '.replayer-wrapper',

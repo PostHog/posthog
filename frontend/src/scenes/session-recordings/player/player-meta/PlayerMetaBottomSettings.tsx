@@ -11,6 +11,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonTag } from '@posthog/lemon-ui'
 import { humanFriendlyDuration } from 'lib/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
@@ -107,12 +108,20 @@ function Screenshot(): JSX.Element {
                         'data-attr': 'replay-screenshot-png',
                     },
                     {
-                        label: <div className="flex w-full deprecated-space-x-2 justify-between">GIF (5 sec)</div>,
+                        label: (
+                            <div className="flex w-full deprecated-space-x-2 justify-between items-center">
+                                5 sec GIF <LemonTag type="warning">BETA</LemonTag>
+                            </div>
+                        ),
                         onClick: () => takeScreenshot(ExporterFormat.GIF),
                         'data-attr': 'replay-screenshot-gif',
                     },
                     {
-                        label: <div className="flex w-full deprecated-space-x-2 justify-between">MP4 (5 sec)</div>,
+                        label: (
+                            <div className="flex w-full deprecated-space-x-2 justify-between items-center">
+                                5 sec MP4 <LemonTag type="warning">BETA</LemonTag>
+                            </div>
+                        ),
                         onClick: () => takeScreenshot(ExporterFormat.MP4),
                         'data-attr': 'replay-screenshot-mp4',
                     },
