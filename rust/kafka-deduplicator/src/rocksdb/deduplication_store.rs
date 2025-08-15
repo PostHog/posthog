@@ -12,16 +12,20 @@ use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
 
 /// Extract library name and version from RawEvent properties
 fn extract_library_info(event: &RawEvent) -> (String, String) {
-    let lib_name = event.properties.get("$lib")
+    let lib_name = event
+        .properties
+        .get("$lib")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
-    
-    let lib_version = event.properties.get("$lib_version")
+
+    let lib_version = event
+        .properties
+        .get("$lib_version")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
-    
+
     (lib_name, lib_version)
 }
 
@@ -256,8 +260,6 @@ impl DeduplicationStore {
         )?;
         Ok(true) // New event
     }
-
-
 
     pub fn cleanup_old_entries(&self) -> Result<u64> {
         let start_time = Instant::now();
@@ -525,7 +527,8 @@ mod tests {
             create_test_raw_event("user1", "token1", "event1"), // duplicate
             create_test_raw_event("user3", "token1", "event3"), // new
         ];
-        let results: Vec<bool> = second_batch.iter()
+        let results: Vec<bool> = second_batch
+            .iter()
             .map(|event| store.handle_event_with_raw(event).unwrap())
             .collect();
         assert_eq!(results, vec![false, true]); // first duplicate, second new
@@ -738,7 +741,7 @@ mod tests {
         let result = store.handle_event_with_raw(&old_event);
         assert!(result.is_ok());
         assert!(result.unwrap()); // Should be new
-        
+
         // Add many more events to exceed capacity
         for i in 0..10 {
             let event = create_test_raw_event_with_timestamp(

@@ -2,11 +2,20 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { PaginatedResponse } from 'lib/api'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { describerFor, activityLogTransforms } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
+
+// ActivityScope values that should not appear in dropdowns
+const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
+    ActivityScope.TAGGED_ITEM, // Handled under ActivityScope.TAG
+]
+
+const getVisibleActivityScopes = (): ActivityScope[] => {
+    return Object.values(ActivityScope).filter((scope) => !HIDDEN_ACTIVITY_SCOPES.includes(scope))
+}
 
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
@@ -73,7 +82,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             null as PaginatedResponse<ActivityLogItem> | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
-                    const response = await api.activity.list(values.filters ?? {})
+                    const filters = values.filters ?? {}
+                    const expandedFilters = activityLogTransforms.expandListScopes(filters)
+                    const response = await api.activity.list(expandedFilters)
 
                     breakpoint()
                     return response
@@ -120,6 +131,12 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
         allActivityHasNext: [(s) => [s.allActivityResponse], (allActivityResponse) => !!allActivityResponse?.next],
+        visibleActivityScopes: [
+            () => [],
+            (): ActivityScope[] => {
+                return getVisibleActivityScopes()
+            },
+        ],
     }),
 
     subscriptions(({ actions, values }) => ({

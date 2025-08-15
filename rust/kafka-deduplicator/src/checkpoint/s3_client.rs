@@ -215,15 +215,15 @@ impl CheckpointInfo {
         // Remove prefix and split remaining path
         let path = key.strip_prefix(prefix)?.trim_start_matches('/');
         let parts: Vec<&str> = path.split('/').collect();
-        
+
         if parts.len() < 3 {
             return None;
         }
-        
+
         let topic = parts[0].to_string();
         let partition = parts[1].parse().ok()?;
         let timestamp = parts[2].parse().ok()?;
-        
+
         Some((topic, partition, timestamp))
     }
 }

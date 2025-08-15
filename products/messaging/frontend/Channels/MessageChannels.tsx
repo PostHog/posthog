@@ -7,12 +7,13 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 
 import { ChannelSetupModal } from './ChannelSetupModal'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons/icons'
-import { OtherIntegrations } from 'scenes/settings/environment/OtherIntegrations'
+import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 
-export const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio'] as const
+const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio'] as const
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
 
 export function MessageChannels(): JSX.Element {
@@ -28,7 +29,7 @@ export function MessageChannels(): JSX.Element {
     const menuItems: LemonMenuItems = [
         {
             label: (
-                <div className="flex items-center gap-1">
+                <div className="flex gap-1 items-center">
                     <IconLetter /> Email
                 </div>
             ),
@@ -36,7 +37,7 @@ export function MessageChannels(): JSX.Element {
         },
         {
             label: (
-                <div className="flex items-center gap-1">
+                <div className="flex gap-1 items-center">
                     <IconSlack /> Slack
                 </div>
             ),
@@ -48,7 +49,7 @@ export function MessageChannels(): JSX.Element {
         },
         {
             label: (
-                <div className="flex items-center gap-1">
+                <div className="flex gap-1 items-center">
                     <IconTwilio /> Twilio
                 </div>
             ),
@@ -99,9 +100,8 @@ export function MessageChannels(): JSX.Element {
                         isEmpty
                     />
                 )}
-                {allMessagingIntegrations.length > 0 && (
-                    <OtherIntegrations titleText="" integrationKinds={[...MESSAGING_CHANNEL_TYPES]} />
-                )}
+                <EmailIntegrationsList />
+                <IntegrationsList titleText="" onlyKinds={MESSAGING_CHANNEL_TYPES.filter((type) => type !== 'email')} />
             </div>
         </>
     )
