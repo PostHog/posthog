@@ -164,7 +164,7 @@ export function ExperimentMetricForm({
             metric.metric_type,
             isExperimentMeanMetric(metric) ? metric.source : null,
             isExperimentFunnelMetric(metric) ? metric.series : null,
-            isExperimentRatioMetric(metric) ? [metric.numerator, metric.denominator] : null,
+            isExperimentRatioMetric(metric) ? metric.numerator : null,
             filterTestAccounts,
         ]
     )
