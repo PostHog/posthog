@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 240 10% 3.9%;
+        --card: 0 0% 100%;
+        --card-foreground: 240 10% 3.9%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 240 10% 3.9%;
+        --primary: 240 9% 9%;
+        --primary-foreground: 0 0% 98%;
+        --secondary: 240 4.8% 95.9%;
+        --secondary-foreground: 240 5.9% 10%;
+        --muted: 240 4.8% 95.9%;
+        --muted-foreground: 240 3.8% 46.1%;
+        --accent: 240 4.8% 95.9%;
+        --accent-foreground: 240 5.9% 10%;
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 240 5.9% 90%;
+        --input: 240 5.9% 90%;
+        --ring: 240 5.9% 10%;
+        --radius: 0.5rem;
+
+        /* PostHog Embedded Analytics Colors */
+        --ph-embed-chart-primary: 210 40% 50%;
+        --ph-embed-chart-secondary: 200 30% 40%;
+        --ph-embed-chart-background: 0 0% 100%;
+        --ph-embed-chart-grid: 240 4.9% 83.9%;
+        --ph-embed-chart-text: 240 10% 3.9%;
+        --ph-embed-chart-gradient-start: 210 40% 50%;
+        --ph-embed-chart-gradient-end: 210 40% 95%;
+        --ph-embed-chart-line-color: 217 91% 60%;
+        --ph-embed-chart-line-color-muted: 217 91% 60%;
+
+        /* PostHog Embedded Analytics Metric Colors */
+        --ph-embed-positive: 142 76% 36%;
+        --ph-embed-negative: 0 84% 60%;
+        --ph-embed-neutral: 240 3.8% 46.1%;
+        --ph-embed-fill-background: 240 4.8% 95.9%;
+        --ph-embed-table-fill-color: 217 91% 60%;
+    }
+
+    .dark {
+        --background: 240 10% 3.9%;
+        --foreground: 0 0% 98%;
+        --card: 240 10% 3.9%;
+        --card-foreground: 0 0% 98%;
+        --popover: 240 10% 3.9%;
+        --popover-foreground: 0 0% 98%;
+        --primary: 0 0% 98%;
+        --primary-foreground: 240 5.9% 10%;
+        --secondary: 240 3.7% 15.9%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 240 3.7% 15.9%;
+        --muted-foreground: 240 5% 64.9%;
+        --accent: 240 3.7% 15.9%;
+        --accent-foreground: 0 0% 98%;
+        --destructive: 0 62.8% 30.6%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 240 3.7% 15.9%;
+        --input: 240 3.7% 15.9%;
+        --ring: 240 4.9% 83.9%;
+
+        /* PostHog Embedded Analytics Colors - Dark Mode */
+        --ph-embed-chart-primary: 210 40% 70%;
+        --ph-embed-chart-secondary: 200 30% 60%;
+        --ph-embed-chart-background: 240 10% 3.9%;
+        --ph-embed-chart-grid: 240 3.7% 15.9%;
+        --ph-embed-chart-text: 0 0% 95%;
+        --ph-embed-chart-gradient-start: 210 40% 70%;
+        --ph-embed-chart-gradient-end: 210 40% 20%;
+        --ph-embed-chart-line-color: 217 91% 70%;
+        --ph-embed-chart-line-color-muted: 217 91% 70%;
+
+        /* PostHog Embedded Analytics Metric Colors - Dark Mode */
+        --ph-embed-positive: 142 70% 45%;
+        --ph-embed-negative: 0 84% 60%;
+        --ph-embed-neutral: 240 5% 64.9%;
+        --ph-embed-fill-background: 240 3.7% 15.9%;
+        --ph-embed-table-fill-color: 217 91% 70%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+@layer components {
+    .analytics-skeleton {
+        @apply animate-pulse bg-muted rounded-md;
+    }
+
+    .analytics-error {
+        @apply text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-4 text-sm;
+    }
+
+    .analytics-metric-card {
+        @apply bg-card border border-border rounded-lg p-4 shadow-sm;
+    }
+
+    .analytics-metric-positive {
+        color: hsl(var(--ph-embed-positive));
+    }
+
+    .analytics-metric-negative {
+        color: hsl(var(--ph-embed-negative));
+    }
+
+    .analytics-metric-neutral {
+        color: hsl(var(--ph-embed-neutral));
+    }
+
+    .analytics-table-fill-cell::before {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: -1;
+        width: calc(var(--fill-ratio) * 100%);
+        content: '';
+        background-color: hsl(var(--ph-embed-table-fill-color) / 25%);
+        border-radius: 0.125rem;
+    }
+}

@@ -1,0 +1,70 @@
+{
+    "name": "@posthog/embedded-analytics-ui",
+    "version": "0.1.0",
+    "description": "React components for PostHog's embedded web analytics API",
+    "type": "module",
+    "main": "dist/index.cjs.js",
+    "module": "dist/index.esm.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist"
+    ],
+    "keywords": [
+        "analytics",
+        "charts",
+        "react",
+        "posthog",
+        "embedded"
+    ],
+    "peerDependencies": {
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0"
+    },
+    "dependencies": {
+        "@radix-ui/react-dropdown-menu": "^2.0.6",
+        "@radix-ui/react-select": "^2.0.0",
+        "@radix-ui/react-slot": "^1.0.2",
+        "@radix-ui/react-tooltip": "^1.0.7",
+        "class-variance-authority": "^0.7.0",
+        "clsx": "^2.0.0",
+        "lucide-react": "^0.294.0",
+        "recharts": "^2.8.0",
+        "tailwind-merge": "^2.0.0",
+        "zod": "^3.22.4"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.40.0",
+        "@rollup/plugin-commonjs": "^25.0.0",
+        "@rollup/plugin-node-resolve": "^15.0.0",
+        "@storybook/addon-docs": "^9.1.0",
+        "@storybook/addon-onboarding": "^9.1.0",
+        "@storybook/react": "^9.1.0",
+        "@storybook/react-vite": "^9.1.0",
+        "@types/react": "^18.2.0",
+        "@types/react-dom": "^18.2.0",
+        "autoprefixer": "^10.4.21",
+        "msw": "^2.0.0",
+        "postcss": "^8.5.6",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "rollup": "^4.46.2",
+        "rollup-plugin-postcss": "^4.0.2",
+        "rollup-plugin-typescript2": "^0.36.0",
+        "storybook": "^9.1.0",
+        "tailwindcss": "^3.0.0",
+        "tslib": "^2.6.0",
+        "typescript": "^5.2.2"
+    },
+    "scripts": {
+        "build": "rollup -c",
+        "dev": "rollup -c -w",
+        "type-check": "tsc --noEmit",
+        "storybook": "storybook dev -p 6006",
+        "build-storybook": "storybook build",
+        "deploy-storybook": "storybook-to-ghpages",
+        "format": "prettier --write \"../posthog/products/embedded-analytics-ui/src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+        "format:check": "prettier --check \"../posthog/products/embedded-analytics-ui/src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+        "test:visual": "playwright test",
+        "test:visual:update": "playwright test --update-snapshots"
+    }
+}
