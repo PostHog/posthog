@@ -470,7 +470,7 @@ class DashboardSerializer(DashboardBasicSerializer):
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
 
-        serialized_tiles = []
+        serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
             Prefetch(
@@ -507,7 +507,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             if settings.IN_UNIT_TESTING:
                 for order, tile in enumerate(sorted_tiles):
                     order, tile_data = serialize_tile_with_context(tile, order, self.context)
-                    serialized_tiles.append(tile_data)
+                    serialized_tiles.append(cast(ReturnDict, tile_data))
             else:
                 max_workers = min(len(sorted_tiles), 10)
 
@@ -517,12 +517,12 @@ class DashboardSerializer(DashboardBasicSerializer):
                         future = executor.submit(serialize_tile_with_context, tile, order, self.context)
                         futures.append(future)
 
-                    tile_results = [None] * len(sorted_tiles)
+                    tile_results: list[ReturnDict | None] = [None] * len(sorted_tiles)
                     for future in as_completed(futures):
                         order, tile_data = future.result()
-                        tile_results[order] = tile_data
+                        tile_results[order] = cast(ReturnDict, tile_data)
 
-                    serialized_tiles.extend(tile_results)
+                    serialized_tiles.extend([result for result in tile_results if result is not None])
 
         return serialized_tiles
 
