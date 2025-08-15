@@ -107,7 +107,9 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
-                    "bounce_table": "web_pre_aggregated_bounces" if self.use_v2_tables else "web_bounces_combined",
+                    "bounce_table": ast.Field(
+                        chain=["web_pre_aggregated_bounces" if self.use_v2_tables else "web_bounces_combined"]
+                    ),
                     "breakdown_value": ast.Call(
                         name="nullIf",
                         args=[self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])), ast.Constant(value="")],
@@ -149,13 +151,16 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {views_tuple} as `context.columns.views`,
                 any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
             FROM
-                web_stats_combined
+                {stats_table}
             LEFT JOIN ({bounce_subquery}) bounces
                 ON {join_condition}
             WHERE and({filters}, {breakdown_value} IS NOT NULL)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
+                    "stats_table": ast.Field(
+                        chain=["web_pre_aggregated_stats" if self.use_v2_tables else "web_stats_combined"]
+                    ),
                     "breakdown_value": ast.Call(
                         name="nullIf",
                         args=[self._apply_path_cleaning(ast.Field(chain=["pathname"])), ast.Constant(value="")],
@@ -212,7 +217,9 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
-                    "stats_table": "web_pre_aggregated_stats" if self.use_v2_tables else "web_stats_combined",
+                    "stats_table": ast.Field(
+                        chain=["web_pre_aggregated_stats" if self.use_v2_tables else "web_stats_combined"]
+                    ),
                     "breakdown_field": self._get_breakdown_field(),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
