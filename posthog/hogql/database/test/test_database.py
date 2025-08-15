@@ -1022,14 +1022,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
 
     def test_hogql_database_cache(self):
-        with patch("posthog.hogql.database.database.CACHE_TEST_OVERRIDE", True):
-            with patch("posthog.hogql.database.database.is_cache_enabled") as is_cache_enabled_mock:
-                is_cache_enabled_mock.return_value = True
-                with self.assertNumQueries(FuzzyInt(5, 7)):
-                    create_hogql_database(team=self.team)
+        with patch("posthog.models.cache.CACHE_TEST_OVERRIDE", True):
+            with self.assertNumQueries(FuzzyInt(5, 7)):
+                create_hogql_database(team=self.team)
 
-                with self.assertNumQueries(0):
-                    create_hogql_database(team=self.team)
+            with self.assertNumQueries(0):
+                create_hogql_database(team=self.team)
 
     def test_hogql_database_redis_error(self):
         create_hogql_database(team=self.team)
@@ -1045,7 +1043,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 create_hogql_database(team=self.team)
 
         # no more errors
-        with patch("posthog.hogql.database.database.CACHE_TEST_OVERRIDE", True):
+        with patch("posthog.models.cache.CACHE_TEST_OVERRIDE", True):
             with patch("posthog.hogql.database.database.is_cache_enabled") as is_cache_enabled_mock:
                 is_cache_enabled_mock.return_value = True
                 with self.assertNumQueries(5):

@@ -19,7 +19,7 @@ from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
-from posthog.models.cache import CachedQuerySet
+from posthog.models.cache import CacheManager, CachedQuerySet
 
 if TYPE_CHECKING:
     from random import Random
@@ -375,7 +375,7 @@ def validate_rate_limit(value):
         )
 
 
-class RootTeamQuerySet(models.QuerySet):
+class RootTeamQuerySet(CachedQuerySet):
     def filter(self, *args, **kwargs):
         from posthog.models.team import Team
         from django.db.models import Q, Subquery
@@ -392,16 +392,12 @@ class RootTeamQuerySet(models.QuerySet):
         return super().filter(*args, **kwargs)
 
 
-class RootTeamManager(models.Manager):
+class RootTeamManager(CacheManager):
     def get_queryset(self):
         return RootTeamQuerySet(self.model, using=self._db)
 
     def filter(self, *args, **kwargs):
         return self.get_queryset().filter(*args, **kwargs)
-
-
-class RootTeamManagerWithCache(RootTeamManager.from_queryset(CachedQuerySet)):
-    pass
 
 
 class RootTeamMixin(models.Model):
@@ -413,7 +409,7 @@ class RootTeamMixin(models.Model):
     # Set the default manager - any models that inherit from this mixin and set a custom
     # manager (e.g. `objects = CustomManager()`) will override this, so that custom manager
     # should inherit from RootTeamManager.
-    objects = RootTeamManagerWithCache()
+    objects = RootTeamManager()
 
     class Meta:
         abstract = True
