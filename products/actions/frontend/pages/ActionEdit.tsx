@@ -339,6 +339,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
 
                 <SceneSection
                     title="Match groups"
+                    className="@container"
                     description={
                         <>
                             Your action will be triggered whenever <b>any of your match groups</b> are received.
