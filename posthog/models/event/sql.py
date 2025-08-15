@@ -470,7 +470,7 @@ FROM
     events
 where team_id = %(team_id)s
 {conditions}
-ORDER BY timestamp {order} {limit}
+ORDER BY timestamp {order}, uuid {order} {limit}
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
@@ -488,7 +488,7 @@ WHERE
 team_id = %(team_id)s
 {conditions}
 {filters}
-ORDER BY timestamp {order} {limit}
+ORDER BY timestamp {order}, uuid {order} {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """

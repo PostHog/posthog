@@ -1,7 +1,5 @@
 import json
-import urllib
 import uuid
-from datetime import datetime
 from typing import Any, List, Optional, Union  # noqa: UP035
 from posthog.hogql.query import execute_hogql_query
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -13,7 +11,7 @@ from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
-from posthog.api.utils import action
+from posthog.api.utils import action, format_paginated_url
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.settings import api_settings
@@ -96,20 +94,6 @@ class EventViewSet(
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     pagination_class = UncountedLimitOffsetPagination
 
-    def _build_next_url(
-        self,
-        request: request.Request,
-        last_event_timestamp: datetime,
-        order_by: list[str],
-    ) -> str:
-        params = request.GET.dict()
-        reverse = "-timestamp" in order_by
-        timestamp = last_event_timestamp.astimezone().isoformat()
-        if reverse:
-            params["before"] = timestamp
-        else:
-            params["after"] = timestamp
-        return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
         description="""
@@ -216,7 +200,7 @@ class EventViewSet(
 
             next_url: Optional[str] = None
             if not is_csv_request and len(query_result) > limit:
-                next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
+                next_url = format_paginated_url(request, offset, limit)
             return response.Response({"next": next_url, "results": result})
 
         except Exception as ex:

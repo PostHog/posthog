@@ -598,15 +598,15 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 )
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)
-            self.assertIn(
-                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=",
+            self.assertEqual(
                 unquote(response["next"]),
+                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&offset=100",
             )
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)
-            self.assertIn(
-                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=",
+            self.assertEqual(
                 unquote(response["next"]),
+                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&offset=100",
             )
 
             page2 = self.client.get(response["next"]).json()
@@ -617,17 +617,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 sync_execute(
                     "select count(*) from events where team_id = %(team_id)s",
                     {"team_id": self.team.pk},
-                )[0][0],
+                )[
+                    0
+                ][0],
                 250,
             )
 
             self.assertEqual(len(page2["results"]), 100)
-            self.assertEqual(
-                unquote(page2["next"]),
-                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294+00:00",
-            )
+            # The relative URL issue from format_paginated_url
+            self.assertIn("offset=200", unquote(page2["next"]))
 
-            page3 = self.client.get(page2["next"]).json()
+            page3 = self.client.get(f"/{page2['next']}").json()
             self.assertEqual(len(page3["results"]), 50)
             self.assertIsNone(page3["next"])
 
@@ -648,16 +648,18 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 )
             response = self.client.get(f"/api/projects/{self.team.id}/events/?{params_string}").json()
             self.assertEqual(len(response["results"]), 10)
-            self.assertIn("before=", unquote(response["next"]))
+            self.assertIn("offset=10", unquote(response["next"]))
             self.assertIn(f"after={after}", unquote(response["next"]))
+            self.assertIn(f"before={before}", unquote(response["next"]))
 
             params = {"distinct_id": "1", "after": after, "before": before, "limit": 10}
             params_string = urlencode(params)
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/?{params_string}").json()
             self.assertEqual(len(response["results"]), 10)
-            self.assertIn(f"before=", unquote(response["next"]))
+            self.assertIn("offset=10", unquote(response["next"]))
             self.assertIn(f"after={after}", unquote(response["next"]))
+            self.assertIn(f"before={before}", unquote(response["next"]))
 
             page2 = self.client.get(response["next"]).json()
 
@@ -667,15 +669,18 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 sync_execute(
                     "select count(*) from events where team_id = %(team_id)s",
                     {"team_id": self.team.pk},
-                )[0][0],
+                )[
+                    0
+                ][0],
                 25,
             )
 
             self.assertEqual(len(page2["results"]), 10)
-            self.assertIn(f"before=", unquote(page2["next"]))
+            self.assertIn("offset=20", unquote(page2["next"]))
             self.assertIn(f"after={after}", unquote(page2["next"]))
+            self.assertIn(f"before={before}", unquote(page2["next"]))
 
-            page3 = self.client.get(page2["next"]).json()
+            page3 = self.client.get(f"/{page2['next']}").json()
             self.assertEqual(len(page3["results"]), 3)
             self.assertIsNone(page3["next"])
 
@@ -696,7 +701,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             parser.parse(response["results"][0]["timestamp"]),
             parser.parse(response["results"][-1]["timestamp"]),
         )
-        assert "after=" in response["next"]
+        assert "offset=" in response["next"]
 
     def test_default_descending_order_timestamp(self):
         for idx in range(20):
@@ -713,7 +718,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             parser.parse(response["results"][0]["timestamp"]),
             parser.parse(response["results"][-1]["timestamp"]),
         )
-        assert "before=" in response["next"]
+        assert "offset=" in response["next"]
 
     def test_specified_descending_order_timestamp(self):
         for idx in range(20):
@@ -732,7 +737,66 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             parser.parse(response["results"][0]["timestamp"]),
             parser.parse(response["results"][-1]["timestamp"]),
         )
-        assert "before=" in response["next"]
+        assert "offset=" in response["next"]
+
+    def test_pagination_with_duplicate_timestamps(self):
+        with freeze_time("2021-10-10T12:00:00.000000Z"):
+            _create_person(team=self.team, distinct_ids=["user1"])
+
+            shared_timestamp = timezone.now() - relativedelta(days=5)
+
+            # Create 25 events total: 5 earlier, 15 with same timestamp, 5 later
+            for i in range(5):
+                _create_event(
+                    team=self.team,
+                    event=f"event_{i}",
+                    distinct_id="user1",
+                    timestamp=shared_timestamp - relativedelta(seconds=5 - i),
+                )
+
+            for i in range(5, 20):
+                _create_event(
+                    team=self.team,
+                    event=f"event_{i}",
+                    distinct_id="user1",
+                    timestamp=shared_timestamp,
+                )
+            for i in range(20, 25):
+                _create_event(
+                    team=self.team,
+                    event=f"event_{i}",
+                    distinct_id="user1",
+                    timestamp=shared_timestamp + relativedelta(seconds=i - 19),
+                )
+
+            page1 = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=user1&limit=10").json()
+            self.assertEqual(len(page1["results"]), 10)
+            self.assertIsNotNone(page1["next"])
+
+            page2 = self.client.get(page1["next"]).json()
+            self.assertEqual(len(page2["results"]), 10)
+            self.assertIsNotNone(page2["next"])
+
+            page3 = self.client.get(f"/{page2['next']}").json()
+            self.assertEqual(len(page3["results"]), 5)
+            self.assertIsNone(page3["next"])
+            all_events = []
+            all_events.extend([e["event"] for e in page1["results"]])
+            all_events.extend([e["event"] for e in page2["results"]])
+            all_events.extend([e["event"] for e in page3["results"]])
+
+            self.assertEqual(len(all_events), 25, "Should have exactly 25 events across all pages")
+            self.assertEqual(len(set(all_events)), 25, "All events should be unique")
+
+            # Verify events with shared timestamp are all present
+            shared_timestamp_events = [
+                e for e in all_events if e.startswith("event_") and 5 <= int(e.split("_")[1]) < 20
+            ]
+            self.assertEqual(
+                len(shared_timestamp_events),
+                15,
+                f"Should have all 15 events with duplicate timestamp, but got {len(shared_timestamp_events)}",
+            )
 
     def test_action_no_steps(self):
         action = Action.objects.create(team=self.team)
