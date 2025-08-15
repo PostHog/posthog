@@ -91,6 +91,7 @@ import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
+import ErrorTrackingReleases from 'products/error_tracking/frontend/configuration/releases/ErrorTrackingReleases'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -440,6 +441,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
+            },
+            {
+                id: 'error-tracking-releases',
+                title: 'Releases',
+                component: <ErrorTrackingReleases />,
             },
             {
                 id: 'error-tracking-symbol-sets',

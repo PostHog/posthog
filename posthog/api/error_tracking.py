@@ -440,7 +440,11 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     serializer_class = ErrorTrackingReleaseSerializer
 
     def safely_get_queryset(self, queryset):
+        params = self.request.GET.dict()
+        order_by = params.get("orderBy")
         queryset = queryset.filter(team_id=self.team.id)
+        if order_by is not None:
+            queryset = queryset.order_by(order_by)
 
         return queryset
 
@@ -452,6 +456,11 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             raise ValueError(f"Hash id {hash_id} already in use")
 
         return hash_id
+
+    def destroy(self, request, *args, **kwargs):
+        symbol_set = self.get_object()
+        symbol_set.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def update(self, request, *args, **kwargs) -> Response:
         release = self.get_object()
