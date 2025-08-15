@@ -16,10 +16,8 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneName } from 'lib/components/Scenes/SceneName'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -57,7 +55,6 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
@@ -70,7 +67,13 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
+import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { NotebookNodeType } from 'scenes/notebooks/types'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
@@ -83,10 +86,6 @@ import {
     ItemMode,
     QueryBasedInsightModel,
 } from '~/types'
-import { NotebookNodeType } from 'scenes/notebooks/types'
-import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
-import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -100,7 +99,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } = useValues(
         insightLogic(insightLogicProps)
     )
-    const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
+    const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
+        insightLogic(insightLogicProps)
+    )
 
     // insightAlertsLogic
     const { loadAlerts } = useActions(
@@ -109,9 +110,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             insightId: insight.id as number,
         })
     )
-
-    // savedInsightsLogic
-    const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
     const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
@@ -180,6 +178,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
+                        userAccessLevel={insight.user_access_level}
                     />
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}
@@ -514,7 +513,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             object: insight as QueryBasedInsightModel,
                                                             endpoint: `projects/${currentProjectId}/insights`,
                                                             callback: () => {
-                                                                loadInsights()
+                                                                reloadSavedInsights()
                                                                 push(urls.savedInsights())
                                                             },
                                                         })
@@ -606,14 +605,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     </ScenePanelCommonActions>
                     <ScenePanelMetaInfo>
-                        <SceneName
+                        <SceneTextInput
+                            name="name"
                             defaultValue={defaultInsightName || ''}
                             onSave={(value) => setInsightMetadata({ name: value })}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEditInsight}
                         />
 
-                        <SceneDescription
+                        <SceneTextarea
+                            name="description"
                             defaultValue={insight.description || ''}
                             onSave={(value) => setInsightMetadata({ description: value })}
                             dataAttrKey={RESOURCE_TYPE}
@@ -858,7 +859,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     object: insight as QueryBasedInsightModel,
                                                     endpoint: `projects/${currentProjectId}/insights`,
                                                     callback: () => {
-                                                        loadInsights()
+                                                        reloadSavedInsights()
                                                         push(urls.savedInsights())
                                                     },
                                                 })

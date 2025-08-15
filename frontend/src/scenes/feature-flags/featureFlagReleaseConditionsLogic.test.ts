@@ -508,4 +508,74 @@ describe('the feature flag release conditions logic', () => {
             ])
         })
     })
+
+    describe('condition set descriptions', () => {
+        it('updates description for a condition set', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                {
+                    properties: [],
+                    rollout_percentage: 75,
+                    variant: null,
+                    sort_key: 'B',
+                    description: 'Initial description',
+                },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.updateConditionSet(0, undefined, undefined, undefined, 'New description for set 1')
+
+            expect(logic.values.filters.groups[0].description).toBe('New description for set 1')
+            expect(logic.values.filters.groups[1].description).toBe('Initial description')
+        })
+
+        it('clears description when set to empty string', () => {
+            const filters = generateFeatureFlagFilters([
+                {
+                    properties: [],
+                    rollout_percentage: 50,
+                    variant: null,
+                    sort_key: 'A',
+                    description: 'Existing description',
+                },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.updateConditionSet(0, undefined, undefined, undefined, '')
+
+            expect(logic.values.filters.groups[0].description).toBe(null)
+        })
+
+        it('preserves description when updating other properties', () => {
+            const filters = generateFeatureFlagFilters([
+                {
+                    properties: [],
+                    rollout_percentage: 50,
+                    variant: null,
+                    sort_key: 'A',
+                    description: 'My test condition',
+                },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.updateConditionSet(0, 75)
+            expect(logic.values.filters.groups[0].description).toBe('My test condition')
+            expect(logic.values.filters.groups[0].rollout_percentage).toBe(75)
+
+            logic.actions.updateConditionSet(0, undefined, undefined, 'variant-a')
+            expect(logic.values.filters.groups[0].description).toBe('My test condition')
+            expect(logic.values.filters.groups[0].variant).toBe('variant-a')
+
+            logic.actions.updateConditionSet(0, undefined, [
+                {
+                    key: 'email',
+                    type: PropertyFilterType.Person,
+                    value: 'test@example.com',
+                    operator: PropertyOperator.Exact,
+                },
+            ])
+            expect(logic.values.filters.groups[0].description).toBe('My test condition')
+            expect(logic.values.filters.groups[0].properties).toHaveLength(1)
+        })
+    })
 })

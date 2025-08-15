@@ -160,6 +160,8 @@ class TestQueryRunner(BaseTest):
                                 "static": None,
                             },
                             "revenueProperty": "revenue",
+                            "subscriptionDropoffDays": 45,
+                            "subscriptionProperty": "subscription",
                         }
                     ],
                 },

@@ -1,10 +1,12 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
-import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { NewSurvey } from 'scenes/surveys/constants'
+import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
+    QuestionProcessedResponses,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -12,6 +14,8 @@ import {
     SurveyEventProperties,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveyRates,
+    SurveyStats,
     SurveyType,
 } from '~/types'
 
@@ -101,6 +105,7 @@ export function sanitizeSurveyDisplayConditions(
         ...displayConditions,
         url: displayConditions.url?.trim(),
         selector: displayConditions.selector?.trim(),
+        linkedFlagVariant: displayConditions.linkedFlagVariant?.trim(),
     }
 }
 
@@ -285,40 +290,50 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
         // Create the condition for this filter
         let condition = ''
-        let escapedValue: string
-        let valueList: string
+        const escapedValue = escapeSqlString(String(filter.value))
 
         // Handle different operators
         switch (filter.operator) {
             case 'exact':
             case 'is_not':
                 if (Array.isArray(filter.value)) {
-                    valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
+                    const valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
                     condition = `(${getSurveyResponse(question, questionIndex)} ${
                         filter.operator === 'is_not' ? 'NOT IN' : 'IN'
                     } (${valueList}))`
                 } else {
-                    escapedValue = escapeSqlString(String(filter.value))
                     condition = `(${getSurveyResponse(question, questionIndex)} ${
                         filter.operator === 'is_not' ? '!=' : '='
                     } '${escapedValue}')`
                 }
                 break
             case 'icontains':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                } else {
+                    condition = `(arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             case 'not_icontains':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                } else {
+                    condition = `(NOT arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             case 'regex':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                } else {
+                    condition = `(arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             case 'not_regex':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                } else {
+                    condition = `(NOT arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             // Add more operators as needed
             default:
@@ -340,6 +355,60 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
 export function isSurveyRunning(survey: Survey): boolean {
     return !!(survey.start_date && !survey.end_date)
+}
+
+export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    if (!conditions) {
+        return false
+    }
+
+    // check string fields
+    if (conditions.url) {
+        return true
+    }
+
+    if (conditions.selector) {
+        return true
+    }
+
+    if (conditions.linkedFlagVariant) {
+        return true
+    }
+
+    // check numeric fields
+    if (conditions.seenSurveyWaitPeriodInDays !== undefined && conditions.seenSurveyWaitPeriodInDays !== null) {
+        return true
+    }
+
+    // check array fields
+    if (conditions.deviceTypes && conditions.deviceTypes.length > 0) {
+        return true
+    }
+
+    // check enum fields
+    if (conditions.urlMatchType !== undefined && conditions.urlMatchType !== null) {
+        return true
+    }
+
+    if (conditions.deviceTypesMatchType !== undefined && conditions.deviceTypesMatchType !== null) {
+        return true
+    }
+
+    // check complex object fields
+    if (conditions.actions && conditions.actions.values && conditions.actions.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events && conditions.events.values && conditions.events.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events?.repeatedActivation !== undefined && conditions.events.repeatedActivation !== null) {
+        return true
+    }
+
+    return false
 }
 
 export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
@@ -404,4 +473,36 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         questions: sanitizedQuestions,
         appearance: sanitizedAppearance,
     }
+}
+
+export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
+    const defaultRates: SurveyRates = {
+        response_rate: 0.0,
+        dismissal_rate: 0.0,
+        unique_users_response_rate: 0.0,
+        unique_users_dismissal_rate: 0.0,
+    }
+
+    if (!stats) {
+        return defaultRates
+    }
+
+    const shownCount = stats[SurveyEventName.SHOWN].total_count
+    if (shownCount > 0) {
+        const sentCount = stats[SurveyEventName.SENT].total_count
+        const dismissedCount = stats[SurveyEventName.DISMISSED].total_count
+        const uniqueUsersShownCount = stats[SurveyEventName.SHOWN].unique_persons
+        const uniqueUsersSentCount = stats[SurveyEventName.SENT].unique_persons
+        const uniqueUsersDismissedCount = stats[SurveyEventName.DISMISSED].unique_persons
+
+        return {
+            response_rate: parseFloat(((sentCount / shownCount) * 100).toFixed(2)),
+            dismissal_rate: parseFloat(((dismissedCount / shownCount) * 100).toFixed(2)),
+            unique_users_response_rate: parseFloat(((uniqueUsersSentCount / uniqueUsersShownCount) * 100).toFixed(2)),
+            unique_users_dismissal_rate: parseFloat(
+                ((uniqueUsersDismissedCount / uniqueUsersShownCount) * 100).toFixed(2)
+            ),
+        }
+    }
+    return defaultRates
 }

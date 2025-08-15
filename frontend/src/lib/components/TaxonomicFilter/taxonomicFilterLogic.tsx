@@ -619,11 +619,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Feature Flags',
                         searchPlaceholder: 'feature flags',
-                        type: TaxonomicFilterGroupType.FeatureFlags,
+                        type: TaxonomicFilterGroupType.FeatureFlags, // Feature flag dependencies
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
+                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.FeatureFlags],
                     },
                     {
                         name: 'Experiments',
@@ -944,7 +945,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             // Open the next tab if no results on an active tab.
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
             const onReplayTabWithSomeSearchResults =
-                values.activeTab === TaxonomicFilterGroupType.Replay && results.count > 0
+                values.activeTab === TaxonomicFilterGroupType.Replay && results.count > 0 && values.searchQuery
 
             if (activeTabHasNoResults || onReplayTabWithSomeSearchResults) {
                 actions.tabRight()

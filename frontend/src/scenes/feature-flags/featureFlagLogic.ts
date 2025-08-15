@@ -11,7 +11,6 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
@@ -19,7 +18,7 @@ import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
+import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -66,9 +65,10 @@ import {
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
+import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
-import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -288,8 +288,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['aggregationLabel'],
             userLogic,
             ['hasAvailableFeature'],
-            dashboardsLogic,
-            ['dashboards'],
+            dashboardsModel,
+            ['nameSortedDashboards as dashboards'],
             organizationLogic,
             ['currentOrganization'],
             enabledFeaturesLogic,
@@ -857,6 +857,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         intent_context: ProductIntentContext.SURVEY_CREATED,
                         metadata: {
                             survey_id: response.id,
+                            source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
                         },
                     })
                     return response

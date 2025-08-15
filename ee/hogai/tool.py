@@ -43,6 +43,17 @@ class search_insights(BaseModel):
     )
 
 
+class session_summarization(BaseModel):
+    """
+    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
+    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+    """
+
+    session_summarization_query: str = Field(
+        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
+    )
+
+
 class search_documentation(BaseModel):
     """
     Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
@@ -63,6 +74,7 @@ class search_documentation(BaseModel):
     - Wants to know more about PostHog the company
     - Has questions about incidents or system status
     - Has PostHog-related questions that don't match your other specialized tools
+    - Has disabled session replay and needs help turning it back on
 
     Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
     """
@@ -112,6 +124,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+    show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]
     _config: RunnableConfig

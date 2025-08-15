@@ -6,8 +6,10 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
+import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
+import { CdpAggregationWriterConsumer } from './cdp/consumers/cdp-aggregation-writer.consumer'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
@@ -26,7 +28,6 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { setupCommonRoutes, setupExpressApp } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -269,6 +270,13 @@ export class PluginServer {
             if (capabilities.cdpBehaviouralEvents) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpBehaviouralEventsConsumer(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+            if (capabilities.cdpAggregationWriter) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpAggregationWriterConsumer(hub)
                     await worker.start()
                     return worker.service
                 })

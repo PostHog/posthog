@@ -354,7 +354,7 @@ mod tests {
 
         match flag_service.verify_token(&token).await {
             Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
-            Err(e) => panic!("Failed to extract and verify token: {:?}", e),
+            Err(e) => panic!("Failed to extract and verify token: {e:?}"),
         };
     }
 

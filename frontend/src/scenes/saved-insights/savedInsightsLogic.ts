@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { dayjs } from 'lib/dayjs'
@@ -15,6 +15,9 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -45,6 +48,7 @@ export interface SavedInsightFilters {
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
+    events: string[] | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -59,13 +63,15 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         dateTo: values.dateTo || undefined,
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
+        events: values.events,
     }
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
+    tabAwareScene(),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -126,7 +132,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 // scroll to top if the page changed, except if changed via back/forward
                 if (
-                    sceneLogic.findMounted()?.values.activeScene === Scene.SavedInsights &&
+                    sceneLogic.findMounted()?.values.activeSceneId === Scene.SavedInsights &&
                     router.values.lastMethod !== 'POP' &&
                     values.insights.filters?.page !== filters.page
                 ) {
@@ -330,7 +336,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -342,7 +348,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
               ]
             | void => {
             const currentScene = sceneLogic.findMounted()?.values
-            if (currentScene?.activeScene === Scene.SavedInsights) {
+            if (currentScene?.activeSceneId === Scene.SavedInsights) {
                 const nextValues = cleanFilters(values.filters)
                 const urlValues = cleanFilters(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {
@@ -360,7 +366,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             setLayoutView: changeUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.savedInsights()]: async (
             _,
             { alert_id, ...searchParams }, // search params,

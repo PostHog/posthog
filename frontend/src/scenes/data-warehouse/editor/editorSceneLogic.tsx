@@ -58,7 +58,7 @@ export const renderTableCount = (count: undefined | number): null | JSX.Element 
     }
 
     return (
-        <span className="text-xs mr-1 italic text-[color:var(--text-secondary-3000)]">
+        <span className="text-xs mr-1 italic text-[color:var(--color-text-secondary-3000)]">
             {`(${new Intl.NumberFormat('en', {
                 notation: 'compact',
                 compactDisplay: 'short',
@@ -74,7 +74,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     connect(() => ({
         values: [
             sceneLogic,
-            ['activeScene', 'sceneParams'],
+            ['activeSceneId', 'sceneParams'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'initialDataWarehouseSavedQueryLoading'],
             databaseTableListLogic,
@@ -344,9 +344,9 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         activeListItemKey: [
-            (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams): [string, number] | null => {
-                return activeScene === Scene.SQLEditor && sceneParams.params.id
+            (s) => [s.activeSceneId, s.sceneParams],
+            (activeSceneId, sceneParams): [string, number] | null => {
+                return activeSceneId === Scene.SQLEditor && sceneParams.params.id
                     ? ['saved-queries', parseInt(sceneParams.params.id)]
                     : null
             },

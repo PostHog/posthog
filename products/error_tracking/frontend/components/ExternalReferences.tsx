@@ -1,4 +1,4 @@
-import { LemonDialog, LemonInput, LemonSkeleton, LemonTextArea, Link, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonTextArea, Link, LemonSelect } from '@posthog/lemon-ui'
 
 import { useActions, useValues } from 'kea'
 
@@ -21,6 +21,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { IconPlus } from '@posthog/icons'
 import api from 'lib/api'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 
 const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
 
@@ -32,7 +33,13 @@ export const ExternalReferences = (): JSX.Element | null => {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
     if (!issue || integrationsLoading) {
-        return <LemonSkeleton />
+        return (
+            <WrappingLoadingSkeleton fullWidth>
+                <ButtonPrimitive menuItem aria-hidden>
+                    Loading
+                </ButtonPrimitive>
+            </WrappingLoadingSkeleton>
+        )
     }
 
     const errorTrackingIntegrations = getIntegrationsByKind(ERROR_TRACKING_INTEGRATIONS)
@@ -126,8 +133,12 @@ export const ExternalReferences = (): JSX.Element | null => {
 
 function SetupIntegrationsButton(): JSX.Element {
     return (
-        <Link to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}>
-            <ButtonPrimitive fullWidth>Setup integrations</ButtonPrimitive>
+        <Link
+            to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}
+            buttonProps={{ variant: 'panel', fullWidth: true, menuItem: true }}
+            tooltip="Go to integrations configuration"
+        >
+            Setup integrations
         </Link>
     )
 }

@@ -1,4 +1,5 @@
 import {
+    IconCheck,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -17,7 +18,6 @@ import {
     LemonInput,
     LemonSkeleton,
     ProfilePicture,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -41,6 +41,7 @@ import {
     AssistantToolCallMessage,
     FailureMessage,
     VisualizationMessage,
+    NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
@@ -59,9 +60,12 @@ import {
     isHumanMessage,
     isReasoningMessage,
     isVisualizationMessage,
+    isNotebookUpdateMessage,
 } from './utils'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { MAX_SLASH_COMMANDS } from './components/SlashCommandAutocomplete'
+import { MAX_SLASH_COMMANDS } from './slash-commands'
+import { openNotebook } from '~/models/notebooksModel'
+import { NotebookTarget } from 'scenes/notebooks/types'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -144,7 +148,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
     const { tools } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
-    const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
+    const isEditingInsight = tools?.some((tool) => tool.identifier === 'create_and_query_insight')
 
     return (
         <MessageGroupContainer groupType={groupType}>
@@ -235,9 +239,12 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
-                                <div className="flex items-center gap-1.5">
-                                    <Spinner className="text-xl" />
-                                    <span>{message.content}…</span>
+                                <div className="flex items-center gap-2">
+                                    <img
+                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                    />
+                                    <span className="font-medium">{message.content}…</span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage
@@ -249,6 +256,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 ))}
                             </MessageTemplate>
                         )
+                    } else if (isNotebookUpdateMessage(message)) {
+                        return <NotebookUpdateAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })}
@@ -392,6 +401,30 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
                 </LemonButton>
             ))}
         </div>
+    )
+}
+
+interface NotebookUpdateAnswerProps {
+    message: NotebookUpdateMessage
+}
+
+function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Element {
+    const handleOpenNotebook = (): void => {
+        openNotebook(message.notebook_id, NotebookTarget.Scene)
+    }
+
+    return (
+        <MessageTemplate type="ai">
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                    <IconCheck className="text-success size-4" />
+                    <span>A notebook has been updated</span>
+                </div>
+                <LemonButton onClick={handleOpenNotebook} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                    Open notebook
+                </LemonButton>
+            </div>
+        </MessageTemplate>
     )
 }
 

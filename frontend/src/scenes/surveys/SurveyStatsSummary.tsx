@@ -206,6 +206,17 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
     )
 }
 
+function DemoStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 justify-between">
+                <h3 className="mb-0">Survey performance</h3>
+            </div>
+            <div className="flex flex-col gap-4">{children}</div>
+        </div>
+    )
+}
+
 function SurveyStatsSummarySkeleton(): JSX.Element {
     return (
         <SurveyStatsContainer>
@@ -234,6 +245,27 @@ function SurveyStatsSummarySkeleton(): JSX.Element {
     )
 }
 
+export function SurveyStatsSummaryWithData({
+    processedSurveyStats,
+    surveyRates,
+    isLoading = false,
+}: {
+    processedSurveyStats: SurveyStats
+    surveyRates: SurveyRates
+    isLoading?: boolean
+}): JSX.Element {
+    if (isLoading) {
+        return <SurveyStatsSummarySkeleton />
+    }
+
+    return (
+        <DemoStatsContainer>
+            <UsersCount stats={processedSurveyStats} rates={surveyRates} />
+            <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={true} />
+        </DemoStatsContainer>
+    )
+}
+
 export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Element {
     const {
         filterSurveyStatsByDistinctId,
@@ -257,10 +289,14 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
 
     return (
         <SurveyStatsContainer>
-            {filterSurveyStatsByDistinctId ? (
-                <UsersCount stats={processedSurveyStats} rates={surveyRates} />
-            ) : (
-                <ResponsesCount stats={processedSurveyStats} rates={surveyRates} />
+            {surveyRates && (
+                <>
+                    {filterSurveyStatsByDistinctId ? (
+                        <UsersCount stats={processedSurveyStats} rates={surveyRates} />
+                    ) : (
+                        <ResponsesCount stats={processedSurveyStats} rates={surveyRates} />
+                    )}
+                </>
             )}
             <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
         </SurveyStatsContainer>

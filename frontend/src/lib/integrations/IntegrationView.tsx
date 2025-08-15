@@ -1,39 +1,51 @@
-import { LemonBanner, Spinner, LemonButton, Tooltip } from '@posthog/lemon-ui'
-import api from 'lib/api'
+import { LemonBanner, Spinner, LemonButton } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { useActions, useValues } from 'kea'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useEffect } from 'react'
+import api from 'lib/api'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+import { integrationsLogic } from './integrationsLogic'
 
 export function IntegrationView({
     integration,
     suffix,
     schema,
-    isVerificationRequired,
-    isVerified,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
     schema?: CyclotronJobInputSchemaType
-    isVerificationRequired?: boolean
-    isVerified?: boolean
 }): JSX.Element {
+    const { deleteIntegration } = useActions(integrationsLogic)
+
     const errors = (integration.errors && integration.errors?.split(',')) || []
     const { githubRepositoriesLoading, getGitHubRepositories } = useValues(integrationsLogic)
     const { loadGitHubRepositories } = useActions(integrationsLogic)
-    
+
     const isGitHub = integration.kind === 'github'
     const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
-    
+
     useEffect(() => {
         if (isGitHub) {
             loadGitHubRepositories(integration.id)
         }
     }, [isGitHub, integration.id, loadGitHubRepositories])
+
+    suffix = suffix || (
+        <div className="flex flex-row gap-2">
+            <LemonButton
+                type="secondary"
+                status="danger"
+                onClick={() => deleteIntegration(integration.id)}
+                icon={<IconTrash />}
+            >
+                Disconnect
+            </LemonButton>
+        </div>
+    )
 
     return (
         <div className="rounded border bg-surface-primary">
@@ -45,19 +57,6 @@ export function IntegrationView({
                             <span>
                                 Connected to <strong>{integration.display_name}</strong>
                             </span>
-                            {isVerificationRequired && (
-                                <Tooltip
-                                    title={
-                                        isVerified
-                                            ? 'This channel is ready to use'
-                                            : 'You cannot send messages from this channel until it has been verified'
-                                    }
-                                >
-                                    <LemonTag type={isVerified ? 'success' : 'warning'}>
-                                        {isVerified ? 'Verified' : 'Unverified'}
-                                    </LemonTag>
-                                </Tooltip>
-                            )}
                         </div>
                         {integration.created_by ? (
                             <UserActivityIndicator
@@ -78,7 +77,8 @@ export function IntegrationView({
                                     <div className="flex items-center gap-2">
                                         <div className="text-xs text-muted">
                                             <IconBranch className="inline mr-1" />
-                                            {repositories.length} repositor{repositories.length === 1 ? 'y' : 'ies'}: {repositories.join(', ')}
+                                            {repositories.length} repositor{repositories.length === 1 ? 'y' : 'ies'}:{' '}
+                                            {repositories.join(', ')}
                                         </div>
                                         <LemonButton
                                             size="xsmall"
@@ -87,7 +87,10 @@ export function IntegrationView({
                                             onClick={() => {
                                                 const installationId = integration.config?.installation_id
                                                 if (installationId) {
-                                                    window.open(`https://github.com/settings/installations/${installationId}`, '_blank')
+                                                    window.open(
+                                                        `https://github.com/settings/installations/${installationId}`,
+                                                        '_blank'
+                                                    )
                                                 }
                                             }}
                                             tooltip="Manage repository access on GitHub"
@@ -106,7 +109,10 @@ export function IntegrationView({
                                             onClick={() => {
                                                 const installationId = integration.config?.installation_id
                                                 if (installationId) {
-                                                    window.open(`https://github.com/settings/installations/${installationId}`, '_blank')
+                                                    window.open(
+                                                        `https://github.com/settings/installations/${installationId}`,
+                                                        '_blank'
+                                                    )
                                                 }
                                             }}
                                             tooltip="Configure repository access"

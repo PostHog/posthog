@@ -118,7 +118,7 @@ dependencies = [
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
     "stripe==12.2.0",
-    "structlog==23.2.0",
+    "structlog==25.4.0",
     "temporalio==1.14.1",
     "tenacity==9.1.2",
     "tiktoken==0.9.*",
@@ -155,6 +155,8 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
     "asgiref==3.8.1",
     "claude-code-sdk>=0.0.14",
+    "django-mcp-server==0.5.6",
+    "django-admin-inline-paginator===0.4.0",
 ]
 
 [dependency-groups]
@@ -166,6 +168,7 @@ dev = [
     "braintrust==0.2.0",
     "braintrust-langchain==0.0.2",
     "datamodel-code-generator==0.28.5",
+    "deepdiff>=8.5.0",
     "django-linear-migrations==2.16.*",
     "django-stubs==5.0.4",
     "djangorestframework-stubs~=3.14.5",

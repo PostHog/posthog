@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.sharing import shared_url_as_png
+from posthog.constants import AvailableFeature
 from posthog.models import ExportedAsset, ActivityLog
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
@@ -120,11 +121,11 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
 
         assert response.json()["is_shared"]
-        assert ActivityLog.objects.count() == 0
+        assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
-        assert ActivityLog.objects.count() == 0
+        assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
@@ -142,7 +143,8 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert data["enabled"] is False
 
-        assert [x.activity for x in list(ActivityLog.objects.order_by("created_at"))] == [
+        insight_logs = ActivityLog.objects.filter(scope="Insight").order_by("created_at")
+        assert [x.activity for x in list(insight_logs)] == [
             "sharing enabled",
             "exported for opengraph image",
             "sharing disabled",
@@ -910,3 +912,27 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
             "detailed": True,
         }
         assert data["settings"] == expected_settings
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_shared_resource_blocked_when_organization_disallows_public_sharing(self, _patched_exporter_task: Mock):
+        """Test that shared resources return 404 when organization.allow_publicly_shared_resources is False and feature is enabled"""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"},
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        access_token = response.json()["access_token"]
+
+        response = self.client.get(f"/shared/{access_token}")
+        assert response.status_code == 200
+
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+
+        response = self.client.get(f"/shared/{access_token}")
+        assert response.status_code == 404

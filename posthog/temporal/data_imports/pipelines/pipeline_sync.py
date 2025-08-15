@@ -22,8 +22,8 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
@@ -47,7 +47,7 @@ class PipelineInputs:
     run_id: str
     schema_id: uuid.UUID
     dataset_name: str
-    job_type: ExternalDataSource.Type
+    job_type: ExternalDataSourceType
     team_id: int
 
 

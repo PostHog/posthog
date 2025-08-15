@@ -63,7 +63,7 @@ func NewPostHogKafkaConsumer(
 		"security.protocol":          securityProtocol,
 		"fetch.message.max.bytes":    1_000_000_000,
 		"fetch.max.bytes":            1_000_000_000,
-		"queued.max.messages.kbytes": 1_000_000,
+		"queued.max.messages.kbytes": 2_000_000,
 	}
 
 	consumer, err := kafka.NewConsumer(config)
@@ -75,7 +75,7 @@ func NewPostHogKafkaConsumer(
 		consumer:     consumer,
 		topic:        topic,
 		geolocator:   geolocator,
-		incoming:     make(chan []byte, (1+parallel)*10),
+		incoming:     make(chan []byte, (1+parallel)*100),
 		outgoingChan: outgoingChan,
 		statsChan:    statsChan,
 		parallel:     parallel,
@@ -184,4 +184,8 @@ func (c *PostHogKafkaConsumer) Close() {
 		log.Printf("Failed to close consumer: %v", err)
 	}
 	close(c.incoming)
+}
+
+func (c *PostHogKafkaConsumer) IncomingRatio() float64 {
+	return float64(len(c.incoming)) / float64(cap(c.incoming))
 }

@@ -18,10 +18,6 @@ export interface GroupsListLogicProps {
 
 const INITIAL_SORTING = [] as string[]
 const INITIAL_GROUPS_FILTER = [] as GroupPropertyFilter[]
-const persistConfig = (groupTypeIndex: GroupTypeIndex): { persist: boolean; prefix: string } => ({
-    persist: true,
-    prefix: `${window.POSTHOG_APP_CONTEXT?.current_team?.id}__group_${groupTypeIndex}__`,
-})
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
@@ -42,7 +38,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
         setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
         setGroupFilters: (filters: GroupPropertyFilter[]) => ({ filters }),
     })),
-    reducers(({ props }) => ({
+    reducers(() => ({
         query: [
             (_: any, props: GroupsListLogicProps) =>
                 ({
@@ -61,7 +57,6 @@ export const groupsListLogic = kea<groupsListLogicType>([
         ],
         groupFilters: [
             INITIAL_GROUPS_FILTER,
-            persistConfig(props.groupTypeIndex),
             {
                 setGroupFilters: (_, { filters }) => filters,
                 setQuery: (state, { query }) => {
@@ -74,7 +69,6 @@ export const groupsListLogic = kea<groupsListLogicType>([
         ],
         sorting: [
             INITIAL_SORTING,
-            persistConfig(props.groupTypeIndex),
             {
                 setQuery: (state, { query }) => {
                     if (query.source.kind === NodeKind.GroupsQuery && query.source.orderBy !== undefined) {
