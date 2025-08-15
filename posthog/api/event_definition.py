@@ -307,6 +307,6 @@ def fetch_30day_event_queries(
 
     total = results[0][0] if results else 0
 
-    cache.set(cache_key, total, timeout=24 * 60 * 60)
+    cache.set(cache_key, total, timeout=24 * 60 * 60)  # 24 hours
 
     return total
