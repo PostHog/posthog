@@ -446,9 +446,9 @@ class OrganizationInviteContext(ActivityContextBase):
     organization_id: str
     organization_name: str
     target_email: str
-    inviter_user_id: str
-    inviter_user_email: str
-    inviter_user_name: str
+    inviter_user_id: Optional[str]
+    inviter_user_email: Optional[str]
+    inviter_user_name: Optional[str]
     level: str
 
 
@@ -508,20 +508,23 @@ def handle_organization_invite_change(
         return
 
     inviter_user = invite.created_by
-    inviter_name = f"{inviter_user.first_name} {inviter_user.last_name}".strip()
+    inviter_name = f"{inviter_user.first_name} {inviter_user.last_name}".strip() if inviter_user else None
 
     context = OrganizationInviteContext(
         organization_id=str(invite.organization_id),
         organization_name=invite.organization.name,
-        target_email=invite.target_email or "",
-        inviter_user_id=str(inviter_user.id),
-        inviter_user_email=inviter_user.email,
+        target_email=invite.target_email,
+        inviter_user_id=str(inviter_user.id) if inviter_user else None,
+        inviter_user_email=inviter_user.email if inviter_user else None,
         inviter_user_name=inviter_name,
         level=str(OrganizationMembership.Level(invite.level).label),
     )
 
     if activity == "created":
-        detail_name = f"User {inviter_name} ({inviter_user.email}) invited user {invite.target_email} into organization {invite.organization.name}"
+        if inviter_user:
+            detail_name = f"User {inviter_name} ({inviter_user.email}) invited user {invite.target_email} into organization {invite.organization.name}"
+        else:
+            detail_name = f"User {invite.target_email} was invited to organization {invite.organization.name}"
     elif activity == "deleted":
         detail_name = f"Invite for {invite.target_email} to organization {invite.organization.name} was cancelled"
     else:

@@ -283,7 +283,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         assert log is not None
         self.assertEqual(log.activity, "deleted")
         self.assertEqual(log.item_id, invite_id)
-        self.assertIn("revoked", log.detail["name"])
+        self.assertIn("cancelled", log.detail["name"])
         self.assertIn("delete-invitee@example.com", log.detail["name"])
 
         context = log.detail.get("context", {})

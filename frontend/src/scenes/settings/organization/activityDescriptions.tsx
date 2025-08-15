@@ -162,13 +162,14 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
     const targetEmail = context?.target_email || ''
     const organizationName = context?.organization_name || 'the organization'
     const level = context?.level || 'member'
+    const inviterName = context?.inviter_user_name || userNameForLogItem(logItem) || 'System'
 
     if (logItem.activity == 'created') {
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> sent an invitation to <strong>{targetEmail}</strong>{' '}
-                    to join organization {nameOrLinkToOrganization(organizationName)} as <strong>{level}</strong>
+                    <strong>{inviterName}</strong> sent an invitation to <strong>{targetEmail}</strong> to join
+                    organization {nameOrLinkToOrganization(organizationName)} as <strong>{level}</strong>
                 </>
             ),
         }
@@ -178,8 +179,8 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> revoked the invitation for{' '}
-                    <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
+                    <strong>{inviterName}</strong> revoked the invitation for <strong>{targetEmail}</strong> to join
+                    organization {nameOrLinkToOrganization(organizationName)}
                 </>
             ),
         }
@@ -199,7 +200,7 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> {changeDescription} for the invitation sent to{' '}
+                        <strong>{inviterName}</strong> {changeDescription} for the invitation sent to{' '}
                         <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
                     </>
                 ),
@@ -208,9 +209,9 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> updated{' '}
-                        <strong>{changes.length} settings</strong> for the invitation sent to{' '}
-                        <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
+                        <strong>{inviterName}</strong> updated <strong>{changes.length} settings</strong> for the
+                        invitation sent to <strong>{targetEmail}</strong> to join organization{' '}
+                        {nameOrLinkToOrganization(organizationName)}
                     </>
                 ),
             }
