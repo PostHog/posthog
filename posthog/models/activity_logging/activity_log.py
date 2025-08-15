@@ -142,6 +142,10 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return {
                 "id": obj.id,
                 "short_id": obj.short_id,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
+            return {
+                "id": obj.id,
                 "name": obj.name,
                 "team_id": obj.team_id,
             }

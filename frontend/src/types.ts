@@ -4588,6 +4588,8 @@ export enum ActivityScope {
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
+    TAG = 'Tag',
+    TAGGED_ITEM = 'TaggedItem',
 }
 
 export type CommentType = {
