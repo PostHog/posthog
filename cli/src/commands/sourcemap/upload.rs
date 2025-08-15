@@ -172,10 +172,10 @@ fn start_upload(
 
     let res = client
         .post(&start_upload_url)
-        .header("Authorization", format!("Bearer {}", auth_token))
+        .header("Authorization", format!("Bearer {auth_token}"))
         .json(&request)
         .send()
-        .context(format!("While starting upload to {}", start_upload_url))?;
+        .context(format!("While starting upload to {start_upload_url}"))?;
 
     if !res.status().is_success() {
         bail!("Failed to start upload: {:?}", res);
@@ -195,10 +195,7 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
         let part = Part::bytes(data.clone());
         form = form.part("file", part);
 
-        let res = client
-            .post(&presigned_url.url)
-            .multipart(form)
-            .send();
+        let res = client.post(&presigned_url.url).multipart(form).send();
 
         match res {
             Result::Ok(resp) if resp.status().is_success() => {
@@ -212,7 +209,10 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
             }
         }
         if attempt < 3 {
-            warn!("Upload attempt {} failed, retrying in {:?}...", attempt, delay);
+            warn!(
+                "Upload attempt {} failed, retrying in {:?}...",
+                attempt, delay
+            );
             std::thread::sleep(delay);
             delay *= 2;
         }
@@ -231,11 +231,11 @@ fn finish_upload(
 
     let res = client
         .post(finish_upload_url)
-        .header("Authorization", format!("Bearer {}", auth_token))
+        .header("Authorization", format!("Bearer {auth_token}"))
         .header("Content-Type", "application/json")
         .json(&request)
         .send()
-        .context(format!("While finishing upload to {}", base_url))?;
+        .context(format!("While finishing upload to {base_url}"))?;
 
     if !res.status().is_success() {
         bail!("Failed to finish upload: {:?}", res);

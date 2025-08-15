@@ -25,7 +25,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     get_funnel_actor_class,
     use_udf,
 )
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Team
 from posthog.models.property.util import get_property_string_expr
 from posthog.queries.util import correct_result_for_sampling
@@ -83,7 +83,7 @@ class EventContingencyTable:
 PRIOR_COUNT = 1
 
 
-class FunnelCorrelationQueryRunner(QueryRunner):
+class FunnelCorrelationQueryRunner(AnalyticsQueryRunner):
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
     ELEMENTS_DIVIDER = "__~~__"
     AUTOCAPTURE_EVENT_TYPE = "$event_type"
@@ -145,7 +145,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
 
-    def calculate(self) -> FunnelCorrelationResponse:
+    def _calculate(self) -> FunnelCorrelationResponse:
         """
         Funnel Correlation queries take as input the same as the funnel query,
         and returns the correlation of person events with a person successfully
@@ -214,7 +214,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
             )
 
-        events, skewed_totals, hogql, response = self._calculate()
+        events, skewed_totals, hogql, response = self._calculate_internal()
 
         return FunnelCorrelationResponse(
             results=FunnelCorrelationResult(
@@ -231,7 +231,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-    def _calculate(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
+    def _calculate_internal(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
         query = self.to_query()
 
         hogql = to_printed_hogql(query, self.team)
