@@ -686,7 +686,7 @@ class GroupUsageMetricDetailCreateSerializer(serializers.ModelSerializer):
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "group"
     queryset = GroupUsageMetric.objects.all()
-    serializers = {
+    serializer_classes = {
         "list": GroupUsageMetricSerializer,
         "retrieve": GroupUsageMetricDetailCreateSerializer,
         "create": GroupUsageMetricDetailCreateSerializer,
@@ -695,7 +695,7 @@ class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     }
 
     def get_serializer_class(self):
-        return self.serializers.get(self.action, self.serializers["default"])
+        return self.serializer_classes.get(self.action, self.serializer_classes["default"])
 
     def perform_create(self, serializer):
         serializer.save(team=self.team, group_type_index=self.parents_query_dict["group_type_index"])
