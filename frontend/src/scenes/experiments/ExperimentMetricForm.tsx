@@ -155,19 +155,16 @@ export function ExperimentMetricForm({
 
     const metricFilter = getFilter(metric)
 
-    useEffect(
-        () => {
-            loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
-        },
+    // dependencies for the loadEventCount useEffect call
+    const meanSource = isExperimentMeanMetric(metric) ? metric.source : null
+    const funnelSeries = isExperimentFunnelMetric(metric) ? metric.series : null
+    const ratioNumerator = isExperimentRatioMetric(metric) ? metric.numerator : null
+    const ratioDenominator = isExperimentRatioMetric(metric) ? metric.denominator : null
+
+    useEffect(() => {
+        loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [
-            metric.metric_type,
-            isExperimentMeanMetric(metric) ? metric.source : null,
-            isExperimentFunnelMetric(metric) ? metric.series : null,
-            isExperimentRatioMetric(metric) ? metric.numerator : null,
-            filterTestAccounts,
-        ]
-    )
+    }, [metric.metric_type, meanSource, funnelSeries, ratioNumerator, ratioDenominator, filterTestAccounts])
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
