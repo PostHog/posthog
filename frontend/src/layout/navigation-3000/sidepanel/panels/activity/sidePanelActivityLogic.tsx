@@ -11,6 +11,7 @@ import { ActivityScope, UserBasicType } from '~/types'
 // ActivityScope values that should not appear in dropdowns
 const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
     ActivityScope.TAGGED_ITEM, // Handled under ActivityScope.TAG
+    ActivityScope.ORGANIZATION_MEMBERSHIP, // Handled under ActivityScope.ORGANIZATION
 ]
 
 const getVisibleActivityScopes = (): ActivityScope[] => {

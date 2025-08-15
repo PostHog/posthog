@@ -4585,6 +4585,7 @@ export enum ActivityScope {
     COHORT = 'Cohort',
     TEAM = 'Team',
     ORGANIZATION = 'Organization',
+    ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',

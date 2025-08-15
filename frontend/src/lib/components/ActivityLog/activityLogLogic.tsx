@@ -39,6 +39,7 @@ import type { activityLogLogicType } from './activityLogLogicType'
 // Define which scopes should be expanded to include multiple scopes
 const SCOPE_EXPANSIONS: Partial<Record<ActivityScope, ActivityScope[]>> = {
     [ActivityScope.TAG]: [ActivityScope.TAG, ActivityScope.TAGGED_ITEM],
+    [ActivityScope.ORGANIZATION]: [ActivityScope.ORGANIZATION, ActivityScope.ORGANIZATION_MEMBERSHIP],
 }
 
 export const activityLogTransforms = {
@@ -115,6 +116,7 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.TEAM:
             return teamActivityDescriber
         case ActivityScope.ORGANIZATION:
+        case ActivityScope.ORGANIZATION_MEMBERSHIP:
             return organizationActivityDescriber
         case ActivityScope.SURVEY:
             return surveyActivityDescriber
