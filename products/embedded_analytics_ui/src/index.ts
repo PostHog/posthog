@@ -31,7 +31,7 @@ export {
 } from './types/schemas'
 
 // Utility functions
-export { cn, formatNumber, formatChangePercentage, getTooltipContent, getChartColors } from './utils'
+export { cn, formatNumber, formatChangePercentage, getTooltipContent } from './utils'
 
 // Styles (consumers will need to import this)
 import './styles/globals.css'

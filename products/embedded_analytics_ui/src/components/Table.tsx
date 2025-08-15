@@ -7,7 +7,7 @@ import { cn } from '../utils'
 import { formatNumber } from '../utils'
 import type { TableResponse, TableColumn, TableRow, ErrorResponse } from '../types/schemas'
 
-interface TableProps {
+export interface TableProps {
     response?: TableResponse
     loading?: boolean
     error?: ErrorResponse
@@ -116,7 +116,7 @@ function TableRowComponent({ row, columns, onClick }: TableRowProps): ReactNode 
                     )}
                     style={
                         index === 0 && row.fillRatio != null && row.fillRatio > 0
-                            ? ({ '--fill-ratio': row.fillRatio } as React.CSSProperties)
+                            ? ({ '--ph-embed-fill-ratio': row.fillRatio } as React.CSSProperties)
                             : undefined
                     }
                 >
@@ -324,5 +324,3 @@ export function Table({
         </div>
     )
 }
-
-export type { TableProps }
