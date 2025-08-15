@@ -476,12 +476,14 @@ export const surveyLogic = kea<surveyLogicType>([
         editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
             idx: number,
+            surveyQuestion: SurveyQuestion,
             type: SurveyQuestionType,
             isEditingQuestion: boolean,
             isEditingDescription: boolean,
             isEditingThankYouMessage: boolean
         ) => ({
             idx,
+            surveyQuestion,
             type,
             isEditingQuestion,
             isEditingDescription,
@@ -1026,20 +1028,27 @@ export const surveyLogic = kea<surveyLogicType>([
             {
                 setDefaultForQuestionType: (
                     state,
-                    { idx, type, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
+                    { idx, type, surveyQuestion, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
                 ) => {
                     const question = isEditingQuestion
-                        ? state.questions[idx].question
+                        ? surveyQuestion.question
                         : defaultSurveyFieldValues[type].questions[0].question
                     const description = isEditingDescription
-                        ? state.questions[idx].description
+                        ? surveyQuestion.description
                         : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
                         ? state.appearance?.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
+
+                    const q = {
+                        ...surveyQuestion,
+                    }
+                    if (q.type === SurveyQuestionType.MultipleChoice || q.type === SurveyQuestionType.SingleChoice) {
+                        delete q.hasOpenChoice
+                    }
                     newQuestions[idx] = {
-                        ...state.questions[idx],
+                        ...q,
                         ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
                         question,
                         description,
