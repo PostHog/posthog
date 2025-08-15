@@ -620,8 +620,14 @@ export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLega
 export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
     let series: AnyEntityNode[] = []
 
-    if (metric.metric_type === ExperimentMetricType.MEAN) {
-        const source = metric.source
+    if (metric.metric_type === ExperimentMetricType.MEAN || metric.metric_type === ExperimentMetricType.RATIO) {
+        let source: ExperimentMetricSource
+        // For now, we simplify things by just showing the number of numerator events for ratio metrics
+        if (metric.metric_type === ExperimentMetricType.RATIO) {
+            source = metric.numerator
+        } else {
+            source = metric.source
+        }
         if (source.kind === NodeKind.EventsNode) {
             series = [
                 {
@@ -683,48 +689,6 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
                     },
                 ]
             }
-        }
-    } else if (metric.metric_type === ExperimentMetricType.RATIO) {
-        // For ratio metrics, count events from both numerator and denominator
-        // We'll use the numerator for counting since that's what we're measuring
-        const numerator = metric.numerator
-        if (numerator.kind === NodeKind.EventsNode) {
-            series = [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: numerator.event || undefined,
-                    event: numerator.event || undefined,
-                    math: ExperimentMetricMathType.TotalCount,
-                    ...(numerator.properties &&
-                        numerator.properties.length > 0 && { properties: numerator.properties }),
-                },
-            ]
-        } else if (numerator.kind === NodeKind.ActionsNode) {
-            series = [
-                {
-                    kind: NodeKind.ActionsNode,
-                    id: numerator.id,
-                    name: numerator.name,
-                    math: ExperimentMetricMathType.TotalCount,
-                    ...(numerator.properties &&
-                        numerator.properties.length > 0 && { properties: numerator.properties }),
-                },
-            ]
-        } else if (numerator.kind === NodeKind.ExperimentDataWarehouseNode) {
-            series = [
-                {
-                    kind: NodeKind.DataWarehouseNode,
-                    id: numerator.table_name,
-                    id_field: numerator.data_warehouse_join_key,
-                    table_name: numerator.table_name,
-                    timestamp_field: numerator.timestamp_field,
-                    distinct_id_field: numerator.events_join_key,
-                    name: numerator.name,
-                    math: ExperimentMetricMathType.TotalCount,
-                    ...(numerator.properties &&
-                        numerator.properties.length > 0 && { properties: numerator.properties }),
-                },
-            ]
         }
     }
 
