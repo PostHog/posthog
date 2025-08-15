@@ -1,13 +1,15 @@
 import { IconAsterisk, IconGlobe } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { XRayHog2 } from 'lib/components/hedgehogs'
+import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { pageReportsLogic } from './pageReportsLogic'
+import { PageEventsTable } from './PageEventsTable'
 import { Tiles } from './WebAnalyticsDashboard'
 import { WebAnalyticsCompareFilter } from './WebAnalyticsFilters'
 
@@ -29,8 +31,9 @@ function NoUrlSelectedMessage(): JSX.Element {
 }
 
 export function PageReportsFilters(): JSX.Element {
-    const { pagesUrls, pageUrl, isLoading, stripQueryParams, dateFilter } = useValues(pageReportsLogic)
-    const { setPageUrl, setPageUrlSearchTerm, toggleStripQueryParams, loadPages, setDates } =
+    const { pagesUrls, pageUrl, isLoading, stripQueryParams, dateFilter, pathCleaningFilters } =
+        useValues(pageReportsLogic)
+    const { setPageUrl, setPageUrlSearchTerm, toggleStripQueryParams, loadPages, setDates, setPathCleaningFilters } =
         useActions(pageReportsLogic)
 
     const options = pagesUrls.map((option: { url: string; count: number }) => ({
@@ -74,12 +77,37 @@ export function PageReportsFilters(): JSX.Element {
                 <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
                 <WebAnalyticsCompareFilter />
             </div>
+
+            {pathCleaningFilters.length > 0 && (
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'path-cleaning',
+                            header: `Path cleaning rules (${pathCleaningFilters.length})`,
+                            content: (
+                                <div className="pt-2">
+                                    <PathCleanFilters
+                                        filters={pathCleaningFilters}
+                                        setFilters={setPathCleaningFilters}
+                                    />
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
+            )}
+
+            {pathCleaningFilters.length === 0 && (
+                <div className="text-xs text-muted">
+                    <PathCleanFilters filters={pathCleaningFilters} setFilters={setPathCleaningFilters} />
+                </div>
+            )}
         </div>
     )
 }
 
 export function PageReports(): JSX.Element {
-    const { hasPageUrl, tiles } = useValues(pageReportsLogic)
+    const { hasPageUrl, tiles, pageUrl } = useValues(pageReportsLogic)
 
     if (!hasPageUrl) {
         return (
@@ -90,8 +118,13 @@ export function PageReports(): JSX.Element {
     }
 
     return (
-        <div className="space-y-2 mt-2 h-full min-h-0">
+        <div className="space-y-4 mt-2 h-full min-h-0">
             <Tiles tiles={tiles} compact={true} />
+
+            {/* Activity List Section */}
+            <div className="border border-border rounded-lg p-4">
+                <PageEventsTable pageUrl={pageUrl!} />
+            </div>
         </div>
     )
 }

@@ -15,6 +15,7 @@ import {
     BaseMathType,
     ChartDisplayType,
     InsightLogicProps,
+    PathCleaningFilter,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -42,18 +43,57 @@ export interface PageURLSearchResult {
 }
 
 /**
- * Creates a property filter for URL matching that handles query parameters consistently
+ * Creates property filters for pathname and host matching that leverages optimized web analytics tables
  * @param url The URL to match
  * @param stripQueryParams Whether to strip query parameters
- * @returns A property filter object for the URL
+ * @returns Array of property filters for pathname and optionally host
+ */
+export function createPathnamePropertyFilters(url: string, stripQueryParams: boolean): AnyPropertyFilter[] {
+    try {
+        const urlObj = new URL(url)
+        const pathname = urlObj.pathname
+        const host = urlObj.host
+
+        const filters: AnyPropertyFilter[] = [
+            {
+                key: '$pathname',
+                value: pathname,
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ]
+
+        // Add host filter to ensure we match the correct domain
+        if (host) {
+            filters.push({
+                key: '$host',
+                value: host,
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            })
+        }
+
+        return filters
+    } catch {
+        // Fallback to the old behavior if URL parsing fails
+        return [
+            {
+                key: '$current_url',
+                value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
+                operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ]
+    }
+}
+
+/**
+ * Legacy function for backward compatibility
+ * @deprecated Use createPathnamePropertyFilters instead
  */
 export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): AnyPropertyFilter {
-    return {
-        key: '$current_url',
-        value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
-        operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
-        type: PropertyFilterType.Event,
-    }
+    const filters = createPathnamePropertyFilters(url, stripQueryParams)
+    return filters[0] // Return the first filter for backward compatibility
 }
 
 export const pageReportsLogic = kea<pageReportsLogicType>({
@@ -73,6 +113,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             tileId,
             visualization,
         }),
+        setPathCleaningFilters: (filters: PathCleaningFilter[]) => ({ filters }),
     }),
 
     reducers: () => ({
@@ -118,6 +159,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
             },
         ],
+        pathCleaningFilters: [
+            [] as PathCleaningFilter[],
+            { persist: true },
+            {
+                setPathCleaningFilters: (_state, { filters }) => filters,
+            },
+        ],
     }),
 
     loaders: ({ values }) => ({
@@ -156,13 +204,21 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
         queries: [
-            (s) => [s.webAnalyticsTiles, s.pageUrl, s.stripQueryParams, s.dateFilter, s.shouldFilterTestAccounts],
+            (s) => [
+                s.webAnalyticsTiles,
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.pathCleaningFilters,
+            ],
             (
                 webAnalyticsTiles: WebAnalyticsTile[],
                 pageUrl: string | null,
                 stripQueryParams: boolean,
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                shouldFilterTestAccounts: boolean
+                shouldFilterTestAccounts: boolean,
+                pathCleaningFilters: PathCleaningFilter[]
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
@@ -192,9 +248,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     if (query && 'source' in query && query.source) {
                         const modifiedQuery = JSON.parse(JSON.stringify(query))
 
-                        // Find and update the $current_url property filter
+                        // Find and update the property filters with pathname + host approach
                         if (modifiedQuery.source.properties) {
-                            modifiedQuery.source.properties = [createUrlPropertyFilter(pageUrl, stripQueryParams)]
+                            modifiedQuery.source.properties = createPathnamePropertyFilters(pageUrl, stripQueryParams)
+                        }
+
+                        // Enable path cleaning if filters are configured
+                        if (pathCleaningFilters.length > 0) {
+                            modifiedQuery.source.doPathCleaning = true
+                            modifiedQuery.source.pathCleaningFilters = pathCleaningFilters
                         }
 
                         return modifiedQuery
@@ -204,43 +266,50 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }
 
                 // Enforcing the type to be QuerySchema so we can build it in a type-safe way
-                const getTopEventsQuery = (): QuerySchema | undefined => ({
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        series: [
-                            {
-                                kind: NodeKind.EventsNode,
-                                event: null,
-                                name: 'All events',
-                                math: BaseMathType.TotalCount,
-                            },
-                        ],
-                        trendsFilter: {},
-                        breakdownFilter: {
-                            breakdowns: [
+                const getTopEventsQuery = (): QuerySchema | undefined => {
+                    const baseQuery = {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [
                                 {
-                                    property: 'event',
-                                    type: 'event_metadata',
+                                    kind: NodeKind.EventsNode,
+                                    event: null,
+                                    name: 'All events',
+                                    math: BaseMathType.TotalCount,
                                 },
                             ],
-                        },
-                        properties: [
-                            ...(pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : []),
-                            {
-                                key: 'event',
-                                value: ['$pageview', '$pageleave'],
-                                operator: PropertyOperator.IsNot,
-                                type: PropertyFilterType.EventMetadata,
+                            trendsFilter: {},
+                            breakdownFilter: {
+                                breakdowns: [
+                                    {
+                                        property: 'event',
+                                        type: 'event_metadata',
+                                    },
+                                ],
                             },
-                        ],
-                        filterTestAccounts: shouldFilterTestAccounts,
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                    },
-                    embedded: true,
-                    hidePersonsModal: true,
-                })
+                            properties: [
+                                ...(pageUrl ? createPathnamePropertyFilters(pageUrl, stripQueryParams) : []),
+                                {
+                                    key: 'event',
+                                    value: ['$pageview', '$pageleave'],
+                                    operator: PropertyOperator.IsNot,
+                                    type: PropertyFilterType.EventMetadata,
+                                },
+                            ],
+                            filterTestAccounts: shouldFilterTestAccounts,
+                            dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                            tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            ...(pathCleaningFilters.length > 0 && {
+                                doPathCleaning: true,
+                                pathCleaningFilters: pathCleaningFilters,
+                            }),
+                        },
+                        embedded: true,
+                        hidePersonsModal: true,
+                    }
+                    return baseQuery
+                }
 
                 return {
                     // Path queries
@@ -278,8 +347,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
-            (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
+            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts, s.pathCleaningFilters],
+            (
+                    pageUrl: string | null,
+                    stripQueryParams: boolean,
+                    shouldFilterTestAccounts: boolean,
+                    pathCleaningFilters: PathCleaningFilter[]
+                ) =>
                 (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
@@ -314,8 +388,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             showLegend: true,
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
-                        properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
+                        properties: pageUrl ? createPathnamePropertyFilters(pageUrl, stripQueryParams) : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        ...(pathCleaningFilters.length > 0 && {
+                            doPathCleaning: true,
+                            pathCleaningFilters: pathCleaningFilters,
+                        }),
                     },
                     hidePersonsModal: true,
                     embedded: true,
