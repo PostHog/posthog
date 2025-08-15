@@ -431,6 +431,21 @@ def fetch_teams(conn, last_sync: Optional[datetime] = None, batch_size: int = 10
     return rows
 
 
+def handle_array_fields(row: dict, array_fields: list[str]) -> None:
+    """Handle array fields that might be None or contain None elements.
+
+    Args:
+        row: The data row to process (modified in place)
+        array_fields: List of field names that should be arrays
+    """
+    for field in array_fields:
+        if row.get(field) is None:
+            row[field] = []
+        elif isinstance(row[field], list):
+            # Filter out None values from the array
+            row[field] = [item for item in row[field] if item is not None]
+
+
 def transform_organization_row(row: dict) -> dict:
     """Transform a Postgres organization row for ClickHouse insertion."""
     # Convert UUID fields to strings for ClickHouse
@@ -464,6 +479,9 @@ def transform_organization_row(row: dict) -> dict:
     for field in bool_fields:
         if row.get(field) is not None:
             row[field] = 1 if row[field] else 0
+
+    # Handle array fields
+    handle_array_fields(row, ["domain_whitelist"])
 
     return row
 
@@ -542,11 +560,8 @@ def transform_team_row(row: dict) -> dict:
     if row.get("drop_events_older_than") is not None:
         row["drop_events_older_than"] = int(row["drop_events_older_than"].total_seconds())
 
-    # Handle array fields that might be None
-    array_fields = ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"]
-    for field in array_fields:
-        if row.get(field) is None:
-            row[field] = []
+    # Handle array fields
+    handle_array_fields(row, ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"])
 
     return row
 
