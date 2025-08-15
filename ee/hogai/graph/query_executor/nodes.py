@@ -15,7 +15,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
+from ee.hogai.graph.base import AssistantNode
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,

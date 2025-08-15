@@ -14,6 +14,7 @@ from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
     AssistantMessage,
     AssistantToolCallMessage,
     FailureMessage,
@@ -36,6 +37,7 @@ AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGeneration
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
+    | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusType]
 )
 
 
@@ -113,11 +115,7 @@ class BaseState(BaseModel):
         return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
 
-class _SharedAssistantState(BaseState):
-    """
-    The state of the root node.
-    """
-
+class BaseStateWithMessages(BaseState):
     start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
@@ -126,11 +124,24 @@ class _SharedAssistantState(BaseState):
     """
     Whether the graph was interrupted or resumed.
     """
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
+    """
+    Messages exposed to the user.
+    """
 
-    intermediate_steps: Optional[Sequence[IntermediateStep]] = Field(default=None)
+
+class BaseStateWithIntermediateSteps(BaseState):
+    intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
     """
     Actions taken by the query planner agent.
     """
+
+
+class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateSteps):
+    """
+    The state of the root node.
+    """
+
     plan: Optional[str] = Field(default=None)
     """
     The insight generation plan.
@@ -200,10 +211,7 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Sequence[AssistantMessageUnion] = Field(default=[])
-    """
-    Messages exposed to the user.
-    """
+    pass
 
 
 class AssistantNodeName(StrEnum):

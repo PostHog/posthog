@@ -38,7 +38,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
+from ee.hogai.graph.base import AssistantNode
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,

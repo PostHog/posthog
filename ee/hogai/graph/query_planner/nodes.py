@@ -11,6 +11,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field, ValidationError, create_model
 
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
@@ -28,7 +30,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
 from .prompts import (
     ACTIONS_EXPLANATION_PROMPT,
     EVENT_DEFINITIONS_PROMPT,
@@ -51,7 +52,9 @@ from .toolkit import (
 )
 
 
-class QueryPlannerNode(AssistantNode):
+class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
+    REASONING_MESSAGE = "Picking relevant events and properties"
+
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
         # Create Literal type with actual entity names

@@ -12,3 +12,7 @@ MaxNodeName = AssistantNodeName | TaxonomyNodeName
 MaxGraphState = AssistantState | TaxonomyAgentState
 
 MaxPartialGraphState = PartialAssistantState | TaxonomyAgentState
+
+# States that support messages
+MaxGraphStateWithMessages = AssistantState
+MaxPartialGraphStateWithMessages = PartialAssistantState

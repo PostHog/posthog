@@ -22,7 +22,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
+from ee.hogai.graph.base import AssistantNode
 from .parsers import (
     PydanticOutputParserException,
     parse_pydantic_structured_output,
