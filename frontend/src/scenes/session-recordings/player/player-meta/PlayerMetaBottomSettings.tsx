@@ -12,6 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { humanFriendlyDuration } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     SettingsBar,
     SettingsButton,
@@ -92,26 +93,42 @@ function InspectDOM(): JSX.Element {
 
 function Screenshot(): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO]) {
+        return (
+            <SettingsMenu
+                icon={<IconLlmPromptEvaluation />}
+                data-attr="replay-screenshot"
+                items={[
+                    {
+                        label: <div className="flex w-full deprecated-space-x-2 justify-between">PNG</div>,
+                        onClick: () => takeScreenshot(ExporterFormat.PNG),
+                        'data-attr': 'replay-screenshot-png',
+                    },
+                    {
+                        label: <div className="flex w-full deprecated-space-x-2 justify-between">GIF (5 sec)</div>,
+                        onClick: () => takeScreenshot(ExporterFormat.GIF),
+                        'data-attr': 'replay-screenshot-gif',
+                    },
+                    {
+                        label: <div className="flex w-full deprecated-space-x-2 justify-between">MP4 (5 sec)</div>,
+                        onClick: () => takeScreenshot(ExporterFormat.MP4),
+                        'data-attr': 'replay-screenshot-mp4',
+                    },
+                ]}
+                label="Screenshot"
+            />
+        )
+    }
 
     return (
-        <SettingsMenu
-            icon={<IconLlmPromptEvaluation />}
-            data-attr="replay-screenshot"
-            items={[
-                {
-                    label: <div className="flex w-full deprecated-space-x-2 justify-between">PNG</div>,
-                    onClick: () => takeScreenshot(ExporterFormat.PNG),
-                },
-                {
-                    label: <div className="flex w-full deprecated-space-x-2 justify-between">GIF (5 sec)</div>,
-                    onClick: () => takeScreenshot(ExporterFormat.GIF),
-                },
-                {
-                    label: <div className="flex w-full deprecated-space-x-2 justify-between">MP4 (5 sec)</div>,
-                    onClick: () => takeScreenshot(ExporterFormat.MP4),
-                },
-            ]}
+        <SettingsButton
+            title="Take a screenshot of the current frame"
             label="Screenshot"
+            data-attr="replay-screenshot"
+            onClick={() => takeScreenshot(ExporterFormat.PNG)}
+            icon={<IconLlmPromptEvaluation />}
         />
     )
 }

@@ -33,15 +33,15 @@ export const exportsLogic = kea<exportsLogicType>([
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
         startReplayExport: (
             sessionRecordingId: string,
+            format?: ExporterFormat,
             timestamp?: number,
             options?: {
                 width?: number
                 height?: number
                 css_selector?: string
                 filename?: string
-            },
-            format?: ExporterFormat
-        ) => ({ sessionRecordingId, timestamp, options, format }),
+            }
+        ) => ({ sessionRecordingId, format, timestamp, options }),
     }),
 
     connect(() => ({
@@ -120,7 +120,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 lemonToast.error('Cohort save failed')
             }
         },
-        startReplayExport: async ({ sessionRecordingId, timestamp, options, format = ExporterFormat.PNG }) => {
+        startReplayExport: async ({ sessionRecordingId, format = ExporterFormat.PNG, timestamp, options }) => {
             const exportData: TriggerExportProps = {
                 export_format: format,
                 export_context: {
