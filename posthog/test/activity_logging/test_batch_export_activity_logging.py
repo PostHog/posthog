@@ -47,190 +47,112 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         self.assertIn("BatchExport", get_args(ActivityScope))
 
     def test_batch_export_integration_test(self):
-        """Integration test to verify the basic setup works"""
-        # This is a minimal test to ensure no errors in the setup
         from posthog.models.activity_logging.utils import activity_storage
 
-        # Set user context
         activity_storage.set_user(self.user)
-
         try:
-            # Create a batch export
-            destination = self.create_test_destination()
-            batch_export = BatchExport.objects.create(
-                team=self.team, name="Integration Test Export", destination=destination, interval="hour", paused=False
-            )
+            batch_export = self.create_batch_export(name="Integration Test Export")
+            self.assertIsNotNone(batch_export["id"])
 
-            # Test basic model functionality
-            self.assertIsNotNone(batch_export.id)
-            self.assertEqual(batch_export.team, self.team)
-            self.assertEqual(batch_export.name, "Integration Test Export")
-
-            # Update the batch export to test update signals
-            batch_export.paused = True
-            batch_export.name = "Updated Integration Test Export"
-            batch_export.save()
-
-            # Test that we can update the interval
-            batch_export.interval = "day"
-            batch_export.save()
-
-            # The test passes if no exceptions are raised during save operations
-
+            self.update_batch_export(batch_export["id"], {"paused": True, "name": "Updated Export"})
+            self.update_batch_export(batch_export["id"], {"interval": "day"})
         finally:
             activity_storage.clear_user()
 
     def test_batch_export_status_changes(self):
-        """Test various status changes on batch exports"""
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
-
         try:
-            destination = self.create_test_destination()
-            batch_export = BatchExport.objects.create(
-                team=self.team, name="Status Test Export", destination=destination, interval="hour", paused=False
+            batch_export = self.create_batch_export(name="Status Test Export", paused=False)
+
+            self.update_batch_export(batch_export["id"], {"paused": True})
+            self.update_batch_export(batch_export["id"], {"paused": False})
+            self.update_batch_export(batch_export["id"], {"model": "persons"})
+            self.update_batch_export(
+                batch_export["id"], {"schema": [{"alias": "test", "table": "events", "fields": ["event"]}]}
             )
-
-            # Test pause
-            batch_export.paused = True
-            batch_export.save()
-
-            # Test resume
-            batch_export.paused = False
-            batch_export.save()
-
-            # Test model change
-            batch_export.model = "persons"
-            batch_export.save()
-
-            # Test schema change
-            batch_export.schema = [{"alias": "test", "table": "events", "fields": ["event"]}]
-            batch_export.save()
-
-            # All operations should complete without errors
-
         finally:
             activity_storage.clear_user()
 
     def test_batch_export_signal_handler_create(self):
-        """Test that the signal handler works for batch export creation"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
-
         try:
             initial_count = ActivityLog.objects.count()
 
-            # Create a batch export
-            destination = self.create_test_destination()
-            batch_export = BatchExport.objects.create(
-                team=self.team, name="Signal Test Export", destination=destination, interval="hour"
-            )
+            batch_export = self.create_batch_export(name="Signal Test Export")
 
-            # Check that activity log was created
-            new_count = ActivityLog.objects.count()
-            self.assertEqual(new_count, initial_count + 1)
+            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
 
-            # Get the activity log entry
             activity_log = ActivityLog.objects.filter(
-                scope="BatchExport", activity="created", item_id=str(batch_export.id)
+                scope="BatchExport", activity="created", item_id=batch_export["id"]
             ).first()
 
             self.assertIsNotNone(activity_log)
-            assert activity_log is not None  # For mypy
+            assert activity_log is not None
             self.assertEqual(activity_log.user, self.user)
             self.assertEqual(activity_log.team_id, self.team.id)
             self.assertEqual(activity_log.organization_id, self.team.organization_id)
 
-            # Check that context is populated
-            self.assertIsNotNone(activity_log.detail)
-            assert activity_log.detail is not None  # For mypy
+            assert activity_log.detail is not None
             context = activity_log.detail.get("context")
             self.assertIsNotNone(context)
             self.assertEqual(context["name"], "Signal Test Export")
             self.assertEqual(context["destination_type"], "HTTP")
             self.assertEqual(context["interval"], "hour")
-
         finally:
             activity_storage.clear_user()
 
     def test_batch_export_signal_handler_update(self):
-        """Test that the signal handler works for batch export updates"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
-
         try:
-            # Create a batch export first
-            destination = self.create_test_destination()
-            batch_export = BatchExport.objects.create(
-                team=self.team, name="Update Test Export", destination=destination, interval="hour"
-            )
-
+            batch_export = self.create_batch_export(name="Update Test Export")
             initial_count = ActivityLog.objects.count()
 
-            # Update the batch export
-            batch_export.name = "Updated Test Export"
-            batch_export.interval = "day"
-            batch_export.save()
+            self.update_batch_export(batch_export["id"], {"name": "Updated Test Export", "interval": "day"})
 
-            # Check that activity log was created for the update
-            new_count = ActivityLog.objects.count()
-            self.assertEqual(new_count, initial_count + 1)
+            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
 
-            # Get the update activity log entry
             activity_log = ActivityLog.objects.filter(
-                scope="BatchExport", activity="updated", item_id=str(batch_export.id)
+                scope="BatchExport", activity="updated", item_id=batch_export["id"]
             ).first()
 
             self.assertIsNotNone(activity_log)
-            assert activity_log is not None  # For mypy
+            assert activity_log is not None
             self.assertEqual(activity_log.user, self.user)
 
-            # Check that changes are recorded
-            assert activity_log.detail is not None  # For mypy
+            assert activity_log.detail is not None
             changes = activity_log.detail.get("changes", [])
             self.assertTrue(len(changes) > 0)
-
         finally:
             activity_storage.clear_user()
 
     def test_batch_export_signal_handler_delete(self):
-        """Test that the signal handler works for batch export deletion"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
-
         try:
-            # Create a batch export first
-            destination = self.create_test_destination()
-            batch_export = BatchExport.objects.create(
-                team=self.team, name="Delete Test Export", destination=destination, interval="hour"
-            )
-            batch_export_id = batch_export.id
-
-            # Get initial count AFTER creation (since creation also generates an activity log)
+            batch_export = self.create_batch_export(name="Delete Test Export")
+            batch_export_id = batch_export["id"]
             initial_count = ActivityLog.objects.count()
 
-            # Delete the batch export
-            batch_export.delete()
+            self.delete_batch_export(batch_export_id)
 
-            # Check that activity log was created for the deletion
-            new_count = ActivityLog.objects.count()
-            self.assertEqual(new_count, initial_count + 1)
+            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
 
-            # Get the delete activity log entry
             activity_log = ActivityLog.objects.filter(
-                scope="BatchExport", activity="deleted", item_id=str(batch_export_id)
+                scope="BatchExport", activity="deleted", item_id=batch_export_id
             ).first()
 
             self.assertIsNotNone(activity_log)
-            assert activity_log is not None  # For mypy
+            assert activity_log is not None
             self.assertEqual(activity_log.user, self.user)
-
         finally:
             activity_storage.clear_user()

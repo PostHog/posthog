@@ -51,149 +51,97 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
         self.assertIn("import_config", batch_import_masked)
 
     def test_batch_import_integration_test(self):
-        """Integration test to verify the basic setup works"""
-        # This is a minimal test to ensure no errors in the setup
         from posthog.models.activity_logging.utils import activity_storage
 
-        # Set user context
         activity_storage.set_user(self.user)
-
         try:
-            # Create a batch import
-            batch_import = BatchImport.objects.create(
-                team=self.team, created_by_id=self.user.id, import_config={"source": {"type": "test"}}, secrets="{}"
-            )
+            batch_import = self.create_batch_import()
+            self.assertIsNotNone(batch_import["id"])
 
-            # Test basic model functionality
-            self.assertIsNotNone(batch_import.id)
-            self.assertEqual(batch_import.team, self.team)
-
-            # Update the batch import to test update signals
-            batch_import.status = BatchImport.Status.COMPLETED
-            batch_import.save()
-
-            # The test passes if no exceptions are raised during save operations
-
+            self.update_batch_import(batch_import["id"], {"status": "completed"})
         finally:
             activity_storage.clear_user()
 
     def test_batch_import_signal_handler_create(self):
-        """Test that the signal handler works for batch import creation"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
-
         try:
             initial_count = ActivityLog.objects.count()
 
-            # Create a batch import
-            batch_import = BatchImport.objects.create(
-                team=self.team,
-                created_by_id=self.user.id,
-                import_config={"source": {"type": "s3"}, "data_format": {"content": {"type": "mixpanel"}}},
-                secrets="{}",
+            batch_import = self.create_batch_import(
+                import_config={"source": {"type": "s3"}, "data_format": {"content": {"type": "mixpanel"}}}
             )
 
-            # Check that activity log was created
-            new_count = ActivityLog.objects.count()
-            self.assertEqual(new_count, initial_count + 1)
+            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
 
-            # Get the activity log entry
             activity_log = ActivityLog.objects.filter(
-                scope="BatchImport", activity="created", item_id=str(batch_import.id)
+                scope="BatchImport", activity="created", item_id=batch_import["id"]
             ).first()
 
             self.assertIsNotNone(activity_log)
-            assert activity_log is not None  # For mypy
+            assert activity_log is not None
             self.assertEqual(activity_log.user, self.user)
             self.assertEqual(activity_log.team_id, self.team.id)
             self.assertEqual(activity_log.organization_id, self.team.organization_id)
 
-            # Check that context is populated
-            self.assertIsNotNone(activity_log.detail)
-            assert activity_log.detail is not None  # For mypy
+            assert activity_log.detail is not None
             context = activity_log.detail.get("context")
             self.assertIsNotNone(context)
             self.assertEqual(context["source_type"], "s3")
             self.assertEqual(context["content_type"], "mixpanel")
             self.assertEqual(context["created_by_user_id"], str(self.user.id))
-
         finally:
             activity_storage.clear_user()
 
     def test_batch_import_signal_handler_update(self):
-        """Test that the signal handler works for batch import updates"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
-
         try:
-            # Create a batch import first
-            batch_import = BatchImport.objects.create(
-                team=self.team, created_by_id=self.user.id, import_config={"source": {"type": "test"}}, secrets="{}"
-            )
-
+            batch_import = self.create_batch_import()
             initial_count = ActivityLog.objects.count()
 
-            # Update the batch import
-            batch_import.status = BatchImport.Status.COMPLETED
-            batch_import.save()
+            self.update_batch_import(batch_import["id"], {"status": "completed"})
 
-            # Check that activity log was created for the update
-            new_count = ActivityLog.objects.count()
-            self.assertEqual(new_count, initial_count + 1)
+            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
 
-            # Get the update activity log entry
             activity_log = ActivityLog.objects.filter(
-                scope="BatchImport", activity="updated", item_id=str(batch_import.id)
+                scope="BatchImport", activity="updated", item_id=batch_import["id"]
             ).first()
 
             self.assertIsNotNone(activity_log)
-            assert activity_log is not None  # For mypy
+            assert activity_log is not None
             self.assertEqual(activity_log.user, self.user)
 
-            # Check that changes are recorded
-            assert activity_log.detail is not None  # For mypy
+            assert activity_log.detail is not None
             changes = activity_log.detail.get("changes", [])
             self.assertTrue(len(changes) > 0)
-
         finally:
             activity_storage.clear_user()
 
     def test_batch_import_signal_handler_delete(self):
-        """Test that the signal handler works for batch import deletion"""
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
-
         try:
-            # Create a batch import first
-            batch_import = BatchImport.objects.create(
-                team=self.team, created_by_id=self.user.id, import_config={"source": {"type": "test"}}, secrets="{}"
-            )
-            batch_import_id = batch_import.id
-
-            # Get initial count AFTER creation (since creation also generates an activity log)
+            batch_import = self.create_batch_import()
+            batch_import_id = batch_import["id"]
             initial_count = ActivityLog.objects.count()
 
-            # Delete the batch import
-            batch_import.delete()
+            self.delete_batch_import(batch_import_id)
 
-            # Check that activity log was created for the deletion
-            new_count = ActivityLog.objects.count()
-            self.assertEqual(new_count, initial_count + 1)
+            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
 
-            # Get the delete activity log entry
             activity_log = ActivityLog.objects.filter(
-                scope="BatchImport", activity="deleted", item_id=str(batch_import_id)
+                scope="BatchImport", activity="deleted", item_id=batch_import_id
             ).first()
 
             self.assertIsNotNone(activity_log)
-            assert activity_log is not None  # For mypy
+            assert activity_log is not None
             self.assertEqual(activity_log.user, self.user)
-
         finally:
             activity_storage.clear_user()
