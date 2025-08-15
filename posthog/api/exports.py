@@ -154,8 +154,12 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     )
 
                 import asyncio
+                import threading
 
-                asyncio.run(_start())
+                def _spawn_workflow():
+                    asyncio.run(_start())
+
+                threading.Thread(target=_spawn_workflow, daemon=True).start()
             else:
                 exporter.export_asset(instance.id)
         else:
