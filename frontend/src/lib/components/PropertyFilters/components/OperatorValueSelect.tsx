@@ -138,7 +138,7 @@ export function OperatorValueSelect({
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
         const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
-            return !operatorAllowlist || operatorAllowlist.includes(op as PropertyOperator)
+            return !operatorAllowlist || operatorAllowlist.includes(op)
         })
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
