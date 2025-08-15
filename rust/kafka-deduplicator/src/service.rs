@@ -88,7 +88,7 @@ impl KafkaDeduplicatorService {
         let kafka_consumer = StatefulKafkaConsumer::from_config(
             &consumer_config,
             rebalance_handler,
-            (*self.processor).clone(),
+            self.processor.clone(),
             self.config.max_in_flight_messages,
             self.config.commit_interval(),
             shutdown_rx,

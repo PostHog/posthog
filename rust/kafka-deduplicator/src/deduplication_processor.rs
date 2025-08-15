@@ -134,7 +134,8 @@ impl DeduplicationProcessor {
         // Event is not a duplicate, publish to output topic
         match &self.producer {
             Some(producer) => {
-                let output_topic = self.config.output_topic.as_ref().unwrap();
+                let output_topic = self.config.output_topic.as_ref()
+                    .expect("output_topic must exist when producer is Some");
                 return self
                     .publish_event(producer, raw_event, key, output_topic)
                     .await;
@@ -212,8 +213,8 @@ impl MessageProcessor for DeduplicationProcessor {
                     "Failed to parse event from {}:{} offset {}: {}",
                     topic, partition, offset, e
                 );
-                // Still ack the message to avoid reprocessing
-                message.ack().await;
+                // Nack the message so it can be handled by error recovery/DLQ
+                message.nack(format!("Failed to parse JSON: {}", e)).await;
                 return Err(anyhow::anyhow!("Failed to parse event from {}:{} offset {}: {}", topic, partition, offset, e));
             }
         };

@@ -388,7 +388,7 @@ async fn test_deduplication_persistence() -> Result<()> {
     produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_b", 1, timestamp).await?;
     produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_a", 1, timestamp).await?; // Duplicate!
 
-    println!("Produced 5 total events (3 unique, 2 duplicates)");
+    println!("Produced 3 events in first batch");
 
     // First processor instance - process first 3 messages
     {
@@ -437,6 +437,8 @@ async fn test_deduplication_persistence() -> Result<()> {
     // Batch 2: 2 events (event_c unique, event_b duplicate)
     produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_c", 1, timestamp).await?;
     produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_b", 1, timestamp).await?; // Duplicate!
+    
+    println!("Produced 2 more events in second batch (5 total events: 3 unique, 2 duplicates)");
 
     println!("Starting second processor instance with same store path");
 
