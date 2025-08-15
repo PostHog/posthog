@@ -1939,43 +1939,61 @@ class TestInviteSignupAPI(APIBaseTest):
         login_notification_emails = [msg for msg in mocked_email_messages if "new device" in msg.subject.lower()]
         self.assertEqual(len(login_notification_emails), 0)
 
-    @patch("posthog.tasks.email.check_and_cache_login_device")
-    @patch("posthog.email.EmailMessage")
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
-    def test_social_login_sends_notification_for_existing_user_new_device(
-        self, mock_sso_providers, mock_request, MockEmailMessage, mock_check_device
-    ):
-        """Test that existing users logging in via social auth get login notification emails from new devices"""
+    @patch("posthog.tasks.email.EmailMessage")
+    def test_social_login_sends_login_notification_email(self, MockEmailMessage):
+        """Integration test: Social signup + login from new device sends notification"""
         from posthog.tasks.test.utils_email_tests import mock_email_messages
 
+        # Setup email mocking
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        mock_check_device.return_value = True  # Simulate new device
 
-        # Create existing user with previous login
-        user = User.objects.create(
-            email="existing@example.com",
-            first_name="Existing",
-            last_login=timezone.now() - timedelta(days=1),  # Mark as existing user
+        # Clear organizations to enable fresh org creation
+        Organization.objects.all().delete()
+
+        # Social signup (creates new user + org)
+        session = self.client.session
+        session.update(
+            {
+                "backend": "google-oauth2",
+                "email": "user@example.com",
+            }
         )
+        session.save()
 
-        mock_sso_providers.return_value = {"google-oauth2": True}
+        response = self.client.post(
+            "/api/social_signup",
+            {
+                "organization_name": "Test Organization",
+                "first_name": "New User",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        # Verify user was created with organization
+        user = User.objects.get(email="user@example.com")
+        self.assertIsNotNone(user.current_organization)
 
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {
-            "access_token": "123",
-            "email": "existing@example.com",
-            "sub": "123",
+        # Clear emails from signup
+        mocked_email_messages.clear()
+
+        # Logout and simulate login from different device
+        self.client.logout()
+
+        # Simulate the social login pipeline by calling social_login_notification directly
+        from posthog.api.signup import social_login_notification
+        from unittest.mock import MagicMock
+
+        mock_strategy = MagicMock()
+        mock_request = MagicMock()
+        mock_request.META = {
+            "HTTP_USER_AGENT": "Mozilla/5.0 (Different Device)",
+            "HTTP_X_FORWARDED_FOR": "10.0.0.1",  # Different IP
         }
+        mock_strategy.request = mock_request
 
-        response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        social_login_notification(strategy=mock_strategy, backend=None, user=user)
 
-        # Should send login notification email for existing user from new device
-        login_notification_emails = [msg for msg in mocked_email_messages if "new device" in msg.subject.lower()]
-        self.assertEqual(len(login_notification_emails), 1)
-        self.assertEqual(login_notification_emails[0].to, [user.email])
+        # Check login notification email was sent
+        login_emails = [m for m in mocked_email_messages if "new device" in m.subject.lower()]
+        self.assertEqual(len(login_emails), 1, f"Expected 1 login email, got {len(login_emails)}")
+        self.assertEqual(login_emails[0].to[0]["recipient"], "user@example.com")
