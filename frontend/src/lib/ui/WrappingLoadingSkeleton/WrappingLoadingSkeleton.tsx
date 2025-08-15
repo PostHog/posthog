@@ -15,7 +15,7 @@ export function WrappingLoadingSkeleton({ children, fullWidth = false }: Wrappin
             aria-hidden
             data-attr="wrapping-loading-skeleton"
         >
-            {children}
+            <span>{children}</span>
         </div>
     )
 }

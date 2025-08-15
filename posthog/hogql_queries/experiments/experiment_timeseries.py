@@ -353,7 +353,15 @@ class ExperimentTimeseries:
                     alias="num_users",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[ast.Field(chain=["combined_daily", "daily_new_users"])],
+                        args=[
+                            ast.Call(
+                                name="coalesce",
+                                args=[
+                                    ast.Field(chain=["combined_daily", "daily_new_users"]),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["combined_daily", "variant"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["combined_daily", "date"]))],
@@ -373,7 +381,15 @@ class ExperimentTimeseries:
                     alias="total_sum",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[ast.Field(chain=["combined_daily", "daily_metric_sum"])],
+                        args=[
+                            ast.Call(
+                                name="coalesce",
+                                args=[
+                                    ast.Field(chain=["combined_daily", "daily_metric_sum"]),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["combined_daily", "variant"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["combined_daily", "date"]))],
@@ -393,7 +409,15 @@ class ExperimentTimeseries:
                     alias="total_sum_of_squares",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[ast.Field(chain=["combined_daily", "daily_sum_of_squares"])],
+                        args=[
+                            ast.Call(
+                                name="coalesce",
+                                args=[
+                                    ast.Field(chain=["combined_daily", "daily_sum_of_squares"]),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["combined_daily", "variant"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["combined_daily", "date"]))],

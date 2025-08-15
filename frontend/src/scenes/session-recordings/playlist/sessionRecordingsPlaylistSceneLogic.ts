@@ -44,7 +44,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
     connect(() => ({
-        values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeScene']],
+        values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeSceneId']],
         actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
     })),
     actions({
@@ -161,7 +161,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     beforeUnload(({ values, actions }) => ({
         enabled: (newLocation) => {
             const response =
-                values.activeScene === Scene.ReplayPlaylist &&
+                values.activeSceneId === Scene.ReplayPlaylist &&
                 values.hasChanges &&
                 removeProjectIdIfPresent(newLocation?.pathname ?? '') !==
                     removeProjectIdIfPresent(router.values.location.pathname) &&

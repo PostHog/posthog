@@ -148,7 +148,7 @@ impl FromStr for TeamFilterMode {
             "opt-out" => Ok(TeamFilterMode::OptOut),
             "optin" => Ok(TeamFilterMode::OptIn),
             "optout" => Ok(TeamFilterMode::OptOut),
-            _ => Err(format!("Invalid team filter mode: {}", s)),
+            _ => Err(format!("Invalid team filter mode: {s}")),
         }
     }
 }

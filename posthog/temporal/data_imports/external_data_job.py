@@ -43,6 +43,7 @@ from posthog.warehouse.data_load.source_templates import (
 )
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, ExternalDataSchema
+from posthog.warehouse.types import ExternalDataSourceType
 from posthog.warehouse.models.external_data_schema import update_should_sync
 from posthog.temporal.common.client import sync_connect
 
@@ -52,14 +53,14 @@ Any_Source_Errors: list[str] = [
     "The primary keys for this table are not unique",
 ]
 
-Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
-    ExternalDataSource.Type.BIGQUERY: ["PermissionDenied: 403 request failed", "NotFound: 404"],
-    ExternalDataSource.Type.STRIPE: [
+Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
+    ExternalDataSourceType.BIGQUERY: ["PermissionDenied: 403 request failed", "NotFound: 404"],
+    ExternalDataSourceType.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
         "Expired API Key provided",
     ],
-    ExternalDataSource.Type.POSTGRES: [
+    ExternalDataSourceType.POSTGRES: [
         "NoSuchTableError",
         "is not permitted to log in",
         "Tenant or user not found connection to server",
@@ -82,27 +83,27 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "InsufficientPrivilege",
         "Unable to connect to the database. Please check your connection details and network access",
     ],
-    ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
-    ExternalDataSource.Type.MYSQL: [
+    ExternalDataSourceType.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
+    ExternalDataSourceType.MYSQL: [
         "Can't connect to MySQL server on",
         "No primary key defined for table",
         "Access denied for user",
         "sqlstate 42S02",  # Table not found error
     ],
-    ExternalDataSource.Type.SALESFORCE: [
+    ExternalDataSourceType.SALESFORCE: [
         "400 Client Error: Bad Request for url",
         "403 Client Error: Forbidden for url",
     ],
-    ExternalDataSource.Type.SNOWFLAKE: [
+    ExternalDataSourceType.SNOWFLAKE: [
         "This account has been marked for decommission",
         "404 Not Found",
         "Your free trial has ended",
         "Your account is suspended due to lack of payment method",
     ],
-    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
-    ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
-    ExternalDataSource.Type.GOOGLEADS: ["PERMISSION_DENIED"],
-    ExternalDataSource.Type.METAADS: [
+    ExternalDataSourceType.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
+    ExternalDataSourceType.HUBSPOT: ["missing or invalid refresh token"],
+    ExternalDataSourceType.GOOGLEADS: ["PERMISSION_DENIED"],
+    ExternalDataSourceType.METAADS: [
         "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
     ],
 }
@@ -165,7 +166,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
         source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
-        non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSource.Type(source.source_type))
+        non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSourceType(source.source_type))
 
         if non_retryable_errors is None:
             non_retryable_errors = Any_Source_Errors
@@ -416,7 +417,7 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
     error_lower = raw_error.lower()
 
     # Stripe permission errors for newer tables
-    if source_type == ExternalDataSource.Type.STRIPE:
+    if source_type == ExternalDataSourceType.STRIPE:
         if any(keyword in error_lower for keyword in ["permission", "403", "401", "rak_"]):
             table_names = {
                 "Dispute": "disputes",
@@ -431,15 +432,15 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
             return "Your Stripe API key has expired. Please create a new key and reconnect."
 
     # Salesforce session errors
-    if source_type == ExternalDataSource.Type.SALESFORCE and "invalid_session_id" in error_lower:
+    if source_type == ExternalDataSourceType.SALESFORCE and "invalid_session_id" in error_lower:
         return "Your Salesforce session has expired. Please reconnect the source."
 
     # HubSpot token errors
-    if source_type == ExternalDataSource.Type.HUBSPOT and "missing or invalid refresh token" in error_lower:
+    if source_type == ExternalDataSourceType.HUBSPOT and "missing or invalid refresh token" in error_lower:
         return "Your HubSpot connection is invalid or expired. Please reconnect it."
 
     # Database connection errors
-    if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL, ExternalDataSource.Type.MSSQL]:
+    if source_type in [ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL, ExternalDataSourceType.MSSQL]:
         if any(
             keyword in error_lower
             for keyword in ["authentication failed", "password authentication failed", "access denied"]
@@ -451,26 +452,26 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
             return "Database or table not found. Please verify your database name and table names."
 
     # Snowflake account issues
-    if source_type == ExternalDataSource.Type.SNOWFLAKE:
+    if source_type == ExternalDataSourceType.SNOWFLAKE:
         if any(keyword in error_lower for keyword in ["account suspended", "trial ended", "decommission"]):
             return "Your Snowflake account has been suspended or trial has ended. Please check your account status."
         if "invalid credentials" in error_lower or "authentication failed" in error_lower:
             return "Snowflake authentication failed. Please check your username, password, and account details."
 
     # BigQuery permission errors
-    if source_type == ExternalDataSource.Type.BIGQUERY:
+    if source_type == ExternalDataSourceType.BIGQUERY:
         if "permission denied" in error_lower or "403" in error_lower:
             return "BigQuery permission denied. Please check that your service account has the necessary permissions."
         if "not found" in error_lower:
             return "BigQuery dataset or table not found. Please verify your project, dataset, and table names."
 
     # Zendesk API errors
-    if source_type == ExternalDataSource.Type.ZENDESK:
+    if source_type == ExternalDataSourceType.ZENDESK:
         if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
             return "Zendesk authentication failed. Please check your API token and subdomain."
 
     # Chargebee API errors
-    if source_type == ExternalDataSource.Type.CHARGEBEE:
+    if source_type == ExternalDataSourceType.CHARGEBEE:
         if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
             return "Chargebee authentication failed. Please check your API key and site name."
 

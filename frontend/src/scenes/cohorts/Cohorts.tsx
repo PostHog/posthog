@@ -21,6 +21,9 @@ import { CohortType, ProductKey } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
+import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { cn } from 'lib/utils/css-classes'
+const RESOURCE_TYPE = 'cohort'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -148,7 +151,7 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <>
+        <SceneContent>
             <PersonsManagementSceneTabs
                 tabKey="cohorts"
                 buttons={
@@ -162,18 +165,29 @@ export function Cohorts(): JSX.Element {
                 }
             />
 
+            <SceneTitleSection
+                name="Cohorts"
+                description="A catalog of identified persons and your created cohorts."
+                resourceType={{
+                    type: RESOURCE_TYPE,
+                    typePlural: 'cohorts',
+                }}
+                docsURL="https://posthog.com/docs/data/cohorts"
+            />
+            <SceneDivider />
+
             <ProductIntroduction
                 productName="Cohorts"
                 productKey={ProductKey.COHORTS}
                 thingName="cohort"
-                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
+                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn't convert."
                 isEmpty={cohorts.count == 0 && !cohortsLoading && !searchTerm}
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}
                 customHog={ListHog}
             />
 
-            <div className="flex justify-between items-center mb-4 gap-2">
+            <div className={cn('flex justify-between items-center mb-0 gap-2')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for cohorts"
@@ -193,6 +207,6 @@ export function Cohorts(): JSX.Element {
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
             />
-        </>
+        </SceneContent>
     )
 }

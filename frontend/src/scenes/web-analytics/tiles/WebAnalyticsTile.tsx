@@ -20,7 +20,7 @@ import {
 } from 'lib/utils/geography/country'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
-import { NewActionButton } from 'scenes/actions/NewActionButton'
+import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'

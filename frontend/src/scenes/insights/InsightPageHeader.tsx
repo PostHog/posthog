@@ -55,7 +55,6 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
@@ -100,7 +99,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } = useValues(
         insightLogic(insightLogicProps)
     )
-    const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
+    const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
+        insightLogic(insightLogicProps)
+    )
 
     // insightAlertsLogic
     const { loadAlerts } = useActions(
@@ -109,9 +110,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             insightId: insight.id as number,
         })
     )
-
-    // savedInsightsLogic
-    const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
     const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
@@ -515,7 +513,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             object: insight as QueryBasedInsightModel,
                                                             endpoint: `projects/${currentProjectId}/insights`,
                                                             callback: () => {
-                                                                loadInsights()
+                                                                reloadSavedInsights()
                                                                 push(urls.savedInsights())
                                                             },
                                                         })
@@ -861,7 +859,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     object: insight as QueryBasedInsightModel,
                                                     endpoint: `projects/${currentProjectId}/insights`,
                                                     callback: () => {
-                                                        loadInsights()
+                                                        reloadSavedInsights()
                                                         push(urls.savedInsights())
                                                     },
                                                 })

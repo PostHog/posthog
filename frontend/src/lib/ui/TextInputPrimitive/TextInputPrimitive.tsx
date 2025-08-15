@@ -1,4 +1,3 @@
-import './TextInputPrimitive.scss'
 import { cva, type VariantProps } from 'cva'
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef, useCallback, useEffect, useRef } from 'react'
@@ -11,9 +10,9 @@ export const textInputVariants = cva({
             default: 'border-primary bg-surface-primary hover:border-secondary',
         },
         size: {
-            sm: 'h-[var(--text-input-height-sm)]',
-            default: 'h-[var(--text-input-height-base)]',
-            lg: 'h-[var(--text-input-height-lg)]',
+            sm: 'text-input-primitive--height-sm',
+            default: 'text-input-primitive--height-base',
+            lg: 'text-input-primitive--height-lg',
             auto: '',
         },
         error: {
