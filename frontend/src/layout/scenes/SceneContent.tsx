@@ -15,13 +15,13 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FileSystemIconColor } from '~/types'
 
-export function SceneContent({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
-    return <div className={cn('scene-content flex flex-col gap-y-4', className)}>{children}</div>
+export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="scene-content flex flex-col gap-y-4">{children}</div>
 }
 
 interface SceneSectionProps {
-    title?: React.ReactNode
-    description?: React.ReactNode | null
+    title: React.ReactNode
+    description?: React.ReactNode
     isLoading?: boolean
     children: React.ReactNode
     className?: string
@@ -41,15 +41,12 @@ export function SceneSection({
 
     // If not in new scene layout, we don't want to show anything new
     if (!newSceneLayout) {
-        if (hideTitleAndDescription) {
-            return <div className={cn('scene-section--fallback flex flex-col gap-4', className)}>{children}</div>
-        }
         return (
             <div className={cn('scene-section--fallback flex flex-col gap-4', className)}>
-                {(title || description) && (
+                {!hideTitleAndDescription && (
                     <div className="flex flex-col">
-                        {title && <h2 className="flex-1 subtitle mt-0">{title}</h2>}
-                        {description && <p className="m-0">{description}</p>}
+                        <h2 className="flex-1 subtitle mt-0">{title}</h2>
+                        <p className="m-0">{description}</p>
                     </div>
                 )}
                 {children}
@@ -60,29 +57,21 @@ export function SceneSection({
     if (isLoading) {
         return (
             <div className={cn('flex flex-col gap-4', className)}>
-                {!hideTitleAndDescription && (
-                    <div className="flex flex-col gap-0">
-                        <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
-                        {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
-                    </div>
-                )}
+                <div className="flex flex-col gap-0">
+                    <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
+                    {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                </div>
                 <WrappingLoadingSkeleton>{children}</WrappingLoadingSkeleton>
             </div>
         )
     }
 
-    if (hideTitleAndDescription) {
-        return <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>{children}</div>
-    }
-
     return (
         <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>
-            {!hideTitleAndDescription && (
-                <div className="flex flex-col gap-0">
-                    <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
-                    {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
-                </div>
-            )}
+            <div className="flex flex-col gap-0">
+                <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
+                {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+            </div>
             {children}
         </div>
     )
@@ -99,8 +88,8 @@ type ResourceType = {
     forceIconColorOverride?: FileSystemIconColor
 }
 type SceneMainTitleProps = {
-    name?: string
-    description?: string
+    name?: string | null
+    description?: string | null
     resourceType: ResourceType
     markdown?: boolean
     isLoading?: boolean
@@ -138,26 +127,39 @@ export function SceneTitleSection({
         <div className="scene-title-section w-full flex gap-0 group/colorful-product-icons colorful-product-icons-true">
             <div className="flex flex-col gap-1.5 flex-1">
                 <div className="flex gap-3 [&_svg]:size-6 items-center">
-                    <span
-                        className={buttonPrimitiveVariants({
-                            size: 'base',
-                            iconOnly: true,
-                            className: 'rounded-sm h-[var(--button-height-lg)]',
-                            inert: true,
-                        })}
-                    >
-                        {icon}
-                    </span>
+                    {resourceType.to ? (
+                        <Link
+                            to={resourceType.to}
+                            tooltip={resourceType.tooltip || `View all ${resourceType.typePlural}`}
+                            buttonProps={{
+                                size: 'base',
+                                iconOnly: true,
+                                variant: 'panel',
+                                className: 'rounded-sm h-[var(--button-height-lg)]',
+                            }}
+                        >
+                            {icon}
+                        </Link>
+                    ) : (
+                        <span
+                            className={buttonPrimitiveVariants({
+                                size: 'base',
+                                iconOnly: true,
+                                className: 'rounded-sm h-[var(--button-height-lg)]',
+                                inert: true,
+                            })}
+                        >
+                            {icon}
+                        </span>
+                    )}
                     <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
                 </div>
-                {(description !== undefined || onDescriptionBlur) && (
-                    <SceneDescription
-                        description={description}
-                        markdown={markdown}
-                        isLoading={isLoading}
-                        onBlur={onDescriptionBlur}
-                    />
-                )}
+                <SceneDescription
+                    description={description}
+                    markdown={markdown}
+                    isLoading={isLoading}
+                    onBlur={onDescriptionBlur}
+                />
             </div>
             {docsURL && (
                 <Link
@@ -245,7 +247,7 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
 }
 
 type SceneDescriptionProps = {
-    description?: string
+    description?: string | null
     markdown?: boolean
     isLoading?: boolean
     onBlur?: (value: string) => void
