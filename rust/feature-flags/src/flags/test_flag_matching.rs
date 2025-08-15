@@ -674,7 +674,7 @@ mod tests {
             .await;
         // Add this assertion to check the call count
         let fetch_calls = get_fetch_calls_count();
-        assert_eq!(fetch_calls, 1, "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {} times", fetch_calls);
+        assert_eq!(fetch_calls, 1, "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {fetch_calls} times");
         assert_eq!(
             result.flags.get("leaf_flag").unwrap().to_value(),
             FlagValue::Boolean(true)
@@ -1276,8 +1276,7 @@ mod tests {
         assert_eq!(
             fetch_calls,
             0,
-            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 0 times, but it was called {} times", 
-            fetch_calls
+            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 0 times, but it was called {fetch_calls} times", 
         );
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
@@ -1326,7 +1325,7 @@ mod tests {
             let cohort_cache_clone = cohort_cache.clone();
             handles.push(tokio::spawn(async move {
                 let matcher = FeatureFlagMatcher::new(
-                    format!("test_user_{}", i),
+                    format!("test_user_{i}"),
                     team.id,
                     team.project_id,
                     reader_clone,
@@ -1564,7 +1563,7 @@ mod tests {
 
         // Run the test multiple times to simulate distribution
         for i in 0..1000 {
-            matcher.distinct_id = format!("user_{}", i);
+            matcher.distinct_id = format!("user_{i}");
             let variant = matcher.get_matching_variant(&flag, None).unwrap();
             match variant.as_deref() {
                 Some("control") => control_count += 1,
@@ -4773,8 +4772,7 @@ mod tests {
         assert_eq!(
             fetch_calls,
             1,
-            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {} times", 
-            fetch_calls
+            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {fetch_calls} times", 
         );
         assert!(!result.errors_while_computing_flags);
         // The flag should evaluate using DB properties for condition 1 (which has focus="all-of-the-above")

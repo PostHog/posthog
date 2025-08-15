@@ -30,43 +30,43 @@ interface TemplateCardProps {
     setSurveyTemplateValues: (values: Partial<NewSurvey>) => void
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
+    handleTemplateClick: (template: SurveyTemplate) => void
+    isMostPopular?: boolean
 }
 
-function TemplateCard({
+export function TemplateCard({
     template,
     idx,
-    setSurveyTemplateValues,
-    reportSurveyTemplateClicked,
+    handleTemplateClick,
     surveyAppearance,
+    isMostPopular,
 }: TemplateCardProps): JSX.Element {
-    const handleClick = (): void => {
-        setSurveyTemplateValues({
-            name: template.templateType,
-            questions: template.questions ?? [],
-            appearance: {
-                ...defaultSurveyAppearance,
-                ...template.appearance,
-                ...surveyAppearance,
-            },
-            conditions: template.conditions ?? null,
-        })
-        reportSurveyTemplateClicked(template.templateType)
-    }
-
     return (
         <button
-            className="flex flex-col bg-bg-light border border-border rounded-lg overflow-hidden hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 overflow-hidden"
+            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
             data-attr="survey-template"
-            onClick={handleClick}
+            onClick={() => handleTemplateClick(template)}
         >
+            {isMostPopular && (
+                <div className="absolute bottom-0 right-0 z-10">
+                    <div className="relative">
+                        <div className="bg-primary-3000/85 text-white text-xs font-semibold px-3 py-1 rounded-tl-lg rounded-br-lg shadow-md">
+                            Most Popular
+                        </div>
+                        <div className="absolute bottom-full right-0 w-0 h-0 border-r-[8px] border-r-transparent border-b-[6px] border-b-primary-3000 opacity-60" />
+                    </div>
+                </div>
+            )}
             <div>
-                <div className="flex items-start justify-between">
-                    <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1">{template.templateType}</h3>
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">
+                        {template.templateType}
+                    </h3>
                     <LemonTag type={template.tagType || 'default'} size="small" className="ml-2 flex-shrink-0">
                         {template.category || 'General'}
                     </LemonTag>
                 </div>
-                <p className="text-xs text-secondary leading-relaxed line-clamp-3">{template.description}</p>
+                <p className="text-sm text-secondary leading-relaxed line-clamp-3">{template.description}</p>
             </div>
 
             <div className="flex-1 flex items-center justify-center">
@@ -133,6 +133,20 @@ export function SurveyTemplates(): JSX.Element {
                             setSurveyTemplateValues={setSurveyTemplateValues}
                             reportSurveyTemplateClicked={reportSurveyTemplateClicked}
                             surveyAppearance={surveyAppearance}
+                            isMostPopular={template.templateType === SurveyTemplateType.OpenFeedback}
+                            handleTemplateClick={(template) => {
+                                setSurveyTemplateValues({
+                                    name: template.templateType,
+                                    questions: template.questions ?? [],
+                                    appearance: {
+                                        ...defaultSurveyAppearance,
+                                        ...template.appearance,
+                                        ...surveyAppearance,
+                                    },
+                                    conditions: template.conditions ?? null,
+                                })
+                                reportSurveyTemplateClicked(template.templateType)
+                            }}
                         />
                     ))}
                 </div>
