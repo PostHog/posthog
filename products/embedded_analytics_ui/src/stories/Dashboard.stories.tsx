@@ -1,8 +1,6 @@
 import React, { ReactNode } from 'react'
 import type { Meta, StoryObj } from '@storybook/react'
-import { Overview } from '../components/Overview'
-import { Graph } from '../components/Graph'
-import { Table } from '../components/Table'
+import { Overview, Graph, Table } from '../components'
 import { exampleGraphVisitorsResponse, exampleTableResponse, exampleOverviewResponse } from './exampleData'
 
 const meta: Meta = {
@@ -195,7 +193,7 @@ export const CustomerBrand: Story = {
                         </div>
 
                         <div>
-                            <Graph data={exampleGraphVisitorsResponse} height={300} />
+                            <Graph response={exampleGraphVisitorsResponse} height={300} />
                         </div>
 
                         <div>

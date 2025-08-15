@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { Overview } from '../components/Overview'
+import { Overview } from '../components'
 import { OverviewResponse } from '../types/schemas'
 
 const meta: Meta<typeof Overview> = {

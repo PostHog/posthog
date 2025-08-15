@@ -42,6 +42,9 @@
         --ph-embed-neutral: 240 3.8% 46.1%;
         --ph-embed-fill-background: 240 4.8% 95.9%;
         --ph-embed-table-fill-color: 217 91% 60%;
+
+        /* fallback to be overriden by the table row component */
+        --ph-embed-fill-ratio: 0;
     }
 
     .dark {
@@ -126,7 +129,7 @@
         bottom: 0;
         left: 0;
         z-index: -1;
-        width: calc(var(--fill-ratio) * 100%);
+        width: calc(var(--ph-embed-fill-ratio) * 100%);
         content: '';
         background-color: hsl(var(--ph-embed-table-fill-color) / 25%);
         border-radius: 0.125rem;

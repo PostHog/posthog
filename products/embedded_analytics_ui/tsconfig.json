@@ -16,8 +16,11 @@
         "noEmit": true,
         "jsx": "react-jsx",
         "declaration": true,
-        "outDir": "dist"
+        "outDir": "dist",
+        "paths": {
+            "react": ["./node_modules/@types/react"]
+        }
     },
-    "include": ["../posthog/products/embedded-analytics-ui/src"],
+    "include": ["src"],
     "exclude": ["node_modules", "dist", "**/*.stories.*", "**/*.story.*"]
 }

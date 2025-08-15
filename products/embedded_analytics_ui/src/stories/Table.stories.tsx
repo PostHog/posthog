@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { Table } from '../components/Table'
+import { Table, TableProps } from '../components'
 import { TableColumn, TableResponse, TableRow } from '../types/schemas'
 
 const meta: Meta<typeof Table> = {
@@ -188,7 +188,7 @@ const browserTableData: TableResponse = {
 
 export const Default: Story = {
     args: {
-        data: standardTableData,
+        respose: standardTableData,
         loading: false,
         currentPage: 1,
         pageSize: 25,
@@ -212,7 +212,7 @@ export const WithError: Story = {
 
 export const WithSorting: Story = {
     args: {
-        data: standardTableData,
+        respose: standardTableData,
         loading: false,
         currentSort: { column: 'visitors', direction: 'desc' },
         currentPage: 1,
@@ -222,7 +222,7 @@ export const WithSorting: Story = {
 
 export const BrowserData: Story = {
     args: {
-        data: browserTableData,
+        respose: browserTableData,
         loading: false,
         currentPage: 2,
         pageSize: 10,
@@ -238,7 +238,7 @@ export const BrowserData: Story = {
 
 export const WithoutFillBars: Story = {
     args: {
-        data: {
+        respose: {
             ...standardTableData,
             rows: standardTableData.rows.map(({ fillRatio: _, ...rowWithoutFill }) => rowWithoutFill),
         },
@@ -250,14 +250,14 @@ export const WithoutFillBars: Story = {
 
 export const WithClickHandlers: Story = {
     args: {
-        data: standardTableData,
+        response: standardTableData,
         loading: false,
         currentPage: 1,
         pageSize: 25,
-        onRowClick: (row): void => {
+        onClick: (row): void => {
             alert(`Clicked on ${row.breakdown_value}`)
         },
-    },
+    } as TableProps,
     parameters: {
         docs: {
             description: {
@@ -269,7 +269,7 @@ export const WithClickHandlers: Story = {
 
 export const SmallPageSize: Story = {
     args: {
-        data: standardTableData,
+        respose: standardTableData,
         loading: false,
         currentPage: 1,
         pageSize: 3,
@@ -278,7 +278,7 @@ export const SmallPageSize: Story = {
 
 export const EmptyTable: Story = {
     args: {
-        data: {
+        respose: {
             columns: standardColumns,
             rows: [],
             count: 0,
@@ -293,7 +293,7 @@ export const EmptyTable: Story = {
 
 export const SingleRow: Story = {
     args: {
-        data: {
+        respose: {
             columns: standardColumns,
             rows: [generatePageData()[0]],
             count: 1,
@@ -308,7 +308,7 @@ export const SingleRow: Story = {
 
 export const LargeNumbers: Story = {
     args: {
-        data: {
+        respose: {
             columns: [
                 {
                     key: 'breakdown_value',
@@ -370,7 +370,7 @@ export const LargeNumbers: Story = {
 
 export const MixedDataTypes: Story = {
     args: {
-        data: {
+        respose: {
             columns: [
                 {
                     key: 'breakdown_value',
