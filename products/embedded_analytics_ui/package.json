@@ -58,13 +58,15 @@
     "scripts": {
         "build": "rollup -c",
         "dev": "rollup -c -w",
-        "type-check": "tsc --noEmit -p .",
+        "typescript:check": "tsc --noEmit -p .",
         "storybook": "storybook dev -p 6006",
         "build-storybook": "storybook build",
         "deploy-storybook": "storybook-to-ghpages",
-        "format": "prettier --write \"../posthog/products/embedded-analytics-ui/src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
-        "format:check": "prettier --check \"../posthog/products/embedded-analytics-ui/src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+        "prettier": "prettier --write \"../posthog/products/embedded-analytics-ui/src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+        "prettier:check": "prettier --check \"../posthog/products/embedded-analytics-ui/src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
         "test:visual": "playwright test",
-        "test:visual:update": "playwright test --update-snapshots"
+        "test:visual:update": "playwright test --update-snapshots",
+        "lint:css": "stylelint \"**/*.{css,scss}\" --ignore-path=../../.stylelintignore --config=../../.stylelintrc",
+        "lint:js": "oxlint --config ../../.oxlintrc.json"
     }
 }
