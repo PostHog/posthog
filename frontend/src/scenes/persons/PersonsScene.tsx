@@ -69,7 +69,7 @@ export function PersonsScene(): JSX.Element {
                     typePlural: 'persons',
                     forceIcon: <IconPeople />,
                 }}
-                docsLink="https://posthog.com/docs/data/persons"
+                docsURL="https://posthog.com/docs/data/persons"
             />
             <SceneDivider />
 

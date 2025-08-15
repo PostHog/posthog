@@ -95,7 +95,7 @@ type SceneMainTitleProps = {
     isLoading?: boolean
     onNameBlur?: (value: string) => void
     onDescriptionBlur?: (value: string) => void
-    docsLink?: string
+    docsURL?: string
 }
 
 export function SceneTitleSection({
@@ -106,7 +106,7 @@ export function SceneTitleSection({
     isLoading = false,
     onNameBlur,
     onDescriptionBlur,
-    docsLink,
+    docsURL,
 }: SceneMainTitleProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
@@ -161,9 +161,9 @@ export function SceneTitleSection({
                     onBlur={onDescriptionBlur}
                 />
             </div>
-            {docsLink && (
+            {docsURL && (
                 <Link
-                    to={docsLink}
+                    to={`${docsURL}?utm_medium=in-product&utm_campaign=scene-title-section-docs-link`}
                     buttonProps={{ variant: 'panel', className: 'rounded-sm' }}
                     tooltip={`View docs for ${resourceType.typePlural}`}
                 >

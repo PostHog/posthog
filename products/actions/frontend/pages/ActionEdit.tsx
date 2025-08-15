@@ -332,7 +332,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     onDescriptionBlur={(value) => {
                         setActionValue('description', value)
                     }}
-                    docsLink="https://posthog.com/docs/data/actions"
+                    docsURL="https://posthog.com/docs/data/actions"
                 />
 
                 <SceneDivider />

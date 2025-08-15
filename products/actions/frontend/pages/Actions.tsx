@@ -22,7 +22,7 @@ export function Actions(): JSX.Element {
                     type: 'action',
                     typePlural: 'actions',
                 }}
-                docsLink="https://posthog.com/docs/data/actions"
+                docsURL="https://posthog.com/docs/data/actions"
             />
             <SceneDivider />
             <ActionsTable />

@@ -172,7 +172,7 @@ export function Cohorts(): JSX.Element {
                     type: RESOURCE_TYPE,
                     typePlural: 'cohorts',
                 }}
-                docsLink="https://posthog.com/docs/data/cohorts"
+                docsURL="https://posthog.com/docs/data/cohorts"
             />
             <SceneDivider />
 
