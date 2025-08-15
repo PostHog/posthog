@@ -5,18 +5,17 @@ import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
-import { cn } from 'lib/utils/css-classes'
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 import { PropertyDefinition } from '~/types'
-import { IconApps } from '@posthog/icons'
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
@@ -81,7 +80,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 resourceType={{
                     type: 'property',
                     typePlural: 'properties',
-                    forceIcon: <IconApps />,
                 }}
             />
             <SceneDivider />
@@ -101,7 +99,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     Query with SQL
                 </Link>
             </LemonBanner>
-            <div className="flex mb-4 gap-2 flex-wrap">
+            <div className={cn('flex gap-2 flex-wrap', !newSceneLayout && 'mb-4')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"
