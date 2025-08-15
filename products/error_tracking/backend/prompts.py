@@ -259,10 +259,17 @@ Given we know the events and issues that occurred in every session it is possibl
 
 ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT = """
 <tool_usage>
-You should use this tool when the user is looking to understand a relationship between their product and issues.
-The user might describe the connection between issues and events using words like “impacting,” “blocking,” “affecting,” “relating to,” or any other reasonable linking phrase.
+# Tool Usage
 
-VERY IMPORTANT: the user might not mention events directly. They may also describe product features, flows in the app, etc. You should still use this tool if the user is asking about a relationship to issues.
+Use this tool when the user wants to understand a relationship between their product (features, flows, or events) and issues.
+The user may describe the link with words like “impacting,” “blocking,” “affecting,” “related to,” or similar.
+
+**Important:**
+- The user may not mention events directly — they may refer to product features or flows. You should still use this tool given the user is asking about a relationship to issues
+- You must infer relevant events from their query and the event list below
+- Your output should be only the relevant event names in a JSON array
+- You DO NOT need to know anything about the issues themselves, just the events that are relevant to the user's query
+- You should use this tool instead of filtering for issues when the user is looking to understand the impact between issues and their product
 
 ## Notes
 
@@ -271,60 +278,55 @@ VERY IMPORTANT: the user might not mention events directly. They may also descri
 3. You should return as many relevant event names as possible, even if the user only mentions one event. If the user mentions a broader flow, you should include all relevant events that are likely to occur in that flow.
 4. The user might not mention the events explicitly, but you should be able to infer them from the context of the query. For example, if the user asks about issues that are blocking signups, you should return the event names related to signups.
 
-## Flow
-
-1. Identify the events mentioned in the users query
-2. Where no exact matches exist use close variations
-3. Return a list of relevant event names
-4. Use `ask_user_for_help` when you need clarification or it is not clear what events / flow the user is referring to
-5. Use `ask_user_for_help` if you cannot find any related events
-6. Use `final_answer` to return the final answer to the user
-7. If you found a list of events there is no need to offer additional assistance
-
 </tool_usage>
+""".strip()
+
+ERROR_TRACKING_ISSUE_IMPACT_TOOL_GUIDE_PROMPT = """
+<tool_guide>
+# Decision Guide
+
+When processing the query:
+
+1. Exact match → If the query clearly matches one event in <defined_events>, return only that event. Example: “issues with toast errors” → ["toast error"]
+2. Close variation → If the query uses slightly different wording for a known event, return that single event. Example: “users being logged out unexpectedly” → ["logged_out"]
+3. Broad feature/flow match → If the query refers to a feature or flow without naming a specific event, return all events in that category. Example: “issues affecting sign ups" → all signup-related events e.g. ["sign_up_started", "signup complete", "email verification sent"]
+4. Multiple features/flows → If multiple are mentioned, combine relevant events from each. Example: “issues with notebooks and signups → notebook + signups events
+5. No match or unclear event/feature/flow → If less than 80 percent confident, use ask_user_for_help to clarify.
+6. Use `final_answer` to return the final answer to the user. You do not need to offer additional assistance.
+
+### Do not:
+- Do **not** invent events not in <defined_events>
+- Do **not** return $exception as an event
+- Do **not** add unrelated events just to increase the list size
+- Do **not** include descriptive text — only the JSON array of event names.
+
+</tool_guide>
 """.strip()
 
 ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT = """
 <events>
-In order to perform the task you are given, you need to know the list of events available to the user. Here is a non-exhaustive list of known event names:
+# Events
+
+In order to perform the task you are given, you need to know the list of events available to the user. You should only use event names contained in this list:
 
 {{{events}}}
-
-## Rules
-1. Include ALL the events the user is asking for in the list.
-2. If no exact match to the users query exists the use close variations of event names from the list. For example if the user asks for "user signed up" and the event name is "sign_up_started", you can return "sign_up_started" as a close variation.
-3. If a broader flow is mentioned, include event names likely occurring in that flow. For example, if the user asks about "sign up" you can include "sign_up_started", "signup complete", "email verification sent" etc.
-
-If you find the event names the user is asking for return them in a list. If you cannot find the event names in the list, ask the user for clarification.
 </events>
 """.strip()
 
 ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES = """
 <tool_examples>
-# Workflow examples
+# Examples
 
-## Single event example
+#### Specific event
+User: “Show me issues with notebook content changes”
+Output: ["notebook content changed"]
 
-1. User asks: "Show me issues that are stopping users from watching session recordings"
-2. You infer that the event name "session recording viewed" from the list of events matches the intention of the user's query.
-3. There is only one relevant event but you still convert it to a list: ["session recording viewed"]
-4. Return the final answer to the user using the `final_answer` tool with the list of issues returned by the `issue_impact_query_runner_tool`
+#### Broad feature
+User: "Show me issues blocking signup"
+Output: ["sign_up_started", "signup complete"]
 
-## Multiple events example
-1. User asks: "Show me issues that are blocking signup"
-2. From the event names provided as context you infer that the event names "sign_up_started" and "signup complete" both relate to a user signing up.
-3. Return the final answer using the `final_answer` tool with both events as a list: ["sign_up_started", "signup complete"]
-
-## Events in a flow example
-1. User asks: "Show me issues that are impacting users from making a purchase"
-2. You infer from the user query that the event names "credit_card_entered", "payment_complete", "Added to cart" are all very likely to happen when a user is making a purchase.
-3. Return the final answer using the `final_answer` tool with the events as a list
-
-## Unclear intention
-1. User asks: "Show me impactful issues"
-2. It is not clear what the user is referring to, so you use the `ask_user_for_help` tool to clarify what event or flow the user is interested in
-3. The user provides additional context
-4. You find a relevant event in the list of event names provided in the context
-5. You return the event as a list using the `final_answer` tool
+#### Unclear
+User: "Show me impactful issues"
+→ Use `ask_user_for_help` tool to clarify what event or flow they mean
 </tool_examples>
 """.strip()
