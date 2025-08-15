@@ -1,6 +1,6 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
@@ -31,6 +31,7 @@ const NEW_USAGE_METRIC = {
     format: 'numeric',
     interval: 7,
     display: 'number',
+    filters: {},
 } as UsageMetricFormData
 
 export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
@@ -52,7 +53,7 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
         currentGroupTypeIndex: [0, { setCurrentGroupTypeIndex: (_, { groupTypeIndex }) => groupTypeIndex }],
     })),
 
-    loaders(({ values }) => ({
+    lazyLoaders(({ values }) => ({
         usageMetrics: [
             [] as UsageMetric[],
             {
@@ -73,7 +74,6 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
     })),
 
     selectors({
-        currentGroupTypeUsageMetrics: [(s) => [s.usageMetrics], (usageMetrics) => usageMetrics],
         availableGroupTypes: [(s) => [s.groupTypes], (groupTypes) => Array.from(groupTypes.values())],
         metricsUrl: [
             (s) => [s.currentGroupTypeIndex, s.currentProjectId],
@@ -116,6 +116,4 @@ export const crmUsageMetricsConfigLogic = kea<crmUsageMetricsConfigLogicType>([
             actions.loadUsageMetrics()
         },
     })),
-
-    afterMount(({ actions }) => actions.loadUsageMetrics()),
 ])

@@ -24,7 +24,7 @@ import { EntityTypes } from '~/types'
 import { UsageMetric, crmUsageMetricsConfigLogic } from './crmUsageMetricsConfigLogic'
 
 function CRMUsageMetricsTable(): JSX.Element {
-    const { currentGroupTypeUsageMetrics, usageMetricsLoading } = useValues(crmUsageMetricsConfigLogic)
+    const { usageMetrics, usageMetricsLoading } = useValues(crmUsageMetricsConfigLogic)
     const { removeUsageMetric } = useActions(crmUsageMetricsConfigLogic)
 
     const columns: LemonTableColumns<UsageMetric> = [
@@ -107,7 +107,7 @@ function CRMUsageMetricsTable(): JSX.Element {
         },
     ]
 
-    return <LemonTable columns={columns} dataSource={currentGroupTypeUsageMetrics} loading={usageMetricsLoading} />
+    return <LemonTable columns={columns} dataSource={usageMetrics} loading={usageMetricsLoading} />
 }
 
 interface CRMUsageMetricsFormProps {
