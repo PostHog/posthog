@@ -3,6 +3,7 @@ from typing import cast, Optional, TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.join_functions import register_join_function
 from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
@@ -470,6 +471,7 @@ def session_id_to_session_id_v7_expr(session_id: ast.Expr) -> ast.Expr:
     )
 
 
+@register_join_function
 def join_events_table_to_sessions_table_v2(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:

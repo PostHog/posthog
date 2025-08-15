@@ -1,5 +1,6 @@
 from posthog.hogql.ast import SelectQuery, JoinExpr
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.join_functions import register_join_function
 from posthog.hogql.database.models import (
     Table,
     StringDatabaseField,
@@ -27,6 +28,7 @@ from posthog.hogql.database.schema.sessions_v2 import select_from_sessions_table
 from posthog.hogql.errors import ResolutionError
 
 
+@register_join_function
 def join_replay_table_to_sessions_table_v1(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: SelectQuery
 ) -> JoinExpr:
@@ -49,6 +51,7 @@ def join_replay_table_to_sessions_table_v1(
     return join_expr
 
 
+@register_join_function
 def join_replay_table_to_sessions_table_v2(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: SelectQuery
 ) -> JoinExpr:
@@ -71,6 +74,7 @@ def join_replay_table_to_sessions_table_v2(
     return join_expr
 
 
+@register_join_function
 def join_with_events_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
@@ -128,6 +132,7 @@ def _clamp_to_ttl(chain: list[str | int]):
     return clamp_to_ttl
 
 
+@register_join_function
 def join_with_console_logs_log_entries_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,

@@ -1,4 +1,5 @@
 from typing import cast, Optional, Self
+from posthog.hogql.database.join_functions import register_join_function
 from posthog.hogql.parser import parse_select
 import posthoganalytics
 
@@ -196,6 +197,7 @@ def select_from_persons_table(
     return select
 
 
+@register_join_function
 def join_with_persons_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,

@@ -4,6 +4,7 @@ from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
+from posthog.hogql.database.join_functions import register_join_function
 from posthog.hogql.database.models import (
     IntegerDatabaseField,
     LazyTable,
@@ -35,6 +36,7 @@ def persons_pdi_select(requested_fields: dict[str, list[str | int]]):
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
+@register_join_function
 def persons_pdi_join(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
