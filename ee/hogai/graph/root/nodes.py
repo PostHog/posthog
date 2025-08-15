@@ -26,7 +26,7 @@ from ee.hogai.llm import MaxChatOpenAI
 # Import moved inside functions to avoid circular imports
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseStateWithMessages
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
@@ -306,8 +306,10 @@ class RootNode(RootNodeUIContextMixin):
     CONVERSATION_WINDOW_SIZE = 64000
 
     async def get_reasoning_message(
-        self, input: type[BaseStateWithMessages], default_message: Optional[str] = None
+        self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
         ui_context = find_last_ui_context(input.messages)
         if ui_context and (ui_context.dashboards or ui_context.insights):
             return ReasoningMessage(content="Calculating context")
@@ -594,8 +596,10 @@ class RootNode(RootNodeUIContextMixin):
 
 class RootNodeTools(AssistantNode):
     async def get_reasoning_message(
-        self, input: type[BaseStateWithMessages], default_message: Optional[str] = None
+        self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
         assert isinstance(input.messages[-1], AssistantMessage)
         tool_calls = input.messages[-1].tool_calls or []
         assert len(tool_calls) <= 1
@@ -611,7 +615,7 @@ class RootNodeTools(AssistantNode):
             content = "Checking your billing data"
         else:
             # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
-            # when the tool has been removed from the backend since the user's frontent was loaded
+            # when the tool has been removed from the backend since the user's frontend was loaded
             ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
             content = (
                 ToolClass(team=self._team, user=self._user).thinking_message

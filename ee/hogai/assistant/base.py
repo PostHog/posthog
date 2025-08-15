@@ -181,7 +181,7 @@ class BaseAssistant(ABC):
 
         async for event_type, message in self.astream(stream_messages=False, stream_first_message=False):
             if event_type == AssistantEventType.MESSAGE and not isinstance(
-                message, ReasoningMessage | AssistantGenerationStatusEvent | Conversation
+                message, (ReasoningMessage | AssistantGenerationStatusEvent | Conversation)
             ):
                 messages.append((event_type, cast(AssistantMessageUnion, message)))
 
@@ -334,9 +334,9 @@ class BaseAssistant(ABC):
     async def _node_to_reasoning_message(
         self, node_name: MaxNodeName, input: MaxGraphStateWithMessages
     ) -> Optional[ReasoningMessage]:
-        callable = self._graph.get_reasoning_message_by_node_name.get(node_name)
-        if callable:
-            return await callable(input, self._last_reasoning_headline or "")
+        async_callable = self._graph.get_reasoning_message_by_node_name.get(node_name)
+        if async_callable:
+            return await async_callable(input, self._last_reasoning_headline or "")
         return None
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
@@ -364,7 +364,7 @@ class BaseAssistant(ABC):
 
             node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
-            if not isinstance(node_val, MaxGraphState | MaxPartialGraphState):
+            if not isinstance(node_val, (MaxGraphState | MaxPartialGraphState)):
                 return None
             if node_val.messages:
                 return list(node_val.messages)

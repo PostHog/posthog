@@ -142,10 +142,6 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     The state of the root node.
     """
 
-    intermediate_steps: Optional[Sequence[IntermediateStep]] = Field(default=None)
-    """
-    Actions taken by the query planner agent.
-    """
     plan: Optional[str] = Field(default=None)
     """
     The insight generation plan.

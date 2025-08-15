@@ -6,7 +6,7 @@ from uuid import UUID
 from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps, BaseStateWithMessages
+from ee.hogai.utils.types.base import BaseState, BaseStateWithIntermediateSteps
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.action.action import Action
@@ -143,18 +143,25 @@ class StateClassMixin:
 
 class ReasoningNodeMixin:
     REASONING_MESSAGE: Optional[str] = None
+    _team: Team
+    _user: User
 
     async def get_reasoning_message(
-        self, input: type[BaseStateWithMessages], default_message: Optional[str] = None
+        self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
         content = self.REASONING_MESSAGE or default_message
         return ReasoningMessage(content=content) if content else None
 
 
 class TaxonomyReasoningNodeMixin:
+    _team: Team
+    _user: User
+
     async def get_reasoning_message(
-        self, input: type[BaseStateWithIntermediateSteps], default_message: Optional[str] = None
+        self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithIntermediateSteps):
+            return None
         substeps: list[str] = []
         if input:
             if intermediate_steps := input.intermediate_steps:

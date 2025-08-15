@@ -1,8 +1,7 @@
 from collections.abc import Hashable
-from typing import Any, Literal, Optional, cast, Generic
+from typing import Any, Literal, Optional, cast, Generic, Protocol, runtime_checkable
 from collections.abc import Callable, Coroutine
 
-from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -47,7 +46,13 @@ from .insights.nodes import InsightSearchNode
 global_checkpointer = DjangoCheckpointer()
 
 
-GetReasoningMessageMapType = dict[MaxNodeName, Callable[[BaseState, str], Coroutine[Any, Any, ReasoningMessage | None]]]
+GetReasoningMessageFunc = Callable[[BaseState, str], Coroutine[Any, Any, ReasoningMessage | None]]
+GetReasoningMessageMapType = dict[MaxNodeName, GetReasoningMessageFunc]
+
+
+@runtime_checkable
+class HasReasoningMessage(Protocol):
+    get_reasoning_message: GetReasoningMessageFunc
 
 
 class AssistantCompiledStateGraph(CompiledStateGraph):
@@ -84,10 +89,10 @@ class BaseAssistantGraph(Generic[StateType]):
         self._graph.add_edge(from_node, to_node)
         return self
 
-    def add_node(self, node: MaxNodeName, action: RunnableLike):
+    def add_node(self, node: MaxNodeName, action: Any):
         self._graph.add_node(node, action)
-        if hasattr(action, "get_reasoning_message"):
-            self._get_reasoning_message_by_node_name[node] = action.get_reasoning_message  # type: ignore
+        if isinstance(action, HasReasoningMessage):
+            self._get_reasoning_message_by_node_name[node] = action.get_reasoning_message
         return self
 
     def add_subgraph(self, node_name: MaxNodeName, subgraph: AssistantCompiledStateGraph):

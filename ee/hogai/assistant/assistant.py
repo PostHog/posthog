@@ -27,7 +27,7 @@ class Assistant:
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
-        tool_call_partial_state: Optional[MaxGraphStateWithMessages | MaxPartialGraphStateWithMessages] = None,
+        initial_state: Optional[MaxGraphStateWithMessages | MaxPartialGraphStateWithMessages] = None,
         billing_context: Optional[MaxBillingContext] = None,
     ):
         assistant_class = MainAssistant if mode == AssistantMode.ASSISTANT else InsightsAssistant
@@ -41,5 +41,5 @@ class Assistant:
             is_new_conversation=is_new_conversation,
             trace_id=trace_id,
             billing_context=billing_context,
-            initial_state=tool_call_partial_state,
+            initial_state=initial_state,
         )

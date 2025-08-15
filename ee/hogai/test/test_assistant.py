@@ -150,7 +150,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             new_message=HumanMessage(content=message or "Hello", ui_context=ui_context),
             user=self.user,
             is_new_conversation=is_new_conversation,
-            tool_call_partial_state=tool_call_partial_state,
+            initial_state=tool_call_partial_state,
             mode=mode,
             contextual_tools=contextual_tools,
         )
