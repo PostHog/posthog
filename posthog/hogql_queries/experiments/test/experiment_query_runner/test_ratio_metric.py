@@ -18,6 +18,7 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
+    FunnelConversionWindowTimeUnit,
 )
 from posthog.models.action.action import Action
 from posthog.test.base import (
@@ -295,7 +296,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
                 math=ExperimentMetricMathType.TOTAL,
             ),
             conversion_window=1,
-            conversion_window_unit="hour",
+            conversion_window_unit=FunnelConversionWindowTimeUnit.HOUR,
         )
 
         experiment_query = ExperimentQuery(
@@ -796,8 +797,6 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        # Verify that both numerator and denominator use data warehouse sources
-        # This confirms ExperimentDataWarehouseNode support works in ratio metrics
         self.assertIsNotNone(control_variant.sum)  # Numerator: sum of usage
         self.assertIsNotNone(test_variant.sum)
         self.assertTrue(control_variant.number_of_samples > 0)
@@ -812,6 +811,8 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
         self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
 
+    # TODO: This is skipped as SQL expressions in ratio metrics are not supported yet
+    # We need to handle aggregations differently there compared to what we do i mean metrics.
     @pytest.mark.skip
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
