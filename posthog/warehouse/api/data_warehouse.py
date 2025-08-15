@@ -1,4 +1,5 @@
 import structlog
+from datetime import datetime
 from dateutil import parser
 from django.db.models import Sum
 from rest_framework import status, viewsets
@@ -139,7 +140,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             for job in modeling_jobs
         ]
 
-        activities.sort(key=lambda x: x["created_at"], reverse=True)
+        activities.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)
 
         return Response(
             {
