@@ -9,6 +9,7 @@ class TestDataWarehouseAPI(APIBaseTest):
     @patch("posthog.warehouse.api.data_warehouse.BillingManager")
     @patch("posthog.warehouse.api.data_warehouse.get_cached_instance_license")
     def test_basic_calculation_with_billing_data(self, mock_license, mock_billing_manager):
+        """trackedBillingRows from billing; pending = db_total - tracked; totalRows = tracked + pending"""
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/total_rows_stats"
 
         mock_billing_manager.return_value.get_billing.return_value = {

@@ -1,7 +1,9 @@
+import dataclasses
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
+from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
@@ -21,10 +23,13 @@ from posthog.models import (
     Team,
     Organization,
 )
+from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, ActivityContextBase
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
-from posthog.models.signals import mute_selected_signals
+from posthog.models.signals import mute_selected_signals, model_activity_signal
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
@@ -306,7 +311,14 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 groups=groups(organization),
             )
 
-        return super().update(request, *args, **kwargs)
+        # Set user context for activity logging
+        with ImpersonatedContext(request):
+            return super().update(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        # Set user context for activity logging
+        with ImpersonatedContext(self.request):
+            super().perform_create(serializer)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"])
@@ -398,3 +410,137 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"success": True, "message": "Migration started"}, status=202)
+
+
+@receiver(model_activity_signal, sender=Organization)
+def handle_organization_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+        ),
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class OrganizationMembershipContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+    user_id: str
+    user_email: str
+    user_name: str
+    level: str
+
+
+@dataclasses.dataclass(frozen=True)
+class OrganizationInviteContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+    target_email: str
+    inviter_user_id: Optional[str]
+    inviter_user_email: Optional[str]
+    inviter_user_name: Optional[str]
+    level: str
+
+
+@receiver(model_activity_signal, sender=OrganizationMembership)
+def handle_organization_membership_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    # Use after_update for create/update, before_update for delete
+    membership = after_update or before_update
+
+    if not membership:
+        return
+
+    member_user = membership.user
+    member_name = f"{member_user.first_name} {member_user.last_name}".strip()
+
+    context = OrganizationMembershipContext(
+        organization_id=str(membership.organization_id),
+        organization_name=membership.organization.name,
+        user_id=str(member_user.id),
+        user_email=member_user.email,
+        user_name=member_name,
+        level=str(OrganizationMembership.Level(membership.level).label),
+    )
+
+    if activity == "created":
+        detail_name = f"{member_name} ({member_user.email}) joined {membership.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"{member_name} ({member_user.email}) left {membership.organization.name}"
+    else:
+        detail_name = f"{member_name} ({member_user.email}) membership updated in {membership.organization.name}"
+
+    log_activity(
+        organization_id=membership.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=membership.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )
+
+
+@receiver(model_activity_signal, sender=OrganizationInvite)
+def handle_organization_invite_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    # Use after_update for create/update, before_update for delete
+    invite = after_update or before_update
+
+    if not invite:
+        return
+
+    inviter_user = invite.created_by
+    inviter_name = f"{inviter_user.first_name} {inviter_user.last_name}".strip() if inviter_user else None
+
+    context = OrganizationInviteContext(
+        organization_id=str(invite.organization_id),
+        organization_name=invite.organization.name,
+        target_email=invite.target_email,
+        inviter_user_id=str(inviter_user.id) if inviter_user else None,
+        inviter_user_email=inviter_user.email if inviter_user else None,
+        inviter_user_name=inviter_name,
+        level=str(OrganizationMembership.Level(invite.level).label),
+    )
+
+    if activity == "created":
+        if inviter_user:
+            detail_name = f"User {inviter_name} ({inviter_user.email}) invited user {invite.target_email} into organization {invite.organization.name}"
+        else:
+            detail_name = f"User {invite.target_email} was invited to organization {invite.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"Invite for {invite.target_email} to organization {invite.organization.name} was cancelled"
+    else:
+        detail_name = f"Invite for {invite.target_email} to organization {invite.organization.name} was updated"
+
+    log_activity(
+        organization_id=invite.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=invite.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )

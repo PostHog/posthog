@@ -23,6 +23,20 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
+
+class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """
+    API endpoints for data warehouse aggregate statistics and operations.
+    """
+
+    scope_object = "INTERNAL"
+
+    @action(methods=["GET"], detail=False)
+    def total_rows_stats(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
+        Used by the frontend data warehouse scene to display usage information.
+        """
         billing_interval = ""
         billing_period_start = None
         billing_period_end = None

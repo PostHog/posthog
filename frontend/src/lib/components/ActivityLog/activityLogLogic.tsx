@@ -27,12 +27,64 @@ import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityD
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
+import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
+import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 import type { activityLogLogicType } from './activityLogLogicType'
+
+// Define which scopes should be expanded to include multiple scopes
+const SCOPE_EXPANSIONS: Partial<Record<ActivityScope, ActivityScope[]>> = {
+    [ActivityScope.TAG]: [ActivityScope.TAG, ActivityScope.TAGGED_ITEM],
+    [ActivityScope.ORGANIZATION]: [
+        ActivityScope.ORGANIZATION,
+        ActivityScope.ORGANIZATION_MEMBERSHIP,
+        ActivityScope.ORGANIZATION_INVITE,
+    ],
+}
+
+export const activityLogTransforms = {
+    expandListLegacyScopes: (
+        props: ActivityLogLogicProps
+    ): {
+        scope: ActivityScope | ActivityScope[]
+        id?: number | string
+    } => {
+        let scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
+
+        if (scopes.length === 1 && scopes[0] in SCOPE_EXPANSIONS) {
+            const expandedScopes = SCOPE_EXPANSIONS[scopes[0]]
+            if (expandedScopes) {
+                scopes = expandedScopes
+            }
+        }
+
+        return { scope: scopes, id: props.id }
+    },
+
+    expandListScopes: (filters: { scope?: ActivityScope | string; [key: string]: any }) => {
+        if (!filters.scope) {
+            return filters
+        }
+
+        const scope = filters.scope as ActivityScope
+        if (scope in SCOPE_EXPANSIONS) {
+            const expandedScopes = SCOPE_EXPANSIONS[scope]
+            if (expandedScopes) {
+                return {
+                    ...filters,
+                    scopes: expandedScopes,
+                    scope: undefined,
+                }
+            }
+        }
+
+        return filters
+    },
+}
 
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
@@ -67,6 +119,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return notebookActivityDescriber
         case ActivityScope.TEAM:
             return teamActivityDescriber
+        case ActivityScope.ORGANIZATION:
+        case ActivityScope.ORGANIZATION_MEMBERSHIP:
+        case ActivityScope.ORGANIZATION_INVITE:
+            return organizationActivityDescriber
         case ActivityScope.SURVEY:
             return surveyActivityDescriber
         case ActivityScope.ERROR_TRACKING_ISSUE:
@@ -77,6 +133,9 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return replayActivityDescriber
         case ActivityScope.EXPERIMENT:
             return experimentActivityDescriber
+        case ActivityScope.TAG:
+        case ActivityScope.TAGGED_ITEM:
+            return tagActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
@@ -100,7 +159,8 @@ export const activityLogLogic = kea<activityLogLogicType>([
             { results: [], count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
                 fetchActivity: async () => {
-                    const response = await api.activity.listLegacy(props, values.page)
+                    const transformedProps = activityLogTransforms.expandListLegacyScopes(props)
+                    const response = await api.activity.listLegacy(transformedProps, values.page)
                     return { results: response.results, count: (response as any).total_count ?? response.count }
                 },
             },
