@@ -44,10 +44,19 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
         groupsAccessStatus == GroupsAccessStatus.NoAccess
     ) {
         return (
-            <>
+            <SceneContent>
                 <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+                <SceneTitleSection
+                    name="Groups"
+                    description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
+                    resourceType={{
+                        type: groupTypeName,
+                        typePlural: groupTypeNamePlural,
+                        forceIcon: <IconPeople />,
+                    }}
+                />
                 <GroupsIntroduction />
-            </>
+            </SceneContent>
         )
     }
 
