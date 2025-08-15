@@ -47,6 +47,7 @@ struct BulkUploadFinishRequest {
 pub fn upload(
     host: Option<String>,
     directory: &PathBuf,
+    ignore_globs: &[String],
     project: Option<String>,
     version: Option<String>,
     delete_after: bool,
@@ -61,7 +62,7 @@ pub fn upload(
         host, token.env_id
     );
 
-    let pairs = read_pairs(directory)?;
+    let pairs = read_pairs(directory, ignore_globs)?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.path.clone())
