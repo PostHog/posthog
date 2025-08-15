@@ -45,7 +45,7 @@ from posthog.hogql.database.schema.channel_type import (
     create_initial_channel_type,
     create_initial_domain_type,
 )
-from posthog.hogql.database.schema.revenue_analytics import RawPersonsRevenueAnalyticsTable
+from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
@@ -162,7 +162,7 @@ class Database(BaseModel):
     web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
 
     # Revenue analytics tables
-    raw_persons_revenue_analytics: RawPersonsRevenueAnalyticsTable = RawPersonsRevenueAnalyticsTable()
+    persons_revenue_analytics: PersonsRevenueAnalyticsTable = PersonsRevenueAnalyticsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -393,15 +393,17 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             properties_path=["poe", "properties"],
         )
 
-    # TODO: POE is not well supported yet, that part is a stub
-    with timings.measure("revenue"):
-        field_name = "$virt_revenue"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
-    with timings.measure("revenue_last_30_days"):
-        field_name = "$virt_revenue_last_30_days"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+    # :KLUDGE: Currently calculated at runtime via the `revenue_analytics` table,
+    # it'd be wise to make these computable fields in the future, but that's a big uplift
+    revenue_fields = ["revenue", "revenue_last_30_days"]
+    with timings.measure("revenue_analytics_virtual_fields"):
+        for field in revenue_fields:
+            with timings.measure(field):
+                field_name = f"$virt_{field}"
+                chain = ["revenue_analytics", field]
+
+                database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
+                poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 
 TableStore = dict[str, Table | TableGroup]

@@ -56,6 +56,7 @@ from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
@@ -226,6 +227,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "cohort_type",
             "experiment_set",
             "_create_in_folder",
         ]
@@ -239,6 +241,31 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "experiment_set",
         ]
+
+    def validate_cohort_type(self, value):
+        """Validate that the cohort type matches the filters"""
+        if not value:
+            return value
+
+        cohort_data = {
+            "cohort_type": value,
+            "is_static": self.initial_data.get(
+                "is_static", getattr(self.instance, "is_static", False) if self.instance else False
+            ),
+            "query": self.initial_data.get("query", getattr(self.instance, "query", None) if self.instance else None),
+            "filters": self.initial_data.get(
+                "filters", getattr(self.instance, "filters", None) if self.instance else None
+            ),
+        }
+
+        type_serializer = CohortTypeValidationSerializer(data=cohort_data, team_id=self.context["team_id"])
+        if not type_serializer.is_valid():
+            # NB: Get the first error message, since it's the only one we're interested in
+            if "cohort_type" in type_serializer.errors:
+                raise ValidationError(type_serializer.errors["cohort_type"][0])
+            raise ValidationError("Invalid cohort type for the given filters")
+
+        return value
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
         request = self.context["request"]
@@ -491,6 +518,8 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
+        cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
+
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state

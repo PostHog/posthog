@@ -23,11 +23,6 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     is_zero_decimal_in_stripe,
 )
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_expr_for_team
-from .revenue_analytics_charge_view import STRIPE_CHARGE_SUCCEEDED_STATUS
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-)
 from posthog.hogql.database.schema.exchange_rate import (
     revenue_comparison_and_value_exprs_for_events,
     currency_expression_for_events,
@@ -271,6 +266,11 @@ class RevenueAnalyticsRevenueItemView(RevenueAnalyticsBaseView):
 
     @classmethod
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+        from posthog.temporal.data_imports.sources.stripe.constants import (
+            INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+            CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+        )
+
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSourceType.STRIPE:
             return []
@@ -608,7 +608,7 @@ class RevenueAnalyticsRevenueItemView(RevenueAnalyticsBaseView):
                         ),
                         ast.CompareOperation(
                             left=ast.Field(chain=["status"]),
-                            right=ast.Constant(value=STRIPE_CHARGE_SUCCEEDED_STATUS),
+                            right=ast.Constant(value="succeeded"),
                             op=ast.CompareOperationOp.Eq,
                         ),
                     ]
