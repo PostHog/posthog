@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
-use once_cell::sync::Lazy;
-use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -87,9 +85,21 @@ impl FlagRequest {
             }
         };
 
-        let sanitized_payload = Self::sanitize_unquoted_non_finite_values(&payload);
+        // Use json5 to parse, which handles NaN/Infinity natively
+        let mut value: Value = match json5::from_str(&payload) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::debug!("failed to parse JSON: {}", e);
+                return Err(FlagError::RequestDecodingError(String::from(
+                    "invalid JSON",
+                )));
+            }
+        };
 
-        match serde_json::from_str::<FlagRequest>(&sanitized_payload) {
+        Self::clean_non_finite_values(&mut value);
+
+        // Deserialize the cleaned value into FlagRequest
+        match serde_json::from_value::<FlagRequest>(value) {
             Ok(request) => Ok(request),
             Err(e) => {
                 tracing::debug!("failed to parse JSON: {}", e);
@@ -100,18 +110,29 @@ impl FlagRequest {
         }
     }
 
-    /// Sanitizes JSON by replacing unquoted NaN/Infinity with null, preserving quoted strings
+    /// Replaces non-finite numbers (NaN, Infinity, -Infinity) with null in a JSON Value
     /// This matches Python decide endpoint behavior: parse_constant=lambda x: None
-    fn sanitize_unquoted_non_finite_values(json_str: &str) -> String {
-        static NEG_INF_RE: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r"(?i)-infinity(\s*[,}\]])").unwrap());
-        static INF_RE: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r"(?i)\binfinity(\s*[,}\]])").unwrap());
-        static NAN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\bnan(\s*[,}\]])").unwrap());
-
-        let result = NEG_INF_RE.replace_all(json_str, "null$1");
-        let result = INF_RE.replace_all(&result, "null$1");
-        NAN_RE.replace_all(&result, "null$1").into_owned()
+    fn clean_non_finite_values(value: &mut Value) {
+        match value {
+            Value::Number(n) => {
+                if let Some(f) = n.as_f64() {
+                    if !f.is_finite() {
+                        *value = Value::Null;
+                    }
+                }
+            }
+            Value::Object(map) => {
+                for (_, v) in map.iter_mut() {
+                    Self::clean_non_finite_values(v);
+                }
+            }
+            Value::Array(arr) => {
+                for v in arr.iter_mut() {
+                    Self::clean_non_finite_values(v);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Extracts the token from the request.
@@ -199,6 +220,87 @@ mod tests {
     }
 
     #[test]
+    fn test_nan_infinity_handling() {
+        // Test unquoted NaN/Infinity values are replaced with null
+        let json_str = r#"{
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "person_properties": {
+                "score": NaN,
+                "max_value": Infinity,
+                "min_value": -Infinity,
+                "valid_number": 42.5,
+                "text_with_nan": "NaN is not a number",
+                "text_with_infinity": "Infinity stones"
+            }
+        }"#;
+        let bytes = Bytes::from(json_str);
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        // Check that NaN/Infinity were replaced with null
+        let props = flag_payload.person_properties.unwrap();
+        assert_eq!(props.get("score"), Some(&serde_json::Value::Null));
+        assert_eq!(props.get("max_value"), Some(&serde_json::Value::Null));
+        assert_eq!(props.get("min_value"), Some(&serde_json::Value::Null));
+
+        // Check that valid number is preserved
+        assert_eq!(props.get("valid_number"), Some(&json!(42.5)));
+
+        // Check that strings containing "NaN" and "Infinity" are preserved
+        assert_eq!(
+            props.get("text_with_nan"),
+            Some(&json!("NaN is not a number"))
+        );
+        assert_eq!(
+            props.get("text_with_infinity"),
+            Some(&json!("Infinity stones"))
+        );
+    }
+
+    #[test]
+    fn test_nested_nan_infinity_handling() {
+        // Test deeply nested NaN/Infinity values are also replaced
+        let json_str = r#"{
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "group_properties": {
+                "company": {
+                    "metrics": {
+                        "revenue": NaN,
+                        "growth": Infinity,
+                        "nested_array": [1, 2, NaN, Infinity, -Infinity, 3],
+                        "payload": "{'foo': NaN}"
+                    }
+                }
+            }
+        }"#;
+        let bytes = Bytes::from(json_str);
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        // Check nested replacements
+        let group_props = flag_payload.group_properties.unwrap();
+        let company = group_props.get("company").unwrap();
+        let metrics = company.get("metrics").unwrap().as_object().unwrap();
+
+        assert_eq!(metrics.get("revenue"), Some(&serde_json::Value::Null));
+        assert_eq!(metrics.get("growth"), Some(&serde_json::Value::Null));
+
+        // Check array values
+        let array = metrics.get("nested_array").unwrap().as_array().unwrap();
+        assert_eq!(array[0], json!(1));
+        assert_eq!(array[1], json!(2));
+        assert_eq!(array[2], serde_json::Value::Null); // NaN
+        assert_eq!(array[3], serde_json::Value::Null); // Infinity
+        assert_eq!(array[4], serde_json::Value::Null); // -Infinity
+        assert_eq!(array[5], json!(3));
+
+        // Check that string containing "NaN" is preserved
+        assert_eq!(metrics.get("payload"), Some(&json!("{'foo': NaN}")));
+    }
+
+    #[test]
     fn distinct_id_is_returned_correctly() {
         let json = json!({
             "$distinct_id": "alakazam",
@@ -241,63 +343,6 @@ mod tests {
 
         // First verify the field is None
         assert_eq!(flag_payload.distinct_id, Option::<String>::None);
-    }
-
-    #[test]
-    fn json_sanitization_handles_nan_infinity() {
-        // Test NaN as unquoted value (gets replaced with null)
-        let json_with_nan =
-            r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": NaN}}"#;
-        let request =
-            FlagRequest::from_bytes(Bytes::from(json_with_nan)).expect("Should handle NaN");
-        assert_eq!(
-            request.person_properties.as_ref().unwrap()["nan"],
-            json!(null)
-        );
-
-        // Test Infinity (gets replaced with null)
-        let json_with_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"infinity": Infinity}}"#;
-        let request = FlagRequest::from_bytes(Bytes::from(json_with_infinity))
-            .expect("Should handle Infinity");
-        assert_eq!(
-            request.person_properties.as_ref().unwrap()["infinity"],
-            json!(null)
-        );
-
-        // Test negative Infinity (gets replaced with null)
-        let json_with_neg_infinity = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"neg_infinity": -Infinity}}"#;
-        let request = FlagRequest::from_bytes(Bytes::from(json_with_neg_infinity))
-            .expect("Should handle -Infinity");
-        assert_eq!(
-            request.person_properties.as_ref().unwrap()["neg_infinity"],
-            json!(null)
-        );
-
-        // Test NaN as quoted string (should be preserved)
-        let json_with_nan_string = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"nan": "NaN", "infinity": "Infinity"}}"#;
-        let request = FlagRequest::from_bytes(Bytes::from(json_with_nan_string))
-            .expect("Should handle quoted NaN");
-        assert_eq!(
-            request.person_properties.as_ref().unwrap()["nan"],
-            json!("NaN") // Quoted strings are preserved
-        );
-        assert_eq!(
-            request.person_properties.as_ref().unwrap()["infinity"],
-            json!("Infinity") // Quoted strings are preserved
-        );
-
-        // Test NaN/Infinity as substrings (should be preserved)
-        let json_with_substrings = r#"{"api_key": "test", "distinct_id": "user", "person_properties": {"payload": "Don't replace NaN in here", "message": "Infinity is a concept"}}"#;
-        let request = FlagRequest::from_bytes(Bytes::from(json_with_substrings))
-            .expect("Should handle NaN/Infinity as substrings");
-        assert_eq!(
-            request.person_properties.as_ref().unwrap()["payload"],
-            json!("Don't replace NaN in here") // Substrings should be preserved
-        );
-        assert_eq!(
-            request.person_properties.as_ref().unwrap()["message"],
-            json!("Infinity is a concept") // Substrings should be preserved
-        );
     }
 
     #[test]
