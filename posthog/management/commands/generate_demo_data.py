@@ -137,6 +137,8 @@ class Command(BaseCommand):
                         password=password,
                         disallow_collision=True,
                     )
+                    # Generate demo issues for issue tracker
+                    self.generate_demo_issues(matrix_manager.team)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
             else:
