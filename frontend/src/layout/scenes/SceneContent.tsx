@@ -99,8 +99,8 @@ type ResourceType = {
     forceIconColorOverride?: FileSystemIconColor
 }
 type SceneMainTitleProps = {
-    name?: string | null
-    description?: string | null
+    name?: string
+    description?: string
     resourceType: ResourceType
     markdown?: boolean
     isLoading?: boolean
@@ -150,7 +150,7 @@ export function SceneTitleSection({
                     </span>
                     <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} />
                 </div>
-                {!description && onDescriptionBlur && (
+                {(description !== undefined || onDescriptionBlur) && (
                     <SceneDescription
                         description={description}
                         markdown={markdown}
@@ -245,7 +245,7 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
 }
 
 type SceneDescriptionProps = {
-    description?: string | null
+    description?: string
     markdown?: boolean
     isLoading?: boolean
     onBlur?: (value: string) => void
