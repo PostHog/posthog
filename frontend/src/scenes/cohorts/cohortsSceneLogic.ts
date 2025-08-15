@@ -16,6 +16,7 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import posthog from 'posthog-js'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 
 export interface CohortFilters {
     search?: string
