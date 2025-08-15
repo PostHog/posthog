@@ -181,15 +181,34 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 return
                             }
                             if (isCurrentTypeMultipleSurveyQuestion && !isNewTypeMultipleSurveyQuestion) {
-                                if (
-                                    !confirm(
-                                        'The choices you have configured will be removed. Would you like to proceed?'
-                                    )
-                                ) {
-                                    // Doing this because by the time we receive `onSelect`, the question type has already changed
-                                    setMultipleSurveyQuestion(index, question, question.type)
-                                    return
-                                }
+                                // Doing this because by the time we receive `onSelect`, the question type has already changed
+                                setMultipleSurveyQuestion(index, question, question.type)
+                                LemonDialog.open({
+                                    title: 'Changing question type',
+                                    description: (
+                                        <p className="py-2">
+                                            The choices you have configured will be removed. Would you like to proceed?
+                                        </p>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Continue',
+                                        status: 'danger',
+                                        onClick: () => {
+                                            setDefaultForQuestionType(
+                                                index,
+                                                newType,
+                                                editingQuestion,
+                                                editingDescription,
+                                                editingThankYouMessage
+                                            )
+                                            resetBranchingForQuestion(index)
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                                return
                             }
                             setDefaultForQuestionType(
                                 index,
