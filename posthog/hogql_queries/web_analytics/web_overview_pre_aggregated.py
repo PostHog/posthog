@@ -13,37 +13,36 @@ if TYPE_CHECKING:
 class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebOverviewQueryRunner") -> None:
         super().__init__(runner, supported_props_filters=WEB_OVERVIEW_SUPPORTED_PROPERTIES)
-        self.use_v2_tables = getattr(runner, "use_v2_tables", False)
 
     def get_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()
 
-        # Choose table based on version
-        table_name = "web_pre_aggregated_bounces" if self.use_v2_tables else "web_bounces_combined"
+        table_name = self.bounces_table
 
         query = parse_select(
-            f"""
+            """
             SELECT
-                {{unique_persons_current}} AS unique_persons,
-                {{unique_persons_previous}} AS previous_unique_persons,
+                {unique_persons_current} AS unique_persons,
+                {unique_persons_previous} AS previous_unique_persons,
 
-                {{pageviews_current}} AS pageviews,
-                {{pageviews_previous}} AS previous_pageviews,
+                {pageviews_current} AS pageviews,
+                {pageviews_previous} AS previous_pageviews,
 
-                {{unique_sessions_current}} AS unique_sessions,
-                {{unique_sessions_previous}} AS previous_unique_sessions,
+                {unique_sessions_current} AS unique_sessions,
+                {unique_sessions_previous} AS previous_unique_sessions,
 
-                {{avg_session_duration_current}} AS avg_session_duration,
-                {{avg_session_duration_previous}} AS previous_avg_session_duration,
+                {avg_session_duration_current} AS avg_session_duration,
+                {avg_session_duration_previous} AS previous_avg_session_duration,
 
-                {{bounce_rate_current}} AS bounce_rate,
-                {{bounce_rate_previous}} AS previous_bounce_rate,
+                {bounce_rate_current} AS bounce_rate,
+                {bounce_rate_previous} AS previous_bounce_rate,
 
                 NULL AS revenue,
                 NULL AS previous_revenue
         FROM {table_name}
         """,
             placeholders={
+                "table_name": ast.Field(chain=[table_name]),
                 "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),
                 "unique_persons_previous": self._uniq_merge_if("persons_uniq_state", previous_period_filter),
                 "pageviews_current": self._sum_merge_if("pageviews_count_state", current_period_filter),
