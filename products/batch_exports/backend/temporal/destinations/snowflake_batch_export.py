@@ -545,7 +545,7 @@ class SnowflakeClient:
             file_stream = file
 
         query = f"""
-        PUT file://{file.name} '@%"{table_name}"/{table_stage_prefix}' AUTO_COMPRESS = FALSE
+        PUT file://{file.name} '@%"{table_name}"/{table_stage_prefix}'
         """
 
         with self.connection.cursor() as cursor:
