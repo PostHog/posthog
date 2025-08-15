@@ -36,6 +36,7 @@ from posthog.schema import (
 from posthog.schema import RetentionQuery, RetentionType, Breakdown
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7
@@ -86,12 +87,20 @@ class RetentionQueryRunner(QueryRunner):
                 if not isinstance(breakdown_values, list):
                     breakdown_values = [breakdown_values]
 
+                # Convert "all" to ALL_USERS_COHORT_ID (0) for frontend compatibility
+                normalized_breakdown_values = []
+                for cohort_id in breakdown_values:
+                    if cohort_id == "all":
+                        normalized_breakdown_values.append(ALL_USERS_COHORT_ID)
+                    else:
+                        normalized_breakdown_values.append(cohort_id)
+
                 self.query.breakdownFilter.breakdowns = [
                     Breakdown(
                         type="cohort",
                         property=cohort_id,
                     )
-                    for cohort_id in breakdown_values
+                    for cohort_id in normalized_breakdown_values
                 ]
             else:
                 self.query.breakdownFilter.breakdowns = [
@@ -262,13 +271,15 @@ class RetentionQueryRunner(QueryRunner):
             and self.query.breakdownFilter.breakdowns[0].type == "cohort"
         ):
             cohort_id = self.query.breakdownFilter.breakdowns[0].property
-            global_event_filters.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.InCohort,
-                    left=ast.Field(chain=["person_id"]),
-                    right=ast.Constant(value=int(cohort_id)),
+            # Don't add cohort filter for "all users" (cohort_id = 0)
+            if int(cohort_id) != ALL_USERS_COHORT_ID:
+                global_event_filters.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.InCohort,
+                        left=ast.Field(chain=["person_id"]),
+                        right=ast.Constant(value=int(cohort_id)),
+                    )
                 )
-            )
 
         # Pre-filter events to only those we care about
         is_relevant_event = ast.Or(exprs=[start_entity_expr, return_entity_expr])
