@@ -14,23 +14,14 @@ from posthog.cloud_utils import get_cached_instance_license
 
 logger = structlog.get_logger(__name__)
 
-# TODO: review this limit on standup. Should there be a limit, or should it be from the frontend?
 MAX_RECENT_ACTIVITY_RESULTS = 50
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """
-    API endpoints for data warehouse aggregate statistics and operations.
-    """
-
     scope_object = "INTERNAL"
 
     @action(methods=["GET"], detail=False)
-    def total_row_stats(self, request: Request, **kwargs) -> Response:
-        """
-        Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
-        Used by the frontend data warehouse scene to display usage information.
-        """
+    def total_rows_stats(self, request: Request, **kwargs) -> Response:
         billing_interval = ""
         billing_period_start = None
         billing_period_end = None
@@ -100,80 +91,57 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def recent_activity(self, request: Request, **kwargs) -> Response:
         try:
-            limit_param = request.query_params.get("limit", str(MAX_RECENT_ACTIVITY_RESULTS))
-            limit = int(limit_param)
-            if limit <= 0 or limit > MAX_RECENT_ACTIVITY_RESULTS:
+            limit = int(request.query_params.get("limit", str(MAX_RECENT_ACTIVITY_RESULTS)))
+            if limit < 1:
                 limit = MAX_RECENT_ACTIVITY_RESULTS
-        except (ValueError, TypeError, OverflowError):
+            else:
+                limit = min(limit, MAX_RECENT_ACTIVITY_RESULTS)
+        except (ValueError, TypeError):
             limit = MAX_RECENT_ACTIVITY_RESULTS
 
-        external_jobs = (
-            ExternalDataJob.objects.filter(team_id=self.team_id)
-            .select_related("schema", "pipeline")
-            .order_by("-created_at")[:limit]
-        )
+        external_jobs = ExternalDataJob.objects.filter(team_id=self.team_id).select_related("schema", "pipeline")[
+            :limit
+        ]
+        modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id).select_related("saved_query")[:limit]
 
-        modeling_jobs = (
-            DataModelingJob.objects.filter(team_id=self.team_id)
-            .select_related("saved_query")
-            .order_by("-created_at")[:limit]
-        )
-
-        def safe_serialize_external_job(job):
-            """Safely serialize ExternalDataJob with proper null checks."""
-            try:
-                return {
-                    "id": str(job.id) if job.id else "unknown",
-                    "type": job.pipeline.source_type if job.pipeline else None,
-                    "name": job.schema.name if job.schema else None,
-                    "status": job.status or "Unknown",
-                    "rows": job.rows_synced or 0,
-                    "created_at": job.created_at,
-                    "finished_at": job.finished_at,
-                    "latest_error": job.latest_error,
-                    "schema_id": str(job.schema.id) if job.schema and job.schema.id else None,
-                    "source_id": str(job.pipeline.id) if job.pipeline and job.pipeline.id else None,
-                    "workflow_run_id": job.workflow_run_id,
-                }
-            except Exception as e:
-                logger.warning(f"Failed to serialize external job {getattr(job, 'id', 'unknown')}", exc_info=e)
-                return None
-
-        def safe_serialize_modeling_job(job):
-            """Safely serialize DataModelingJob with proper null checks."""
-            try:
-                return {
-                    "id": str(job.id) if job.id else "unknown",
-                    "type": "materialized_view",
-                    "name": job.saved_query.name if job.saved_query else None,
-                    "status": job.status or "Unknown",
-                    "rows": job.rows_materialized or 0,
-                    "created_at": job.created_at,
-                    "finished_at": None,  # DataModelingJob doesn't have finished_at field
-                    "latest_error": job.error,
-                    "schema_id": None,
-                    "source_id": None,
-                    "workflow_run_id": job.workflow_run_id,
-                }
-            except Exception as e:
-                logger.warning(f"Failed to serialize modeling job {getattr(job, 'id', 'unknown')}", exc_info=e)
-                return None
-
-        # Serialize jobs with error handling
-        external_activities = [safe_serialize_external_job(job) for job in external_jobs]
-        modeling_activities = [safe_serialize_modeling_job(job) for job in modeling_jobs]
-
-        # Filter out any None results from failed serialization
-        activities = [activity for activity in external_activities + modeling_activities if activity is not None]
+        activities = [
+            {
+                "id": str(job.id),
+                "type": job.pipeline.source_type if job.pipeline else None,
+                "name": job.schema.name if job.schema else None,
+                "status": job.status,
+                "rows": job.rows_synced or 0,
+                "created_at": job.created_at,
+                "finished_at": job.finished_at,
+                "latest_error": job.latest_error,
+                "schema_id": str(job.schema.id) if job.schema else None,
+                "source_id": str(job.pipeline.id) if job.pipeline else None,
+                "workflow_run_id": job.workflow_run_id,
+            }
+            for job in external_jobs
+        ] + [
+            {
+                "id": str(job.id),
+                "type": "materialized_view",
+                "name": job.saved_query.name if job.saved_query else None,
+                "status": job.status,
+                "rows": job.rows_materialized or 0,
+                "created_at": job.created_at,
+                "finished_at": None,
+                "latest_error": job.error,
+                "schema_id": None,
+                "source_id": None,
+                "workflow_run_id": job.workflow_run_id,
+            }
+            for job in modeling_jobs
+        ]
 
         activities.sort(key=lambda x: x["created_at"], reverse=True)
-        activities = activities[:limit]
 
         return Response(
-            status=status.HTTP_200_OK,
-            data={
-                "activities": activities,
+            {
+                "activities": activities[:limit],
                 "total_count": len(activities),
                 "limit": limit,
-            },
+            }
         )
