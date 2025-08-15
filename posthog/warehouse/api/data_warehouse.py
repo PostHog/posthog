@@ -1,5 +1,3 @@
-from typing import Any
-
 import structlog
 from dateutil import parser
 from django.db.models import Sum
@@ -28,11 +26,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
     @action(methods=["GET"], detail=False)
-    def total_rows_stats(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
-        Used by the frontend data warehouse scene to display usage information.
-        """
+    def total_rows_stats(self, request: Request, **kwargs) -> Response:
         billing_interval = ""
         billing_period_start = None
         billing_period_end = None
@@ -100,7 +94,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def recent_activity(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def recent_activity(self, request: Request, **kwargs) -> Response:
         try:
             limit_param = request.query_params.get("limit", str(MAX_RECENT_ACTIVITY_RESULTS))
             limit = int(limit_param)
@@ -122,44 +116,39 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             .order_by("-created_at")[:limit]
         )
 
-        activities: list[dict[str, Any]] = []
-
-        for job in external_jobs:
-            schema_name = job.schema.name if job.schema else "Unknown"
-            source_name = job.pipeline.source_type if job.pipeline else "Unknown"
-
-            activities.append(
-                {
-                    "id": str(job.id),
-                    "type": "external_data_sync",
-                    "name": f"{source_name} - {schema_name}",
-                    "status": job.status,
-                    "rows": job.rows_synced or 0,
-                    "created_at": job.created_at,
-                    "finished_at": job.finished_at,
-                    "latest_error": job.latest_error,
-                    "schema_id": str(job.schema.id) if job.schema and job.schema.id else None,
-                    "source_id": str(job.pipeline.id) if job.pipeline and job.pipeline.id else None,
-                    "workflow_run_id": job.workflow_run_id,
-                }
-            )
-
-        for job in modeling_jobs:
-            model_name = job.saved_query.name if job.saved_query else "Unknown"
-            activities.append(
-                {
-                    "id": str(job.id),
-                    "type": "materialized_view",
-                    "name": f"Materialized View - {model_name}",
-                    "status": job.status,
-                    "rows": job.rows_materialized or 0,
-                    "created_at": job.created_at,
-                    "finished_at": job.finished_at if hasattr(job, "finished_at") else None,
-                    "latest_error": job.error,
-                    "model_name": model_name,
-                    "workflow_run_id": job.workflow_run_id,
-                }
-            )
+        activities = [
+            {
+                "id": str(job.id),
+                "type": "external_data_sync",
+                "name": f"{job.pipeline.source_type if job.pipeline else 'Unknown'} - {job.schema.name if job.schema else 'Unknown'}",
+                "status": job.status,
+                "rows": job.rows_synced or 0,
+                "created_at": job.created_at,
+                "finished_at": job.finished_at,
+                "latest_error": job.latest_error,
+                "schema_id": str(job.schema.id) if job.schema else None,
+                "source_id": str(job.pipeline.id) if job.pipeline else None,
+                "model_name": None,
+                "workflow_run_id": job.workflow_run_id,
+            }
+            for job in external_jobs
+        ] + [
+            {
+                "id": str(job.id),
+                "type": "materialized_view",
+                "name": f"Materialized View - {job.saved_query.name if job.saved_query else 'Unknown'}",
+                "status": job.status,
+                "rows": job.rows_materialized or 0,
+                "created_at": job.created_at,
+                "finished_at": getattr(job, "finished_at", None),
+                "latest_error": job.error,
+                "schema_id": None,
+                "source_id": None,
+                "model_name": job.saved_query.name if job.saved_query else "Unknown",
+                "workflow_run_id": job.workflow_run_id,
+            }
+            for job in modeling_jobs
+        ]
 
         activities.sort(key=lambda x: x["created_at"], reverse=True)
         activities = activities[:limit]
