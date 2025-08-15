@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, cast
 
 import pydantic_core
@@ -44,6 +45,37 @@ from opentelemetry import trace
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
+    """
+    Serialize a single tile with error handling. Returns (order, tile_data) tuple.
+    This function is designed to be thread-safe and used with ThreadPoolExecutor.
+    """
+    # Create a copy of context to avoid thread conflicts
+    tile_context = context.copy()
+    tile_context.update(
+        {
+            "dashboard_tile": tile,
+            "order": order,
+        }
+    )
+
+    if isinstance(tile.layouts, str):
+        tile.layouts = json.loads(tile.layouts)
+
+    try:
+        tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
+        return order, tile_data
+    except pydantic_core.ValidationError as e:
+        if not tile.insight:
+            raise
+        query = tile.insight.query
+        tile.insight.query = None
+        tile_data = DashboardTileSerializer(tile, context=tile_context).data
+        tile_data["insight"]["query"] = query
+        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
+        return order, tile_data
 
 
 class CanEditDashboard(BasePermission):
@@ -467,34 +499,29 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
-            for order, tile in enumerate(sorted_tiles):
-                self.context.update(
-                    {
-                        "dashboard_tile": tile,
-                        "order": order,
-                    }
-                )
+            # Handle case where there are no tiles
+            if not sorted_tiles:
+                return []
 
-                if isinstance(tile.layouts, str):
-                    tile.layouts = json.loads(tile.layouts)
+            # Use ThreadPoolExecutor for parallel tile serialization
+            # Limit workers to avoid overwhelming the system while still getting significant speedup
+            max_workers = min(len(sorted_tiles), 10)  # Cap at 10 workers
 
-                try:
-                    tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-                    serialized_tiles.append(tile_data)
-                # A single broken query object has the potential to crash the entire dashboard
-                # Here we catch it and handle it gracefully
-                except pydantic_core.ValidationError as e:
-                    if not tile.insight:
-                        raise
-                    query = tile.insight.query
-                    tile.insight.query = None
-                    # If this throws with no query, it will still crash the dashboard. We could attempt to handle this
-                    # general case gracefully, but it gets increasingly complicated to handle the tile in a graceful
-                    # way if we don't have insight information attached.
-                    tile_data = DashboardTileSerializer(tile, context=self.context).data
-                    tile_data["insight"]["query"] = query
-                    tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
-                    serialized_tiles.append(tile_data)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tile serialization tasks
+                future_to_order = {}
+                for order, tile in enumerate(sorted_tiles):
+                    future = executor.submit(serialize_tile_with_context, tile, order, self.context)
+                    future_to_order[future] = order
+
+                # Collect results maintaining original order
+                tile_results = [None] * len(sorted_tiles)
+                for future in as_completed(future_to_order):
+                    order, tile_data = future.result()
+                    tile_results[order] = tile_data
+
+                # Add results to serialized_tiles in order
+                serialized_tiles.extend(tile_results)
 
         return serialized_tiles
 
