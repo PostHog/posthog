@@ -97,11 +97,29 @@ export function sanitizeSurveyDisplayConditions(
         return null
     }
 
-    return {
+    const trimmedUrl = displayConditions.url?.trim()
+    const trimmedSelector = displayConditions.selector?.trim()
+    const trimmedLinkedFlagVariant = displayConditions.linkedFlagVariant?.trim()
+
+    const sanitized: SurveyDisplayConditions = {
         ...displayConditions,
-        url: displayConditions.url?.trim(),
-        selector: displayConditions.selector?.trim(),
+        ...(trimmedUrl && { url: trimmedUrl }),
+        ...(trimmedSelector && { selector: trimmedSelector }),
+        ...(trimmedLinkedFlagVariant && { linkedFlagVariant: trimmedLinkedFlagVariant }),
     }
+
+    // Remove the original keys if they were empty after trimming
+    if (!trimmedUrl) {
+        delete sanitized.url
+    }
+    if (!trimmedSelector) {
+        delete sanitized.selector
+    }
+    if (!trimmedLinkedFlagVariant) {
+        delete sanitized.linkedFlagVariant
+    }
+
+    return sanitized
 }
 
 export function sanitizeSurveyAppearance(
@@ -408,10 +426,19 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         delete sanitizedAppearance.widgetColor
     }
 
-    return {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    const sanitized: Partial<Survey> = {
         ...survey,
-        conditions: sanitizeSurveyDisplayConditions(survey.conditions),
+        conditions: conditions,
         questions: sanitizedQuestions,
         appearance: sanitizedAppearance,
     }
+    if (!conditions || Object.keys(conditions).length === 0) {
+        delete sanitized.conditions
+    }
+    if (!sanitizedAppearance || Object.keys(sanitizedAppearance).length === 0) {
+        delete sanitized.appearance
+    }
+
+    return sanitized
 }

@@ -17,6 +17,7 @@ export interface SurveyCreationSchema {
     name: string
     description: string
     type: SurveyType
+    linked_flag_id?: number
     questions: SurveyQuestionSchema[]
     should_launch?: boolean
     conditions?: SurveyDisplayConditionsSchema

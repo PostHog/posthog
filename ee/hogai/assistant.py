@@ -372,6 +372,8 @@ class Assistant:
                         for action, _ in intermediate_steps:
                             assert isinstance(action.tool_input, dict)
                             match action.tool:
+                                case "lookup_feature_flag":
+                                    substeps.append(f"Exploring feature flag `{action.tool_input['flag_key']}`")
                                 case "retrieve_event_properties":
                                     substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
                                 case "retrieve_entity_properties":
@@ -400,8 +402,13 @@ class Assistant:
 
                 # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools,
                 # so we reuse the last reasoning headline when going back to QueryPlanner
+                if node_name == AssistantNodeName.QUERY_PLANNER:
+                    content = self._last_reasoning_headline or "Picking relevant events and properties"
+                else:
+                    content = self._last_reasoning_headline or "Picking the relevant information"
                 return ReasoningMessage(
-                    content=self._last_reasoning_headline or "Picking relevant events and properties", substeps=substeps
+                    content=content,
+                    substeps=substeps,
                 )
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
