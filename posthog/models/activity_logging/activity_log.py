@@ -468,7 +468,11 @@ def safely_get_field_value(instance: models.Model | None, field: str):
             if hasattr(field_id, "pk"):
                 field_id = field_id.pk
             # Only fetch the actual object if we have a valid ID
-            return field_obj.related_model.objects.get(pk=field_id)
+            related_model = field_obj.related_model
+            if isinstance(related_model, type) and issubclass(related_model, models.Model):
+                return related_model.objects.get(pk=field_id)  # type: ignore[union-attr]
+            else:
+                return field_id
 
         # For other fields, use normal access
         value = getattr(instance, field, None)
