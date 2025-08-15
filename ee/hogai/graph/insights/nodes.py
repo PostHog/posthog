@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Literal
 from uuid import uuid4
 
+from asgiref.sync import sync_to_async
 from django.db.models import Max
 from django.utils import timezone
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -117,11 +118,12 @@ class InsightSearchNode(AssistantNode):
         try:
             self._current_iteration = 0
 
-            if self._get_total_insights_count() == 0:
+            total_count = await sync_to_async(self._get_total_insights_count)()
+            if total_count == 0:
                 return self._handle_empty_database(state)
 
             selected_insights = await self._search_insights_iteratively(search_query or "")
-            evaluation_result = self._evaluate_insights_with_tools(
+            evaluation_result = await sync_to_async(self._evaluate_insights_with_tools)(
                 selected_insights, search_query or "", max_selections=1
             )
 
@@ -238,8 +240,8 @@ class InsightSearchNode(AssistantNode):
 
     async def _search_insights_iteratively(self, search_query: str) -> list[int]:
         """Execute iterative insight search with LLM and tool calling."""
-        messages = self._build_search_messages(search_query)
-        llm_with_tools = self._prepare_llm_with_tools()
+        messages = await sync_to_async(self._build_search_messages)(search_query)
+        llm_with_tools = await sync_to_async(self._prepare_llm_with_tools)()
 
         selected_insights = await self._perform_iterative_search(messages, llm_with_tools)
 
@@ -287,13 +289,29 @@ class InsightSearchNode(AssistantNode):
             self._current_iteration += 1
 
             try:
-                response = llm_with_tools.ainvoke(messages)
+                response = await llm_with_tools.ainvoke(messages)
+
+                if hasattr(response, "tool_calls") and response.tool_calls:
+                    # Required for tool message protocol
+                    messages.append(response)
+
+                    for tool_call in response.tool_calls:
+                        if tool_call.get("name") == "read_insights_page":
+                            page_num = tool_call.get("args", {}).get("page_number", 0)
+                            tool_response = await sync_to_async(self._get_page_content_for_tool)(page_num)
+                            messages.append(
+                                ToolMessage(content=tool_response, tool_call_id=tool_call.get("id", "unknown"))
+                            )
+                    continue
+
+                # No tool calls, extract insight IDs from the response. Done with the search
                 content = response.content if isinstance(response.content, str) else str(response.content)
                 selected_insights = self._parse_insight_ids(content)
+                break
+
             except Exception as e:
                 capture_exception(e)
                 break
-
         return selected_insights
 
     def _get_page_content_for_tool(self, page_number: int) -> str:
@@ -630,7 +648,7 @@ class InsightSearchNode(AssistantNode):
         visualization_messages = []
         explanations = []
 
-        for _insight_id, selection in self._evaluation_selections.items():
+        for _, selection in self._evaluation_selections.items():
             insight = selection["insight"]
             visualization_message = self._create_visualization_message_for_insight(insight)
             if visualization_message:
@@ -642,6 +660,11 @@ class InsightSearchNode(AssistantNode):
             explanations.append(f"- {insight_hyperlink}: {selection['explanation']}")
 
         num_insights = len(self._evaluation_selections)
+
+        # If no insights were actually selected, this shouldn't be a successful result
+        if num_insights == 0:
+            return self._create_rejection_result()
+
         insight_word = "insight" if num_insights == 1 else "insights"
 
         return {

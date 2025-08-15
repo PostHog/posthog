@@ -1,5 +1,6 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from django.utils import timezone
+import asyncio
 
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode
@@ -161,7 +162,7 @@ class TestInsightSearchNode(BaseTest):
 
     def test_evaluation_flow_creates_visualization_messages(self):
         """Test that evaluation flow creates visualization messages for existing insights."""
-        # Test the specific part of the run method that handles evaluation results
+        # Test the specific part of the arun method that handles evaluation results
         selected_insights = [self.insight1.id, self.insight2.id]
         search_query = "test query"
         insight_plan = "test plan"
@@ -179,7 +180,11 @@ class TestInsightSearchNode(BaseTest):
             with patch.object(self.node, "_search_insights_iteratively") as mock_search:
                 with patch.object(self.node, "_get_total_insights_count") as mock_count:
                     with patch.object(self.node, "_load_insights_page") as mock_load_page:
-                        mock_search.return_value = selected_insights
+                        # Create a proper async mock
+                        async def mock_search_async(query):
+                            return selected_insights
+
+                        mock_search.side_effect = mock_search_async
                         mock_count.return_value = 2  # Simulate that we have insights
                         # Mock the insights page data
                         mock_load_page.return_value = [
@@ -196,10 +201,10 @@ class TestInsightSearchNode(BaseTest):
                         )
 
                         config = {"configurable": {"thread_id": "test_thread"}}
-                        result = self.node.run(state, config)
+                        result = asyncio.run(self.node.arun(state, config))
 
                         if result is None:
-                            self.fail("run() returned None")
+                            self.fail("arun() returned None")
                         if result.messages is None:
                             result.messages = []
 
@@ -218,19 +223,29 @@ class TestInsightSearchNode(BaseTest):
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_single_page(self, mock_openai):
         """Test iterative search with single page (no pagination)."""
-        # Load the first page so insights are available for search
-        self.node._load_insights_page(0)
 
-        # Mock LLM response with insight IDs
-        mock_response = MagicMock()
-        mock_response.content = (
-            f"Based on your query, I recommend these insights: {self.insight1.id}, {self.insight2.id}"
-        )
-        mock_response.tool_calls = None
-        mock_openai.return_value.invoke.return_value = mock_response
+        async def async_test():
+            # Mock LLM response with insight IDs
+            mock_response = MagicMock()
+            mock_response.content = (
+                f"Based on your query, I recommend these insights: {self.insight1.id}, {self.insight2.id}"
+            )
+            mock_response.tool_calls = None
+            mock_openai.return_value.ainvoke = AsyncMock(return_value=mock_response)
 
-        result = self.node._search_insights_iteratively("pageview analysis")
+            # Mock the sync database calls
+            with patch.object(self.node, "_get_total_insights_count", return_value=2):
+                with patch.object(self.node, "_format_insights_page", return_value="Mocked page"):
+                    with patch.object(self.node, "_load_insights_page", return_value=[self.insight1, self.insight2]):
+                        # Also mock the parse method to return the IDs from the LLM response
+                        with patch.object(
+                            self.node, "_parse_insight_ids", return_value=[self.insight1.id, self.insight2.id]
+                        ):
+                            result = await self.node._search_insights_iteratively("pageview analysis")
 
+            return result
+
+        result = asyncio.run(async_test())
         self.assertEqual(len(result), 2)
         self.assertIn(self.insight1.id, result)
         self.assertIn(self.insight2.id, result)
@@ -238,17 +253,29 @@ class TestInsightSearchNode(BaseTest):
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_with_pagination(self, mock_openai):
         """Test iterative search with pagination returns valid IDs."""
+
+        async def async_test():
+            # Use existing insights from setUp
+            existing_insight_ids = [self.insight1.id, self.insight2.id]
+            # Mock final response with existing insight IDs
+            mock_final_response = MagicMock()
+            mock_final_response.content = f"Here are the insights: {existing_insight_ids[0]}, {existing_insight_ids[1]}"
+            mock_final_response.tool_calls = None
+
+            mock_openai.return_value.ainvoke = AsyncMock(return_value=mock_final_response)
+
+            # Mock the sync database calls
+            with patch.object(self.node, "_get_total_insights_count", return_value=2):
+                with patch.object(self.node, "_format_insights_page", return_value="Mocked page"):
+                    with patch.object(self.node, "_load_insights_page", return_value=[self.insight1, self.insight2]):
+                        with patch.object(self.node, "_parse_insight_ids", return_value=existing_insight_ids):
+                            result = await self.node._search_insights_iteratively("test query")
+
+            return result
+
+        result = asyncio.run(async_test())
         # Use existing insights from setUp
         existing_insight_ids = [self.insight1.id, self.insight2.id]
-        # Mock final response with existing insight IDs
-        mock_final_response = MagicMock()
-        mock_final_response.content = f"Here are the insights: {existing_insight_ids[0]}, {existing_insight_ids[1]}"
-        mock_final_response.tool_calls = None
-
-        mock_openai.return_value.invoke.return_value = mock_final_response
-
-        result = self.node._search_insights_iteratively("test query")
-
         self.assertEqual(len(result), 2)
         self.assertIn(existing_insight_ids[0], result)
         self.assertIn(existing_insight_ids[1], result)
@@ -256,11 +283,19 @@ class TestInsightSearchNode(BaseTest):
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_fallback(self, mock_openai):
         """Test iterative search when LLM fails - should return empty list."""
-        # Mock LLM to raise an exception
-        mock_openai.return_value.invoke.side_effect = Exception("LLM failed")
 
-        result = self.node._search_insights_iteratively("test query")
+        async def async_test():
+            # Mock LLM to raise an exception
+            mock_openai.return_value.ainvoke = AsyncMock(side_effect=Exception("LLM failed"))
 
+            # Mock the sync database calls to avoid async issues
+            with patch.object(self.node, "_get_total_insights_count", return_value=0):
+                with patch.object(self.node, "_format_insights_page", return_value=""):
+                    result = await self.node._search_insights_iteratively("test query")
+
+            return result
+
+        result = asyncio.run(async_test())
         # Should return empty list when LLM fails to select anything
         self.assertEqual(len(result), 0)
 
@@ -289,7 +324,11 @@ class TestInsightSearchNode(BaseTest):
             with patch.object(self.node, "_search_insights_iteratively") as mock_search:
                 with patch.object(self.node, "_get_total_insights_count") as mock_count:
                     with patch.object(self.node, "_load_insights_page") as mock_load_page:
-                        mock_search.return_value = selected_insights
+                        # Create a proper async mock
+                        async def mock_search_async(query):
+                            return selected_insights
+
+                        mock_search.side_effect = mock_search_async
                         mock_count.return_value = 2  # Simulate that we have insights
                         # Mock the insights page data
                         mock_load_page.return_value = [
@@ -306,7 +345,7 @@ class TestInsightSearchNode(BaseTest):
                         )
 
                         config = {"configurable": {"thread_id": "test_thread"}}
-                        result = self.node.run(state, config)
+                        result = asyncio.run(self.node.arun(state, config))
 
                         # Verify that search_insights_query is cleared and root_tool_insight_plan is set to search_query
                         self.assertIsNotNone(result)
@@ -347,7 +386,11 @@ class TestInsightSearchNode(BaseTest):
             with patch.object(self.node, "_get_total_insights_count") as mock_count:
                 with patch.object(self.node, "_evaluate_insights_with_tools") as mock_evaluate:
                     with patch.object(self.node, "_load_insights_page") as mock_load_page:
-                        mock_search.return_value = selected_insights
+                        # Create a proper async mock
+                        async def mock_search_async(query):
+                            return selected_insights
+
+                        mock_search.side_effect = mock_search_async
                         mock_count.return_value = 1  # Simulate that we have insights
                         # Mock the insights page data
                         mock_load_page.return_value = [{"insight_id": self.insight1.id}]
@@ -368,7 +411,7 @@ class TestInsightSearchNode(BaseTest):
                         )
 
                         config = {"configurable": {"thread_id": "test_thread"}}
-                        result = self.node.run(state, config)
+                        result = asyncio.run(self.node.arun(state, config))
 
                         # Verify that evaluation was called with search_query (current implementation behavior)
                         mock_evaluate.assert_called_once_with(selected_insights, search_query, max_selections=1)
@@ -383,8 +426,8 @@ class TestInsightSearchNode(BaseTest):
                         self.assertIsNone(result.root_tool_call_id)
 
     def test_run_with_no_insights(self):
-        """Test run method when no insights exist."""
-        # Clear all insights
+        """Test arun method when no insights exist."""
+        # Clear all insights (done outside async context)
         InsightViewed.objects.all().delete()
         Insight.objects.all().delete()
 
@@ -396,8 +439,13 @@ class TestInsightSearchNode(BaseTest):
             root_tool_call_id="test_tool_call_id",
         )
 
-        result = self.node.run(state, {"configurable": {"thread_id": str(conversation.id)}})
+        async def async_test():
+            # Mock the database calls that happen in async context
+            with patch.object(self.node, "_get_total_insights_count", return_value=0):
+                result = await self.node.arun(state, {"configurable": {"thread_id": str(conversation.id)}})
+            return result
 
+        result = asyncio.run(async_test())
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
         self.assertIn("No insights found in the database", result.messages[0].content)
