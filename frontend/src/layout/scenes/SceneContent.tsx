@@ -16,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FileSystemIconColor } from '~/types'
 
 export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="flex flex-col gap-y-4">{children}</div>
+    return <div className="scene-content flex flex-col gap-y-4">{children}</div>
 }
 
 interface SceneSectionProps {
@@ -42,7 +42,7 @@ export function SceneSection({
     // If not in new scene layout, we don't want to show anything new
     if (!newSceneLayout) {
         return (
-            <div className={cn('flex flex-col gap-4', className)}>
+            <div className={cn('scene-section--fallback flex flex-col gap-4', className)}>
                 {!hideTitleAndDescription && (
                     <div className="flex flex-col">
                         <h2 className="flex-1 subtitle mt-0">{title}</h2>
@@ -67,7 +67,7 @@ export function SceneSection({
     }
 
     return (
-        <div className={cn('flex flex-col gap-4', className)}>
+        <div className={cn('scene-section--new-layout flex flex-col gap-4', className)}>
             <div className="flex flex-col gap-0">
                 <h2 className="text-xl font-bold my-0 mb-1 max-w-prose">{title}</h2>
                 {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
@@ -124,7 +124,7 @@ export function SceneTitleSection({
     )
 
     return (
-        <div className="w-full flex gap-0 group/colorful-product-icons colorful-product-icons-true">
+        <div className="scene-title-section w-full flex gap-0 group/colorful-product-icons colorful-product-icons-true">
             <div className="flex flex-col gap-1.5 flex-1">
                 <div className="flex gap-3 [&_svg]:size-6 items-center">
                     {resourceType.to ? (
@@ -221,7 +221,7 @@ export function SceneName({ name: initialName, isLoading = false, onBlur }: Scen
     }
 
     return (
-        <div className="max-w-prose flex flex-col gap-0 -ml-[calc(var(--button-padding-x-sm)+2px)]">
+        <div className="scene-name max-w-prose flex flex-col gap-0 -ml-[calc(var(--button-padding-x-sm)+2px)]">
             {isEditing ? (
                 <>
                     <TextInputPrimitive
@@ -323,7 +323,7 @@ export function SceneDescription({
     }
 
     return (
-        <div className="max-w-prose flex flex-col gap-0">
+        <div className="scene-description max-w-prose flex flex-col gap-0">
             {isEditing ? (
                 <>
                     <TextareaPrimitive
@@ -357,5 +357,5 @@ export function SceneDivider(): JSX.Element | null {
         return null
     }
 
-    return <LemonDivider className="-mx-4 w-[calc(100%+var(--spacing)*8)]" />
+    return <LemonDivider className="scene-divider -mx-4 w-[calc(100%+var(--spacing)*8)]" />
 }
