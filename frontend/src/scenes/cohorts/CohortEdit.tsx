@@ -235,6 +235,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             'deprecated-space-y-2 ': !newSceneLayout,
                             'flex flex-col gap-y-2': newSceneLayout,
                         })}
+                        hideTitleAndDescription
                     >
                         <div className="flex gap-4 flex-wrap">
                             {!newSceneLayout && (
@@ -414,7 +415,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </>
                     ) : (
                         <>
-                            {!newSceneLayout ? <LemonDivider className="my-6" /> : <SceneDivider />}
+                            {!newSceneLayout ? <LemonDivider /> : <SceneDivider />}
                             {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
                                 <LemonBanner type="info">
                                     This cohort manages exposure for an experiment. Editing this cohort may change
@@ -429,6 +430,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 title="Matching criteria"
                                 description="Actors who match the following criteria will be part of the cohort. Continuously updated automatically."
                                 className={cn('flex items-start justify-between')}
+                                hideTitleAndDescription
                             >
                                 {!newSceneLayout && (
                                     <div className="flex flex-col">
@@ -470,8 +472,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     </>
                                 }
                                 description="Persons who match the following criteria will be part of the cohort."
+                                hideTitleAndDescription
                             >
-                                {!newSceneLayout && <LemonDivider className="my-6" />}
+                                {!newSceneLayout && <LemonDivider />}
                                 <div>
                                     {!newSceneLayout && (
                                         <h3 className="l3 mb-4">

@@ -22,8 +22,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 const RESOURCE_TYPE = 'cohort'
 
@@ -37,8 +35,6 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState(cohortFilters.search || '')
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -191,7 +187,7 @@ export function Cohorts(): JSX.Element {
                 customHog={ListHog}
             />
 
-            <div className={cn('flex justify-between items-center mb-4 gap-2', newSceneLayout && 'mb-0')}>
+            <div className={cn('flex justify-between items-center mb-0 gap-2')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for cohorts"

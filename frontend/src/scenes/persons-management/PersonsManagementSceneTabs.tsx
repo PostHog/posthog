@@ -7,7 +7,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { personsManagementSceneLogic } from './personsManagementSceneLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { cn } from 'lib/utils/css-classes'
 
 export interface PersonsManagementSceneTabsProps {
     tabKey: string
@@ -32,11 +31,7 @@ export function PersonsManagementSceneTabs({ tabKey, buttons }: PersonsManagemen
                 buttons={buttons}
             />
 
-            <LemonTabs
-                activeKey={tabKey}
-                tabs={lemonTabs}
-                className={cn(newSceneLayout && '-mt-4 -mx-4 [&>ul]:px-4 [&>ul]:mb-0')}
-            />
+            <LemonTabs activeKey={tabKey} tabs={lemonTabs} className="-mt-4 -mx-4 [&>ul]:px-4 [&>ul]:mb-0" />
         </>
     )
 }

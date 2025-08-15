@@ -17,7 +17,7 @@ export function Actions(): JSX.Element {
 
             <SceneTitleSection
                 name="Actions"
-                description="Triggered by events and can be used to perform actions such as sending an email, creating a task, or updating a record."
+                description="Combine several related events into one, which you can then analyze in insights and dashboards as if it were a single event."
                 resourceType={{
                     type: 'action',
                     typePlural: 'actions',

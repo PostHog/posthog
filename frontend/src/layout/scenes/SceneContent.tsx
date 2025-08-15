@@ -16,14 +16,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FileSystemIconColor } from '~/types'
 
 export function SceneContent({ children }: { children: React.ReactNode }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-
-    // If not in new scene layout, we don't want to show anything new
-    if (!newSceneLayout) {
-        return <div>{children}</div>
-    }
-
     return <div className="flex flex-col gap-y-4">{children}</div>
 }
 
@@ -33,15 +25,33 @@ interface SceneSectionProps {
     isLoading?: boolean
     children: React.ReactNode
     className?: string
+    hideTitleAndDescription?: boolean
 }
 
-export function SceneSection({ title, description, isLoading, children, className }: SceneSectionProps): JSX.Element {
+export function SceneSection({
+    title,
+    description,
+    isLoading,
+    children,
+    className,
+    hideTitleAndDescription,
+}: SceneSectionProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     // If not in new scene layout, we don't want to show anything new
     if (!newSceneLayout) {
-        return <div className={cn('flex flex-col gap-4', className)}>{children}</div>
+        return (
+            <div className={cn('flex flex-col gap-4', className)}>
+                {!hideTitleAndDescription && (
+                    <div className="flex flex-col">
+                        <h2 className="flex-1 subtitle mt-0">{title}</h2>
+                        <p className="m-0">{description}</p>
+                    </div>
+                )}
+                {children}
+            </div>
+        )
     }
 
     if (isLoading) {
