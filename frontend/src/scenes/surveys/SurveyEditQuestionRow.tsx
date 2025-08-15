@@ -194,6 +194,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         onClick: () => {
                                             setDefaultForQuestionType(
                                                 index,
+                                                question,
                                                 newType,
                                                 editingQuestion,
                                                 editingDescription,
