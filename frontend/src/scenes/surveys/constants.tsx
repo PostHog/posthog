@@ -251,6 +251,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: "Let your users share what's on their mind.",
         tagType: 'default',
         category: 'General',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -277,6 +278,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: 'Get an industry-recognized benchmark.',
         tagType: 'success',
         category: 'Metrics',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -298,6 +300,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: "40% 'very disappointed' signals product-market fit.",
         tagType: 'success',
         category: 'Metrics',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -324,6 +327,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: 'Works best after a checkout or support flow.',
         tagType: 'success',
         category: 'Metrics',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -364,6 +368,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: 'Works well with churn surveys.',
         tagType: 'success',
         category: 'Metrics',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -391,6 +396,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: 'Find out if it was something you said.',
         tagType: 'completion',
         category: 'Business',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -419,6 +425,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: 'Find out where your traffic is coming from.',
         tagType: 'completion',
         category: 'Business',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -437,12 +444,13 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             actions: null,
             events: { repeatedActivation: true, values: [{ name: '$exception' }] },
         },
-        appearance: {
-            surveyPopupDelaySeconds: 2,
-        },
         description: 'Ask users for context when they hit an exception.',
         tagType: 'default',
         category: 'General',
+        appearance: {
+            ...defaultSurveyAppearance,
+            surveyPopupDelaySeconds: 2,
+        },
     },
     {
         type: SurveyType.Popover,
@@ -471,6 +479,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: 'Let users vote on your roadmap priorities.',
         tagType: 'primary',
         category: 'Product',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -503,6 +512,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: "Capture first impressions while they're fresh.",
         tagType: 'primary',
         category: 'Product',
+        appearance: defaultSurveyAppearance,
     },
     {
         type: SurveyType.Popover,
@@ -541,6 +551,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: 'Get targeted feedback on new features and betas.',
         tagType: 'primary',
         category: 'Product',
+        appearance: defaultSurveyAppearance,
     },
 ]
 
@@ -612,4 +623,10 @@ export enum SURVEY_CREATED_SOURCE {
     FEATURE_FLAGS = 'feature_flags',
     MAX_AI = 'max_ai',
     SURVEY_FORM = 'survey_form',
+    SURVEY_EMPTY_STATE = 'survey_empty_state',
+}
+
+export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {
+    TEST = 'test', // new experience
+    CONTROL = 'control', // current state
 }

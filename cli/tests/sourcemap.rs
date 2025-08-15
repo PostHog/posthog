@@ -19,14 +19,24 @@ fn assert_file_eq(base_path: &Path, path: &str, actual: &str) {
 
 #[test]
 fn test_search() {
-    let pairs = read_pairs(&get_case_path("search")).expect("Failed to read pairs");
+    let pairs = read_pairs(&get_case_path("search"), &Vec::new()).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 2);
+}
+
+#[test]
+fn test_ignore() {
+    let pairs = read_pairs(&get_case_path(""), &Vec::new()).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 4);
+
+    let pairs = read_pairs(&get_case_path(""), &vec!["**/search/**".to_string()])
+        .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 2);
 }
 
 #[test]
 fn test_pair_inject() {
     let case_path = get_case_path("inject");
-    let mut pairs = read_pairs(&case_path).expect("Failed to read pairs");
+    let mut pairs = read_pairs(&case_path, &Vec::new()).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
@@ -49,7 +59,7 @@ fn test_pair_inject() {
 #[test]
 fn test_index_inject() {
     let case_path = get_case_path("index_map");
-    let mut pairs = read_pairs(&case_path).expect("Failed to read pairs");
+    let mut pairs = read_pairs(&case_path, &Vec::new()).expect("Failed to read pairs");
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
     current_pair
