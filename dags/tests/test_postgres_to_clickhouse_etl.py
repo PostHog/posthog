@@ -181,25 +181,39 @@ class TestDatabaseOperations:
         assert len(teams) == 1
         assert teams[0]["name"] == "Team 1"
 
-    @patch("dags.postgres_to_clickhouse_etl.sync_execute")
-    def test_create_clickhouse_tables(self, mock_sync_execute):
+    @patch("dags.postgres_to_clickhouse_etl.get_cluster")
+    def test_create_clickhouse_tables(self, mock_get_cluster):
         """Test ClickHouse table creation."""
+        # Mock the cluster and its methods
+        mock_cluster = MagicMock()
+        mock_futures_map = MagicMock()
+        mock_futures_map.result.return_value = {}
+        mock_cluster.map_all_hosts.return_value = mock_futures_map
+        mock_get_cluster.return_value = mock_cluster
+
         create_clickhouse_tables()
 
-        # Should have called sync_execute for:
+        # Should have called map_all_hosts for:
         # 1. CREATE DATABASE IF NOT EXISTS models
         # 2. CREATE TABLE posthog_organization
         # 3. CREATE TABLE posthog_team
-        assert mock_sync_execute.call_count == 3
+        assert mock_cluster.map_all_hosts.call_count == 3
 
-        calls = [call[0][0] for call in mock_sync_execute.call_args_list]
+        # Extract the Query objects from the calls
+        calls = [call[0][0].query for call in mock_cluster.map_all_hosts.call_args_list]
 
         # Check database creation
         assert any("CREATE DATABASE IF NOT EXISTS models" in call for call in calls)
 
-        # Check table creation
-        assert any("CREATE TABLE IF NOT EXISTS models.posthog_organization" in call for call in calls)
-        assert any("CREATE TABLE IF NOT EXISTS models.posthog_team" in call for call in calls)
+        # Check table creation with ReplicatedReplacingMergeTree
+        assert any(
+            "CREATE TABLE IF NOT EXISTS models.posthog_organization" in call and "ReplicatedReplacingMergeTree" in call
+            for call in calls
+        )
+        assert any(
+            "CREATE TABLE IF NOT EXISTS models.posthog_team" in call and "ReplicatedReplacingMergeTree" in call
+            for call in calls
+        )
 
     @patch("dags.postgres_to_clickhouse_etl.sync_execute")
     def test_insert_organizations_to_clickhouse(self, mock_sync_execute):
@@ -370,10 +384,13 @@ class TestOps:
         assert result["organizations"]["rows_synced"] == 10
         assert result["teams"]["rows_synced"] == 15
 
+    @patch("dags.postgres_to_clickhouse_etl.get_cluster")
     @patch("dags.postgres_to_clickhouse_etl.sync_execute")
     @patch("dags.postgres_to_clickhouse_etl.get_postgres_connection")
     @patch("dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_sync_organizations_full_refresh(self, mock_create_tables, mock_get_pg_conn, mock_sync_execute):
+    def test_sync_organizations_full_refresh(
+        self, mock_create_tables, mock_get_pg_conn, mock_sync_execute, mock_get_cluster
+    ):
         """Test sync_organizations with full refresh."""
 
         mock_pg_conn = MagicMock()

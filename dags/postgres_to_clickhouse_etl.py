@@ -25,6 +25,7 @@ from dagster import (
 from dagster._core.definitions.backfill_policy import BackfillPolicy
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import Query, get_cluster
 from dags.common import JobOwners
 
 
@@ -105,7 +106,7 @@ def get_organization_table_sql() -> str:
             is_platform Nullable(UInt8),
             _inserted_at DateTime64(6) DEFAULT now64(6)
         )
-        ENGINE = ReplacingMergeTree(_inserted_at)
+        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_organization', '{shard}-{replica}', _inserted_at)
         ORDER BY (id, updated_at)
         SETTINGS index_granularity = 8192
     """
@@ -196,23 +197,24 @@ def get_team_table_sql() -> str:
             base_currency Nullable(String),
             _inserted_at DateTime64(6) DEFAULT now64(6)
         )
-        ENGINE = ReplacingMergeTree(_inserted_at)
+        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_team', '{shard}-{replica}', _inserted_at)
         ORDER BY (organization_id, id, updated_at)
         SETTINGS index_granularity = 8192
     """
 
 
 def create_database_if_not_exists(context: Optional[Union[OpExecutionContext, AssetExecutionContext]] = None) -> None:
-    """Create the models database in ClickHouse if it doesn't exist."""
+    """Create the models database in ClickHouse if it doesn't exist on all nodes."""
     if context:
         context.log.info("Creating database 'models' if it doesn't exist...")
     create_db_sql = "CREATE DATABASE IF NOT EXISTS models"
 
     try:
-        # Use sync_execute instead of run_sql_with_exceptions to ensure same connection
-        sync_execute(create_db_sql)
+        # Use cluster API to create database on all nodes
+        cluster = get_cluster()
+        cluster.map_all_hosts(Query(create_db_sql)).result()
         if context:
-            context.log.info("Database 'models' created/verified successfully")
+            context.log.info("Database 'models' created/verified successfully on all nodes")
     except Exception as e:
         if context:
             context.log.exception(f"Error creating database: {e}")
@@ -231,27 +233,31 @@ def create_clickhouse_tables(
     # First ensure the database exists
     create_database_if_not_exists(context)
 
+    # Get cluster for executing commands on all nodes
+    cluster = get_cluster()
+
     # Only drop tables if explicitly requested (e.g., schema changes)
     if force_recreate:
         if context:
             context.log.info("Force recreate requested, dropping existing tables...")
         try:
-            sync_execute("DROP TABLE IF EXISTS models.posthog_organization")
-            sync_execute("DROP TABLE IF EXISTS models.posthog_team")
+            # Use Query class to drop tables on all nodes
+            cluster.map_all_hosts(Query("DROP TABLE IF EXISTS models.posthog_organization")).result()
+            cluster.map_all_hosts(Query("DROP TABLE IF EXISTS models.posthog_team")).result()
             if context:
-                context.log.info("Dropped existing tables")
+                context.log.info("Dropped existing tables on all nodes")
         except Exception as e:
             if context:
                 context.log.warning(f"Error dropping tables (may not exist): {e}")
 
-    # Create tables if they don't exist
+    # Create tables if they don't exist on all nodes
     # The IF NOT EXISTS clause ensures we don't error if tables already exist
     if context:
         context.log.info("Creating posthog_organization table if it doesn't exist...")
     try:
-        sync_execute(get_organization_table_sql())
+        cluster.map_all_hosts(Query(get_organization_table_sql())).result()
         if context:
-            context.log.info("Created/verified posthog_organization table")
+            context.log.info("Created/verified posthog_organization table on all nodes")
     except Exception as e:
         if context:
             context.log.exception(f"Error creating organization table: {e}")
@@ -260,9 +266,9 @@ def create_clickhouse_tables(
     if context:
         context.log.info("Creating posthog_team table if it doesn't exist...")
     try:
-        sync_execute(get_team_table_sql())
+        cluster.map_all_hosts(Query(get_team_table_sql())).result()
         if context:
-            context.log.info("Created/verified posthog_team table")
+            context.log.info("Created/verified posthog_team table on all nodes")
     except Exception as e:
         if context:
             context.log.exception(f"Error creating team table: {e}")
