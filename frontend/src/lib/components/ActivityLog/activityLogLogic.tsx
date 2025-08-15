@@ -27,6 +27,7 @@ import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityD
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
+import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import { urls } from 'scenes/urls'
@@ -104,6 +105,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return insightActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
+        case ActivityScope.PERSONAL_API_KEY:
+            return personalAPIKeyActivityDescriber
         case ActivityScope.GROUP:
             return groupActivityDescriber
         case ActivityScope.EVENT_DEFINITION:

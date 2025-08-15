@@ -70,7 +70,7 @@ ActivityScope = Literal[
     "Threshold",
     "AlertSubscription",
 ]
-ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
+ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported", "revoked"]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -370,6 +370,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "value",
         "secure_value",
         "last_used_at",
+        "last_rolled_at",
     ],
     "User": [
         "password",
@@ -563,7 +564,7 @@ def dict_changes_between(
 def log_activity(
     *,
     organization_id: Optional[UUID],
-    team_id: int,
+    team_id: Optional[int],
     user: Optional["User"],
     item_id: Optional[Union[int, str, UUID]],
     scope: str,
