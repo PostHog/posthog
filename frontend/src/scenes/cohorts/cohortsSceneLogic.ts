@@ -9,11 +9,13 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { processCohort } from '~/models/cohortsModel'
 import { PaginationManual, Sorting } from '@posthog/lemon-ui'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import posthog from 'posthog-js'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 
 export interface CohortFilters {
     search?: string
@@ -31,6 +33,7 @@ const COHORTS_PER_PAGE = 100
 
 export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     path(['scenes', 'cohorts', 'cohortsSceneLogic']),
+    tabAwareScene(),
     connect(() => ({
         actions: [exportsLogic, ['startExport']],
     })),
@@ -171,7 +174,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             actions.startExport(exportCommand)
         },
     })),
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setCohortFilters: () => {
             const searchParams: Record<string, any> = { ...router.values.searchParams }
 
@@ -201,7 +204,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.cohorts()]: (_, searchParams) => {
             const { page, search, sorting } = searchParams
             const filtersFromUrl: Partial<CohortFilters> = {}
