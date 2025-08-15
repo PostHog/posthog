@@ -171,17 +171,13 @@ class TestDatabaseOperations:
     @patch("dags.postgres_to_clickhouse_etl.sync_execute")
     def test_create_clickhouse_tables(self, mock_sync_execute):
         """Test ClickHouse table creation."""
-        # Mock the SHOW DATABASES result
-        mock_sync_execute.return_value = [["models"], ["default"], ["system"]]
-
         create_clickhouse_tables()
 
         # Should have called sync_execute for:
-        # 1. CREATE DATABASE IF NOT EXISTS
-        # 2. SHOW DATABASES
-        # 3. CREATE TABLE posthog_organization
-        # 4. CREATE TABLE posthog_team
-        assert mock_sync_execute.call_count >= 4
+        # 1. CREATE DATABASE IF NOT EXISTS models
+        # 2. CREATE TABLE posthog_organization
+        # 3. CREATE TABLE posthog_team
+        assert mock_sync_execute.call_count == 3
 
         calls = [call[0][0] for call in mock_sync_execute.call_args_list]
 
