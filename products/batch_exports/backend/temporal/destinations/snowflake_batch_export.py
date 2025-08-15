@@ -400,10 +400,19 @@ class SnowflakeClient:
         self.logger.debug("Waiting for results of query with ID '%s'", query_id)
 
         # Snowflake does a blocking HTTP request, so we send it to a thread.
-        query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+        # We need to explicitly catch the exception here because asyncio.to_thread
+        # does not re-raise exceptions.
+        try:
+            query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+        except Exception:
+            raise
 
         while self.connection.is_still_running(query_status):
-            query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+            try:
+                query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+            except Exception:
+                raise
+
             await asyncio.sleep(poll_interval)
 
         query_execution_time = time.time() - query_start_time
@@ -548,8 +557,6 @@ class SnowflakeClient:
         PUT file://{file.name} '@%"{table_name}"/{table_stage_prefix}' AUTO_COMPRESS = FALSE
         """
 
-        print("DEBUGLOG: query = ", query)
-
         with self.connection.cursor() as cursor:
             cursor = self.connection.cursor()
 
@@ -590,12 +597,19 @@ class SnowflakeClient:
         FROM (
             SELECT {", ".join(f'"{field[0]}"' for field in table_fields)} FROM '@%"{table_name}"/{table_stage_prefix}'
         )
-        FILE_FORMAT = (TYPE = 'PARQUET' COMPRESSION = 'NONE')
+        FILE_FORMAT = (TYPE = 'PARQUET')
         PURGE = TRUE
         """
-        breakpoint()
-        print("DEBUGLOG: query = ", query)
-        result = await self.execute_async_query(query, poll_interval=1.0)
+        try:
+            result = await self.execute_async_query(query, poll_interval=1.0)
+        except snowflake.connector.errors.ProgrammingError as e:
+            self.logger.exception(f"Error executing COPY INTO query: {e}")
+            raise SnowflakeFileNotLoadedError(
+                table_name,
+                "NO STATUS",
+                0,
+                e.msg or "NO ERROR MESSAGE",
+            )
         assert result is not None
         results, _ = result
 
@@ -1240,6 +1254,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     schema=record_batch_schema,
                     file_format="Parquet",
                     compression=None,
+                    # TODO - try adding compression once Parquet is working
                     # compression="zstd",
                     include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
