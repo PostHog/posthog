@@ -1,4 +1,4 @@
-import { IconBadge, IconEye } from '@posthog/icons'
+import { IconBadge, IconEye, IconInfo } from '@posthog/icons'
 import { IconHide } from '@posthog/icons'
 import { LemonDivider, LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -259,7 +259,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 )}
                 {isEvent && (
                     <div className="flex flex-col flex-1">
-                        <h5>30 day queries</h5>
+                        <h5>
+                            30 day queries{' '}
+                            <Tooltip title="Number of times this event has been queried in the last 30 days">
+                                <IconInfo />
+                            </Tooltip>
+                        </h5>
                         <b>
                             {metricsLoading ? (
                                 <Spinner textColored />
