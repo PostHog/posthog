@@ -77,7 +77,9 @@ class TestProperty(BaseTest):
             self._parse_expr("group_3.properties.a = 'b'"),
         )
         self.assertEqual(
-            self._parse_expr("group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))"),
+            self._parse_expr(
+                "group_0.properties.a = NULL OR group_0.properties.a = 'null' OR (NOT JSONHas(group_0.properties, 'a'))"
+            ),
             self._property_to_expr(
                 {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
             ),
@@ -135,10 +137,10 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_set"}),
-            self._parse_expr("properties.a != NULL"),
+            self._parse_expr("properties.a != NULL AND properties.a != 'null'"),
         )
         self.assertEqual(
-            self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))"),
+            self._parse_expr("properties.a = NULL OR properties.a = 'null' OR (NOT JSONHas(properties, 'a'))"),
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}),
         )
         self.assertEqual(
@@ -909,3 +911,52 @@ class TestProperty(BaseTest):
             chain=["person", "properties", 42]
         )
         assert map_virtual_properties(ast.Field(chain=["properties", 42])) == ast.Field(chain=["properties", 42])
+
+    def test_is_set_with_string_null_values(self):
+        """Test that IS_SET properly excludes string 'null' values."""
+        # IS_SET should exclude both SQL NULL and string "null"
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "test_prop", "operator": "is_set"}),
+            self._parse_expr("properties.test_prop != NULL AND properties.test_prop != 'null'"),
+        )
+
+        # Test with person properties too
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "test_prop", "operator": "is_set"}),
+            self._parse_expr("person.properties.test_prop != NULL AND person.properties.test_prop != 'null'"),
+        )
+
+    def test_is_not_set_with_string_null_values(self):
+        """Test that IS_NOT_SET properly includes string 'null' values."""
+        # IS_NOT_SET should include SQL NULL, missing keys, and string "null"
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "test_prop", "operator": "is_not_set"}),
+            self._parse_expr(
+                "properties.test_prop = NULL OR properties.test_prop = 'null' OR (NOT JSONHas(properties, 'test_prop'))"
+            ),
+        )
+
+        # Test with person properties too
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "test_prop", "operator": "is_not_set"}),
+            self._parse_expr(
+                "person.properties.test_prop = NULL OR person.properties.test_prop = 'null' OR (NOT JSONHas(person.properties, 'test_prop'))"
+            ),
+        )
+
+    def test_is_set_is_not_set_with_groups(self):
+        """Test IS_SET/IS_NOT_SET with group properties."""
+        # Group properties should also handle string "null" correctly
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "test_prop", "operator": "is_set"}),
+            self._parse_expr("group_0.properties.test_prop != NULL AND group_0.properties.test_prop != 'null'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 0, "key": "test_prop", "operator": "is_not_set"}
+            ),
+            self._parse_expr(
+                "group_0.properties.test_prop = NULL OR group_0.properties.test_prop = 'null' OR (NOT JSONHas(group_0.properties, 'test_prop'))"
+            ),
+        )

@@ -170,18 +170,34 @@ def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
     if operator == PropertyOperator.IS_SET:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotEq,
-            left=expr,
-            right=ast.Constant(value=None),
+        # IS_SET should exclude both SQL NULL and string "null" values
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=expr,
+                    right=ast.Constant(value=None),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=expr,
+                    right=ast.Constant(value="null"),
+                ),
+            ]
         )
     elif operator == PropertyOperator.IS_NOT_SET:
+        # IS_NOT_SET should include SQL NULL, missing keys, and string "null" values
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=expr,
                 right=ast.Constant(value=None),
-            )
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=expr,
+                right=ast.Constant(value="null"),
+            ),
         ]
 
         if is_json_field:
