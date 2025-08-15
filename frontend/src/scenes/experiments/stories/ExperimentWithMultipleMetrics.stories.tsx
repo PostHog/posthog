@@ -18,6 +18,12 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_MULTIPLE_METRICS.id),
+        testOptions: {
+            viewport: {
+                width: 1440,
+                height: 720,
+            },
+        },
     },
     decorators: [
         mswDecorator({
