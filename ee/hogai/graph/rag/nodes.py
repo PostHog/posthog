@@ -17,7 +17,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
-from ..base import AssistantNode
+from ee.hogai.graph.base import AssistantNode
 
 NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
 NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]

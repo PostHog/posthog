@@ -17,8 +17,10 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
+from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
+from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
@@ -140,9 +142,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         contextual_tools: Optional[dict[str, Any]] = None,
         ui_context: Optional[MaxUIContext] = None,
         filter_ack_messages: bool = True,
-    ) -> tuple[list[tuple[str, Any]], Assistant]:
+    ) -> tuple[list[AssistantOutput], BaseAssistant]:
         # Create assistant instance with our test graph
-        assistant = Assistant(
+        assistant = Assistant.create(
             self.team,
             conversation or self.conversation,
             new_message=HumanMessage(content=message or "Hello", ui_context=ui_context),
@@ -153,7 +155,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             contextual_tools=contextual_tools,
         )
         if test_graph:
-            assistant._graph = test_graph
+            # If the test_graph is already an AssistantCompiledStateGraph, use it directly
+            # Otherwise wrap it but preserve the reasoning message mapping
+            if isinstance(test_graph, AssistantCompiledStateGraph):
+                assistant._graph = test_graph
+            else:
+                # Try to get the reasoning message mapping from the original graph if available
+                reasoning_mapping = getattr(test_graph, "get_reasoning_message_by_node_name", {})
+                assistant._graph = AssistantCompiledStateGraph(test_graph, reasoning_mapping)
         # Capture and parse output of assistant.astream()
         output: list[AssistantOutput] = []
         async for event in assistant.astream():
@@ -656,7 +665,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
-        assistant = Assistant(self.team, self.conversation, user=self.user, new_message=HumanMessage(content="foo"))
+        assistant = Assistant.create(
+            self.team, self.conversation, user=self.user, new_message=HumanMessage(content="foo")
+        )
         assistant._graph = graph
 
         expected_output = [
@@ -677,7 +688,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
-        assistant = Assistant(self.team, self.conversation, user=self.user, new_message=HumanMessage(content="foo"))
+        assistant = Assistant.create(
+            self.team, self.conversation, user=self.user, new_message=HumanMessage(content="foo")
+        )
         assistant._graph = graph
 
         expected_output = [
@@ -1675,12 +1688,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
 
-        assistant = Assistant(
+        assistant = Assistant.create(
             self.team,
             self.conversation,
             user=self.user,
             new_message=HumanMessage(content="Test"),
-            mode=AssistantMode.INSIGHTS_TOOL,
         )
         assistant._graph = graph
 
@@ -1699,7 +1711,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_chunk_reasoning_headline(self):
         """Test _chunk_reasoning_headline method with various scenarios."""
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+        assistant = Assistant.create(
+            self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user
+        )
 
         # Test 1: Start of headline - should return None and start chunking
         reasoning = {"summary": [{"text": "**Analyzing user data"}]}
@@ -1777,7 +1791,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_process_value_update_returns_ack_event(self):
         """Test that _process_value_update returns an ACK event for state updates."""
 
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+        assistant = Assistant.create(
+            self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user
+        )
 
         # Create a value update tuple that doesn't match special nodes
         update: GraphValueUpdateTuple = (
@@ -1821,7 +1837,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 )
             ],
         )
-        assistant = Assistant(
+        assistant = Assistant.create(
             team=self.team,
             conversation=self.conversation,
             user=self.user,
@@ -1833,7 +1849,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_handles_mixed_content_types_in_chunks(self):
         """Test that assistant correctly handles switching between string and list content formats."""
-        assistant = Assistant(
+        assistant = Assistant.create(
             team=self.team,
             conversation=self.conversation,
             user=self.user,
@@ -1867,7 +1883,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_handles_multiple_list_chunks(self):
         """Test that multiple list-format chunks are properly concatenated."""
-        assistant = Assistant(
+        assistant = Assistant.create(
             team=self.team,
             conversation=self.conversation,
             user=self.user,

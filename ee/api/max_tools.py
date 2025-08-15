@@ -57,7 +57,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
-        assistant = Assistant(
+        assistant = Assistant.create(
             self.team,
             conversation,
             user=cast(User, request.user),

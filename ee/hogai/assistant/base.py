@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Literal, Optional, cast
@@ -10,30 +11,15 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphRecursionError
-from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
-from ee.hogai.graph import (
-    AssistantGraph,
-    FunnelGeneratorNode,
-    InsightsAssistantGraph,
-    MemoryInitializerNode,
-    QueryExecutorNode,
-    RetentionGeneratorNode,
-    SchemaGeneratorNode,
-    SQLGeneratorNode,
-    TrendsGeneratorNode,
-)
-from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
-from ee.hogai.notebook.notebook_serializer import NotebookSerializer
-from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.graph.base import BaseAssistantNode
+from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import (
     extract_content_from_ai_message,
-    find_last_ui_context,
     should_output_assistant_message,
 )
 from ee.hogai.utils.state import (
@@ -50,92 +36,57 @@ from ee.hogai.utils.state import (
 from ee.hogai.utils.types import (
     AssistantMessageOrStatusUnion,
     AssistantMessageUnion,
-    AssistantMode,
-    AssistantNodeName,
     AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import AssistantMode
+from ee.hogai.utils.types.composed import (
+    MaxGraphState,
+    MaxGraphStateWithMessages,
+    MaxNodeName,
+    MaxPartialGraphState,
+    MaxPartialGraphStateWithMessages,
+)
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Team, User
+from posthog.models import Team, User
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
-    AssistantMessageType,
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
-    NotebookUpdateMessage,
     ReasoningMessage,
-    VisualizationMessage,
 )
 from posthog.sync import database_sync_to_async
-
-VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
-    AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-    AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-    AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
-    AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
-}
-
-VISUALIZATION_NODES_TOOL_CALL_MODE: dict[MaxNodeName, type[AssistantNode]] = {
-    **VISUALIZATION_NODES,
-    AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
-}
-
-STREAMING_NODES: set[MaxNodeName] = {
-    AssistantNodeName.ROOT,
-    AssistantNodeName.INKEEP_DOCS,
-    AssistantNodeName.MEMORY_ONBOARDING,
-    AssistantNodeName.MEMORY_INITIALIZER,
-    AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
-    AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-    TaxonomyNodeName.LOOP_NODE,
-    AssistantNodeName.SESSION_SUMMARIZATION,
-}
-"""Nodes that can stream messages to the client."""
-
-
-VERBOSE_NODES: set[MaxNodeName] = STREAMING_NODES | {
-    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
-    AssistantNodeName.ROOT_TOOLS,
-    TaxonomyNodeName.TOOLS_NODE,
-}
-"""Nodes that can send messages to the client."""
-
-THINKING_NODES: set[MaxNodeName] = {
-    AssistantNodeName.QUERY_PLANNER,
-    TaxonomyNodeName.LOOP_NODE,
-    AssistantNodeName.SESSION_SUMMARIZATION,
-}
-"""Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
 
 logger = structlog.get_logger(__name__)
 
 
-class Assistant:
+class BaseAssistant(ABC):
     _team: Team
-    _graph: CompiledStateGraph
+    _graph: AssistantCompiledStateGraph
     _user: User
+    _state_type: type[MaxGraphStateWithMessages]
+    _partial_state_type: type[MaxPartialGraphStateWithMessages]
+    _mode: AssistantMode
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
-    _state: Optional[AssistantState]
+    _state: Optional[MaxGraphStateWithMessages]
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _custom_update_ids: set[str]
     _reasoning_headline_chunk: Optional[str]
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
-    """Last emittted reasoning headline, to be able to carry it over."""
+    """Last emitted reasoning headline, to be able to carry it over."""
     _billing_context: Optional[MaxBillingContext]
+    _initial_state: Optional[MaxGraphStateWithMessages | MaxPartialGraphStateWithMessages]
 
     def __init__(
         self,
@@ -143,14 +94,17 @@ class Assistant:
         conversation: Conversation,
         *,
         new_message: Optional[HumanMessage] = None,
-        mode: AssistantMode = AssistantMode.ASSISTANT,
         user: User,
+        graph: AssistantCompiledStateGraph,
+        state_type: type[MaxGraphStateWithMessages],
+        partial_state_type: type[MaxPartialGraphStateWithMessages],
+        mode: AssistantMode,
         session_id: Optional[str] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
-        tool_call_partial_state: Optional[AssistantState] = None,
         billing_context: Optional[MaxBillingContext] = None,
+        initial_state: Optional[MaxGraphStateWithMessages | MaxPartialGraphStateWithMessages] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -159,15 +113,11 @@ class Assistant:
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
-        self._mode = mode
-        match mode:
-            case AssistantMode.ASSISTANT:
-                self._graph = AssistantGraph(team, user).compile_full_graph()
-            case AssistantMode.INSIGHTS_TOOL:
-                self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
-        self._tool_call_partial_state = tool_call_partial_state
         self._state = None
+        self._graph = graph
+        self._state_type = state_type
+        self._partial_state_type = partial_state_type
         self._callback_handler = (
             CallbackHandler(
                 posthoganalytics.default_client,
@@ -188,13 +138,51 @@ class Assistant:
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
         self._billing_context = billing_context
+        self._mode = mode
+        self._initial_state = initial_state
+
+    @property
+    @abstractmethod
+    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
+        """Nodes that can generate visualizations."""
+        pass
+
+    @property
+    @abstractmethod
+    def STREAMING_NODES(self) -> set[MaxNodeName]:
+        """Nodes that can stream messages to the client."""
+        pass
+
+    @property
+    @abstractmethod
+    def VERBOSE_NODES(self) -> set[MaxNodeName]:
+        """Nodes that can send messages to the client."""
+        pass
+
+    @property
+    @abstractmethod
+    def THINKING_NODES(self) -> set[MaxNodeName]:
+        """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
+        pass
+
+    @abstractmethod
+    def get_initial_state(self) -> MaxGraphStateWithMessages:
+        """The initial state of the graph."""
+        pass
+
+    @abstractmethod
+    def get_resumed_state(self) -> MaxPartialGraphStateWithMessages:
+        """The state of the graph after a resume."""
+        pass
 
     async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Returns all messages in once without streaming."""
         messages = []
 
-        async for event_type, message in self.astream(stream_messages=False):
-            if event_type == AssistantEventType.MESSAGE and message.type != AssistantMessageType.AI_REASONING:
+        async for event_type, message in self.astream(stream_messages=False, stream_first_message=False):
+            if event_type == AssistantEventType.MESSAGE and not isinstance(
+                message, ReasoningMessage | AssistantGenerationStatusEvent | Conversation
+            ):
                 messages.append((event_type, cast(AssistantMessageUnion, message)))
 
         return messages
@@ -204,7 +192,9 @@ class Assistant:
         """Sync method. Returns all messages in once without streaming."""
         return await self.ainvoke()
 
-    async def astream(self, stream_messages: bool = True) -> AsyncGenerator[AssistantOutput, None]:
+    async def astream(
+        self, stream_messages: bool = True, stream_subgraphs: bool = True, stream_first_message: bool = True
+    ) -> AsyncGenerator[AssistantOutput, None]:
         state = await self._init_or_update_state()
         config = self._get_config()
 
@@ -214,7 +204,7 @@ class Assistant:
             stream_mode.append("messages")
 
         generator: AsyncIterator[Any] = self._graph.astream(
-            state, config=config, stream_mode=stream_mode, subgraphs=True
+            state, config=config, stream_mode=stream_mode, subgraphs=stream_subgraphs
         )
 
         async with self._lock_conversation():
@@ -222,20 +212,14 @@ class Assistant:
             if self._is_new_conversation:
                 yield AssistantEventType.CONVERSATION, self._conversation
 
-            if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-                # Send the last message with the initialized id.
+            if stream_first_message and self._latest_message:
+                # Send the latest received human message with the initialized id.
                 yield AssistantEventType.MESSAGE, self._latest_message
 
-            last_ai_message: AssistantMessage | None = None
-            last_viz_message: VisualizationMessage | None = None
             try:
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
-                            if isinstance(message, VisualizationMessage):
-                                last_viz_message = message
-                            if isinstance(message, AssistantMessage):
-                                last_ai_message = message
                             if hasattr(message, "id"):
                                 if update[1] == "custom":
                                     # Custom updates come from tool calls, we want to deduplicate the messages sent to the client.
@@ -260,7 +244,7 @@ class Assistant:
 
                     await self._graph.aupdate_state(
                         config,
-                        PartialAssistantState(
+                        self._partial_state_type(
                             messages=interrupt_messages,
                             # LangGraph by some reason doesn't store the interrupt exceptions in checkpoints.
                             graph_status="interrupted",
@@ -276,7 +260,7 @@ class Assistant:
                 )
             except Exception as e:
                 # Reset the state, so that the next generation starts from the beginning.
-                await self._graph.aupdate_state(config, PartialAssistantState.get_reset_state())
+                await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
 
                 if not isinstance(e, GenerationCanceled):
                     logger.exception("Error in assistant stream", error=e)
@@ -297,10 +281,6 @@ class Assistant:
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
                         yield AssistantEventType.MESSAGE, FailureMessage()
-            finally:
-                await self._report_conversation_state(
-                    last_assistant_message=last_ai_message, last_visualization_message=last_viz_message
-                )
 
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
@@ -336,111 +316,28 @@ class Assistant:
                 self._state = saved_state
                 await self._graph.aupdate_state(
                     config,
-                    PartialAssistantState(
-                        messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
-                    ),
+                    self.get_resumed_state(),
                 )
                 # Return None to indicate that we want to continue the execution from the interrupted point.
                 return None
 
-        # Append the new message and reset some fields to their default values.
-        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            initial_state = AssistantState(
-                messages=[self._latest_message],
-                start_id=self._latest_message.id,
-                query_generation_retry_count=0,
-                graph_status=None,
-                rag_context=None,
-            )
-        else:
-            initial_state = AssistantState(messages=[])
-
-        if self._tool_call_partial_state:
-            for key, value in self._tool_call_partial_state.model_dump().items():
+        initial_state = self.get_initial_state()
+        if self._initial_state:
+            for key, value in self._initial_state.model_dump(exclude_none=True).items():
+                # Don't overwrite messages with an empty list from partial state
+                if key == "messages" and value == [] and initial_state.messages:
+                    continue
                 setattr(initial_state, key, value)
         self._state = initial_state
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: MaxNodeName, input: AssistantState
+        self, node_name: MaxNodeName, input: MaxGraphStateWithMessages
     ) -> Optional[ReasoningMessage]:
-        match node_name:
-            case AssistantNodeName.QUERY_PLANNER | TaxonomyNodeName.LOOP_NODE:
-                substeps: list[str] = []
-                if input:
-                    if intermediate_steps := input.intermediate_steps:
-                        for action, _ in intermediate_steps:
-                            assert isinstance(action.tool_input, dict)
-                            match action.tool:
-                                case "retrieve_event_properties":
-                                    substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
-                                case "retrieve_entity_properties":
-                                    substeps.append(f"Exploring {action.tool_input['entity']} properties")
-                                case "retrieve_event_property_values":
-                                    substeps.append(
-                                        f"Analyzing `{action.tool_input['event_name']}` event's property `{action.tool_input['property_name']}`"
-                                    )
-                                case "retrieve_entity_property_values":
-                                    substeps.append(
-                                        f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
-                                    )
-                                case "retrieve_action_properties" | "retrieve_action_property_values":
-                                    try:
-                                        action_model = await Action.objects.aget(
-                                            pk=action.tool_input["action_id"], team__project_id=self._team.project_id
-                                        )
-                                        if action.tool == "retrieve_action_properties":
-                                            substeps.append(f"Exploring `{action_model.name}` action properties")
-                                        elif action.tool == "retrieve_action_property_values":
-                                            substeps.append(
-                                                f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
-                                            )
-                                    except Action.DoesNotExist:
-                                        pass
-
-                # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools,
-                # so we reuse the last reasoning headline when going back to QueryPlanner
-                return ReasoningMessage(
-                    content=self._last_reasoning_headline or "Picking relevant events and properties", substeps=substeps
-                )
-            case AssistantNodeName.TRENDS_GENERATOR:
-                return ReasoningMessage(content="Creating trends query")
-            case AssistantNodeName.FUNNEL_GENERATOR:
-                return ReasoningMessage(content="Creating funnel query")
-            case AssistantNodeName.RETENTION_GENERATOR:
-                return ReasoningMessage(content="Creating retention query")
-            case AssistantNodeName.SQL_GENERATOR:
-                return ReasoningMessage(content="Creating SQL query")
-            case AssistantNodeName.ROOT_TOOLS:
-                assert isinstance(input.messages[-1], AssistantMessage)
-                tool_calls = input.messages[-1].tool_calls or []
-                assert len(tool_calls) <= 1
-                if len(tool_calls) == 0:
-                    return None
-                tool_call = tool_calls[0]
-                if tool_call.name == "create_and_query_insight":
-                    return ReasoningMessage(content="Coming up with an insight")
-                if tool_call.name == "search_documentation":
-                    return ReasoningMessage(content="Checking PostHog docs")
-                if tool_call.name == "retrieve_billing_information":
-                    return ReasoningMessage(content="Checking your billing data")
-                # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
-                # when the tool has been removed from the backend since the user's frontent was loaded
-                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
-                return ReasoningMessage(
-                    content=ToolClass(team=self._team, user=self._user).thinking_message
-                    if ToolClass
-                    else f"Running tool {tool_call.name}"
-                )
-            case AssistantNodeName.ROOT:
-                ui_context = find_last_ui_context(input.messages)
-                if ui_context and (ui_context.dashboards or ui_context.insights):
-                    return ReasoningMessage(content="Calculating context")
-                return None
-            case AssistantNodeName.SESSION_SUMMARIZATION:
-                return ReasoningMessage(content="Summarizing session recordings")
-            case _:
-                return None
+        callable = self._graph.get_reasoning_message_by_node_name.get(node_name)
+        if callable:
+            return await callable(input, self._last_reasoning_headline or "")
+        return None
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
         if update[1] == "custom":
@@ -461,26 +358,22 @@ class Assistant:
     def _process_value_update(self, update: GraphValueUpdateTuple) -> list[BaseModel] | None:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
-        # this needs full type annotation otherwise mypy complains
-        visualization_nodes: dict[MaxNodeName, type[AssistantNode]] | dict[MaxNodeName, type[SchemaGeneratorNode]] = (
-            VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
-        )
-        if intersected_nodes := state_update.keys() & visualization_nodes.keys():
+        if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
             node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
-            if not isinstance(node_val, PartialAssistantState):
+            if not isinstance(node_val, MaxGraphState | MaxPartialGraphState):
                 return None
             if node_val.messages:
                 return list(node_val.messages)
             elif node_val.intermediate_steps:
                 return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]
 
-        for node_name in VERBOSE_NODES:
+        for node_name in self.VERBOSE_NODES:
             if node_val := state_update.get(node_name):
-                if isinstance(node_val, PartialAssistantState) and node_val.messages:
+                if isinstance(node_val, self._partial_state_type) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
                     _messages: list[BaseModel] = []
                     for candidate_message in node_val.messages:
@@ -488,7 +381,7 @@ class Assistant:
                             _messages.append(candidate_message)
                     return _messages
 
-        for node_name in THINKING_NODES:
+        for node_name in self.THINKING_NODES:
             if node_val := state_update.get(node_name):
                 # If update involves new state from a thinking node, we reset the thinking headline to be sure
                 self._reasoning_headline_chunk = None
@@ -508,14 +401,11 @@ class Assistant:
                 return ReasoningMessage(content=reasoning_headline)
 
         # Only process streaming nodes
-        if node_name not in STREAMING_NODES:
+        if node_name not in self.STREAMING_NODES:
             return None
 
         # Merge message chunks
         self._merge_message_chunk(langchain_message)
-
-        if node_name == AssistantNodeName.MEMORY_INITIALIZER:
-            return self._process_memory_initializer_chunk(langchain_message)
 
         # Extract and process content
         message_content = extract_content_from_ai_message(self._chunks)
@@ -541,23 +431,6 @@ class Assistant:
         else:
             # Compatible types - merge normally
             self._chunks += langchain_message  # type: ignore
-
-    def _process_memory_initializer_chunk(self, langchain_message: AIMessageChunk) -> Optional[AssistantMessage]:
-        """Process memory initializer specific chunk logic."""
-        if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
-            return None
-        return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
-
-    def _create_notebook_update_message(self, content: str) -> Optional[NotebookUpdateMessage]:
-        """Create a notebook update message from markdown content."""
-        if not self._state or not self._state.notebook_id:
-            logger.debug("No notebook id found in state", state=self._state)
-            return None
-
-        serializer = NotebookSerializer()
-        json_content = serializer.from_markdown_to_json(content)
-        # NOTE: this shouldn't have an id, because it's a partial update chunk, not the final message
-        return NotebookUpdateMessage(notebook_id=self._state.notebook_id, content=json_content)
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
@@ -606,43 +479,25 @@ class Assistant:
         _, task_update = update
         node_name = task_update["payload"]["name"]  # type: ignore
         node_input = task_update["payload"]["input"]  # type: ignore
+
+        # First check if this node has a reasoning message in the parent graph
         if reasoning_message := await self._node_to_reasoning_message(node_name, node_input):
             return reasoning_message
+
         return None
 
     async def _report_conversation_state(
         self,
-        last_assistant_message: AssistantMessage | None = None,
-        last_visualization_message: VisualizationMessage | None = None,
+        event_name: str,
+        event_data: dict[str, Any],
     ):
         if not self._user:
             return
-        visualization_response = (
-            last_visualization_message.model_dump_json(exclude_none=True) if last_visualization_message else None
+        await database_sync_to_async(report_user_action)(
+            self._user,
+            event_name,
+            event_data,
         )
-        output = last_assistant_message.content if isinstance(last_assistant_message, AssistantMessage) else None
-
-        if self._mode == AssistantMode.ASSISTANT:
-            await database_sync_to_async(report_user_action)(
-                self._user,
-                "chat with ai",
-                {
-                    "prompt": self._latest_message.content if self._latest_message else None,
-                    "output": output,
-                    "response": visualization_response,
-                },
-            )
-        elif self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
-            await database_sync_to_async(report_user_action)(
-                self._user,
-                "standalone ai tool call",
-                {
-                    "prompt": self._tool_call_partial_state.root_tool_insight_plan,
-                    "output": output,
-                    "response": visualization_response,
-                    "tool_name": "create_and_query_insight",
-                },
-            )
 
     @asynccontextmanager
     async def _lock_conversation(self):

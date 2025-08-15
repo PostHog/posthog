@@ -1,9 +1,10 @@
+from abc import ABC
 from collections.abc import Sequence
 from typing import Any, Generic
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
-from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.mixins import AssistantContextMixin, ReasoningNodeMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation
@@ -21,7 +22,7 @@ from ..utils.types import (
 )
 
 
-class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):
+class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ReasoningNodeMixin, ABC):
     def __init__(self, team: Team, user: User):
         self._team = team
         self._user = user
