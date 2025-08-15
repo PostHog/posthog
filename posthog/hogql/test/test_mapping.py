@@ -313,15 +313,15 @@ class TestMappings(BaseTest):
             """,
             self.team,
         )
-    
+
         if response.columns is None:
             raise ValueError("Query returned no columns")
         result_dict = dict(zip(response.columns, response.results[0]))
-    
+
         # Test valid language codes
         self.assertEqual(result_dict["english_name"], "English")
         self.assertEqual(result_dict["spanish_name"], "Spanish")
-        
+
         # Test edge cases - these should return "Unknown"
         self.assertEqual(result_dict["invalid_code"], "Unknown")
         self.assertEqual(result_dict["null_code"], "Unknown")
