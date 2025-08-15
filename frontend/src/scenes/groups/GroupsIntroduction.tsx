@@ -9,7 +9,7 @@ export function GroupsIntroduction(): JSX.Element {
         <PayGateMini
             feature={AvailableFeature.GROUP_ANALYTICS}
             className="py-8"
-            docsLink="https://posthog.com/docs/user-guides/group-analytics"
+            docsURL="https://posthog.com/docs/user-guides/group-analytics"
         >
             <div className="flex flex-col items-center mt-4 justify-center text-center border rounded-lg py-8 min-h-56">
                 <h2 className="mb-2 text-2xl font-semibold">Start tracking groups</h2>
