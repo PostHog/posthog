@@ -400,19 +400,10 @@ class SnowflakeClient:
         self.logger.debug("Waiting for results of query with ID '%s'", query_id)
 
         # Snowflake does a blocking HTTP request, so we send it to a thread.
-        # We need to explicitly catch the exception here because asyncio.to_thread
-        # does not re-raise exceptions.
-        try:
-            query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
-        except Exception:
-            raise
+        query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
 
         while self.connection.is_still_running(query_status):
-            try:
-                query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
-            except Exception:
-                raise
-
+            query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
             await asyncio.sleep(poll_interval)
 
         query_execution_time = time.time() - query_start_time
@@ -600,6 +591,8 @@ class SnowflakeClient:
         FILE_FORMAT = (TYPE = 'PARQUET')
         PURGE = TRUE
         """
+
+        # We need to explicitly catch the exception here because otherwise it seems to be swallowed
         try:
             result = await self.execute_async_query(query, poll_interval=1.0)
         except snowflake.connector.errors.ProgrammingError as e:
@@ -610,6 +603,7 @@ class SnowflakeClient:
                 0,
                 e.msg or "NO ERROR MESSAGE",
             )
+
         assert result is not None
         results, _ = result
 
