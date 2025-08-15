@@ -19,12 +19,6 @@ MAX_RECENT_ACTIVITY_RESULTS = 50
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "INTERNAL"
-
-    @action(methods=["GET"], detail=False)
-    def total_rows_stats(self, request: Request, **kwargs) -> Response:
-
-class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
     API endpoints for data warehouse aggregate statistics and operations.
     """
@@ -32,7 +26,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
     @action(methods=["GET"], detail=False)
-    def total_rows_stats(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def total_rows_stats(self, request: Request, **kwargs) -> Response:
         """
         Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
         Used by the frontend data warehouse scene to display usage information.
