@@ -1632,20 +1632,19 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
         "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
     ),
+    # Translates languages codes to full language name
+    "languageCodeToName": HogQLFunctionMeta(
+        clickhouse_name="transform",
+        min_args=1,
+        max_args=1,
+        suffix_args=[
+            ast.Constant(value=LANGUAGE_CODES),
+            ast.Constant(value=LANGUAGE_NAMES),
+            ast.Constant(value="Unknown"),
+        ],
+        signatures=[((StringType(),), StringType())],
+    ),
 }
-
-# Translates languages codes to full language name
-HOGQL_CLICKHOUSE_FUNCTIONS["languageCodeToName"] = HogQLFunctionMeta(
-    clickhouse_name="transform",
-    min_args=1,
-    max_args=1,
-    suffix_args=[
-        ast.Constant(value=LANGUAGE_CODES),
-        ast.Constant(value=LANGUAGE_NAMES),
-        ast.Constant(value="Unknown"),
-    ],
-    signatures=[((StringType(),), StringType())],
-)
 
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
