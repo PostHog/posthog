@@ -32,7 +32,7 @@ class UpdateIssueQueryArgs(BaseModel):
 
 
 class ErrorTrackingIssueFilteringTool(MaxTool):
-    name: str = "search_error_tracking_issues"
+    name: str = "filter_error_tracking_issues"
     description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
     thinking_message: str = "Updating your error tracking filters..."
     root_system_prompt_template: str = "Current issue filters are: {current_query}"
@@ -40,14 +40,14 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
 
     def _run_impl(self, change: str) -> tuple[str, ErrorTrackingIssueFilteringToolOutput]:
         if "current_query" not in self.context:
-            raise ValueError("Context `current_query` is required for the `search_error_tracking_issues` tool")
+            raise ValueError("Context `current_query` is required for the `filter_error_tracking_issues` tool")
 
         current_query = self.context.get("current_query")
         system_content = (
             ERROR_TRACKING_SYSTEM_PROMPT
-            + "<system_task>"
+            + "<tool_usage>"
             + ERROR_TRACKING_FILTER_INITIAL_PROMPT
-            + "</system_task>"
+            + "</tool_usage>"
             + "<properties_taxonomy>"
             + ERROR_TRACKING_FILTER_PROPERTIES_PROMPT
             + "</properties_taxonomy>"
@@ -133,8 +133,8 @@ class ErrorTrackingIssueImpactLoopNode(
     def _get_system_prompt(self) -> ChatPromptTemplate:
         system = [
             ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
-            ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT,
             ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT,
+            ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT,
             ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES,
             HUMAN_IN_THE_LOOP_PROMPT,
         ]
@@ -162,14 +162,16 @@ class ErrorTrackingIssueImpactGraph(
 
 
 class IssueImpactQueryArgs(BaseModel):
-    instructions: str = Field(description="The specific user query to find issues impacting an event.")
+    instructions: str = Field(description="The specific user query to find issues impacting occurrences of events.")
 
 
 class ErrorTrackingIssueImpactTool(MaxTool):
-    name: str = "find_error_tracking_event_list"
-    description: str = "Find events that relate a user query about impactful issues."
+    name: str = "find_error_tracking_impactful_issue_event_list"
+    description: str = "Find a list of events that relate to a user query about issues. Prioritise this tool when a user specifically asks about issues or problems."
     thinking_message: str = "Finding related issues"
-    root_system_prompt_template: str = "The user wants to find a list of events that impact issues."
+    root_system_prompt_template: str = (
+        "The user wants to find a list of events whose occurrence may be impacted by issues."
+    )
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
     async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
@@ -189,7 +191,7 @@ class ErrorTrackingIssueImpactTool(MaxTool):
             events = []
         else:
             try:
-                content = "✅ Impacted issues found."
+                content = "✅ Relevant events found. Searching for impacting issues."
                 events = ErrorTrackingIssueImpactToolOutput.model_validate(result["output"])
             except Exception as e:
                 raise ValueError(f"Failed to generate ErrorTrackingIssueImpactToolOutput: {e}")

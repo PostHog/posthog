@@ -101,17 +101,17 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         description: 'Manage function variables in Hog functions',
         product: Scene.DataPipelines,
     },
-    search_error_tracking_issues: {
+    filter_error_tracking_issues: {
         name: 'Filter issues',
         description: 'Filter issues to dig into errors',
         product: Scene.ErrorTracking,
-        flag: 'error-tracking-scene-max-tool',
+        flag: FEATURE_FLAGS.ERROR_TRACKING_ISSUE_FILTERING_TOOL,
     },
-    find_error_tracking_event_list: {
+    find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',
         description: 'Find issues affecting your conversion, activation, or any other events',
         product: Scene.ErrorTracking,
-        flag: 'error-tracking-impact-max-tool',
+        flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL,
     },
     experiment_results_summary: {
         name: 'Summarize experiment results',
@@ -123,12 +123,6 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         name: 'Create surveys',
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
-    },
-    find_error_tracking_impactful_issues: {
-        name: 'Find impactful issues',
-        description: 'Find impactful issues in error tracking',
-        product: Scene.ErrorTracking,
-        flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL,
     },
 }
 

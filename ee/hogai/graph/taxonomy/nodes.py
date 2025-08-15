@@ -27,7 +27,7 @@ from .prompts import (
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     ITERATION_LIMIT_PROMPT,
 )
-from ee.hogai.utils.helpers import format_events_prompt_yaml
+from ee.hogai.utils.helpers import format_events_prompt
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
 TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
@@ -100,7 +100,7 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
 
         output_message = chain.invoke(
             {
-                "events": format_events_prompt_yaml(events_in_context, self._team),
+                "events": format_events_prompt(events_in_context, self._team),
                 "groups": self._team_group_types,
             },
             config,

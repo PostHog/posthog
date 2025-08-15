@@ -97,11 +97,12 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
         }
     }
 
+    // TODO: come back and re-enable this tool
     return null
 
     return (
         <MaxTool
-            identifier="search_error_tracking_issues"
+            identifier="filter_error_tracking_issues"
             context={{
                 current_query: query,
             }}

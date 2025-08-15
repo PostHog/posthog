@@ -2,6 +2,7 @@ from datetime import datetime
 
 ERROR_TRACKING_SYSTEM_PROMPT = """
 PostHog (posthog.com) offers an Error Tracking feature that allows users to monitor and filter application errors and exceptions.
+
 ## Key Concepts
 
 Error tracking in PostHog works with these core concepts:
@@ -13,10 +14,10 @@ Error tracking in PostHog works with these core concepts:
    - Freeform text search (matches against exception type, message, function names, file paths in stack traces)
    - Property-based filtering (exact property matching like elsewhere in PostHog) - far more powerful
 
-""".strip()
+"""
 
 ERROR_TRACKING_FILTER_INITIAL_PROMPT = """
-Your task is to convert users' natural language queries into precise filters, to help users find relevant issues. You are
+Use this tool to convert users' natural language queries into precise filters, to help users find relevant issues. You are
 an expert at converting natural language descriptions of the traits of an issue into a property based filter expression,
 following the format below:
 
@@ -158,12 +159,10 @@ Choose appropriate operators based on the query intent:
 ### Common Error Tracking Properties
 
 **Exception-related (event type)**:
-- `$exception_type`: Type of exception (e.g., "TypeError", "ReferenceError")
-- `$exception_message`: Error message text
+- `$exception_types`: Type of exception (e.g., "TypeError", "ReferenceError") as a list of strings
+- `$exception_values`: Error message text as a list of strings
 - `$exception_stack_trace`: Stack trace information
-- `$exception_source`: Source file where error occurred
-- `$exception_line`: Line number of error
-- `$exception_column`: Column number of error
+- `$exception_sources`: Source file paths where error occurred as a list of strings
 
 **Context Properties (event type)**:
 - `$current_url`: URL where error occurred
@@ -213,7 +212,7 @@ PREFER_FILTERS_PROMPT = """
 ### MANDATORY: Strongly Prefer Property Filters
 
 **Use property filters for 99% of cases:**
-- Exception types (use `$exception_type` property with `exact` operator)
+- Exception types (use `$exception_types` property with `exact` operator)
 - Library/framework identification or filtering by language (use `$lib`, `$lib_version` with `exact` operator)
 - Browser/device filtering (use `$browser`, `$device_type`, `$os` with `exact` operator)
 - URL/page filtering (use `$current_url`, `$pathname` with `icontains` operator)
@@ -251,8 +250,38 @@ PostHog (posthog.com) offers an Error Tracking feature that allows users to moni
 Error tracking in PostHog works with these core concepts:
 
 1. **Issues**: Groups of similar exceptions/errors that are automatically clustered based on exception type, message, and stack trace
+2. **Exceptions**: Individual `$exception` events that get grouped into issues
+3. **Sessions**: A grouping of events that occur during a user's interaction with the application, which can include exceptions. Sessions rotate after 30 minutes of inactivity or every 24 hours, whichever comes sooner.
 
-We can asses the impact of certain issues on analytics events using an odds ratio calculation, which compares the odds of an event occurring in the presence of an issue versus the odds of it occurring without the issue.
+Given we know the events and issues that occurred in every session it is possible to calculate an odds ratio to asses the impact of certain issues on event occurrences.
+
+"""
+
+ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT = """
+<tool_usage>
+You should use this tool when the user is looking to understand a relationship between their product and issues.
+The user might describe the connection between issues and events using words like “impacting,” “blocking,” “affecting,” “relating to,” or any other reasonable linking phrase.
+
+VERY IMPORTANT: the user might not mention events directly. They may also describe product features, flows in the app, etc. You should still use this tool if the user is asking about a relationship to issues.
+
+## Notes
+
+1. You should use this tool instead of filtering for issues when the user is looking to understand the impact between issues and their product.
+2. Your job is to identify the events that the user is interested in, and return a list of event names that are relevant to the user's query. You DO NOT need to know anything about the issues themselves, just the events that are relevant to the user's query.
+3. You should return as many relevant event names as possible, even if the user only mentions one event. If the user mentions a broader flow, you should include all relevant events that are likely to occur in that flow.
+4. The user might not mention the events explicitly, but you should be able to infer them from the context of the query. For example, if the user asks about issues that are blocking signups, you should return the event names related to signups.
+
+## Flow
+
+1. Identify the events mentioned in the users query
+2. Where no exact matches exist use close variations
+3. Return a list of relevant event names
+4. Use `ask_user_for_help` when you need clarification or it is not clear what events / flow the user is referring to
+5. Use `ask_user_for_help` if you cannot find any related events
+6. Use `final_answer` to return the final answer to the user
+7. If you found a list of events there is no need to offer additional assistance
+
+</tool_usage>
 """.strip()
 
 ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT = """
@@ -263,40 +292,21 @@ In order to perform the task you are given, you need to know the list of events 
 
 ## Rules
 1. Include ALL the events the user is asking for in the list.
-2. If no exact match exists then use close variations of the event names. For example if the user asks for "user signed up" and the event name is "sign_up_started", you can return "sign_up_started" as a close variation.
-3. If a broader flow is mentioned, include event names likely occurring in that flow.
-4. Do not exclude events if they are in the list above and the user asks for them.
+2. If no exact match to the users query exists the use close variations of event names from the list. For example if the user asks for "user signed up" and the event name is "sign_up_started", you can return "sign_up_started" as a close variation.
+3. If a broader flow is mentioned, include event names likely occurring in that flow. For example, if the user asks about "sign up" you can include "sign_up_started", "signup complete", "email verification sent" etc.
 
 If you find the event names the user is asking for return them in a list. If you cannot find the event names in the list, ask the user for clarification.
 </events>
 """.strip()
 
-
-ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT = """
-<tool_usage>
-You should use this tool when the user is looking to understand a relationship between analytics events and issues.
-The user might describe the connection between issues and events using words like “impacting,” “blocking,” “affecting,” “relating to,” or any other reasonable linking phrase.
-
-## Tool Usage Rules
-
-1. Identify the events mentioned in the users query
-2. Where no exact matches exist use close variations
-3. If a broader flow is mentioned include event names likely occurring in that flow
-4. Return a list of relevant event names
-5. Use `ask_user_for_help` when you need clarification or it is not clear what events / flow the user is referring to
-6. Use `ask_user_for_help` if you cannot find any related events
-7. Use `final_answer` to return the final answer to the user
-
-</tool_usage>
-""".strip()
-
 ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES = """
+<tool_examples>
 # Workflow examples
 
 ## Single event example
 
 1. User asks: "Show me issues that are stopping users from watching session recordings"
-2. You infer the event name "session recording viewed" from the user query. Use the list of event names provided in the context.
+2. You infer that the event name "session recording viewed" from the list of events matches the intention of the user's query.
 3. There is only one relevant event but you still convert it to a list: ["session recording viewed"]
 4. Return the final answer to the user using the `final_answer` tool with the list of issues returned by the `issue_impact_query_runner_tool`
 
@@ -316,4 +326,5 @@ ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES = """
 3. The user provides additional context
 4. You find a relevant event in the list of event names provided in the context
 5. You return the event as a list using the `final_answer` tool
+</tool_examples>
 """.strip()

@@ -15,7 +15,7 @@ export function ErrorTrackingIssueImpactTool(): JSX.Element {
 
     return (
         <MaxTool
-            identifier="find_error_tracking_event_list"
+            identifier="find_error_tracking_impactful_issue_event_list"
             context={{}}
             callback={callback}
             suggestions={[]}

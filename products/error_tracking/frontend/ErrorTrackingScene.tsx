@@ -63,7 +63,7 @@ export function ErrorTrackingScene(): JSX.Element {
     // TODO - fix feature flag check once the feature flag is created etc
     return (
         <ErrorTrackingSetupPrompt>
-            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingIssueFilteringTool />}
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_ISSUE_FILTERING_TOOL] && <ErrorTrackingIssueFilteringTool />}
             {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL] && <ErrorTrackingIssueImpactTool />}
             <div className="ErrorTracking">
                 <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
