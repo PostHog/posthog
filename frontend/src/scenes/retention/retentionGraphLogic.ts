@@ -5,7 +5,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { BreakdownFilter, DateRange, RetentionQuery } from '~/queries/schema/schema-general'
+import { DateRange, RetentionQuery } from '~/queries/schema/schema-general'
 import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
@@ -24,7 +24,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             insightVizDataLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
-            ['hasValidBreakdown', 'results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownFilter'],
+            ['hasValidBreakdown', 'results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
             teamLogic,
             ['timezone'],
         ],
@@ -116,7 +116,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 s.retentionMeans,
                 s.retentionFilter,
                 s.shouldShowMeanPerBreakdown,
-                s.breakdownFilter,
+                s.breakdownDisplayNames,
             ],
             (
                 hasValidBreakdown: boolean,
@@ -125,7 +125,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 retentionMeans: Record<string, MeanRetentionValue>,
                 retentionFilter: any,
                 shouldShowMeanPerBreakdown: boolean,
-                breakdownFilter: BreakdownFilter | null
+                breakdownDisplayNames: Record<string, string>
             ): RetentionTrendPayload[] => {
                 if (shouldShowMeanPerBreakdown) {
                     // Generate series from the mean retention data for each breakdown
@@ -147,12 +147,8 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         const numIntervals = meanData.meanPercentages.length
                         const days = Array.from({ length: numIntervals }, (_, i) => `${period} ${i}`)
 
-                        // Handle special case for All Users cohort (ID 0) - only for cohort breakdowns
-                        const displayLabel =
-                            breakdownFilter?.breakdown_type === 'cohort' &&
-                            (meanData.label === 0 || meanData.label === '0')
-                                ? 'All Users'
-                                : meanData.label
+                        // Use centralized breakdown display names
+                        const displayLabel = breakdownDisplayNames[String(meanData.label ?? '')] || meanData.label
 
                         meanSeries.push({
                             breakdown_value: displayLabel,

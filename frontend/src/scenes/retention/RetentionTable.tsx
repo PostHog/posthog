@@ -80,7 +80,11 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         ) : (
                                             <IconChevronRight />
                                         )}
-                                        <span>{breakdownDisplayNames[breakdownValue] || breakdownValue} </span>
+                                        <span>
+                                            {breakdownValue === NO_BREAKDOWN_VALUE
+                                                ? 'Mean'
+                                                : breakdownDisplayNames[breakdownValue] || breakdownValue}{' '}
+                                        </span>
                                     </div>
                                 </td>
 
