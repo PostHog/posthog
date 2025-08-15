@@ -242,7 +242,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             themeLogic,
             ['isDarkModeOn'],
             sceneLogic,
-            ['activeScene'],
+            ['activeSceneId'],
         ],
         actions: [
             dataNodeLogic({
@@ -603,12 +603,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         presetChartHeight: [
-            (state, props) => [props.key, state.dashboardId, state.activeScene],
-            (key, dashboardId, activeScene) => {
+            (state, props) => [props.key, state.dashboardId, state.activeSceneId],
+            (key, dashboardId, activeSceneId) => {
                 // Key for SQL editor based visiaulizations
-                const sqlEditorScene = activeScene === Scene.SQLEditor
+                const sqlEditorScene = activeSceneId === Scene.SQLEditor
 
-                if (activeScene === Scene.Insight) {
+                if (activeSceneId === Scene.Insight) {
                     return true
                 }
 

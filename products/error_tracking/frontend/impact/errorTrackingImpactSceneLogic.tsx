@@ -1,16 +1,22 @@
-import { path, selectors, kea, reducers, actions, listeners } from 'kea'
+import { path, selectors, kea, reducers, actions, listeners, connect } from 'kea'
 import { loaders } from 'kea-loaders'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import type { errorTrackingImpactSceneLogicType } from './errorTrackingImpactSceneLogicType'
-import api from 'lib/api'
 import { errorTrackingIssueCorrelationQuery } from '../queries'
 import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
+import api from 'lib/api'
+import { subscriptions } from 'kea-subscriptions'
+import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
 
 export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'errorTrackingImpactSceneLogic']),
+
+    connect(() => ({
+        actions: [errorTrackingBulkSelectLogic, ['setSelectedIssueIds']],
+    })),
 
     actions({
         setEvents: (events: string[]) => ({ events }),
@@ -23,6 +29,12 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
                 setEvents: (_, { events }) => events,
             },
         ],
+        completedInitialLoad: [
+            false as boolean,
+            {
+                loadIssuesSuccess: () => true,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -30,8 +42,8 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
             [] as ErrorTrackingCorrelatedIssue[],
             {
                 loadIssues: async () => {
-                    if (values.event) {
-                        const issues = await api.query(errorTrackingIssueCorrelationQuery({ events: values.events }), {
+                    if (values.events) {
+                        const issues = await api.query(errorTrackingIssueCorrelationQuery({ event: values.events }), {
                             refresh: 'force_blocking',
                         })
                         return issues.results
@@ -63,4 +75,8 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
             ],
         ],
     }),
+
+    subscriptions(({ actions }) => ({
+        event: () => actions.setSelectedIssueIds([]),
+    })),
 ])

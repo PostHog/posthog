@@ -62,10 +62,10 @@ where
     /// Graph semantics:
     /// - Each node represents a flag or cohort.
     /// - Edges point from dependent to dependency:
-    ///     A → B means "A depends on B" (A requires B to be evaluated first)
-    ///     Note: Topological sorts expect edges to point from dependency to
-    ///     dependent (not dependent to dependency as we do here). This is why
-    ///     we reverse the output of the topological sort later.
+    ///   A → B means "A depends on B" (A requires B to be evaluated first)
+    ///   Note: Topological sorts expect edges to point from dependency to
+    ///   dependent (not dependent to dependency as we do here). This is why
+    ///   we reverse the output of the topological sort later.
     /// - This is a Directed Acyclic Graph (DAG); cycles are not allowed.
     ///
     /// Example dependency graph:
@@ -262,7 +262,7 @@ where
     ///
     /// Graph edge semantics reminder:
     /// - Edges point from dependent → dependency:
-    ///     A → B means "A depends on B" (A requires B to be evaluated first)
+    ///   A → B means "A depends on B" (A requires B to be evaluated first)
     /// - Therefore:
     ///     - Outgoing edges = dependencies
     ///     - Incoming edges = dependents (nodes that require this node)
