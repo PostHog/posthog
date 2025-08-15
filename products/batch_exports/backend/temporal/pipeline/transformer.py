@@ -431,7 +431,7 @@ class ParquetStreamTransformer:
     def write_record_batch(self, record_batch: pa.RecordBatch) -> bytes:
         """Write record batch to buffer as Parquet."""
         column_names = self.parquet_writer.schema.names
-        if not self.include_inserted_at:
+        if not self.include_inserted_at and "_inserted_at" in column_names:
             column_names.pop(column_names.index("_inserted_at"))
 
         self.parquet_writer.write_batch(record_batch.select(column_names))

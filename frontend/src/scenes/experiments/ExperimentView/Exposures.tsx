@@ -155,91 +155,95 @@ export function Exposures(): JSX.Element {
                     </div>
                 </div>
             ) : (
-                <div className="flex gap-2">
-                    <div className={clsx(chartWrapperClasses, 'w-full md:w-2/3')}>
-                        <canvas id="exposuresChart" />
-                    </div>
-                    <div className={clsx(chartWrapperClasses, 'border rounded bg-surface-primary p-4')}>
-                        <div className="flex justify-between mb-4">
-                            <div>
-                                <h3 className="card-secondary">Exposure criteria</h3>
-                                <div className="flex items-center gap-2">
-                                    <div className="text-sm font-semibold">
-                                        {getExposureCriteriaLabel(exposureCriteria)}
-                                    </div>
-                                    <LemonButton
-                                        icon={<IconPencil fontSize="12" />}
-                                        size="xsmall"
-                                        className="flex items-center gap-2"
-                                        type="secondary"
-                                        onClick={() => openExposureCriteriaModal()}
-                                    />
-                                </div>
-                            </div>
+                <div className="border rounded bg-surface-primary p-4 h-[280px]">
+                    <div className="flex gap-4 h-full">
+                        <div className="w-full md:w-2/3">
+                            <canvas id="exposuresChart" />
                         </div>
-                        {exposures?.timeseries.length > 0 && (
-                            <div>
-                                <h3 className="card-secondary">Total exposures</h3>
-                                <div className="overflow-auto max-h-[150px]">
-                                    <LemonTable
-                                        dataSource={exposures?.timeseries || []}
-                                        columns={[
-                                            {
-                                                title: 'Variant',
-                                                key: 'variant',
-                                                render: function Variant(_, series) {
-                                                    return (
-                                                        <VariantTag
-                                                            experimentId={experimentId}
-                                                            variantKey={series.variant}
-                                                        />
-                                                    )
-                                                },
-                                            },
-                                            {
-                                                title: 'Exposures',
-                                                key: 'exposures',
-                                                render: function Exposures(_, series) {
-                                                    return humanFriendlyNumber(
-                                                        exposures?.total_exposures[series.variant]
-                                                    )
-                                                },
-                                            },
-                                            {
-                                                title: '%',
-                                                key: 'percentage',
-                                                render: function Percentage(_, series) {
-                                                    let total = 0
-                                                    if (exposures?.total_exposures) {
-                                                        for (const [_, value] of Object.entries(
-                                                            exposures.total_exposures
-                                                        )) {
-                                                            total += Number(value)
-                                                        }
-                                                    }
-                                                    return (
-                                                        <span className="font-semibold">
-                                                            {total ? (
-                                                                <>
-                                                                    {(
-                                                                        (exposures?.total_exposures[series.variant] /
-                                                                            total) *
-                                                                        100
-                                                                    ).toFixed(1)}
-                                                                    %
-                                                                </>
-                                                            ) : (
-                                                                <>-%</>
-                                                            )}
-                                                        </span>
-                                                    )
-                                                },
-                                            },
-                                        ]}
-                                    />
+                        <div className="w-full md:w-1/3 border-l pl-4">
+                            <div className="flex justify-between mb-4">
+                                <div>
+                                    <h3 className="card-secondary">Exposure criteria</h3>
+                                    <div className="flex items-center gap-2">
+                                        <div className="text-sm font-semibold">
+                                            {getExposureCriteriaLabel(exposureCriteria)}
+                                        </div>
+                                        <LemonButton
+                                            icon={<IconPencil fontSize="12" />}
+                                            size="xsmall"
+                                            className="flex items-center gap-2"
+                                            type="secondary"
+                                            onClick={() => openExposureCriteriaModal()}
+                                        />
+                                    </div>
                                 </div>
                             </div>
-                        )}
+                            {exposures?.timeseries.length > 0 && (
+                                <div>
+                                    <h3 className="card-secondary">Total exposures</h3>
+                                    <div className="border rounded max-h-[160px] overflow-auto [&_.LemonTable]:border-0">
+                                        <LemonTable
+                                            dataSource={exposures?.timeseries || []}
+                                            columns={[
+                                                {
+                                                    title: 'Variant',
+                                                    key: 'variant',
+                                                    render: function Variant(_, series) {
+                                                        return (
+                                                            <VariantTag
+                                                                experimentId={experimentId}
+                                                                variantKey={series.variant}
+                                                            />
+                                                        )
+                                                    },
+                                                },
+                                                {
+                                                    title: 'Exposures',
+                                                    key: 'exposures',
+                                                    render: function Exposures(_, series) {
+                                                        return humanFriendlyNumber(
+                                                            exposures?.total_exposures[series.variant]
+                                                        )
+                                                    },
+                                                },
+                                                {
+                                                    title: '%',
+                                                    key: 'percentage',
+                                                    render: function Percentage(_, series) {
+                                                        let total = 0
+                                                        if (exposures?.total_exposures) {
+                                                            for (const [_, value] of Object.entries(
+                                                                exposures.total_exposures
+                                                            )) {
+                                                                total += Number(value)
+                                                            }
+                                                        }
+                                                        return (
+                                                            <span className="font-semibold">
+                                                                {total ? (
+                                                                    <>
+                                                                        {(
+                                                                            (exposures?.total_exposures[
+                                                                                series.variant
+                                                                            ] /
+                                                                                total) *
+                                                                            100
+                                                                        ).toFixed(1)}
+                                                                        %
+                                                                    </>
+                                                                ) : (
+                                                                    <>-%</>
+                                                                )}
+                                                            </span>
+                                                        )
+                                                    },
+                                                },
+                                            ]}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}

@@ -142,7 +142,7 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
             ),
         )
 
-    def calculate(self):
+    def _calculate(self):
         response = execute_hogql_query(
             query_type="revenue_analytics_growth_rate_query",
             query=self.to_query(),

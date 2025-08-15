@@ -75,7 +75,7 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
     }
 
     if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
-        if reqwest_err.status().map_or(false, |s| s.as_u16() == 429) {
+        if reqwest_err.status().is_some_and(|s| s.as_u16() == 429) {
             return true;
         }
     }
@@ -83,7 +83,7 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
     let mut source = error.source();
     while let Some(err) = source {
         if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
-            if reqwest_err.status().map_or(false, |s| s.as_u16() == 429) {
+            if reqwest_err.status().is_some_and(|s| s.as_u16() == 429) {
                 return true;
             }
         }

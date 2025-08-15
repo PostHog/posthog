@@ -38,6 +38,7 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 import { shouldQueryBeAsync } from '~/queries/utils'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 
 export function InsightVizDisplay({
     disableHeader,
@@ -58,7 +59,7 @@ export function InsightVizDisplay({
     disableLastComputationRefresh?: boolean
     showingResults?: boolean
     insightMode?: ItemMode
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     embedded: boolean
     inSharedMode?: boolean
 }): JSX.Element | null {
