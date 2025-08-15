@@ -21,6 +21,8 @@ import { cn } from 'lib/utils/css-classes'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function Navigation({
     children,
@@ -35,6 +37,9 @@ export function Navigation({
     const mainRef = useRef<HTMLElement>(null)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const { isCurrentOrganizationUnavailable } = useValues(organizationLogic)
+    const { isCurrentTeamUnavailable } = useValues(teamLogic)
+    const hideNavAndPanels = isCurrentOrganizationUnavailable || isCurrentTeamUnavailable
 
     if (mode !== 'full') {
         return (
@@ -42,7 +47,7 @@ export function Navigation({
             <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
                 {mode === 'minimal' ? <MinimalNavigation /> : null}
                 <main>{children}</main>
-                <MaxFloatingInput />
+                {!hideNavAndPanels && <MaxFloatingInput />}
             </div>
         )
     }
@@ -66,7 +71,7 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <PanelLayout mainRef={mainRef} />
+            {!hideNavAndPanels && <PanelLayout mainRef={mainRef} />}
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
                 <FlaggedFeature
@@ -108,9 +113,9 @@ export function Navigation({
                     </SceneLayout>
                 </FlaggedFeature>
             </main>
-            <SidePanel />
+            {!hideNavAndPanels && <SidePanel />}
             <CommandBar />
-            <MaxFloatingInput />
+            {!hideNavAndPanels && <MaxFloatingInput />}
         </div>
     )
 }
