@@ -430,54 +430,6 @@ class InsightSearchOutput(TypedDict, total=False):
     evaluation_result: dict | None
 
 
-class InsightSearchRelevance(ScorerWithPartial):
-    """Evaluate if selected insights match the search query semantically."""
-
-    def _run_eval_sync(self, output: InsightSearchOutput, expected: list[int] | None = None, **kwargs):
-        if not output.get("selected_insights"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No insights selected"})
-
-        search_query = output.get("search_query", "")
-        if not search_query:
-            return Score(name=self._name(), score=None, metadata={"reason": "No search query provided"})
-
-        selected_insights = output["selected_insights"]
-
-        # If we have expected insights, compare against them
-        if expected is not None:
-            # Calculate overlap between selected and expected insights
-            expected_set = set(expected)
-            selected_set = set(selected_insights)
-
-            if not expected_set:
-                # returns 1.0 when both expected and selected are empty (perfect match),
-                # but 0.0 when expected is empty but selected is not (over-selection penalty)
-                return Score(name=self._name(), score=1.0 if not selected_set else 0.0)
-
-            intersection = expected_set.intersection(selected_set)
-            precision = len(intersection) / len(selected_set) if selected_set else 0.0
-            recall = len(intersection) / len(expected_set) if expected_set else 0.0
-
-            # F1 score as combination of precision and recall
-            f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-
-            return Score(
-                name=self._name(),
-                score=f1_score,
-                metadata={
-                    "precision": precision,
-                    "recall": recall,
-                    "expected_insights": list(expected_set),
-                    "selected_insights": list(selected_set),
-                    "intersection": list(intersection),
-                },
-            )
-
-        # Without expected insights, we can't measure relevance directly
-        # Return a neutral score and let other scorers handle quality assessment
-        return Score(name=self._name(), score=None, metadata={"reason": "No expected insights provided for comparison"})
-
-
 class InsightEvaluationAccuracy(ScorerWithPartial):
     """Evaluate the accuracy of the insight evaluation decision (use existing vs create new)."""
 
