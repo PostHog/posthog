@@ -2,11 +2,11 @@ import { BlackholeSessionBatchFileStorage } from './blackhole-session-batch-writ
 
 describe('BlackholeSessionBatchFileStorage', () => {
     let storage: BlackholeSessionBatchFileStorage
-    let writer: ReturnType<BlackholeSessionBatchFileStorage['newBatch']>
+    let writer: ReturnType<BlackholeSessionBatchFileStorage['getWriter']>
 
     beforeEach(() => {
         storage = new BlackholeSessionBatchFileStorage()
-        writer = storage.newBatch('30d')
+        writer = storage.getWriter('30d')
     })
 
     it('should write session data and return bytes written', async () => {

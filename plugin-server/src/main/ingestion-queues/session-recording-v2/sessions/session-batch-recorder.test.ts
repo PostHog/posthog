@@ -187,7 +187,9 @@ describe('SessionBatchRecorder', () => {
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
         mockStorage = {
-            newBatch: jest.fn().mockReturnValue(mockWriter),
+            startBatch: jest.fn(),
+            getWriter: jest.fn().mockReturnValue(mockWriter),
+            endBatch: jest.fn(),
         } as unknown as jest.Mocked<SessionBatchFileStorage>
 
         recorder = new SessionBatchRecorder(
@@ -285,7 +287,8 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const lines = parseLines(writtenData[0])
@@ -321,7 +324,8 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -354,7 +358,8 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -371,7 +376,8 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -416,7 +422,8 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -497,7 +504,8 @@ describe('SessionBatchRecorder', () => {
             }
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -822,12 +830,13 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             const writtenData1 = captureWrittenData(mockWriter.writeSession as jest.Mock)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Reset mock for second batch
             jest.clearAllMocks()
-            mockStorage.newBatch.mockReturnValue(mockWriter)
+            mockStorage.getWriter.mockReturnValue(mockWriter)
 
             const message2 = createMessage('session1', [
                 {
@@ -841,7 +850,8 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             const writtenData2 = captureWrittenData(mockWriter.writeSession as jest.Mock)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             const lines1 = parseLines(writtenData1[0])
@@ -862,16 +872,18 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await recorder.flush()
 
-            expect(mockStorage.newBatch).toHaveBeenCalledTimes(1)
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.getWriter).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Second flush with no new events
             await recorder.flush()
 
             // Should not create a new batch or write any data
-            expect(mockStorage.newBatch).toHaveBeenCalledTimes(1) // Only from first flush
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockStorage.getWriter).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1) // Only from first flush
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1) // Only from first flush
 
             // Should still commit offsets
@@ -882,8 +894,9 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             // Should not create a new batch or write any data
-            expect(mockStorage.newBatch).not.toHaveBeenCalled()
-            expect(mockWriter.finish).not.toHaveBeenCalled()
+            expect(mockStorage.getWriter).not.toHaveBeenCalled()
+            expect(mockStorage.startBatch).not.toHaveBeenCalled()
+            expect(mockStorage.endBatch).not.toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockConsoleLogStore.flush).not.toHaveBeenCalled()
 
@@ -906,13 +919,13 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            let finishCalled = false
+            let endBatchCalled = false
             let metadataStoreCalled = false
             let consoleLogFlushCalled = false
             let commitCalled = false
 
-            mockWriter.finish.mockImplementation(() => {
-                finishCalled = true
+            mockStorage.endBatch.mockImplementation(() => {
+                endBatchCalled = true
                 expect(metadataStoreCalled).toBe(false)
                 expect(consoleLogFlushCalled).toBe(false)
                 expect(commitCalled).toBe(false)
@@ -920,7 +933,7 @@ describe('SessionBatchRecorder', () => {
             })
 
             mockConsoleLogStore.flush.mockImplementation(() => {
-                expect(finishCalled).toBe(true)
+                expect(endBatchCalled).toBe(true)
                 expect(metadataStoreCalled).toBe(false)
                 expect(commitCalled).toBe(false)
                 consoleLogFlushCalled = true
@@ -944,7 +957,8 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await recorder.flush()
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
@@ -989,7 +1003,8 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
@@ -1010,7 +1025,8 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
@@ -1129,7 +1145,8 @@ describe('SessionBatchRecorder', () => {
             const lines2 = parseLines(writtenData[1])
             expect(lines1).toEqual([['window1', messages[0].data.eventsByWindowId.window1[0]]])
             expect(lines2).toEqual([['window1', messages[1].data.eventsByWindowId.window1[0]]])
-            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.startBatch).toHaveBeenCalledTimes(1)
+            expect(mockStorage.endBatch).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
@@ -1587,7 +1604,7 @@ describe('SessionBatchRecorder', () => {
 
             await expect(flushPromise).rejects.toThrow('Stream read error')
 
-            expect(mockWriter.finish).not.toHaveBeenCalled()
+            expect(mockStorage.endBatch).not.toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
@@ -1601,7 +1618,7 @@ describe('SessionBatchRecorder', () => {
 
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).not.toHaveBeenCalled()
+            expect(mockStorage.endBatch).not.toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })

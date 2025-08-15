@@ -18,9 +18,18 @@ class BlackholeBatchFileWriter implements SessionBatchFileWriter {
 }
 
 export class BlackholeSessionBatchFileStorage implements SessionBatchFileStorage {
-    public newBatch(_: RetentionPeriod): SessionBatchFileWriter {
+    public startBatch(): void {
         logger.debug('🔁', 'blackhole_writer_creating_batch')
+    }
+
+    public getWriter(_: RetentionPeriod): SessionBatchFileWriter {
+        logger.debug('🔁', 'blackhole_writer_get')
         return new BlackholeBatchFileWriter()
+    }
+
+    public endBatch(): Promise<void> {
+        logger.debug('🔁', 'blackhole_writer_ending_batch')
+        return Promise.resolve()
     }
 
     public checkHealth(): Promise<boolean> {

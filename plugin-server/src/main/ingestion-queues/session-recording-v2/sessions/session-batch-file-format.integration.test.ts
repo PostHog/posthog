@@ -72,7 +72,9 @@ describe('session recording integration', () => {
         }
 
         mockStorage = {
-            newBatch: jest.fn().mockReturnValue(mockWriter),
+            startBatch: jest.fn(),
+            getWriter: jest.fn().mockReturnValue(mockWriter),
+            endBatch: jest.fn(),
             checkHealth: jest.fn().mockResolvedValue(true),
         } as jest.Mocked<SessionBatchFileStorage>
 
@@ -201,7 +203,7 @@ describe('session recording integration', () => {
         }
 
         // Verify the batch was properly finalized
-        expect(mockWriter.finish).toHaveBeenCalled()
+        expect(mockStorage.endBatch).toHaveBeenCalled()
         expect(mockOffsetManager.commit).toHaveBeenCalled()
         expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(metadata)
     })

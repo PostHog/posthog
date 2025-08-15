@@ -38,17 +38,31 @@ export interface SessionBatchFileWriter {
  */
 export interface SessionBatchFileStorage {
     /**
-     * Creates a new batch write operation
-     * Returns a writer for the batch that handles writing individual sessions for a given retention period
-     *
      * Example usage:
      * ```
-     * const writer = storage.newBatch("1y")
+     * storage.startBatch()
+     * const writer = storage.getWriter("1y")
      * const result = await writer.writeSession(sessionBytes)
-     * await writer.finish() // Completes the write operation
+     * await storage.endBatch() // Completes the batch
      * ```
      */
-    newBatch(retentionPeriod: RetentionPeriod): SessionBatchFileWriter
+
+    /**
+     * Creates a new batch for write operations
+     */
+    startBatch(): void
+
+    /**
+     * Get the writer object for a given retention period
+     *
+     * @param retentionPeriod
+     */
+    getWriter(retentionPeriod: RetentionPeriod): SessionBatchFileWriter
+
+    /**
+     * End the current batch of write operations
+     */
+    endBatch: () => Promise<void>
 
     /**
      * Checks the health of the storage backend

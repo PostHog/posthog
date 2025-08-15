@@ -3,13 +3,10 @@ import { v7 as uuidv7 } from 'uuid'
 import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
 
 import { logger } from '../../../../utils/logger'
-import { ValidRetentionPeriods } from '../constants'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithRetention } from '../retention/types'
-import { RetentionPeriod } from '../types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
-import { SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
@@ -192,13 +189,7 @@ export class SessionBatchRecorder {
             return []
         }
 
-        const writers = ValidRetentionPeriods.reduce(
-            (writers, retentionPeriod) => {
-                writers[retentionPeriod] = null
-                return writers
-            },
-            {} as { [key in RetentionPeriod]: SessionBatchFileWriter | null }
-        )
+        this.storage.startBatch()
 
         const blockMetadata: SessionBlockMetadata[] = []
 
@@ -230,13 +221,7 @@ export class SessionBatchRecorder {
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
-                    let writer: SessionBatchFileWriter | null = writers[retentionPeriod]
-
-                    if (writer === null) {
-                        writer = this.storage.newBatch(retentionPeriod)
-                        writers[retentionPeriod] = writer
-                    }
-
+                    const writer = this.storage.getWriter(retentionPeriod)
                     const { bytesWritten, url } = await writer.writeSession(buffer)
 
                     blockMetadata.push({
@@ -270,16 +255,7 @@ export class SessionBatchRecorder {
                 totalSessions += sessions.size
             }
 
-            await Promise.all(
-                ValidRetentionPeriods.map(async (retentionPeriod) => {
-                    const writer: SessionBatchFileWriter | null = writers[retentionPeriod]
-
-                    if (writer !== null) {
-                        await writer.finish()
-                    }
-                })
-            )
-
+            await this.storage.endBatch()
             await this.consoleLogStore.flush()
             await this.metadataStore.storeSessionBlocks(blockMetadata)
             await this.offsetManager.commit()
@@ -310,6 +286,8 @@ export class SessionBatchRecorder {
                 totalBytes,
             })
             throw error
+        } finally {
+            //await this.storage.endBatch()
         }
     }
 
