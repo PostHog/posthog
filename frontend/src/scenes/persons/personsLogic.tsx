@@ -294,7 +294,7 @@ export const personsLogic = kea<personsLogicType>([
                     : 'https://posthog.com/docs/api/persons',
         ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
-        defaultTab: [() => [], () => PersonsTabType.SUMMARY],
+        defaultTab: [() => [], () => PersonsTabType.OVERVIEW],
         currentTab: [
             (s) => [s.activeTab, (s as any).defaultTab],
             (activeTab: any, defaultTab: any) => activeTab || defaultTab,

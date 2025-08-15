@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
 
 import {
+    IconBuilding,
     IconCalendar,
+    IconClock,
     IconEye,
     IconFlag,
     IconGlobe,
@@ -9,6 +11,7 @@ import {
     IconLetter,
     IconMouse,
     IconPerson,
+    IconPhone,
     IconPulse,
     IconTrending,
 } from '@posthog/icons'
@@ -25,7 +28,6 @@ import {
     IconMicrosoftEdge,
     IconMonitor,
     IconOpera,
-    IconPhone,
     IconSafari,
     IconTablet,
     IconWindows,
@@ -36,9 +38,9 @@ import { Query } from '~/queries/Query/Query'
 import { CalendarHeatmapQuery, NodeKind } from '~/queries/schema/schema-general'
 import { PersonType, PropertyFilterType } from '~/types'
 
-import { ImportantProperty, personSummaryLogic } from './PersonSummaryLogic'
+import { ImportantProperty, personOverviewLogic } from './PersonOverviewLogic'
 
-interface PersonSummaryProps {
+interface PersonOverviewProps {
     person: PersonType
 }
 
@@ -110,14 +112,10 @@ function PropertyRow({ property }: PropertyCardProps): JSX.Element {
             $device_type: 'Device Type',
 
             // Location
-            $geoip_country_name: 'Country',
+            $geoip_country_code: 'Country',
             $geoip_city_name: 'City',
             $geoip_time_zone: 'Time Zone',
             $geoip_continent_name: 'Continent',
-            $initial_geoip_country_name: 'Initial Country',
-            $initial_geoip_city_name: 'Initial City',
-            $initial_geoip_continent_name: 'Initial Continent',
-            $initial_geoip_time_zone: 'Initial Time Zone',
 
             // UTM
             utm_source: 'UTM Source',
@@ -144,7 +142,7 @@ function PropertyRow({ property }: PropertyCardProps): JSX.Element {
         )
     }
 
-    // Convert PostHog icon identifiers and emojis to PostHog icons (for Current properties only)
+    // Convert icon identifiers to PostHog icons (for Current properties only)
     const getSymbolIcon = (symbol?: string): JSX.Element | null => {
         if (!symbol) {
             return null
@@ -171,15 +169,15 @@ function PropertyRow({ property }: PropertyCardProps): JSX.Element {
             tablet: <IconTablet className="w-4 h-4" />,
             desktop: <IconMonitor className="w-4 h-4" />,
 
-            // Fallback for emojis still in use
-            '📧': <IconLetter className="w-4 h-4 text-blue" />,
-            '👤': <IconPerson className="w-4 h-4 text-green" />,
-            '🏙️': <IconGlobe className="w-4 h-4 text-cyan" />,
-            '🕐': <IconCalendar className="w-4 h-4 text-gray" />,
-            '🌍': <IconGlobe className="w-4 h-4 text-green" />,
-            '🏢': <IconFlag className="w-4 h-4 text-orange" />,
-            '💼': <IconFlag className="w-4 h-4 text-blue" />,
-            '📞': <IconFlag className="w-4 h-4 text-green" />,
+            // Property type icons
+            email: <IconLetter className="w-4 h-4" />,
+            person: <IconPerson className="w-4 h-4" />,
+            location: <IconGlobe className="w-4 h-4" />,
+            clock: <IconClock className="w-4 h-4" />,
+            globe: <IconGlobe className="w-4 h-4" />,
+            building: <IconBuilding className="w-4 h-4" />,
+            briefcase: <IconFlag className="w-4 h-4" />,
+            phone: <IconPhone className="w-4 h-4" />,
         }
 
         return symbolToIcon[symbol] || <span className="text-sm">{symbol}</span>
@@ -220,16 +218,16 @@ function PropertyRow({ property }: PropertyCardProps): JSX.Element {
     )
 }
 
-export function PersonSummary({ person }: PersonSummaryProps): JSX.Element {
-    const logic = personSummaryLogic({ person })
-    const { summaryStats, importantProperties, isLoading } = useValues(logic)
-    const { loadSummaryStats } = useActions(logic)
+export function PersonOverview({ person }: PersonOverviewProps): JSX.Element {
+    const logic = personOverviewLogic({ person })
+    const { overviewStats, importantProperties, isLoading } = useValues(logic)
+    const { loadOverviewStats } = useActions(logic)
 
     useEffect(() => {
         if (person?.uuid) {
-            loadSummaryStats()
+            loadOverviewStats()
         }
-    }, [person?.uuid, loadSummaryStats])
+    }, [person?.uuid, loadOverviewStats])
 
     const formatActivityDate = (dateString: string | null): string => {
         if (!dateString) {
@@ -244,19 +242,19 @@ export function PersonSummary({ person }: PersonSummaryProps): JSX.Element {
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <StatCard
                     title="Sessions"
-                    value={summaryStats ? humanFriendlyNumber(summaryStats.sessionCount) : 0}
+                    value={overviewStats ? humanFriendlyNumber(overviewStats.sessionCount) : 0}
                     icon={<IconMouse />}
                     loading={isLoading}
                 />
                 <StatCard
                     title="Page Views"
-                    value={summaryStats ? humanFriendlyNumber(summaryStats.pageviewCount) : 0}
+                    value={overviewStats ? humanFriendlyNumber(overviewStats.pageviewCount) : 0}
                     icon={<IconEye />}
                     loading={isLoading}
                 />
                 <StatCard
                     title="Total Events"
-                    value={summaryStats ? humanFriendlyNumber(summaryStats.eventCount) : 0}
+                    value={overviewStats ? humanFriendlyNumber(overviewStats.eventCount) : 0}
                     icon={<IconTrending />}
                     loading={isLoading}
                 />
@@ -269,10 +267,10 @@ export function PersonSummary({ person }: PersonSummaryProps): JSX.Element {
                 />
                 <StatCard
                     title="Last Seen"
-                    value={summaryStats?.lastSeenAt ? formatActivityDate(summaryStats.lastSeenAt) : 'Unknown'}
+                    value={overviewStats?.lastSeenAt ? formatActivityDate(overviewStats.lastSeenAt) : 'Unknown'}
                     icon={<IconCalendar />}
                     loading={isLoading}
-                    subtitle={summaryStats?.lastSeenAt ? 'Last activity' : ''}
+                    subtitle={overviewStats?.lastSeenAt ? 'Last activity' : ''}
                 />
             </div>
 
@@ -308,9 +306,9 @@ export function PersonSummary({ person }: PersonSummaryProps): JSX.Element {
                                 }
 
                                 const currentProperties = importantProperties.filter(
-                                    (p) => !isAcquisitionProperty(p.key)
+                                    (p: ImportantProperty) => !isAcquisitionProperty(p.key)
                                 )
-                                const acquisitionProperties = importantProperties.filter((p) =>
+                                const acquisitionProperties = importantProperties.filter((p: ImportantProperty) =>
                                     isAcquisitionProperty(p.key)
                                 )
 
@@ -398,7 +396,7 @@ export function PersonSummary({ person }: PersonSummaryProps): JSX.Element {
                             emptyStateHeading: 'No activity data',
                             emptyStateDetail: 'This person has no recorded activity in the last 7 days.',
                             insightProps: {
-                                dashboardItemId: `new-person-summary-${person.uuid || 'unknown'}` as const,
+                                dashboardItemId: `new-person-overview-${person.uuid || 'unknown'}` as const,
                             },
                         }}
                     />

@@ -6,13 +6,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { hogql } from '~/queries/utils'
 import { PersonType } from '~/types'
 
-import type { personSummaryLogicType } from './PersonSummaryLogicType'
+import type { personOverviewLogicType } from './PersonOverviewLogicType'
 
-export interface PersonSummaryLogicProps {
+export interface PersonOverviewLogicProps {
     person: PersonType
 }
 
-export interface PersonSummaryStats {
+export interface PersonOverviewStats {
     sessionCount: number
     pageviewCount: number
     eventCount: number
@@ -28,9 +28,9 @@ export interface ImportantProperty {
     symbol?: string
 }
 
-export const personSummaryLogic = kea<personSummaryLogicType>([
-    path(['scenes', 'persons', 'personSummaryLogic']),
-    props({} as PersonSummaryLogicProps),
+export const personOverviewLogic = kea<personOverviewLogicType>([
+    path(['scenes', 'persons', 'personOverviewLogic']),
+    props({} as PersonOverviewLogicProps),
     key((props) => props.person.uuid || props.person.id || 'unknown'),
 
     connect(() => ({
@@ -38,14 +38,14 @@ export const personSummaryLogic = kea<personSummaryLogicType>([
     })),
 
     actions(() => ({
-        loadSummaryStats: true,
+        loadOverviewStats: true,
     })),
 
     loaders(({ props }) => ({
-        summaryStats: [
-            null as PersonSummaryStats | null,
+        overviewStats: [
+            null as PersonOverviewStats | null,
             {
-                loadSummaryStats: async () => {
+                loadOverviewStats: async () => {
                     if (!props.person.uuid) {
                         return null
                     }
@@ -90,7 +90,7 @@ export const personSummaryLogic = kea<personSummaryLogicType>([
 
     selectors(() => ({
         importantProperties: [
-            (s, props) => [props.person],
+            (_, props) => [props.person],
             (person: PersonType): ImportantProperty[] => {
                 if (!person?.properties) {
                     return []
@@ -106,14 +106,14 @@ export const personSummaryLogic = kea<personSummaryLogicType>([
                     { type: ImportantProperty['type']; priority: number; symbol?: string }
                 > = {
                     // Email properties (highest priority)
-                    email: { type: 'email', priority: 1, symbol: '📧' },
-                    $email: { type: 'email', priority: 1, symbol: '📧' },
+                    email: { type: 'email', priority: 1, symbol: 'email' },
+                    $email: { type: 'email', priority: 1, symbol: 'email' },
 
                     // Name properties
-                    name: { type: 'name', priority: 2, symbol: '👤' },
-                    $name: { type: 'name', priority: 2, symbol: '👤' },
-                    first_name: { type: 'name', priority: 3, symbol: '👤' },
-                    last_name: { type: 'name', priority: 4, symbol: '👤' },
+                    name: { type: 'name', priority: 2, symbol: 'person' },
+                    $name: { type: 'name', priority: 2, symbol: 'person' },
+                    first_name: { type: 'name', priority: 3, symbol: 'person' },
+                    last_name: { type: 'name', priority: 4, symbol: 'person' },
 
                     // Current/Latest Browser properties (preferred)
                     $browser: { type: 'browser', priority: 5 },
@@ -125,9 +125,9 @@ export const personSummaryLogic = kea<personSummaryLogicType>([
 
                     // Current/Latest Location properties (preferred)
                     $geoip_country_name: { type: 'location', priority: 7 },
-                    $geoip_city_name: { type: 'location', priority: 8, symbol: '🏙️' },
-                    $geoip_time_zone: { type: 'location', priority: 9, symbol: '🕐' },
-                    $geoip_continent_name: { type: 'location', priority: 18, symbol: '🌍' },
+                    $geoip_city_name: { type: 'location', priority: 8, symbol: 'location' },
+                    $geoip_time_zone: { type: 'location', priority: 9, symbol: 'clock' },
+                    $geoip_continent_name: { type: 'location', priority: 18, symbol: 'globe' },
 
                     // Current/Latest Device properties (preferred)
                     $device_type: { type: 'device', priority: 10 },
@@ -151,9 +151,9 @@ export const personSummaryLogic = kea<personSummaryLogicType>([
                     $initial_geoip_time_zone: { type: 'location', priority: 31 },
 
                     // Demographic properties
-                    company: { type: 'demographic', priority: 23, symbol: '🏢' },
-                    title: { type: 'demographic', priority: 24, symbol: '💼' },
-                    phone: { type: 'demographic', priority: 25, symbol: '📞' },
+                    company: { type: 'demographic', priority: 23, symbol: 'building' },
+                    title: { type: 'demographic', priority: 24, symbol: 'briefcase' },
+                    phone: { type: 'demographic', priority: 25, symbol: 'phone' },
                 }
 
                 // Get browser symbol for current properties only
@@ -287,6 +287,6 @@ export const personSummaryLogic = kea<personSummaryLogicType>([
             },
         ],
 
-        isLoading: [(s) => [s.summaryStatsLoading], (summaryStatsLoading: boolean) => summaryStatsLoading],
+        isLoading: [(s) => [s.overviewStatsLoading], (overviewStatsLoading: boolean) => overviewStatsLoading],
     })),
 ])
