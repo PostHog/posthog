@@ -75,7 +75,7 @@ impl FlagRequest {
         let payload = match String::from_utf8(bytes.to_vec()) {
             Ok(s) => s,
             Err(e) => {
-                tracing::debug!(
+                tracing::warn!(
                     "Invalid UTF-8 in request body, using lossy conversion: {}",
                     e
                 );
@@ -89,7 +89,7 @@ impl FlagRequest {
         let mut value: Value = match json5::from_str(&payload) {
             Ok(v) => v,
             Err(e) => {
-                tracing::debug!("failed to parse JSON: {}", e);
+                tracing::warn!("failed to parse JSON: {}", e);
                 return Err(FlagError::RequestDecodingError(String::from(
                     "invalid JSON",
                 )));
@@ -102,7 +102,7 @@ impl FlagRequest {
         match serde_json::from_value::<FlagRequest>(value) {
             Ok(request) => Ok(request),
             Err(e) => {
-                tracing::debug!("failed to parse JSON: {}", e);
+                tracing::warn!("failed to parse JSON: {}", e);
                 Err(FlagError::RequestDecodingError(String::from(
                     "invalid JSON",
                 )))
@@ -148,12 +148,18 @@ impl FlagRequest {
     /// If the distinct_id is missing or empty, an error is returned.
     pub fn extract_distinct_id(&self) -> Result<String, FlagError> {
         let distinct_id = match &self.distinct_id {
-            None => return Err(FlagError::MissingDistinctId),
+            None => {
+                tracing::warn!("Missing distinct_id in request");
+                return Err(FlagError::MissingDistinctId);
+            }
             Some(id) => id,
         };
 
         match distinct_id.len() {
-            0 => Err(FlagError::EmptyDistinctId),
+            0 => {
+                tracing::warn!("Empty distinct_id provided in request");
+                Err(FlagError::EmptyDistinctId)
+            }
             1..=200 => Ok(distinct_id.to_owned()),
             _ => Ok(distinct_id.chars().take(200).collect()),
         }
